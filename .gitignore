@@ -115,3 +115,12 @@ InitTestScene*.unity*
 # Local .NET probe tools used for AC6 asset pipeline diagnostics.
 /Tools/DotNet/**/bin/
 /Tools/DotNet/**/obj/
+
+# Local-only AC6 case staging. These folders are generated from a user's own
+# extracted game assets and must not be committed or pushed.
+/Assets/_Project/LocalSamples/AC6MelanderCase/Raw/
+/Assets/_Project/LocalSamples/AC6MelanderCase/Raw.meta
+/Assets/_Project/LocalSamples/AC6MelanderCase/Generated/
+/Assets/_Project/LocalSamples/AC6MelanderCase/Generated.meta
+/Assets/_Project/LocalSamples/AC6MelanderCase/Reports/
+/Assets/_Project/LocalSamples/AC6MelanderCase/Reports.meta

@@ -1,0 +1,78 @@
+{
+  "caseId": "ac6_melander_1010_local_case",
+  "displayName": "AC6 Melander 1010 Local Case",
+  "sourceRootHint": "E:/UnityDev/Resources/AC6_ExtractedAssets",
+  "outputRoot": "Assets/_Project/LocalSamples/AC6MelanderCase/Raw",
+  "entries": [
+    {
+      "id": "HD_M_1010",
+      "kind": "frame.head",
+      "mode": "directory",
+      "source": "parts/hd_m_1010",
+      "target": "parts/hd_m_1010"
+    },
+    {
+      "id": "BD_M_1010",
+      "kind": "frame.core",
+      "mode": "directory",
+      "source": "parts/bd_m_1010",
+      "target": "parts/bd_m_1010"
+    },
+    {
+      "id": "AM_M_1010",
+      "kind": "frame.arms",
+      "mode": "directory",
+      "source": "parts/am_m_1010",
+      "target": "parts/am_m_1010"
+    },
+    {
+      "id": "LG_M_1010",
+      "kind": "frame.legs",
+      "mode": "directory",
+      "source": "parts/lg_m_1010",
+      "target": "parts/lg_m_1010"
+    },
+    {
+      "id": "WP_0010",
+      "kind": "weapon.hand_rifle",
+      "mode": "directory",
+      "source": "wp/wp_0010",
+      "target": "wp/wp_0010"
+    },
+    {
+      "id": "WP_1310",
+      "kind": "weapon.back",
+      "mode": "directory",
+      "source": "wp/wp_1310",
+      "target": "wp/wp_1310"
+    },
+    {
+      "id": "WP_1410",
+      "kind": "weapon.back",
+      "mode": "directory",
+      "source": "wp/wp_1410",
+      "target": "wp/wp_1410"
+    },
+    {
+      "id": "C0000_Skeleton",
+      "kind": "skeleton.shared",
+      "mode": "file",
+      "source": "chr/AC - c0000/Skeleton.hkx",
+      "target": "chr/c0000/Skeleton.hkx"
+    },
+    {
+      "id": "C0000_A000_000000",
+      "kind": "animation.rest",
+      "mode": "file",
+      "source": "chr/AC - c0000/a000_000000.hkx",
+      "target": "chr/c0000/a000_000000.hkx"
+    },
+    {
+      "id": "C0000_A000_010900",
+      "kind": "animation.test_action",
+      "mode": "file",
+      "source": "chr/AC - c0000/a000_010900.hkx",
+      "target": "chr/c0000/a000_010900.hkx"
+    }
+  ]
+}
