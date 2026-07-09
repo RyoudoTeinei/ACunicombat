@@ -49,6 +49,7 @@
 ExportedObj/
 .consulo/
 *.csproj
+!/Tools/DotNet/**/*.csproj
 *.unityproj
 *.sln
 *.suo
@@ -110,3 +111,7 @@ InitTestScene*.unity*
 # baked materials under Assets/_Project/ImportedFromBlend/MELANDER_1010 instead.
 /Assets/_Project/ImportedFromGame/Animations/*/HkxRestPreviewMaterials/
 /Assets/_Project/ImportedFromGame/Animations/*/HkxRestPreviewMaterials.meta
+
+# Local .NET probe tools used for AC6 asset pipeline diagnostics.
+/Tools/DotNet/**/bin/
+/Tools/DotNet/**/obj/

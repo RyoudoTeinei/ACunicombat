@@ -228,3 +228,104 @@ Unity 直接导入 FBX/DDS 时，即使 UV 和贴图存在，也不知道通道�
 4. 游戏内换装系统与动画系统分层。
 5. 长期再决定是否复刻 AC6 shader。
 
+## 2026-07-09 本地追加验证：FLVER 权重骨与 c0000 HKX 骨架
+
+外部咨询后，已用本地工具继续验证原始 `FLVER` 与 c0000 `Skeleton.hkx` 的关系。
+
+验证工具源码已纳入仓库，位置：
+
+- `E:\UnityDev\ACunicombat\Tools\DotNet\AC6HkxPoseExporter`
+- `E:\UnityDev\ACunicombat\Tools\DotNet\AC6AnimExportProbe`
+
+它们仍依赖本机 DSAnimStudio RC6.1 的程序集，默认查找 `E:\UnityDev\Tools\DSAnimStudio\DSAS-V5-RC6.1`，也可以用 `AC6_DSAS_DIR` 环境变量覆盖。
+
+### 验证方法
+
+1. 从 `E:\UnityDev\Resources\AC6_ExtractedAssets\chr\AC - c0000\Skeleton.hkx` 导出 c0000 reference skeleton。
+2. 导出结果：`E:\UnityDev\tmp\c0000_skeleton_probe.json`。
+3. 使用 `AC6AnimExportProbe --compare-flver-pose <part.flver> <c0000_skeleton_probe.json> --summary` 对比：
+   - FLVER 节点总数。
+   - c0000 HKX 骨名覆盖情况。
+   - mesh 顶点权重实际使用了哪些 FLVER 节点。
+   - 被权重使用但不在 c0000 HKX 中的局部骨。
+   - 局部骨沿 FLVER 父链能追到的最近 c0000 祖先骨。
+
+### 关键发现
+
+`BD_M_1010.flver` 不是“直接蒙到 c0000 130 骨”的简单模型。
+
+它包含全部 130 个 c0000 骨名，但这些 c0000 骨在 FLVER 里基本是 `Disabled`，父子关系也不等于 c0000 HKX 的层级。真正被 mesh 权重使用的主要是 `AP_BD_1010_*` 这种核心局部骨。
+
+对 Melander 1010 的统计：
+
+| 部件 | FLVER 节点 | mesh 实际使用骨 | 使用骨在 c0000 HKX 中存在 | 使用骨缺失模式 | 最近 c0000 锚点 |
+| --- | ---: | ---: | ---: | --- | --- |
+| `HD_M_1010` | 134 | 4 | 2 / 4 | `HD_M_1010_*` 2 个 | 无父链锚点 |
+| `BD_M_1010` | 224 | 90 | 2 / 90 | `AP_BD_1010_*` 86 个，`BD_M_1010_*` 2 个 | `Spine1` 86 个 |
+| `AM_M_1010` | 180 | 46 | 42 / 46 | `AM_M_1010_*` 4 个 | 无父链锚点 |
+| `LG_M_1010` | 154 | 18 | 15 / 18 | `LG_M_1010_*` 3 个 | 无父链锚点 |
+
+抽样其他套装后，核心件规律稳定：
+
+| 部件 | mesh 实际使用骨 | 使用骨在 c0000 HKX 中存在 | 局部骨主要锚点 |
+| --- | ---: | ---: | --- |
+| `BD_M_2010` | 26 | 2 / 26 | `AP_BD_2010_* -> Spine1` |
+| `BD_M_3010` | 58 | 2 / 58 | `AP_BD_3010_* -> Spine1` |
+
+手臂和腿部则更接近 c0000 骨架：
+
+| 部件 | mesh 实际使用骨 | 使用骨在 c0000 HKX 中存在 | 备注 |
+| --- | ---: | ---: | --- |
+| `AM_M_2010` | 47 | 42 / 47 | 少量 `AM_M_2010_*` 静态/局部节点 |
+| `AM_M_3010` | 44 | 40 / 44 | 少量 `AM_M_3010_*` 静态/局部节点 |
+| `LG_M_2010` | 18 | 13 / 18 | 少量 `APM_LG_*` / `LG_M_*` 节点 |
+| `LG_M_3010` | 27 | 9 / 27 | 含较多 `AP_LG_3010_*` 局部分支，部分可锚到腿骨 |
+
+### 对咨询结论的修正
+
+外部咨询中“AC6 部件 FLVER 骨骼名与 c0000 对应，装配时蒙到同一套骨架上”这个方向大体成立，但需要更精确地表达：
+
+- 不是所有顶点权重都直接引用 c0000 的 130 根骨。
+- 许多 frame 部件会同时包含：
+  - c0000 公共骨名副本。
+  - 部件自己的 `AP_*` / `APM_*` / `*_M_*` 局部骨。
+  - 静态 mesh 节点或材质/标记节点。
+- 核心件尤其依赖 `AP_BD_*` 局部骨，这些骨应作为部件局部分支挂到 c0000 的 `Spine1` 下，而不是被丢弃或强行映射成 c0000 骨。
+
+### 新的正确管线判断
+
+最终管线不应是：
+
+`FLVER mesh -> 只保留 c0000 bones -> 按名重绑 -> 播 HKX`
+
+因为这样会丢掉 `AP_BD_*` 等真实被权重使用的局部骨，核心件会变形或丢细节。
+
+更合理的管线是：
+
+1. 以 c0000 `Skeleton.hkx` 生成一套权威共享骨架。
+2. 导入每个 FLVER 时保留所有被 mesh 权重使用的骨。
+3. 对于名字存在于 c0000 HKX 的骨，绑定到共享骨架同名 Transform。
+4. 对于 `AP_*` / `APM_*` / `*_M_*` 局部骨：
+   - 沿 FLVER 父链找到最近的 c0000 祖先骨。
+   - 将局部骨分支追加到该 c0000 骨下。
+   - 保留局部 rest transform 和权重。
+5. 对于无父链锚点的局部 mesh 节点，单独判断是静态子网格、眼睛/发光/标记节点，还是需要挂到部件默认 mount/root。
+6. 材质 bake 与骨架处理分离：
+   - Blender 只产出贴图/材质 bake。
+   - 几何、权重、骨架层级从 FLVER 直接转换。
+
+### 下一步工程任务
+
+1. 把 `AC6AnimExportProbe` 和 `AC6HkxPoseExporter` 正式移入仓库，或者为仓库内 Unity Editor importer 提供等价验证逻辑。
+2. 写一个真正的 `FLVER -> Unity skinned part` 导入器：
+   - 输出 `Mesh`。
+   - 输出权重与 bindposes。
+   - 输出“本部件需要追加的局部骨分支”。
+   - 输出“局部骨锚点 -> c0000 共享骨”的映射。
+3. 先用 `BD_M_1010` 做验证：
+   - `AP_BD_1010_*` 挂到 `Spine1`。
+   - 播放 c0000 HKX 动画时，`Spine1` 驱动核心整体，AP 局部骨保持 rest 分支。
+4. 再验证 `AM_M_1010`、`LG_M_1010`：
+   - 同名骨直接跟 c0000 动。
+   - 少量局部节点按静态/局部挂点处理。
+5. 视觉仍沿用 bake PNG，直到 AC6 材质 shader 有更完整解析。
