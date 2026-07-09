@@ -1,0 +1,154 @@
+{
+  "blend_file": "E:\\UnityDev\\Resources\\AC6AllFramePartsPacked.blend",
+  "resolution": 1024,
+  "samples": [
+    {
+      "part_id": "AC6_BLEND_HD_M_1010",
+      "display_name": "AC6 Blend Melander Head",
+      "slot": "Head",
+      "collection": "HD-011 MELANDER",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\FBX\\AC6_BLEND_HD_M_1010.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[0].022",
+          "material": "HEAD_mat|ACparts[HD_M_1010][CM].matxml|0.001",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_HD_M_1010_00_mesh_0_022_Color.png",
+          "vertices": 5380,
+          "polygons": 3982
+        },
+        {
+          "source_object": "mesh[1].022",
+          "material": "Emission",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_HD_M_1010_01_mesh_1_022_Color.png",
+          "vertices": 25,
+          "polygons": 22
+        },
+        {
+          "source_object": "mesh[2].022",
+          "material": "Prats_Making_mat|ACparts[Prats_Marking].matxml|2.034",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_HD_M_1010_02_mesh_2_022_Color.png",
+          "vertices": 4,
+          "polygons": 2
+        }
+      ]
+    },
+    {
+      "part_id": "AC6_BLEND_BD_M_1010",
+      "display_name": "AC6 Blend Melander Core",
+      "slot": "Core",
+      "collection": "BD-011 MELANDER",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\FBX\\AC6_BLEND_BD_M_1010.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[0].042",
+          "material": "CORE_mat|ACparts[BD_M_1010][CM].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_BD_M_1010_00_mesh_0_042_Color.png",
+          "vertices": 12954,
+          "polygons": 8882
+        },
+        {
+          "source_object": "mesh[1].042",
+          "material": "CORE_Lmiter_mat|ACparts[BD_M_1010]_Limiter.matxml|1",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_BD_M_1010_01_mesh_1_042_Color.png",
+          "vertices": 7342,
+          "polygons": 5344
+        },
+        {
+          "source_object": "mesh[2].045",
+          "material": "Emission",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_BD_M_1010_02_mesh_2_045_Color.png",
+          "vertices": 51,
+          "polygons": 48
+        },
+        {
+          "source_object": "mesh[3].005",
+          "material": "Prats_Making_mat|ACparts[Prats_Marking].matxml|3.012",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_BD_M_1010_03_mesh_3_005_Color.png",
+          "vertices": 4,
+          "polygons": 2
+        }
+      ]
+    },
+    {
+      "part_id": "AC6_BLEND_AM_M_1010",
+      "display_name": "AC6 Blend Melander Arms",
+      "slot": "Arms",
+      "collection": "AR-011 MELANDER",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\FBX\\AC6_BLEND_AM_M_1010.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[0].105",
+          "material": "#30#_Left|ACparts[AM_M_1010_left][CM].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_00_mesh_0_105_Color.png",
+          "vertices": 11852,
+          "polygons": 8915
+        },
+        {
+          "source_object": "mesh[1].090",
+          "material": "#30#_Left|ACparts[AM_M_1010_left][CM].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_01_mesh_1_090_Color.png",
+          "vertices": 11355,
+          "polygons": 8535
+        },
+        {
+          "source_object": "mesh[2].086",
+          "material": "Emission",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_02_mesh_2_086_Color.png",
+          "vertices": 8,
+          "polygons": 4
+        },
+        {
+          "source_object": "mesh[3].044",
+          "material": "Emission",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_03_mesh_3_044_Color.png",
+          "vertices": 8,
+          "polygons": 4
+        },
+        {
+          "source_object": "mesh[4].023",
+          "material": "#30#Prats_Making_mat|ACparts[Prats_Marking].matxml|4.014",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_04_mesh_4_023_Color.png",
+          "vertices": 4,
+          "polygons": 2
+        },
+        {
+          "source_object": "mesh[5].016",
+          "material": "#40#Prats_Making_mat|ACparts[Prats_Marking].matxml|5.013",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_05_mesh_5_016_Color.png",
+          "vertices": 4,
+          "polygons": 2
+        }
+      ]
+    },
+    {
+      "part_id": "AC6_BLEND_LG_M_1010",
+      "display_name": "AC6 Blend Melander Legs",
+      "slot": "Legs",
+      "collection": "LG-011 MELANDER",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\FBX\\AC6_BLEND_LG_M_1010.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[0].020",
+          "material": "LEG_mat|ACparts[LG_M_1010][CM].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_LG_M_1010_00_mesh_0_020_Color.png",
+          "vertices": 20324,
+          "polygons": 15188
+        },
+        {
+          "source_object": "mesh[1].020",
+          "material": "EYE_LEG_mat|ACparts[LG_M_1010]_Emissive.matxml|1",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_LG_M_1010_01_mesh_1_020_Color.png",
+          "vertices": 16,
+          "polygons": 8
+        },
+        {
+          "source_object": "mesh[2].020",
+          "material": "Prats_Making_mat|ACparts[Prats_Marking].matxml|2.014",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_LG_M_1010_02_mesh_2_020_Color.png",
+          "vertices": 8,
+          "polygons": 4
+        }
+      ]
+    }
+  ]
+}

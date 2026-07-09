@@ -1,0 +1,83 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4db9065a48677dc4c9e9ab2d3c06f4f0, type: 3}
+  m_Name: AC6_BD_M_1010
+  m_EditorClassIdentifier: Assembly-CSharp::ACunicombat.Mechs.MechPartDefinition
+  partId: AC6_BD_M_1010
+  displayName: AC6 Melander Core
+  slot: 20
+  category: 0
+  manufacturer: 
+  tags:
+  - core
+  - frame
+  - ac6-imported
+  modelPrefab: {fileID: 919132149155446097, guid: 59f9dbdfff4de634685cf2eb0bf2158d, type: 3}
+  materialOverrides:
+  - {fileID: 2100000, guid: 860fd7c2c1b9dc74a842358b4f491e9e, type: 2}
+  - {fileID: 2100000, guid: 1e391c58fe9869f4dbfaa1d36e83c816, type: 2}
+  - {fileID: 2100000, guid: 7802b58de163a75439af8c2e02e40cc6, type: 2}
+  - {fileID: 2100000, guid: 47f5de9864287624fac5f212b183f742, type: 2}
+  localPosition: {x: 0, y: 0, z: 0}
+  localEulerAngles: {x: 0, y: 0, z: 0}
+  localScale: {x: 1, y: 1, z: 1}
+  stats:
+    massKg: 12000
+    armorPoints: 1750
+    structurePoints: 1450
+    stability: 28
+    powerOutputMw: 0
+    idlePowerDrawMw: 2
+    peakPowerDrawMw: 4
+    heatGenerationMw: 0
+    heatDissipationMw: 18
+    heatCapacityMj: 600
+    mainThrustKn: 0
+    lateralThrustKn: 0
+    reverseThrustKn: 0
+    attitudeTorqueKnM: 0
+    supportedMassKg: 0
+    radarRangeKm: 0
+    radarAperture: 0
+    radarRefreshHz: 0
+    sensorPrecision: 0
+    trackCapacity: 0
+    fireControlQuality: 0
+    guidanceChannels: 0
+    radarCrossSection: 2.1
+    thermalSignature: 1.1
+    electromagneticSignature: 0
+    weaponRecoilControl: 0
+    meleeControl: 0
+    hardpointCapacityKg: 16000
+  mountPoints:
+  - mountId: LeftBackMount
+    targetSlot: 110
+    hardpointType: 40
+    maxMassKg: 7000
+    localPosition: {x: -0.65, y: 1.65, z: -0.75}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+    requiredTags: []
+    blockedTags: []
+  - mountId: RightBackMount
+    targetSlot: 111
+    hardpointType: 40
+    maxMassKg: 7000
+    localPosition: {x: 0.65, y: 1.65, z: -0.75}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+    requiredTags: []
+    blockedTags: []
+  requiredInstalledSlots: 
+  requiredLoadoutTags: []
+  blockedLoadoutTags: []

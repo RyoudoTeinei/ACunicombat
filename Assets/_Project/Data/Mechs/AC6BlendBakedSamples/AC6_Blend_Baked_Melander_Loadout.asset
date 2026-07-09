@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fac98e37a0e29f84db22aee07eecc6bb, type: 3}
+  m_Name: AC6_Blend_Baked_Melander_Loadout
+  m_EditorClassIdentifier: Assembly-CSharp::ACunicombat.Mechs.MechLoadoutDefinition
+  loadoutId: ac6_blend_baked_melander
+  displayName: AC6 Blend Baked Melander
+  assignments:
+  - slot: 10
+    part: {fileID: 11400000, guid: 553f2498190163141b914ccaeb235733, type: 2}
+    enabled: 1
+  - slot: 20
+    part: {fileID: 11400000, guid: b48450d6423e51d4d9fc506794e21a83, type: 2}
+    enabled: 1
+  - slot: 30
+    part: {fileID: 11400000, guid: 840828c36eb84404791b94845f691a01, type: 2}
+    enabled: 1
+  - slot: 40
+    part: {fileID: 11400000, guid: 8cc502ba66a6de84a8e6fb5f7a5b8f28, type: 2}
+    enabled: 1
+  - slot: 50
+    part: {fileID: 11400000, guid: 97bd90fb9e5bc6f4c8bb8e77c832001f, type: 2}
+    enabled: 1
+  - slot: 60
+    part: {fileID: 11400000, guid: 5cdba561a8da3b747be3b3617b079356, type: 2}
+    enabled: 1
+  - slot: 70
+    part: {fileID: 11400000, guid: db8d0dc4f449f714fb888441f1b181fe, type: 2}
+    enabled: 1
+  - slot: 80
+    part: {fileID: 11400000, guid: ebb2ce03f14b8e046b697c1445df387b, type: 2}
+    enabled: 1

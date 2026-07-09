@@ -1,0 +1,64 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4db9065a48677dc4c9e9ab2d3c06f4f0, type: 3}
+  m_Name: AC6_HD_M_2010
+  m_EditorClassIdentifier: Assembly-CSharp::ACunicombat.Mechs.MechPartDefinition
+  partId: AC6_HD_M_2010
+  displayName: AC6 Nacht Head
+  slot: 10
+  category: 0
+  manufacturer: 
+  tags:
+  - head
+  - frame
+  - ac6-imported
+  modelPrefab: {fileID: 919132149155446097, guid: 529070c5a1a61304384bce79e6168435, type: 3}
+  materialOverrides:
+  - {fileID: 2100000, guid: 1c613b26a9c9e824995c3de95d0e0873, type: 2}
+  - {fileID: 2100000, guid: c6e5af140e50c14438e1adea552fd0bc, type: 2}
+  - {fileID: 2100000, guid: 88072513531bbf84c86ce4f79b74a47a, type: 2}
+  localPosition: {x: 0, y: 0, z: 0}
+  localEulerAngles: {x: 0, y: 0, z: 0}
+  localScale: {x: 1, y: 1, z: 1}
+  stats:
+    massKg: 1394
+    armorPoints: 213.2
+    structurePoints: 147.6
+    stability: 0
+    powerOutputMw: 0
+    idlePowerDrawMw: 0.7
+    peakPowerDrawMw: 1.1
+    heatGenerationMw: 0
+    heatDissipationMw: 0
+    heatCapacityMj: 0
+    mainThrustKn: 0
+    lateralThrustKn: 0
+    reverseThrustKn: 0
+    attitudeTorqueKnM: 0
+    supportedMassKg: 0
+    radarRangeKm: 0
+    radarAperture: 0
+    radarRefreshHz: 0
+    sensorPrecision: 0
+    trackCapacity: 0
+    fireControlQuality: 0
+    guidanceChannels: 0
+    radarCrossSection: 0.328
+    thermalSignature: 0.164
+    electromagneticSignature: 0
+    weaponRecoilControl: 0
+    meleeControl: 0
+    hardpointCapacityKg: 0
+  mountPoints: []
+  requiredInstalledSlots: 
+  requiredLoadoutTags: []
+  blockedLoadoutTags: []

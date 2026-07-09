@@ -1,0 +1,990 @@
+{
+  "name": "AC6 HKX Rest Melander 1010 Skinned",
+  "pose_json": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromGame\\Animations\\C0000_A000_010900\\AC6_C0000_A000_010900_pose.json",
+  "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010_HKXSkinned\\FBX\\AC6_HKX_MELANDER_1010_SKINNED.fbx",
+  "armature": "AC6_HKX_REST_MELANDER_1010_RIG",
+  "bone_count": 130,
+  "mesh_count": 16,
+  "armature_validation": {
+    "checked_bones": 130,
+    "rotation_error_over_1deg": 0,
+    "position_error_over_0_001": 0,
+    "worst_bones": [
+      {
+        "bone": "R_ClavicleEX_B",
+        "position_error": 0.00040244665146559126,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_ClavicleEX_A",
+        "position_error": 0.000402446626193394,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "Root_R_UpperArm",
+        "position_error": 0.00040244657915065803,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_Finger01",
+        "position_error": 2.085446534304552e-05,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_Finger02",
+        "position_error": 1.672329746921993e-05,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_Foot_Target1",
+        "position_error": 6.0771891529436934e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_Foot_Target",
+        "position_error": 4.79373544126427e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_CalfTwist_B",
+        "position_error": 4.75650580688573e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_Foot",
+        "position_error": 4.7533570263084604e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Foot_Target1",
+        "position_error": 4.616862335845229e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_ArmJoint",
+        "position_error": 4.429299981003257e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Calf",
+        "position_error": 3.7758363342191946e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Foot",
+        "position_error": 3.5672407501635177e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_CalfTwist_B",
+        "position_error": 3.5223667411548612e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_ForeArm",
+        "position_error": 3.113731734996693e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Foot_Target",
+        "position_error": 2.9844445975331277e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_HandTwist",
+        "position_error": 1.574993569960214e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_Wrist",
+        "position_error": 1.3620578750912875e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Finger1",
+        "position_error": 1.2524095276292983e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Finger2",
+        "position_error": 1.11269414772557e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Wrist",
+        "position_error": 1.085618237270517e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_HandTwist",
+        "position_error": 1.0856179345408666e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Weapon_00",
+        "position_error": 1.0832846602247965e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_UpperArm",
+        "position_error": 1.0021333286542841e-06,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Finger3",
+        "position_error": 9.856960945725407e-07,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "Offset_R_Thigh_EX_B1",
+        "position_error": 9.345200835724731e-07,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_Finger4",
+        "position_error": 9.314018584308958e-07,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_CalfTwist_A",
+        "position_error": 9.268049302373734e-07,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "R_Knee",
+        "position_error": 9.268048876647513e-07,
+        "rotation_error_degrees": 0.0
+      },
+      {
+        "bone": "L_Finger4",
+        "position_error": 8.769570389961121e-07,
+        "rotation_error_degrees": 0.0
+      }
+    ]
+  },
+  "weight_remap_by_mesh": {
+    "mesh_0.022_HkxSkin": {
+      "source_mesh": "mesh[0].022",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 90,
+      "nearest_bone_assignments": {
+        "Master": 90
+      },
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[0].022",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_HD_M_1010_00_mesh_0_022_Color.png",
+        "material": "mesh_0_022_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_1.022_HkxSkin": {
+      "source_mesh": "mesh[1].022",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[1].022",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_HD_M_1010_01_mesh_1_022_Color.png",
+        "material": "mesh_1_022_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_2.022_HkxSkin": {
+      "source_mesh": "mesh[2].022",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[2].022",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_HD_M_1010_02_mesh_2_022_Color.png",
+        "material": "mesh_2_022_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_0.042_HkxSkin": {
+      "source_mesh": "mesh[0].042",
+      "transferred_groups": [
+        {
+          "source": "AP_BD_1010_044",
+          "target": "Offset_Spine1",
+          "vertices": 120,
+          "weight_sum": 120.0
+        },
+        {
+          "source": "AP_BD_1010_045",
+          "target": "Offset_Spine1",
+          "vertices": 515,
+          "weight_sum": 515.0
+        },
+        {
+          "source": "AP_BD_1010_001",
+          "target": "Offset_Spine1",
+          "vertices": 120,
+          "weight_sum": 120.0
+        },
+        {
+          "source": "AP_BD_1010_002",
+          "target": "Offset_Spine1",
+          "vertices": 515,
+          "weight_sum": 515.0
+        },
+        {
+          "source": "AP_BD_1010_020",
+          "target": "Offset_Spine1",
+          "vertices": 36,
+          "weight_sum": 36.0
+        }
+      ],
+      "unweighted_before_nearest_assignment": 93,
+      "nearest_bone_assignments": {
+        "Master": 37,
+        "R_Foot_EX_A": 23,
+        "L_Foot": 22,
+        "R_OffsetToe": 3,
+        "L_OffsetToe": 3,
+        "L_Foot_EX_A": 4,
+        "L_Foot_Target": 1
+      },
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[0].042",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_BD_M_1010_00_mesh_0_042_Color.png",
+        "material": "mesh_0_042_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_1.042_HkxSkin": {
+      "source_mesh": "mesh[1].042",
+      "transferred_groups": [
+        {
+          "source": "AP_BD_1010_003",
+          "target": "Offset_Spine1",
+          "vertices": 481,
+          "weight_sum": 481.0
+        },
+        {
+          "source": "AP_BD_1010_043",
+          "target": "Offset_Spine1",
+          "vertices": 84,
+          "weight_sum": 84.0
+        },
+        {
+          "source": "AP_BD_1010_019",
+          "target": "Offset_Spine1",
+          "vertices": 96,
+          "weight_sum": 96.0
+        },
+        {
+          "source": "AP_BD_1010_004",
+          "target": "Offset_Spine1",
+          "vertices": 134,
+          "weight_sum": 134.0
+        },
+        {
+          "source": "AP_BD_1010_005",
+          "target": "Offset_Spine1",
+          "vertices": 144,
+          "weight_sum": 144.0
+        },
+        {
+          "source": "AP_BD_1010_006",
+          "target": "Offset_Spine1",
+          "vertices": 51,
+          "weight_sum": 51.0
+        },
+        {
+          "source": "AP_BD_1010_007",
+          "target": "Offset_Spine1",
+          "vertices": 48,
+          "weight_sum": 48.0
+        },
+        {
+          "source": "AP_BD_1010_008",
+          "target": "Offset_Spine1",
+          "vertices": 51,
+          "weight_sum": 51.0
+        },
+        {
+          "source": "AP_BD_1010_009",
+          "target": "Offset_Spine1",
+          "vertices": 144,
+          "weight_sum": 144.0
+        },
+        {
+          "source": "AP_BD_1010_010",
+          "target": "Offset_Spine1",
+          "vertices": 85,
+          "weight_sum": 85.0
+        },
+        {
+          "source": "AP_BD_1010_011",
+          "target": "Offset_Spine1",
+          "vertices": 153,
+          "weight_sum": 153.0
+        },
+        {
+          "source": "AP_BD_1010_012",
+          "target": "Offset_Spine1",
+          "vertices": 136,
+          "weight_sum": 136.0
+        },
+        {
+          "source": "AP_BD_1010_013",
+          "target": "Offset_Spine1",
+          "vertices": 108,
+          "weight_sum": 108.0
+        },
+        {
+          "source": "AP_BD_1010_014",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_015",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_016",
+          "target": "Offset_Spine1",
+          "vertices": 108,
+          "weight_sum": 108.0
+        },
+        {
+          "source": "AP_BD_1010_017",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_018",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_021",
+          "target": "Offset_Spine1",
+          "vertices": 60,
+          "weight_sum": 60.0
+        },
+        {
+          "source": "AP_BD_1010_022",
+          "target": "Offset_Spine1",
+          "vertices": 16,
+          "weight_sum": 16.0
+        },
+        {
+          "source": "AP_BD_1010_023",
+          "target": "Offset_Spine1",
+          "vertices": 311,
+          "weight_sum": 311.0
+        },
+        {
+          "source": "AP_BD_1010_036",
+          "target": "Offset_Spine1",
+          "vertices": 108,
+          "weight_sum": 108.0
+        },
+        {
+          "source": "AP_BD_1010_037",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_038",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_039",
+          "target": "Offset_Spine1",
+          "vertices": 20,
+          "weight_sum": 20.0
+        },
+        {
+          "source": "AP_BD_1010_040",
+          "target": "Offset_Spine1",
+          "vertices": 48,
+          "weight_sum": 48.0
+        },
+        {
+          "source": "AP_BD_1010_041",
+          "target": "Offset_Spine1",
+          "vertices": 20,
+          "weight_sum": 20.0
+        },
+        {
+          "source": "AP_BD_1010_042",
+          "target": "Offset_Spine1",
+          "vertices": 32,
+          "weight_sum": 32.0
+        },
+        {
+          "source": "AP_BD_1010_033",
+          "target": "Offset_Spine1",
+          "vertices": 108,
+          "weight_sum": 108.0
+        },
+        {
+          "source": "AP_BD_1010_034",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_035",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_024",
+          "target": "Offset_Spine1",
+          "vertices": 144,
+          "weight_sum": 144.0
+        },
+        {
+          "source": "AP_BD_1010_032",
+          "target": "Offset_Spine1",
+          "vertices": 85,
+          "weight_sum": 85.0
+        },
+        {
+          "source": "AP_BD_1010_025",
+          "target": "Offset_Spine1",
+          "vertices": 51,
+          "weight_sum": 51.0
+        },
+        {
+          "source": "AP_BD_1010_026",
+          "target": "Offset_Spine1",
+          "vertices": 48,
+          "weight_sum": 48.0
+        },
+        {
+          "source": "AP_BD_1010_027",
+          "target": "Offset_Spine1",
+          "vertices": 51,
+          "weight_sum": 51.0
+        },
+        {
+          "source": "AP_BD_1010_028",
+          "target": "Offset_Spine1",
+          "vertices": 144,
+          "weight_sum": 144.0
+        },
+        {
+          "source": "AP_BD_1010_029",
+          "target": "Offset_Spine1",
+          "vertices": 153,
+          "weight_sum": 153.0
+        },
+        {
+          "source": "AP_BD_1010_030",
+          "target": "Offset_Spine1",
+          "vertices": 136,
+          "weight_sum": 136.0
+        },
+        {
+          "source": "AP_BD_1010_031",
+          "target": "Offset_Spine1",
+          "vertices": 24,
+          "weight_sum": 24.0
+        },
+        {
+          "source": "AP_BD_1010_046",
+          "target": "Offset_Spine1",
+          "vertices": 481,
+          "weight_sum": 481.0
+        },
+        {
+          "source": "AP_BD_1010_063",
+          "target": "Offset_Spine1",
+          "vertices": 36,
+          "weight_sum": 36.0
+        },
+        {
+          "source": "AP_BD_1010_064",
+          "target": "Offset_Spine1",
+          "vertices": 60,
+          "weight_sum": 60.0
+        },
+        {
+          "source": "AP_BD_1010_065",
+          "target": "Offset_Spine1",
+          "vertices": 16,
+          "weight_sum": 16.0
+        },
+        {
+          "source": "AP_BD_1010_066",
+          "target": "Offset_Spine1",
+          "vertices": 311,
+          "weight_sum": 311.0
+        },
+        {
+          "source": "AP_BD_1010_067",
+          "target": "Offset_Spine1",
+          "vertices": 144,
+          "weight_sum": 144.0
+        },
+        {
+          "source": "AP_BD_1010_079",
+          "target": "Offset_Spine1",
+          "vertices": 108,
+          "weight_sum": 108.0
+        },
+        {
+          "source": "AP_BD_1010_080",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_081",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_082",
+          "target": "Offset_Spine1",
+          "vertices": 20,
+          "weight_sum": 20.0
+        },
+        {
+          "source": "AP_BD_1010_083",
+          "target": "Offset_Spine1",
+          "vertices": 48,
+          "weight_sum": 48.0
+        },
+        {
+          "source": "AP_BD_1010_084",
+          "target": "Offset_Spine1",
+          "vertices": 20,
+          "weight_sum": 20.0
+        },
+        {
+          "source": "AP_BD_1010_085",
+          "target": "Offset_Spine1",
+          "vertices": 32,
+          "weight_sum": 32.0
+        },
+        {
+          "source": "AP_BD_1010_076",
+          "target": "Offset_Spine1",
+          "vertices": 108,
+          "weight_sum": 108.0
+        },
+        {
+          "source": "AP_BD_1010_077",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_078",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_068",
+          "target": "Offset_Spine1",
+          "vertices": 51,
+          "weight_sum": 51.0
+        },
+        {
+          "source": "AP_BD_1010_069",
+          "target": "Offset_Spine1",
+          "vertices": 48,
+          "weight_sum": 48.0
+        },
+        {
+          "source": "AP_BD_1010_070",
+          "target": "Offset_Spine1",
+          "vertices": 51,
+          "weight_sum": 51.0
+        },
+        {
+          "source": "AP_BD_1010_071",
+          "target": "Offset_Spine1",
+          "vertices": 144,
+          "weight_sum": 144.0
+        },
+        {
+          "source": "AP_BD_1010_074",
+          "target": "Offset_Spine1",
+          "vertices": 24,
+          "weight_sum": 24.0
+        },
+        {
+          "source": "AP_BD_1010_072",
+          "target": "Offset_Spine1",
+          "vertices": 153,
+          "weight_sum": 153.0
+        },
+        {
+          "source": "AP_BD_1010_073",
+          "target": "Offset_Spine1",
+          "vertices": 136,
+          "weight_sum": 136.0
+        },
+        {
+          "source": "AP_BD_1010_075",
+          "target": "Offset_Spine1",
+          "vertices": 85,
+          "weight_sum": 85.0
+        },
+        {
+          "source": "AP_BD_1010_062",
+          "target": "Offset_Spine1",
+          "vertices": 96,
+          "weight_sum": 96.0
+        },
+        {
+          "source": "AP_BD_1010_047",
+          "target": "Offset_Spine1",
+          "vertices": 134,
+          "weight_sum": 134.0
+        },
+        {
+          "source": "AP_BD_1010_059",
+          "target": "Offset_Spine1",
+          "vertices": 108,
+          "weight_sum": 108.0
+        },
+        {
+          "source": "AP_BD_1010_060",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_061",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_056",
+          "target": "Offset_Spine1",
+          "vertices": 108,
+          "weight_sum": 108.0
+        },
+        {
+          "source": "AP_BD_1010_057",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_058",
+          "target": "Offset_Spine1",
+          "vertices": 27,
+          "weight_sum": 27.0
+        },
+        {
+          "source": "AP_BD_1010_048",
+          "target": "Offset_Spine1",
+          "vertices": 144,
+          "weight_sum": 144.0
+        },
+        {
+          "source": "AP_BD_1010_049",
+          "target": "Offset_Spine1",
+          "vertices": 51,
+          "weight_sum": 51.0
+        },
+        {
+          "source": "AP_BD_1010_050",
+          "target": "Offset_Spine1",
+          "vertices": 48,
+          "weight_sum": 48.0
+        },
+        {
+          "source": "AP_BD_1010_051",
+          "target": "Offset_Spine1",
+          "vertices": 51,
+          "weight_sum": 51.0
+        },
+        {
+          "source": "AP_BD_1010_052",
+          "target": "Offset_Spine1",
+          "vertices": 144,
+          "weight_sum": 144.0
+        },
+        {
+          "source": "AP_BD_1010_053",
+          "target": "Offset_Spine1",
+          "vertices": 85,
+          "weight_sum": 85.0
+        },
+        {
+          "source": "AP_BD_1010_054",
+          "target": "Offset_Spine1",
+          "vertices": 153,
+          "weight_sum": 153.0
+        },
+        {
+          "source": "AP_BD_1010_055",
+          "target": "Offset_Spine1",
+          "vertices": 136,
+          "weight_sum": 136.0
+        },
+        {
+          "source": "AP_BD_1010_086",
+          "target": "Offset_Spine1",
+          "vertices": 84,
+          "weight_sum": 84.0
+        }
+      ],
+      "unweighted_before_nearest_assignment": 110,
+      "nearest_bone_assignments": {
+        "R_Foot_EX_A": 55,
+        "R_Foot": 2,
+        "L_Foot": 53
+      },
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[1].042",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_BD_M_1010_01_mesh_1_042_Color.png",
+        "material": "mesh_1_042_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_2.045_HkxSkin": {
+      "source_mesh": "mesh[2].045",
+      "transferred_groups": [
+        {
+          "source": "AP_BD_1010_045",
+          "target": "Offset_Spine1",
+          "vertices": 13,
+          "weight_sum": 13.0
+        },
+        {
+          "source": "AP_BD_1010_002",
+          "target": "Offset_Spine1",
+          "vertices": 13,
+          "weight_sum": 13.0
+        }
+      ],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[2].045",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_BD_M_1010_02_mesh_2_045_Color.png",
+        "material": "mesh_2_045_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_3.005_HkxSkin": {
+      "source_mesh": "mesh[3].005",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[3].005",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_BD_M_1010_03_mesh_3_005_Color.png",
+        "material": "mesh_3_005_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_0.105_HkxSkin": {
+      "source_mesh": "mesh[0].105",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 92,
+      "nearest_bone_assignments": {
+        "L_OffsetToe": 86,
+        "L_Foot_EX_A": 6
+      },
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[0].105",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_00_mesh_0_105_Color.png",
+        "material": "mesh_0_105_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_1.090_HkxSkin": {
+      "source_mesh": "mesh[1].090",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 97,
+      "nearest_bone_assignments": {
+        "R_OffsetToe": 89,
+        "R_Foot_Target": 2,
+        "R_Foot": 3,
+        "R_Foot_EX_A": 3
+      },
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[1].090",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_01_mesh_1_090_Color.png",
+        "material": "mesh_1_090_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_2.086_HkxSkin": {
+      "source_mesh": "mesh[2].086",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[2].086",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_02_mesh_2_086_Color.png",
+        "material": "mesh_2_086_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_3.044_HkxSkin": {
+      "source_mesh": "mesh[3].044",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[3].044",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_03_mesh_3_044_Color.png",
+        "material": "mesh_3_044_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_4.023_HkxSkin": {
+      "source_mesh": "mesh[4].023",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[4].023",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_04_mesh_4_023_Color.png",
+        "material": "mesh_4_023_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_5.016_HkxSkin": {
+      "source_mesh": "mesh[5].016",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[5].016",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_AM_M_1010_05_mesh_5_016_Color.png",
+        "material": "mesh_5_016_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_0.020_HkxSkin": {
+      "source_mesh": "mesh[0].020",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 114,
+      "nearest_bone_assignments": {
+        "R_OffsetToe": 32,
+        "R_Foot": 10,
+        "R_Foot_EX_A": 5,
+        "L_OffsetToe": 29,
+        "L_CalfTwist_B": 2,
+        "L_Foot_EX_A": 17,
+        "L_Foot": 4,
+        "R_Foot_Target": 9,
+        "Master": 6
+      },
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[0].020",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_LG_M_1010_00_mesh_0_020_Color.png",
+        "material": "mesh_0_020_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_1.020_HkxSkin": {
+      "source_mesh": "mesh[1].020",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[1].020",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_LG_M_1010_01_mesh_1_020_Color.png",
+        "material": "mesh_1_020_HkxBaked_Mat",
+        "reason": ""
+      }
+    },
+    "mesh_2.020_HkxSkin": {
+      "source_mesh": "mesh[2].020",
+      "transferred_groups": [],
+      "unweighted_before_nearest_assignment": 0,
+      "nearest_bone_assignments": {},
+      "unweighted_after_nearest_assignment": 0,
+      "remaining_non_hkx_groups": [],
+      "baked_material": {
+        "source_mesh": "mesh[2].020",
+        "applied": true,
+        "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\Textures\\AC6_BLEND_LG_M_1010_02_mesh_2_020_Color.png",
+        "material": "mesh_2_020_HkxBaked_Mat",
+        "reason": ""
+      }
+    }
+  },
+  "baked_material_manifest": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010\\AC6_BlendBaked_MELANDER_1010_manifest.json",
+  "baked_materials_applied": 16,
+  "meshes": [
+    "mesh_0.022_HkxSkin",
+    "mesh_1.022_HkxSkin",
+    "mesh_2.022_HkxSkin",
+    "mesh_0.042_HkxSkin",
+    "mesh_1.042_HkxSkin",
+    "mesh_2.045_HkxSkin",
+    "mesh_3.005_HkxSkin",
+    "mesh_0.105_HkxSkin",
+    "mesh_1.090_HkxSkin",
+    "mesh_2.086_HkxSkin",
+    "mesh_3.044_HkxSkin",
+    "mesh_4.023_HkxSkin",
+    "mesh_5.016_HkxSkin",
+    "mesh_0.020_HkxSkin",
+    "mesh_1.020_HkxSkin",
+    "mesh_2.020_HkxSkin"
+  ]
+}

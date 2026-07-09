@@ -1,0 +1,62 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4db9065a48677dc4c9e9ab2d3c06f4f0, type: 3}
+  m_Name: AC6_RDR_Test_Array
+  m_EditorClassIdentifier: Assembly-CSharp::ACunicombat.Mechs.MechPartDefinition
+  partId: AC6_RDR_Test_Array
+  displayName: AC6 Test Active Radar
+  slot: 80
+  category: 10
+  manufacturer: 
+  tags:
+  - internal
+  - radar
+  - active-sensor
+  - ac6-imported
+  modelPrefab: {fileID: 0}
+  materialOverrides: []
+  localPosition: {x: 0, y: 0, z: 0}
+  localEulerAngles: {x: 0, y: 0, z: 0}
+  localScale: {x: 1, y: 1, z: 1}
+  stats:
+    massKg: 1200
+    armorPoints: 0
+    structurePoints: 0
+    stability: 0
+    powerOutputMw: 0
+    idlePowerDrawMw: 2.8
+    peakPowerDrawMw: 6.5
+    heatGenerationMw: 1.2
+    heatDissipationMw: 0
+    heatCapacityMj: 0
+    mainThrustKn: 0
+    lateralThrustKn: 0
+    reverseThrustKn: 0
+    attitudeTorqueKnM: 0
+    supportedMassKg: 0
+    radarRangeKm: 42
+    radarAperture: 1.3
+    radarRefreshHz: 2.5
+    sensorPrecision: 38
+    trackCapacity: 0
+    fireControlQuality: 0
+    guidanceChannels: 0
+    radarCrossSection: 0
+    thermalSignature: 0
+    electromagneticSignature: 3.5
+    weaponRecoilControl: 0
+    meleeControl: 0
+    hardpointCapacityKg: 0
+  mountPoints: []
+  requiredInstalledSlots: 
+  requiredLoadoutTags: []
+  blockedLoadoutTags: []

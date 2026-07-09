@@ -1,0 +1,85 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4db9065a48677dc4c9e9ab2d3c06f4f0, type: 3}
+  m_Name: AC6_BLEND_AM_M_1010
+  m_EditorClassIdentifier: Assembly-CSharp::ACunicombat.Mechs.MechPartDefinition
+  partId: AC6_BLEND_AM_M_1010
+  displayName: AC6 Blend Melander Arms
+  slot: 30
+  category: 0
+  manufacturer: 
+  tags:
+  - arms
+  - frame
+  - ac6-blend-baked
+  modelPrefab: {fileID: 919132149155446097, guid: 411317c7a3e09444dbf11426d042826d, type: 3}
+  materialOverrides:
+  - {fileID: 2100000, guid: eb0625f18f586b24da73ee59397f73b7, type: 2}
+  - {fileID: 2100000, guid: 86364e8027dbd934ca21ab68fa621f59, type: 2}
+  - {fileID: 2100000, guid: a99e853c9487e674daefe1c3cbf5d508, type: 2}
+  - {fileID: 2100000, guid: e0bbd8f1f025d274d8eadbac06d6c9f3, type: 2}
+  - {fileID: 2100000, guid: 0686079020ffd4041b4250de87ea22ba, type: 2}
+  - {fileID: 2100000, guid: 1a6b7138dcbe2f14a8230df22bdb5e76, type: 2}
+  localPosition: {x: 0, y: 0, z: 0}
+  localEulerAngles: {x: 0, y: 0, z: 0}
+  localScale: {x: 1, y: 1, z: 1}
+  stats:
+    massKg: 6900
+    armorPoints: 850
+    structurePoints: 680
+    stability: 0
+    powerOutputMw: 0
+    idlePowerDrawMw: 1
+    peakPowerDrawMw: 2
+    heatGenerationMw: 0
+    heatDissipationMw: 0
+    heatCapacityMj: 0
+    mainThrustKn: 0
+    lateralThrustKn: 0
+    reverseThrustKn: 0
+    attitudeTorqueKnM: 0
+    supportedMassKg: 0
+    radarRangeKm: 0
+    radarAperture: 0
+    radarRefreshHz: 0
+    sensorPrecision: 0
+    trackCapacity: 0
+    fireControlQuality: 0
+    guidanceChannels: 0
+    radarCrossSection: 1.1
+    thermalSignature: 0.5
+    electromagneticSignature: 0
+    weaponRecoilControl: 58
+    meleeControl: 35
+    hardpointCapacityKg: 0
+  mountPoints:
+  - mountId: LeftHandMount
+    targetSlot: 100
+    hardpointType: 30
+    maxMassKg: 4500
+    localPosition: {x: -1.35, y: 0.95, z: 0.2}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+    requiredTags: []
+    blockedTags: []
+  - mountId: RightHandMount
+    targetSlot: 101
+    hardpointType: 30
+    maxMassKg: 4500
+    localPosition: {x: 1.35, y: 0.95, z: 0.2}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+    requiredTags: []
+    blockedTags: []
+  requiredInstalledSlots: 
+  requiredLoadoutTags: []
+  blockedLoadoutTags: []

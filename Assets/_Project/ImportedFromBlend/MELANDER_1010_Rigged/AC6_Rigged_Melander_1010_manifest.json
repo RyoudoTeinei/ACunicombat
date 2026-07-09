@@ -1,0 +1,34 @@
+{
+  "name": "AC6 Rigged Melander 1010",
+  "source_collections": [
+    "HD-011 MELANDER",
+    "BD-011 MELANDER",
+    "AR-011 MELANDER",
+    "LG-011 MELANDER"
+  ],
+  "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromBlend\\MELANDER_1010_Rigged\\FBX\\AC6_RIGGED_MELANDER_1010.fbx",
+  "armatures": [
+    "HD-011 MELANDER",
+    "BD-011 MELANDER",
+    "AR-011 MELANDER",
+    "LG-011 MELANDER"
+  ],
+  "meshes": [
+    "mesh[0].022",
+    "mesh[1].022",
+    "mesh[2].022",
+    "mesh[0].042",
+    "mesh[1].042",
+    "mesh[2].045",
+    "mesh[3].005",
+    "mesh[0].105",
+    "mesh[1].090",
+    "mesh[2].086",
+    "mesh[3].044",
+    "mesh[4].023",
+    "mesh[5].016",
+    "mesh[0].020",
+    "mesh[1].020",
+    "mesh[2].020"
+  ]
+}

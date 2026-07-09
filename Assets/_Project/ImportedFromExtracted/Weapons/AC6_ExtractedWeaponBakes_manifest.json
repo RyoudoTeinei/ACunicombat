@@ -1,0 +1,164 @@
+{
+  "source_root": "E:/UnityDev/Resources/AC6_ExtractedAssets",
+  "resolution": 1024,
+  "samples": [
+    {
+      "part_id": "AC6_RAW_WP_0010_Left_Rifle",
+      "display_name": "AC6 Baked WP-0010 Rifle",
+      "slot": "LeftHandWeapon",
+      "source": "wp/wp_0010/WP_L_0010.fbx",
+      "source_fbx": "E:/UnityDev/Resources/AC6_ExtractedAssets\\wp\\wp_0010\\WP_L_0010.fbx",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\FBX\\AC6_RAW_WP_0010_Left_Rifle.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[1]",
+          "material": "Material #0|P[WP_0010]_Eyecolor.matxml|1",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_0010_Left_Rifle_00_mesh_1_Color.png",
+          "vertices": 8,
+          "polygons": 4
+        },
+        {
+          "source_object": "mesh[0]",
+          "material": "P[WP_0010]|P[WP_0010].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_0010_Left_Rifle_01_mesh_0_Color.png",
+          "vertices": 12009,
+          "polygons": 10064
+        }
+      ]
+    },
+    {
+      "part_id": "AC6_RAW_WP_0230_Left_Rifle",
+      "display_name": "AC6 Baked WP-0230 Rifle",
+      "slot": "LeftHandWeapon",
+      "source": "wp/wp_0230/WP_L_0230.fbx",
+      "source_fbx": "E:/UnityDev/Resources/AC6_ExtractedAssets\\wp\\wp_0230\\WP_L_0230.fbx",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\FBX\\AC6_RAW_WP_0230_Left_Rifle.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[0]",
+          "material": "WP_L_0230|P[WP_L_0230].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_0230_Left_Rifle_00_mesh_0_Color.png",
+          "vertices": 10220,
+          "polygons": 8149
+        },
+        {
+          "source_object": "mesh[1]",
+          "material": "EYE_WEP_mat|P[WP_0230]_Emissive_01.matxml|1",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_0230_Left_Rifle_01_mesh_1_Color.png",
+          "vertices": 66,
+          "polygons": 64
+        },
+        {
+          "source_object": "mesh[3]",
+          "material": "blade|P[WP_0230]_LB_Emissive_Glow.matxml|3",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_0230_Left_Rifle_02_mesh_3_Color.png",
+          "vertices": 322,
+          "polygons": 440
+        },
+        {
+          "source_object": "mesh[2]",
+          "material": "EYE_WEP_mat_2|P[WP_0230]_Emissive_02.matxml|2",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_0230_Left_Rifle_03_mesh_2_Color.png",
+          "vertices": 2784,
+          "polygons": 1970
+        }
+      ]
+    },
+    {
+      "part_id": "AC6_RAW_WP_0250_Left_Heavy_Rifle",
+      "display_name": "AC6 Baked WP-0250 Heavy Rifle",
+      "slot": "LeftHandWeapon",
+      "source": "wp/wp_0250/WP_L_0250.fbx",
+      "source_fbx": "E:/UnityDev/Resources/AC6_ExtractedAssets\\wp\\wp_0250\\WP_L_0250.fbx",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\FBX\\AC6_RAW_WP_0250_Left_Heavy_Rifle.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[2]",
+          "material": "emissive|P[WP_0250]_Laser.matxml|2",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_0250_Left_Heavy_Rifle_00_mesh_2_Color.png",
+          "vertices": 1300,
+          "polygons": 2008
+        },
+        {
+          "source_object": "mesh[0]",
+          "material": "c80_SYSTEX_GRAY|P[WP_0250].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_0250_Left_Heavy_Rifle_01_mesh_0_Color.png",
+          "vertices": 7013,
+          "polygons": 7438
+        },
+        {
+          "source_object": "mesh[1]",
+          "material": "emissive|P[WP_0250]_Emissive.matxml|1",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_0250_Left_Heavy_Rifle_02_mesh_1_Color.png",
+          "vertices": 12,
+          "polygons": 10
+        }
+      ]
+    },
+    {
+      "part_id": "AC6_RAW_WP_1310_Right_Back",
+      "display_name": "AC6 Baked WP-1310 Right Back Weapon",
+      "slot": "RightBackWeapon",
+      "source": "wp/wp_1310/WP_R_1310.fbx",
+      "source_fbx": "E:/UnityDev/Resources/AC6_ExtractedAssets\\wp\\wp_1310\\WP_R_1310.fbx",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\FBX\\AC6_RAW_WP_1310_Right_Back.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[2]",
+          "material": "WP_1310_01_Wep_EYE|P[WP_1310_01]_Emissive.matxml|2",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_1310_Right_Back_00_mesh_2_Color.png",
+          "vertices": 74,
+          "polygons": 90
+        },
+        {
+          "source_object": "mesh[1]",
+          "material": "WP_1310_02|P[WP_1310_02].matxml|1",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_1310_Right_Back_01_mesh_1_Color.png",
+          "vertices": 244,
+          "polygons": 364
+        },
+        {
+          "source_object": "mesh[0]",
+          "material": "WP_1310_01|P[WP_1310_01].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_1310_Right_Back_02_mesh_0_Color.png",
+          "vertices": 10013,
+          "polygons": 8665
+        }
+      ]
+    },
+    {
+      "part_id": "AC6_RAW_WP_1410_Left_Back",
+      "display_name": "AC6 Baked WP-1410 Left Back Weapon",
+      "slot": "LeftBackWeapon",
+      "source": "wp/wp_1410/WP_L_1410.fbx",
+      "source_fbx": "E:/UnityDev/Resources/AC6_ExtractedAssets\\wp\\wp_1410\\WP_L_1410.fbx",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\FBX\\AC6_RAW_WP_1410_Left_Back.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[0]",
+          "material": "WP_1410|P[WP_1410].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_1410_Left_Back_00_mesh_0_Color.png",
+          "vertices": 7071,
+          "polygons": 7100
+        }
+      ]
+    },
+    {
+      "part_id": "AC6_RAW_WP_1410_Right_Back",
+      "display_name": "AC6 Baked WP-1410 Right Back Weapon",
+      "slot": "RightBackWeapon",
+      "source": "wp/wp_1410/WP_R_1410.fbx",
+      "source_fbx": "E:/UnityDev/Resources/AC6_ExtractedAssets\\wp\\wp_1410\\WP_R_1410.fbx",
+      "fbx": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\FBX\\AC6_RAW_WP_1410_Right_Back.fbx",
+      "objects": [
+        {
+          "source_object": "mesh[0]",
+          "material": "WP_1410|P[WP_1410].matxml|0",
+          "texture": "E:\\UnityDev\\ACunicombat\\Assets\\_Project\\ImportedFromExtracted\\Weapons\\Textures\\AC6_RAW_WP_1410_Right_Back_00_mesh_0_Color.png",
+          "vertices": 7071,
+          "polygons": 7100
+        }
+      ]
+    }
+  ]
+}

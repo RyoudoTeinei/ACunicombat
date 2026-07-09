@@ -61,6 +61,7 @@
 *.spriteatlasv2         unity-yaml
 *.terrainlayer          unity-yaml
 *.unity                 unity-yaml
+*.clip                  lfs
 
 # "physic" for 3D but "physics" for 2D
 *.physicMaterial        unity-yaml
@@ -130,6 +131,7 @@ Packages/packages-lock.json linguist-generated
 *.pict                  lfs
 *.png                   lfs
 *.psd                   lfs
+*.dds                   lfs
 *.tga                   lfs
 *.tif                   lfs
 *.tiff                  lfs

@@ -1,0 +1,85 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4db9065a48677dc4c9e9ab2d3c06f4f0, type: 3}
+  m_Name: AC6_AM_M_3010
+  m_EditorClassIdentifier: Assembly-CSharp::ACunicombat.Mechs.MechPartDefinition
+  partId: AC6_AM_M_3010
+  displayName: AC6 Tian-Qiang Arms
+  slot: 30
+  category: 0
+  manufacturer: 
+  tags:
+  - arms
+  - frame
+  - ac6-imported
+  modelPrefab: {fileID: 919132149155446097, guid: 5f7cb6de53c98ab4085166cf3626445d, type: 3}
+  materialOverrides:
+  - {fileID: 2100000, guid: d6672457814e2c542a8ca50a45561d6d, type: 2}
+  - {fileID: 2100000, guid: 347b387b04f25914a9fbcf6af240025d, type: 2}
+  - {fileID: 2100000, guid: 4a91dbb5f8904f44f8ec6c50e14fa129, type: 2}
+  - {fileID: 2100000, guid: 76f2645c2e65a7c4f89f8a82f1a193ce, type: 2}
+  - {fileID: 2100000, guid: 1e4cb94a9e88cfb4fa9758929ea66d13, type: 2}
+  - {fileID: 2100000, guid: 55e9fe0f515229545ac0e2e457892f8e, type: 2}
+  localPosition: {x: 0, y: 0, z: 0}
+  localEulerAngles: {x: 0, y: 0, z: 0}
+  localScale: {x: 1, y: 1, z: 1}
+  stats:
+    massKg: 8418
+    armorPoints: 1037
+    structurePoints: 829.60004
+    stability: 0
+    powerOutputMw: 0
+    idlePowerDrawMw: 1
+    peakPowerDrawMw: 2
+    heatGenerationMw: 0
+    heatDissipationMw: 0
+    heatCapacityMj: 0
+    mainThrustKn: 0
+    lateralThrustKn: 0
+    reverseThrustKn: 0
+    attitudeTorqueKnM: 0
+    supportedMassKg: 0
+    radarRangeKm: 0
+    radarAperture: 0
+    radarRefreshHz: 0
+    sensorPrecision: 0
+    trackCapacity: 0
+    fireControlQuality: 0
+    guidanceChannels: 0
+    radarCrossSection: 1.342
+    thermalSignature: 0.61
+    electromagneticSignature: 0
+    weaponRecoilControl: 70.76
+    meleeControl: 35
+    hardpointCapacityKg: 0
+  mountPoints:
+  - mountId: LeftHandMount
+    targetSlot: 100
+    hardpointType: 30
+    maxMassKg: 4500
+    localPosition: {x: -1.35, y: 0.95, z: 0.2}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+    requiredTags: []
+    blockedTags: []
+  - mountId: RightHandMount
+    targetSlot: 101
+    hardpointType: 30
+    maxMassKg: 4500
+    localPosition: {x: 1.35, y: 0.95, z: 0.2}
+    localEulerAngles: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+    requiredTags: []
+    blockedTags: []
+  requiredInstalledSlots: 
+  requiredLoadoutTags: []
+  blockedLoadoutTags: []

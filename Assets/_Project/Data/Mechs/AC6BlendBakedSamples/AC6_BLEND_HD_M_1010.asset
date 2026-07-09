@@ -1,0 +1,64 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4db9065a48677dc4c9e9ab2d3c06f4f0, type: 3}
+  m_Name: AC6_BLEND_HD_M_1010
+  m_EditorClassIdentifier: Assembly-CSharp::ACunicombat.Mechs.MechPartDefinition
+  partId: AC6_BLEND_HD_M_1010
+  displayName: AC6 Blend Melander Head
+  slot: 10
+  category: 0
+  manufacturer: 
+  tags:
+  - head
+  - frame
+  - ac6-blend-baked
+  modelPrefab: {fileID: 919132149155446097, guid: 188dbab7581f5e748a1552f4479e816f, type: 3}
+  materialOverrides:
+  - {fileID: 2100000, guid: 0059f4243070fe34dbabf281130cfe32, type: 2}
+  - {fileID: 2100000, guid: 69626ac0934f3e9488a0e3a6c88b4066, type: 2}
+  - {fileID: 2100000, guid: 9172a255ea232e64a9fb71bea30b724a, type: 2}
+  localPosition: {x: 0, y: 0, z: 0}
+  localEulerAngles: {x: 0, y: 0, z: 0}
+  localScale: {x: 1, y: 1, z: 1}
+  stats:
+    massKg: 1700
+    armorPoints: 260
+    structurePoints: 180
+    stability: 0
+    powerOutputMw: 0
+    idlePowerDrawMw: 0.7
+    peakPowerDrawMw: 1.1
+    heatGenerationMw: 0
+    heatDissipationMw: 0
+    heatCapacityMj: 0
+    mainThrustKn: 0
+    lateralThrustKn: 0
+    reverseThrustKn: 0
+    attitudeTorqueKnM: 0
+    supportedMassKg: 0
+    radarRangeKm: 0
+    radarAperture: 0
+    radarRefreshHz: 0
+    sensorPrecision: 0
+    trackCapacity: 0
+    fireControlQuality: 0
+    guidanceChannels: 0
+    radarCrossSection: 0.4
+    thermalSignature: 0.2
+    electromagneticSignature: 0
+    weaponRecoilControl: 0
+    meleeControl: 0
+    hardpointCapacityKg: 0
+  mountPoints: []
+  requiredInstalledSlots: 
+  requiredLoadoutTags: []
+  blockedLoadoutTags: []
