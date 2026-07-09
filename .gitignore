@@ -124,3 +124,7 @@ InitTestScene*.unity*
 /Assets/_Project/LocalSamples/AC6MelanderCase/Generated.meta
 /Assets/_Project/LocalSamples/AC6MelanderCase/Reports/
 /Assets/_Project/LocalSamples/AC6MelanderCase/Reports.meta
+
+# Local game asset copies and pipeline outputs derived from them. Never commit.
+/Resources/
+/Tools/LocalOut/
