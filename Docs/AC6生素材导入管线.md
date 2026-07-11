@@ -186,6 +186,12 @@ $GLTF --skeleton-json $OUT/c0000_skeleton.json \
 2. **涂装 shader**:解析 `_3m` 掩码通道 + Zone 颜色,做实 `ACunicombat/AC6/Parts Approx`,实现游戏内改色。材质参数的最终真源是游戏的 `allmaterial.matbinbnd.dcx`(解包资源里没有,需从游戏本体解)。
 3. **骨架裁剪/性能**:当前每个部件 GLB 保留完整 c0000 动画骨以保证路径兼容;量产前可裁掉不参与该部件蒙皮且不作为祖先/挂点的分支。
 
+## 六点五、贴图外观说明与 Blender 遗产清除(2026-07-12)
+
+**"肢体银色、武器有贴图"不是管线差异。** 逐 GLB 核实(`asset.generator` 均为 `AC6PartToGltf`,肢体嵌 albedo/normal/emissive/Marking 四图并已绑定):武器与肢体走完全相同的原生管线。像素统计显示两者的 `_a` albedo 都是**中性灰**(彩度 0.1–0.9/255)——AC6 里肢体和武器都可涂装,最终颜色统一来自 Zone 涂装系统(`_3m` 掩码 × 调色板,即第六节第 2 项待办)。武器"看起来有贴图"只是机械细节对比度高;装甲大平面 + 中性灰 + 金属度参数渲出来就是银色。这是预期状态,不是缺陷。
+
+**Blender 管线已从仓库物理删除**(约 255 文件):`Tools/Blender/` 全部脚本、`AC6BlendBakedPartsImporter`、`AC6RawBakedWeaponImporter`、`AC6UnifiedSkinnedHkxPreviewImporter`、`AC6RiggedMelanderPreviewBinder`、`AC6RiggedAnimationProbeImporter`、`MechOriginalHkxPartRetargeter`(运行时+编辑器)、`ImportedFromBlend/`、`ImportedFromExtracted/`、`Data/Mechs/{AC6BlendBakedSamples,AC6RawBakedWeapons}`。保留:`AC6OriginalHkxAnimationImporter`(原生 HKX 蓝点验证路径,JSON→Clip 参考实现,已断开对 Blender 预览链的调用)、`ImportedFromGame/`(原生动画产物)、`_Imported/`(路线 A 原始 FBX 参考,非 Blender)。已知无害残留:`SampleScene.unity` 里有一个已删除组件的 missing-script 引用,可用 `Tools > ACunicombat > Clean Legacy Scene Objects` 或手动移除。
+
 ## 七、历史背景
 
 立项原因与三条旧管线合不拢的分析见《AC6资源导入难点汇总_咨询用.md》;本地素材准备约定见《AC6本地案例资产准备.md》。仓库不提交任何游戏资源:`/Resources/`、`/Tools/LocalOut/`、`LocalSamples/AC6MelanderCase/{Raw,Generated,Reports}` 和 `LocalSamples/AC6SkinnedModular/{Raw,Generated,Reports}` 均已 gitignore,只提交工具、清单与文档。

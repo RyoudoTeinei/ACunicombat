@@ -55,9 +55,9 @@ public static class AC6OriginalHkxAnimationImporter
         var controller = CreateOrUpdateController(clip);
         var previewPrefab = CreateOrUpdatePreviewPrefab(pose, controller);
         var scenePreview = InstantiateScenePreview(previewPrefab);
-        var attachedModel = scenePreview != null
-            ? AC6UnifiedSkinnedHkxPreviewImporter.CreateCleanPreview(false)
-            : null;
+        // The Blender-derived skinned preview chain (AC6UnifiedSkinnedHkxPreviewImporter) was
+        // retired with the rest of the Blender pipeline; the marker-skeleton preview remains.
+        GameObject attachedModel = null;
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();

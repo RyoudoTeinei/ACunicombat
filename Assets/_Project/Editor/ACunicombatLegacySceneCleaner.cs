@@ -38,9 +38,8 @@ public static class ACunicombatLegacySceneCleaner
 
         var legacyObjects = FindLegacyPreviewObjects(scene);
         var proceduralAnimators = FindSceneComponents<MechProceduralPoseAnimator>(scene);
-        var retargeters = FindSceneComponents<MechOriginalHkxPartRetargeter>(scene);
 
-        if (legacyObjects.Count == 0 && proceduralAnimators.Count == 0 && retargeters.Count == 0)
+        if (legacyObjects.Count == 0 && proceduralAnimators.Count == 0)
         {
             EditorUtility.DisplayDialog(
                 "ACunicombat Scene Cleanup",
@@ -57,11 +56,6 @@ public static class ACunicombatLegacySceneCleaner
             Undo.DestroyObjectImmediate(proceduralAnimators[i]);
         }
 
-        for (var i = 0; i < retargeters.Count; i++)
-        {
-            Undo.DestroyObjectImmediate(retargeters[i]);
-        }
-
         for (var i = 0; i < legacyObjects.Count; i++)
         {
             Undo.DestroyObjectImmediate(legacyObjects[i]);
@@ -73,8 +67,7 @@ public static class ACunicombatLegacySceneCleaner
         var message =
             $"Cleaned scene: {scene.name}\n" +
             $"Legacy preview objects removed: {legacyObjects.Count}\n" +
-            $"Procedural pose components removed: {proceduralAnimators.Count}\n" +
-            $"HKX retarget components removed: {retargeters.Count}\n\n" +
+            $"Procedural pose components removed: {proceduralAnimators.Count}\n\n" +
             "The current GLB model, Animator, cameras, lights, and mech loadout components were not changed.";
 
         Debug.Log(message);
