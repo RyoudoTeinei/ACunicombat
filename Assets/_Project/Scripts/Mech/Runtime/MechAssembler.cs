@@ -95,7 +95,7 @@ namespace ACunicombat.Mechs
                         continue;
                     }
 
-                    var parentMounts = ResolveParentMounts(assignment.slot, mountRegistry, assemblyRoot);
+                    var parentMounts = ResolveParentMounts(assignment.slot, assignment.part, mountRegistry, assemblyRoot);
                     var parentMount = parentMounts[0];
                     var instance = CreatePartInstance(assignment.slot, assignment.part, parentMount);
                     var assembledPart = instance.GetComponent<MechAssembledPart>();
@@ -190,18 +190,36 @@ namespace ACunicombat.Mechs
 
         private List<Transform> ResolveParentMounts(
             MechPartSlot slot,
+            MechPartDefinition part,
             Dictionary<MechPartSlot, List<Transform>> mountRegistry,
             Transform assemblyRoot)
         {
             if (mountRegistry.TryGetValue(slot, out var mounts) && mounts.Count > 0)
             {
                 var validMounts = new List<Transform>(mounts.Count);
+                var acceptingMounts = new List<Transform>(mounts.Count);
                 for (var i = 0; i < mounts.Count; i++)
                 {
-                    if (mounts[i] != null)
+                    if (mounts[i] == null)
                     {
-                        validMounts.Add(mounts[i]);
+                        continue;
                     }
+
+                    validMounts.Add(mounts[i]);
+
+                    // Same slot can expose several hardpoints with different tag filters, e.g.
+                    // AC6 left-hand firearms mount at the palm dummy while melee weapons mount
+                    // at the forearm dummy. Mounts without a MechMountPoint accept everything.
+                    var mountPoint = mounts[i].GetComponent<MechMountPoint>();
+                    if (mountPoint == null || mountPoint.CanAccept(part))
+                    {
+                        acceptingMounts.Add(mounts[i]);
+                    }
+                }
+
+                if (acceptingMounts.Count > 0)
+                {
+                    return acceptingMounts;
                 }
 
                 if (validMounts.Count > 0)

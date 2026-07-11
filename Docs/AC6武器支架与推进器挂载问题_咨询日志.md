@@ -346,3 +346,23 @@ Assets/_Project/LocalSamples/AC6SkinnedModular/Reports/skinned_modular_validatio
 - 不要把“动作中安装根不漂移”当作“安装根本身正确”。
 - 不要恢复 Blender 烘焙武器，当前问题发生在原生资产的安装语义，不是纹理或材质管线。
 - 优先确认截图中具体 PartId 和 slot，再比较 DSAnimStudio 或原游戏中的完整矩阵链。
+
+## 12. 处理结果(2026-07-11,数据驱动回归后)
+
+### 12.1 三个问题的答案
+
+1. **手持武器反向**:根因是上一轮从 DSAS 照搬的 `RotationX(π)`。本轮用数据重推:机体面朝模型空间 **-Z**(HD ref=14 镜头 dummy 位于脸前 z=-6.66 处回望头部、眼部 SFX 朝 -Z),所有实测枪口/发射管都在武器自身 -Z(0010 dmy_10、4210 dmy_300/301/302、4410 dmy_200/300),挂点 CreateWorld 坐标系 ≈ identity——**正确安装 = identity,无任何旋转**。DSAS 的 RotX(π) 属于其渲染栈自身的约定补偿,不可照搬。回归实测:背武器发射管与机体正前点积 = 1.000,步枪 0.798(绑定姿态自然下垂)。
+2. **近战 vs 枪械挂载口**:确认 `WepAbsorpPos 100→3023(左手掌 dmy_23)/ 200→3025(左前臂 dmy_25)`。AM FLVER 实测存在 dmy_25(attach=L_ForeArm)。0230(laserSFX 骨)、0250(MainBrade 骨)按近战重分类,经 mount tags(requiredTags/blockedTags="melee")+ `MechAssembler.ResolveParentMounts` 新增的 `CanAccept` 过滤挂到 dmy_25。截图确认刃单元贴合前臂、刃身朝前。
+3. **背部支架与喷口**:支架**两端都在原数据里**——武器侧是 FLVER 内的机构骨链(WP_R_4210_05..09 + LookAt_01 瞄准枢轴),核心侧 2010/3010 的 dmy_13/14 直接挂在核心自己的 AP 机构骨(AP_BD_2010_021/022、AP_BD_3010_001)上,随核心机构动画。喷口:每核心 3 个 dmy_800(前胸刹车喷口 fwd -Z、背部两主推 fwd +Z),朝向编码在每个 socket 自身坐标系里,identity 安装即正确;1010/2010/3010 各自的位置已做成 per-core 金标断言。
+
+### 12.2 新增语义断言(§8 的落地)
+
+- 枪口方向断言:用枪口 dummy 自身朝向(-Z 轴)与机体正前的点积,静止时 >0.1(反向≈-1、侧向≈0)。注意 **ref=10 位于机匣不在枪管尖端,位置差不可用**。
+- 每装备诊断行:slot / PartId / 挂点全路径 / muzzleDir / forwardness 写入报告。
+- 近距截图:每装备 × 静止/动作中点,输出到 Reports/Closeup_*.png。
+- per-core 金标:三种核心的 dmy_13/14/800 绑定位各自断言(金标必须在未动画的原始 GLB 实例上测)。
+
+### 12.3 仍待办(需游戏 partsbnd 的机器)
+
+- 背武器收纳/展开动作与 rail(17xxx/19xxx)状态机;近战默认持握动作采样;装备原生动作恢复后重跑(manifest 驱动的动作数断言会自动生效)。
+- 截图仍会拍到相邻机体与标签,可后续加 layer culling。

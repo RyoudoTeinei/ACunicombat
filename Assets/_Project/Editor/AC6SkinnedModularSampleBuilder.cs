@@ -404,7 +404,7 @@ public static class AC6SkinnedModularSampleBuilder
             var record = weaponRecords[i];
             var mountPoint = record.parentMount != null ? record.parentMount.GetComponent<MechMountPoint>() : null;
             var mountSource = record.parentMount != null ? record.parentMount.parent : null;
-            var expectedMountSuffix = ExpectedEquipmentMountSuffix(record.slot);
+            var expectedMountSuffix = ExpectedEquipmentMountSuffix(record.slot, record.part);
             var modelPath = record.part == null ? string.Empty : AssetDatabase.GetAssetPath(record.part.ModelPrefab);
             ok &= Check(record.instance != null && record.instance.GetComponentInChildren<Renderer>(true) != null,
                 key, $"{record.slot} has no visible renderer", report);
@@ -498,6 +498,7 @@ public static class AC6SkinnedModularSampleBuilder
             {
                 var pass = CheckGoldenSocket(instance, "_dmy_20", new Vector3(2.271f, 7.906f, -1.971f), key, report);
                 pass &= CheckGoldenSocket(instance, "_dmy_23", new Vector3(-2.270f, 7.904f, -1.974f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_25", new Vector3(-2.895f, 7.655f, -0.746f), key, report);
                 return pass;
             });
             ok &= WithRawAssetInstance($"{RawGltfRoot}/BD_M_1010.glb", key, report, instance =>
@@ -509,6 +510,41 @@ public static class AC6SkinnedModularSampleBuilder
                     new Vector3(0f, 8.622f, -2.225f),
                     new Vector3(0.413f, 8.944f, 2.402f),
                     new Vector3(-0.413f, 8.944f, 2.402f),
+                }, key, report);
+                return pass;
+            });
+        }
+
+        // Per-core golden sockets: each core carries its own back-weapon and nozzle layout
+        // (verified from the FLVER dummies; 2010/3010 back mounts even ride core-local AP
+        // mechanism bones), so every core gets its own bind-pose numbers.
+        if (string.Equals(key, "Uniform2010", StringComparison.OrdinalIgnoreCase))
+        {
+            ok &= WithRawAssetInstance($"{RawGltfRoot}/BD_M_2010.glb", key, report, instance =>
+            {
+                var pass = CheckGoldenSocket(instance, "_dmy_13", new Vector3(-1.525f, 10.309f, 1.938f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_14", new Vector3(1.525f, 10.309f, 1.938f), key, report);
+                pass &= CheckGoldenSocketSet(instance, "_dmy_800", new[]
+                {
+                    new Vector3(0f, 8.763f, -2.225f),
+                    new Vector3(0.459f, 9.155f, 2.469f),
+                    new Vector3(-0.459f, 9.155f, 2.469f),
+                }, key, report);
+                return pass;
+            });
+        }
+
+        if (string.Equals(key, "Uniform3010", StringComparison.OrdinalIgnoreCase))
+        {
+            ok &= WithRawAssetInstance($"{RawGltfRoot}/BD_M_3010.glb", key, report, instance =>
+            {
+                var pass = CheckGoldenSocket(instance, "_dmy_13", new Vector3(-1.180f, 10.747f, 1.798f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_14", new Vector3(1.180f, 10.747f, 1.798f), key, report);
+                pass &= CheckGoldenSocketSet(instance, "_dmy_800", new[]
+                {
+                    new Vector3(0f, 9.081f, -2.225f),
+                    new Vector3(0.459f, 9.472f, 2.469f),
+                    new Vector3(-0.459f, 9.472f, 2.469f),
                 }, key, report);
                 return pass;
             });
@@ -574,6 +610,60 @@ public static class AC6SkinnedModularSampleBuilder
                 var rotationDrift = Quaternion.Angle(current.rotation, pair.Value.rotation);
                 ok &= Check(positionDrift < 0.001f && rotationDrift < 0.05f, key,
                     $"{record.slot} installation transform drifted at t={sampleTimes[i]:0.###} (pos {positionDrift:0.####}m, rot {rotationDrift:0.###}deg)", report);
+            }
+
+            // Muzzle-forward semantic check plus per-equipment diagnostics and close-up
+            // screenshots (the far overview shots hid a reversed weapon once already).
+            for (var r = 0; r < weaponRecords.Count; r++)
+            {
+                var record = weaponRecords[r];
+                if (record.instance == null)
+                    continue;
+
+                var mountSource = record.parentMount != null ? record.parentMount.parent : null;
+                var rootLocal = mech.transform.InverseTransformPoint(record.instance.transform.position);
+                var isMelee = record.part.HasTag("melee");
+                var muzzle = FindMuzzleTransform(record.instance.transform);
+                report.Log.AppendLine(
+                    $"[{key}] t={sampleTimes[i]:0.###} DIAG {record.slot} part={record.part.PartId} " +
+                    $"mount={(mountSource != null ? GetTransformPath(mountSource, mech.transform) : "<none>")} " +
+                    $"rootLocal={Format(rootLocal)} melee={isMelee} muzzle={(muzzle != null ? muzzle.name : "<none>")}");
+
+                if (muzzle != null)
+                {
+                    // The muzzle dummy's own frame encodes the firing direction (FLVER forward
+                    // = the frame's -Z, preserved through glTF). Positions are useless here:
+                    // e.g. WP_L_0010's dmy_10 sits at the receiver, not the barrel tip.
+                    var muzzleLocal = mech.transform.InverseTransformPoint(muzzle.position);
+                    var muzzleDir = -muzzle.forward;
+                    var mechForward = -mech.transform.forward;
+                    var forwardness = Vector3.Dot(muzzleDir.normalized, mechForward.normalized);
+                    report.Log.AppendLine($"[{key}] t={sampleTimes[i]:0.###} DIAG {record.slot} muzzleLocal={Format(muzzleLocal)} muzzleDir={Format(muzzleDir)} forwardness={forwardness:0.###}");
+                    // Only asserted at rest: mid-action the arm may legitimately re-aim the gun.
+                    if (!isMelee && i == 0)
+                    {
+                        // A reversed weapon scores around -1, sideways around 0; the bind pose
+                        // may legitimately droop the barrel, so only require "clearly forward".
+                        ok &= Check(forwardness > 0.1f, key,
+                            $"{record.slot} muzzle points away from mech forward at rest (dot {forwardness:0.###}, muzzle {muzzle.name})", report);
+                    }
+                }
+                else if (!isMelee && i == 0)
+                {
+                    ok &= Check(false, key, $"{record.slot} has no muzzle dummy to verify firing direction", report);
+                }
+
+                Screenshot(record.instance, GrowBounds(CombinedBounds(record.instance), 1.35f),
+                    Path.Combine(ReportRoot, $"Closeup_{key}_{record.slot}_t{sampleTimes[i]:000}.png"));
+            }
+
+            if (boosterVisuals.Count > 0)
+            {
+                var boosterBounds = CombinedBounds(boosterVisuals[0].gameObject);
+                for (var b = 1; b < boosterVisuals.Count; b++)
+                    boosterBounds.Encapsulate(CombinedBounds(boosterVisuals[b].gameObject));
+                Screenshot(mech, GrowBounds(boosterBounds, 1.6f),
+                    Path.Combine(ReportRoot, $"Closeup_{key}_Boosters_t{sampleTimes[i]:000}.png"));
             }
         }
 
@@ -642,6 +732,51 @@ public static class AC6SkinnedModularSampleBuilder
     {
         public string key;
         public int animationCount;
+    }
+
+    /// <summary>
+    /// Finds the muzzle / firing-direction dummy inside a weapon instance. AC6 weapons use
+    /// ref 10 for the primary muzzle; multi-tube back weapons use ref 300/200 series.
+    /// </summary>
+    private static Transform FindMuzzleTransform(Transform weaponRoot)
+    {
+        var transforms = weaponRoot.GetComponentsInChildren<Transform>(true);
+        foreach (var suffix in new[] { "_dmy_10", "_dmy_300", "_dmy_200" })
+        {
+            foreach (var candidate in transforms)
+            {
+                if (candidate.name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string GetTransformPath(Transform target, Transform root)
+    {
+        if (target == null)
+        {
+            return "<none>";
+        }
+
+        var path = target.name;
+        var current = target.parent;
+        while (current != null && current != root)
+        {
+            path = current.name + "/" + path;
+            current = current.parent;
+        }
+
+        return path;
+    }
+
+    private static Bounds GrowBounds(Bounds bounds, float factor)
+    {
+        bounds.size *= factor;
+        return bounds;
     }
 
     private static bool WithRawAssetInstance(string assetPath, string key, ValidationReport report, Func<GameObject, bool> check)
@@ -718,11 +853,12 @@ public static class AC6SkinnedModularSampleBuilder
         return ok;
     }
 
-    private static string ExpectedEquipmentMountSuffix(MechPartSlot slot)
+    private static string ExpectedEquipmentMountSuffix(MechPartSlot slot, MechPartDefinition part)
     {
         switch (slot)
         {
-            case MechPartSlot.LeftHandWeapon: return "_dmy_23";
+            case MechPartSlot.LeftHandWeapon:
+                return part != null && part.HasTag("melee") ? "_dmy_25" : "_dmy_23";
             case MechPartSlot.RightHandWeapon: return "_dmy_20";
             case MechPartSlot.LeftBackWeapon: return "_dmy_13";
             case MechPartSlot.RightBackWeapon: return "_dmy_14";
@@ -832,8 +968,10 @@ public static class AC6SkinnedModularSampleBuilder
         var specs = new[]
         {
             new NativeWeaponSpec("WP_L_0010", "Native Left Rifle 0010", MechPartSlot.LeftHandWeapon, "a000_040010", 4200f),
-            new NativeWeaponSpec("WP_L_0230", "Native Left Rifle 0230", MechPartSlot.LeftHandWeapon, "a000_040010", 4700f),
-            new NativeWeaponSpec("WP_L_0250", "Native Left Heavy Rifle 0250", MechPartSlot.LeftHandWeapon, "a000_040010", 6100f),
+            // 0230/0250 are melee: their FLVERs carry laserSFX / MainBrade bones and no -Z gun
+            // muzzle. AC6 mounts left melee weapons on the forearm dummy 25 (WepAbsorpPos 200).
+            new NativeWeaponSpec("WP_L_0230", "Native Left Laser Blade 0230", MechPartSlot.LeftHandWeapon, "a000_040010", 4700f, isMelee: true),
+            new NativeWeaponSpec("WP_L_0250", "Native Left Blade 0250", MechPartSlot.LeftHandWeapon, "a000_040010", 6100f, isMelee: true),
             new NativeWeaponSpec("WP_L_4210", "Native Left Plasma Missile 4210", MechPartSlot.LeftBackWeapon, "a000_800210", 4200f),
             new NativeWeaponSpec("WP_R_4210", "Native Right Plasma Missile 4210", MechPartSlot.RightBackWeapon, "a000_800210", 4200f),
             new NativeWeaponSpec("WP_R_4410", "Native Right Songbirds 4410", MechPartSlot.RightBackWeapon, "a000_800210", 5500f)
@@ -864,7 +1002,9 @@ public static class AC6SkinnedModularSampleBuilder
                     heatGenerationMw = 2f
                 },
                 Array.Empty<MechMountPointDefinition>(),
-                new[] { "weapon", "ac6-native", spec.Key.ToLowerInvariant() },
+                spec.IsMelee
+                    ? new[] { "weapon", "ac6-native", "melee", spec.Key.ToLowerInvariant() }
+                    : new[] { "weapon", "ac6-native", spec.Key.ToLowerInvariant() },
                 newVisualRigMode: MechVisualRigMode.MountedPrefab,
                 newEquipmentAnimations: actions,
                 newDefaultEquipmentActionId: SelectDefaultAction(actions, spec.PreferredActionId),
@@ -1008,20 +1148,24 @@ public static class AC6SkinnedModularSampleBuilder
     {
         // AC6 WepAbsorpPos prefixes select the source part: 2xxx = body/core,
         // 3xxx = arms. The remaining three digits are the FLVER dummy reference ID.
-        // DSAS NewChrAsm.DoWPN: for AC6 every weapon slot places the model at
-        // RotationX(pi) * dummyCurrentMatrix — one uniform 180-degree X flip, no per-slot or
-        // left/right variants. Encoded here as the mount's local rotation under the dummy node.
-        // Boosters have no DSAS reference implementation (AC6Booster_NotImlementedYet), so the
-        // nozzle mounts start at identity until the screenshots say otherwise.
-        var weaponInstallEuler = new Vector3(180f, 0f, 0f);
-
+        // Installation rotation is IDENTITY for every AC6 equipment slot. Evidence chain
+        // (2026-07-11, close-range regression after the RotationX(pi) attempt was refuted):
+        //  - The mech faces -Z in FromSoft model space (HD ref=14 camera dummy sits 6.66 in
+        //    front of the face at -Z looking back; eye SFX dummies fire -Z).
+        //  - Every measured muzzle fires -Z in its weapon's model space (WP_L_0010 dmy_10,
+        //    WP_R_4210 dmy_300/301/302, WP_R_4410 dmy_200/300; blade thrust of WP_L_0250 too).
+        //  - The mount dummies' CreateWorld frames are ~identity (forward -Z, up +Y).
+        //  So identity install aligns muzzle with mech forward; DSAS's RotationX(pi) belongs to
+        //  DSAS's own render convention and must NOT be replayed here.
+        // AC6 left-hand melee weapons use the forearm dummy 25 (WepAbsorpPos 200 -> 3025), not
+        // the palm dummy 23 (WepAbsorpPos 100 -> 3023); the mounts express that via tags.
         if (slot == MechPartSlot.Core)
         {
             return new[]
             {
-                Mount("Booster Nozzles", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_800", true, 10000f, Vector3.zero),
-                Mount("Left Back", MechPartSlot.LeftBackWeapon, MechHardpointType.BackWeapon, "_dmy_13", false, 10000f, weaponInstallEuler),
-                Mount("Right Back", MechPartSlot.RightBackWeapon, MechHardpointType.BackWeapon, "_dmy_14", false, 10000f, weaponInstallEuler)
+                Mount("Booster Nozzles", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_800", true, 10000f),
+                Mount("Left Back", MechPartSlot.LeftBackWeapon, MechHardpointType.BackWeapon, "_dmy_13", false, 10000f),
+                Mount("Right Back", MechPartSlot.RightBackWeapon, MechHardpointType.BackWeapon, "_dmy_14", false, 10000f)
             };
         }
 
@@ -1029,8 +1173,9 @@ public static class AC6SkinnedModularSampleBuilder
         {
             return new[]
             {
-                Mount("Left Hand", MechPartSlot.LeftHandWeapon, MechHardpointType.HandWeapon, "_dmy_23", false, 8000f, weaponInstallEuler),
-                Mount("Right Hand", MechPartSlot.RightHandWeapon, MechHardpointType.HandWeapon, "_dmy_20", false, 8000f, weaponInstallEuler)
+                Mount("Left Hand", MechPartSlot.LeftHandWeapon, MechHardpointType.HandWeapon, "_dmy_23", false, 8000f, blockedTags: new[] { "melee" }),
+                Mount("Left Melee", MechPartSlot.LeftHandWeapon, MechHardpointType.HandWeapon, "_dmy_25", false, 8000f, requiredTags: new[] { "melee" }),
+                Mount("Right Hand", MechPartSlot.RightHandWeapon, MechHardpointType.HandWeapon, "_dmy_20", false, 8000f)
             };
         }
 
@@ -1044,7 +1189,8 @@ public static class AC6SkinnedModularSampleBuilder
         string sourceTransformNameSuffix,
         bool matchAll,
         float maxMassKg,
-        Vector3 installEulerAngles)
+        string[] requiredTags = null,
+        string[] blockedTags = null)
     {
         return new MechMountPointDefinition
         {
@@ -1054,8 +1200,9 @@ public static class AC6SkinnedModularSampleBuilder
             maxMassKg = maxMassKg,
             sourceTransformNameSuffix = sourceTransformNameSuffix,
             matchAllSourceTransforms = matchAll,
-            localEulerAngles = installEulerAngles,
-            localScale = Vector3.one
+            localScale = Vector3.one,
+            requiredTags = requiredTags ?? Array.Empty<string>(),
+            blockedTags = blockedTags ?? Array.Empty<string>()
         };
     }
 
@@ -1291,11 +1438,13 @@ public static class AC6SkinnedModularSampleBuilder
             string displayName,
             MechPartSlot slot,
             string preferredActionId,
-            float massKg)
+            float massKg,
+            bool isMelee = false)
         {
             Key = key;
             DisplayName = displayName;
             Slot = slot;
+            IsMelee = isMelee;
             PreferredActionId = preferredActionId;
             MassKg = massKg;
         }
@@ -1303,6 +1452,7 @@ public static class AC6SkinnedModularSampleBuilder
         public string Key { get; }
         public string DisplayName { get; }
         public MechPartSlot Slot { get; }
+        public bool IsMelee { get; }
         public string PreferredActionId { get; }
         public float MassKg { get; }
     }
