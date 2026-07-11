@@ -18,19 +18,19 @@ public static class AC6RiggedMelanderPreviewBinder
     private const string ModelRootName = "_RiggedMelanderModel";
     private const string ExtraBonesRootName = "_RiggedMelanderExtraBones";
 
-    [MenuItem("Tools/ACunicombat/Animation/Attach Unified Skinned Melander To Original HKX Preview")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Attach Unified Skinned Melander To Original HKX Preview")]
     public static void AttachToOriginalHkxPreview()
     {
         AC6UnifiedSkinnedHkxPreviewImporter.CreateCleanPreview(true);
     }
 
-    [MenuItem("Tools/ACunicombat/Animation/Attach Rigged Melander Model To Original HKX Preview")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Attach Rigged Melander Model To Original HKX Preview")]
     public static void AttachLegacyMenuAlias()
     {
         AttachToOriginalHkxPreview();
     }
 
-    [MenuItem("Tools/ACunicombat/Animation/Diagnose Original HKX Model Preview")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Diagnose Original HKX Model Preview")]
     public static void DiagnoseOriginalHkxPreview()
     {
         var preview = GameObject.Find(ScenePreviewName);
@@ -182,7 +182,7 @@ public static class AC6RiggedMelanderPreviewBinder
         {
             EditorUtility.DisplayDialog(
                 "AC6 Rigged Melander",
-                $"HKX skeleton preview prefab was not found:\n{HkxPreviewPrefabPath}\n\nRun Tools/ACunicombat/Animation/Import AC6 Original HKX Sample first.",
+                $"HKX skeleton preview prefab was not found:\n{HkxPreviewPrefabPath}\n\nRun Tools/ACunicombat/Legacy/Animation/Import AC6 Original HKX Sample first.",
                 "OK");
             return null;
         }

@@ -13,7 +13,7 @@ public static class AC6BlendBakedPartsImporter
     private const string MaterialRoot = ExportRoot + "/UnityMaterials";
     private const string LoadoutPath = DataRoot + "/AC6_Blend_Baked_Melander_Loadout.asset";
 
-    [MenuItem("Tools/ACunicombat/Mech/Import AC6 Blend Baked Sample Parts")]
+    [MenuItem("Tools/ACunicombat/Legacy/Mech Imports/Import AC6 Blend Baked Sample Parts")]
     public static void ImportSampleParts()
     {
         if (!File.Exists(ProjectAbsolutePath(ManifestPath)))

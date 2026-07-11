@@ -45,7 +45,7 @@ public sealed class MechProceduralPoseAnimatorEditor : Editor
         }
     }
 
-    [MenuItem("Tools/ACunicombat/Animation/Add Procedural Pose Animator To Selected Mech")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Add Procedural Pose Animator To Selected Mech")]
     public static void AddToSelectedMech()
     {
         var selected = Selection.activeGameObject;

@@ -1,9 +1,39 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace ACunicombat.Mechs
 {
+    public enum MechVisualRigMode
+    {
+        MountedPrefab = 0,
+        SynchronizedSkinned = 10
+    }
+
+    [Serializable]
+    public sealed class MechEquipmentAnimationDefinition
+    {
+        [SerializeField] private string actionId;
+        [SerializeField] private AnimationClip clip;
+        [SerializeField] private bool loop;
+
+        public MechEquipmentAnimationDefinition()
+        {
+        }
+
+        public MechEquipmentAnimationDefinition(string newActionId, AnimationClip newClip, bool shouldLoop = false)
+        {
+            actionId = newActionId;
+            clip = newClip;
+            loop = shouldLoop;
+        }
+
+        public string ActionId => string.IsNullOrWhiteSpace(actionId) && clip != null ? clip.name : actionId;
+        public AnimationClip Clip => clip;
+        public bool Loop => loop;
+    }
+
     [CreateAssetMenu(menuName = "ACunicombat/Mech/Part Definition", fileName = "MechPartDefinition")]
     public sealed class MechPartDefinition : ScriptableObject
     {
@@ -17,10 +47,22 @@ namespace ACunicombat.Mechs
 
         [Header("Visual")]
         [SerializeField] private GameObject modelPrefab;
+        [SerializeField] private MechVisualRigMode visualRigMode = MechVisualRigMode.MountedPrefab;
+        [SerializeField] private AnimationClip skinnedAnimationClip;
+        [SerializeField] private MechPartSlot ancestorDriverSlot = MechPartSlot.None;
+        [FormerlySerializedAs("coreDrivenBoneNames")]
+        [SerializeField] private string[] ancestorDrivenBoneNames = Array.Empty<string>();
+        [SerializeField] private bool instantiateVisualAtAllMounts;
         [SerializeField] private Material[] materialOverrides = Array.Empty<Material>();
         [SerializeField] private Vector3 localPosition;
         [SerializeField] private Vector3 localEulerAngles;
         [SerializeField] private Vector3 localScale = Vector3.one;
+
+        [Header("Mounted Equipment Animation")]
+        [SerializeField] private List<MechEquipmentAnimationDefinition> equipmentAnimations =
+            new List<MechEquipmentAnimationDefinition>();
+        [SerializeField] private string defaultEquipmentActionId;
+        [SerializeField] private bool playDefaultEquipmentActionOnAssemble;
 
         [Header("Gameplay")]
         [SerializeField] private MechPartStats stats = new MechPartStats();
@@ -36,10 +78,19 @@ namespace ACunicombat.Mechs
         public string Manufacturer => manufacturer;
         public IReadOnlyList<string> Tags => tags;
         public GameObject ModelPrefab => modelPrefab;
+        public MechVisualRigMode VisualRigMode => visualRigMode;
+        public bool UsesSynchronizedSkinnedRig => visualRigMode == MechVisualRigMode.SynchronizedSkinned;
+        public AnimationClip SkinnedAnimationClip => skinnedAnimationClip;
+        public MechPartSlot AncestorDriverSlot => ancestorDriverSlot;
+        public IReadOnlyList<string> AncestorDrivenBoneNames => ancestorDrivenBoneNames;
+        public bool InstantiateVisualAtAllMounts => instantiateVisualAtAllMounts;
         public IReadOnlyList<Material> MaterialOverrides => materialOverrides;
         public Vector3 LocalPosition => localPosition;
         public Vector3 LocalEulerAngles => localEulerAngles;
         public Vector3 LocalScale => localScale == Vector3.zero ? Vector3.one : localScale;
+        public IReadOnlyList<MechEquipmentAnimationDefinition> EquipmentAnimations => equipmentAnimations;
+        public string DefaultEquipmentActionId => defaultEquipmentActionId;
+        public bool PlayDefaultEquipmentActionOnAssemble => playDefaultEquipmentActionOnAssemble;
         public MechPartStats Stats => stats;
         public IReadOnlyList<MechMountPointDefinition> MountPoints => mountPoints;
         public IReadOnlyList<MechPartSlot> RequiredInstalledSlots => requiredInstalledSlots;
@@ -87,16 +138,51 @@ namespace ACunicombat.Mechs
             MechPartStats newStats,
             IEnumerable<MechMountPointDefinition> newMountPoints,
             IEnumerable<string> newTags = null,
-            IEnumerable<Material> newMaterialOverrides = null)
+            IEnumerable<Material> newMaterialOverrides = null,
+            MechVisualRigMode newVisualRigMode = MechVisualRigMode.MountedPrefab,
+            AnimationClip newSkinnedAnimationClip = null,
+            MechPartSlot newAncestorDriverSlot = MechPartSlot.None,
+            IEnumerable<string> newAncestorDrivenBoneNames = null,
+            bool shouldInstantiateVisualAtAllMounts = false,
+            IEnumerable<MechEquipmentAnimationDefinition> newEquipmentAnimations = null,
+            string newDefaultEquipmentActionId = null,
+            bool shouldPlayDefaultEquipmentActionOnAssemble = false,
+            Vector3? newLocalPosition = null,
+            Vector3? newLocalEulerAngles = null,
+            Vector3? newLocalScale = null)
         {
             partId = newPartId;
             displayName = newDisplayName;
             slot = newSlot;
             category = newCategory;
             modelPrefab = newModelPrefab;
+            visualRigMode = newVisualRigMode;
+            skinnedAnimationClip = newSkinnedAnimationClip;
+            ancestorDriverSlot = newAncestorDriverSlot;
+            ancestorDrivenBoneNames = newAncestorDrivenBoneNames == null
+                ? Array.Empty<string>()
+                : new List<string>(newAncestorDrivenBoneNames).ToArray();
+            instantiateVisualAtAllMounts = shouldInstantiateVisualAtAllMounts;
             materialOverrides = newMaterialOverrides == null
                 ? Array.Empty<Material>()
                 : new List<Material>(newMaterialOverrides).ToArray();
+            equipmentAnimations = newEquipmentAnimations == null
+                ? new List<MechEquipmentAnimationDefinition>()
+                : new List<MechEquipmentAnimationDefinition>(newEquipmentAnimations);
+            defaultEquipmentActionId = newDefaultEquipmentActionId ?? string.Empty;
+            playDefaultEquipmentActionOnAssemble = shouldPlayDefaultEquipmentActionOnAssemble;
+            if (newLocalPosition.HasValue)
+            {
+                localPosition = newLocalPosition.Value;
+            }
+            if (newLocalEulerAngles.HasValue)
+            {
+                localEulerAngles = newLocalEulerAngles.Value;
+            }
+            if (newLocalScale.HasValue)
+            {
+                localScale = newLocalScale.Value;
+            }
             if (stats == null)
             {
                 stats = new MechPartStats();
@@ -106,7 +192,10 @@ namespace ACunicombat.Mechs
                 ? new List<MechMountPointDefinition>()
                 : new List<MechMountPointDefinition>(newMountPoints);
             tags = newTags == null ? Array.Empty<string>() : new List<string>(newTags).ToArray();
-            localScale = Vector3.one;
+            if (localScale == Vector3.zero)
+            {
+                localScale = Vector3.one;
+            }
             UnityEditor.EditorUtility.SetDirty(this);
         }
 #endif

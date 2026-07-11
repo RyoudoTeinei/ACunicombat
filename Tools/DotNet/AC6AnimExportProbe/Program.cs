@@ -53,6 +53,12 @@ if (args.Length > 2 && args[0].Equals("--extract-bnd", StringComparison.OrdinalI
     return 0;
 }
 
+if (args.Length > 2 && args[0].Equals("--extract-tpf", StringComparison.OrdinalIgnoreCase))
+{
+    ExtractTpf(args[1], args[2]);
+    return 0;
+}
+
 if (args.Length > 1 && args[0].Equals("--sections", StringComparison.OrdinalIgnoreCase))
 {
     DumpSections(args[1]);
@@ -68,6 +74,12 @@ if (args.Length > 1 && args[0].Equals("--read-compendium", StringComparison.Ordi
 if (args.Length > 3 && args[0].Equals("--make-compendium", StringComparison.OrdinalIgnoreCase))
 {
     MakeCompendium(args[1], args[2], args[3]);
+    return 0;
+}
+
+if (args.Length > 4 && args[0].Equals("--make-compendium-set", StringComparison.OrdinalIgnoreCase))
+{
+    MakeCompendiumSet(args.Skip(3).ToArray(), args[1], args[2]);
     return 0;
 }
 
@@ -212,6 +224,27 @@ static void ExtractBnd(string path, string outputDir, string[] idOrNameFilters)
     Console.WriteLine($"Extracted={extracted}");
 }
 
+static void ExtractTpf(string path, string outputDir)
+{
+    Directory.CreateDirectory(outputDir);
+    var tpf = SoulsFormats.TPF.Read(path);
+
+    foreach (var texture in tpf.Textures)
+    {
+        var name = Path.GetFileName(texture.Name);
+        if (string.IsNullOrWhiteSpace(name))
+            throw new InvalidDataException("TPF contains a texture without a name.");
+        if (!name.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+            name += ".dds";
+
+        var outputPath = Path.Combine(outputDir, name);
+        File.WriteAllBytes(outputPath, texture.Bytes);
+        Console.WriteLine($"{texture.Name} -> {outputPath} ({texture.Bytes.Length} bytes)");
+    }
+
+    Console.WriteLine($"Extracted={tpf.Textures.Count}");
+}
+
 static void DumpFlverSummary(string path)
 {
     var flver = SoulsFormats.FLVER2.Read(path);
@@ -232,7 +265,8 @@ static void DumpFlverSummary(string path)
         var materialName = mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count
             ? flver.Materials[mesh.MaterialIndex].Name
             : "<invalid>";
-        Console.WriteLine($"{i,4} node={mesh.NodeIndex,4} material={mesh.MaterialIndex,4} verts={mesh.Vertices.Count,6} boneIndices={mesh.BoneIndices.Count,4} useWeights={mesh.UseBoneWeights} mat={materialName}");
+        Console.WriteLine($"{i,4} node={mesh.NodeIndex,4} material={mesh.MaterialIndex,4} verts={mesh.Vertices.Count,6} " +
+            $"dynamic={mesh.Dynamic} boneIndices={mesh.BoneIndices.Count,4} useWeights={mesh.UseBoneWeights} mat={materialName}");
         if (mesh.BoneIndices.Count > 0)
         {
             var names = mesh.BoneIndices.Take(16)
@@ -244,6 +278,19 @@ static void DumpFlverSummary(string path)
         {
             var vertex = mesh.Vertices[0];
             Console.WriteLine($"      v0 pos={FormatVec3(vertex.Position)} bi={FormatBoneIndices(vertex.BoneIndices)} bw={FormatBoneWeights(vertex.BoneWeights)}");
+            var normalWBones = mesh.Vertices
+                .GroupBy(candidate => candidate.NormalW)
+                .OrderByDescending(group => group.Count())
+                .Take(12)
+                .Select(group =>
+                {
+                    var boneIndex = group.Key;
+                    var boneName = boneIndex >= 0 && boneIndex < flver.Nodes.Count
+                        ? flver.Nodes[boneIndex].Name
+                        : "<invalid>";
+                    return $"{boneIndex}:{boneName}={group.Count()}";
+                });
+            Console.WriteLine($"      normalW={string.Join(", ", normalWBones)}");
         }
     }
 }
@@ -468,15 +515,31 @@ static bool MatchesBinderFilter(SoulsFormats.BinderFileHeader file, string filte
 
 static void MakeCompendium(string animationPath, string typeSourcePath, string outputPath)
 {
-    var anim = File.ReadAllBytes(animationPath);
+    MakeCompendiumSet(new[] { animationPath }, typeSourcePath, outputPath);
+}
+
+static void MakeCompendiumSet(IReadOnlyList<string> tagfilePaths, string typeSourcePath, string outputPath)
+{
+    if (tagfilePaths == null || tagfilePaths.Count == 0)
+        throw new ArgumentException("At least one tagfile path is required.", nameof(tagfilePaths));
+
     var typeSource = File.ReadAllBytes(typeSourcePath);
+    var compendiumIds = new List<byte[]>();
+    var knownIds = new HashSet<string>(StringComparer.Ordinal);
+    for (var i = 0; i < tagfilePaths.Count; i++)
+    {
+        var path = tagfilePaths[i];
+        var tagfile = File.ReadAllBytes(path);
+        var tcrf = FindAscii(tagfile, "TCRF");
+        if (tcrf < 0)
+            throw new InvalidDataException($"No TCRF section found in {path}.");
 
-    var tcrf = FindAscii(anim, "TCRF");
-    if (tcrf < 0)
-        throw new InvalidDataException($"No TCRF section found in {animationPath}.");
-
-    var compendiumId = new byte[8];
-    Array.Copy(anim, tcrf + 4, compendiumId, 0, compendiumId.Length);
+        var compendiumId = new byte[8];
+        Array.Copy(tagfile, tcrf + 4, compendiumId, 0, compendiumId.Length);
+        var key = Convert.ToHexString(compendiumId);
+        if (knownIds.Add(key))
+            compendiumIds.Add(compendiumId);
+    }
 
     var typeMarker = FindAscii(typeSource, "TYPE");
     if (typeMarker < 4)
@@ -493,12 +556,15 @@ static void MakeCompendium(string animationPath, string typeSourcePath, string o
     using (new HkSectionWriter(writer, "TCM0", hasSubSections: true))
     {
         using (new HkSectionWriter(writer, "TCID", hasSubSections: false))
-            writer.Write(compendiumId);
+        {
+            for (var i = 0; i < compendiumIds.Count; i++)
+                writer.Write(compendiumIds[i]);
+        }
         writer.Write(typeSection);
     }
 
     Console.WriteLine($"Wrote {outputPath}");
-    Console.WriteLine($"  id={Convert.ToHexString(compendiumId)}");
+    Console.WriteLine($"  ids={string.Join(",", compendiumIds.Select(Convert.ToHexString))}");
     Console.WriteLine($"  typeSection=0x{typeSectionStart:X}+0x{typeSectionLength:X}");
 }
 

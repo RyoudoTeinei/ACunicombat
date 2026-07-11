@@ -31,7 +31,7 @@ public static class AC6OriginalHkxAnimationImporter
     private const int CompendiumBindId = 7000000;
     private const int AnimationBindId = 1000010900;
 
-    [MenuItem("Tools/ACunicombat/Animation/Import AC6 Original HKX Sample")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Import AC6 Original HKX Sample")]
     public static void ImportOriginalHkxSample()
     {
         EnsureFolder(ImportRoot);

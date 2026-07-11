@@ -25,13 +25,13 @@ public static class AC6UnifiedSkinnedHkxPreviewImporter
     private const string OldUnifiedPreviewName = SampleName + "_UnifiedSkinnedPreview_SCENE";
     private const string RestPoseDiagnosticPath = "Temp/AC6RigDiagnostics/unity_hkx_rest_model_report.json";
 
-    [MenuItem("Tools/ACunicombat/Animation/Create Clean Unified Skinned HKX Preview")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Create Clean Unified Skinned HKX Preview")]
     public static void CreateCleanPreviewMenu()
     {
         CreateCleanPreview(true);
     }
 
-    [MenuItem("Tools/ACunicombat/Animation/Diagnose HKX Rest Skinned Model")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Diagnose HKX Rest Skinned Model")]
     public static void DiagnoseModelRestPoseMenu()
     {
         DiagnoseModelRestPose(true);

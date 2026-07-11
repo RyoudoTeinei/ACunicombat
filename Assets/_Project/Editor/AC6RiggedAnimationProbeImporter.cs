@@ -12,7 +12,7 @@ public static class AC6RiggedAnimationProbeImporter
     private const string PreviewPrefabPath = AnimationRoot + "/AC6_C4201_TestAction_Preview.prefab";
     private const string ClipName = "AC6_C4201_Test_MechReady";
 
-    [MenuItem("Tools/ACunicombat/Animation/Import AC6 Rigged Test Animation")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Import AC6 Rigged Test Animation")]
     public static void ImportRiggedTestAnimation()
     {
         if (!File.Exists(ProjectAbsolutePath(FbxPath)))

@@ -50,7 +50,11 @@ try
             foreach (var d in part.Flver.Dummies)
             {
                 string BoneName(int idx) => idx >= 0 && idx < part.Flver.Nodes.Count ? part.Flver.Nodes[idx].Name : "<none>";
-                Console.WriteLine($"  ref={d.ReferenceID,5} pos=({d.Position.X:0.###},{d.Position.Y:0.###},{d.Position.Z:0.###}) attach={BoneName(d.AttachBoneIndex)} parent={BoneName(d.ParentBoneIndex)}");
+                Console.WriteLine(
+                    $"  ref={d.ReferenceID,5} pos=({d.Position.X:0.###},{d.Position.Y:0.###},{d.Position.Z:0.###}) " +
+                    $"fwd=({d.Forward.X:0.###},{d.Forward.Y:0.###},{d.Forward.Z:0.###}) " +
+                    $"up=({d.Upward.X:0.###},{d.Upward.Y:0.###},{d.Upward.Z:0.###}) useUp={d.UseUpwardVector} " +
+                    $"attach={BoneName(d.AttachBoneIndex)} parent={BoneName(d.ParentBoneIndex)} flag1={d.Flag1}");
             }
         }
         return 0;
@@ -63,12 +67,12 @@ try
         return 0;
 
     // ---- 3. Load optional animation --------------------------------------------------------
-    PoseJson? anim = options.AnimPath != null ? PoseJson.Load(options.AnimPath) : null;
-    if (anim != null)
-        Console.WriteLine($"Animation: {anim.AnimationName} frames={anim.ExportedFrameCount} duration={anim.Duration:0.###}s bones={anim.Bones.Count}");
+    var animations = options.AnimPaths.Select(PoseJson.Load).ToList();
+    foreach (var animation in animations)
+        Console.WriteLine($"Animation: {animation.AnimationName} frames={animation.ExportedFrameCount} duration={animation.Duration:0.###}s bones={animation.Bones.Count}");
 
     // ---- 4. Build glTF ----------------------------------------------------------------------
-    var glb = GltfBuilder.Build(merged, parts, anim, options);
+    var glb = GltfBuilder.Build(merged, parts, animations, options);
     File.WriteAllBytes(options.OutputPath!, glb);
     Console.WriteLine($"Wrote {options.OutputPath} ({glb.Length / 1024} KiB)");
     return 0;
@@ -95,6 +99,8 @@ static void WriteReport(string path, MergedSkeleton merged, List<PartModel> part
         {
             p.Name,
             MeshCount = p.Flver.Meshes.Count,
+            DynamicMeshCount = p.Flver.Meshes.Count(m => m.Dynamic != 0),
+            ReferenceSpaceMeshCount = p.Flver.Meshes.Count(m => m.Dynamic == 0),
             UsedBoneCount = p.UsedNodeIndices.Count,
             GraftedBones = p.GraftedBoneCount,
             VerifiedSharedBones = p.VerifiedBoneCount,
@@ -123,7 +129,7 @@ sealed class CliOptions
     public List<string> PartSkeletonPaths { get; } = new();
     public List<string> FlverPaths { get; } = new();
     public string? OutputPath { get; init; }
-    public string? AnimPath { get; init; }
+    public List<string> AnimPaths { get; } = new();
     public string? ReportPath { get; init; }
     public string? TexDir { get; init; }
     public bool VerifyOnly { get; init; }
@@ -132,7 +138,8 @@ sealed class CliOptions
 
     public static CliOptions? Parse(string[] args)
     {
-        string? baseSkeleton = null, output = null, anim = null, report = null, texDir = null;
+        string? baseSkeleton = null, output = null, report = null, texDir = null;
+        var animations = new List<string>();
         var partSkeletons = new List<string>();
         var flvers = new List<string>();
         bool verifyOnly = false, verbose = false, dumpDummies = false;
@@ -150,7 +157,7 @@ sealed class CliOptions
                 case "--part-skeleton-json": partSkeletons.Add(Val()); break;
                 case "--flver": flvers.Add(Val()); break;
                 case "--out": output = Val(); break;
-                case "--anim": anim = Val(); break;
+                case "--anim": animations.Add(Val()); break;
                 case "--report": report = Val(); break;
                 case "--tex-dir": texDir = Val(); break;
                 case "--verify-only": verifyOnly = true; break;
@@ -167,7 +174,6 @@ sealed class CliOptions
         {
             BaseSkeletonPath = baseSkeleton,
             OutputPath = output,
-            AnimPath = anim,
             ReportPath = report,
             TexDir = texDir,
             VerifyOnly = verifyOnly,
@@ -176,6 +182,7 @@ sealed class CliOptions
         };
         opts.PartSkeletonPaths.AddRange(partSkeletons);
         opts.FlverPaths.AddRange(flvers);
+        opts.AnimPaths.AddRange(animations);
         return opts;
     }
 
@@ -183,7 +190,7 @@ sealed class CliOptions
     {
         Console.Error.WriteLine("Usage: AC6PartToGltf --skeleton-json c0000_skeleton.json [--part-skeleton-json skel_lg.json ...]");
         Console.Error.WriteLine("           --flver LG_M_1010.flver [--flver ...] --out out.glb");
-        Console.Error.WriteLine("           [--anim pose.json] [--tex-dir pngDir] [--report report.json] [--verify-only] [--verbose]");
+        Console.Error.WriteLine("           [--anim pose.json ...] [--tex-dir pngDir] [--report report.json] [--verify-only] [--verbose]");
     }
 }
 
@@ -391,10 +398,30 @@ sealed class PartModel
                         if (v.BoneWeights[i] > 0 && v.BoneIndices[i] >= 0 && v.BoneIndices[i] < flver.Nodes.Count)
                             part.UsedNodeIndices.Add(v.BoneIndices[i]);
             }
-            else if (mesh.NodeIndex >= 0)
+            else
             {
-                part.UsedNodeIndices.Add(mesh.NodeIndex);
+                var foundNormalWBone = false;
+                foreach (var vertex in mesh.Vertices)
+                {
+                    var boneIndex = vertex.NormalW;
+                    if (boneIndex < 0 || boneIndex >= flver.Nodes.Count)
+                        continue;
+
+                    part.UsedNodeIndices.Add(boneIndex);
+                    foundNormalWBone = true;
+                }
+
+                if (!foundNormalWBone && mesh.NodeIndex >= 0)
+                    part.UsedNodeIndices.Add(mesh.NodeIndex);
             }
+        }
+
+        // Dummy transforms follow ParentBoneIndex in AC6. Include those bones even when no mesh
+        // vertex references them so socket nodes can remain under the animated hierarchy.
+        foreach (var dummy in flver.Dummies)
+        {
+            if (dummy.ParentBoneIndex >= 0 && dummy.ParentBoneIndex < flver.Nodes.Count)
+                part.UsedNodeIndices.Add(dummy.ParentBoneIndex);
         }
 
         // Map used FLVER nodes onto the merged skeleton; graft chains for part-local bones.
@@ -468,7 +495,7 @@ sealed class PartModel
 
 static class GltfBuilder
 {
-    public static byte[] Build(MergedSkeleton merged, List<PartModel> parts, PoseJson? anim, CliOptions options)
+    public static byte[] Build(MergedSkeleton merged, List<PartModel> parts, IReadOnlyList<PoseJson> sourceAnimations, CliOptions options)
     {
         var bin = new BinWriter();
         var accessors = new List<object>();
@@ -528,15 +555,35 @@ static class GltfBuilder
         for (var i = 0; i < jointCount; i++)
             WriteMatrix(ibmBytes.AsSpan(i * 64), ibms[i]);
         var ibmView = bin.AddBufferView(ibmBytes, bufferViews, null);
-        var ibmAccessor = accessors.Count;
+        var deformIbmAccessor = accessors.Count;
         accessors.Add(new Dictionary<string, object>
         {
             ["bufferView"] = ibmView, ["componentType"] = 5126, ["count"] = jointCount, ["type"] = "MAT4",
         });
-        var skinIndex = 0;
+
+        // FLVER mesh.Dynamic has a material-space consequence, not just an optimization flag.
+        // Dynamic meshes store model-space vertices and use currentGlobal * inverseBind. Static
+        // (Dynamic == 0) meshes store vertices in bone-local space and use currentGlobal directly.
+        // glTF places the inverse bind matrix on the skin, so both representations need separate
+        // skins over the same joints. This matches DSAnimStudio's ShaderMatricesNew versus
+        // ShaderMatricesNew_RefPose paths and preserves weapon-part animation without scale blowups.
+        var identityIbmBytes = new byte[jointCount * 64];
+        for (var i = 0; i < jointCount; i++)
+            WriteMatrix(identityIbmBytes.AsSpan(i * 64), Matrix4x4.Identity);
+        var identityIbmView = bin.AddBufferView(identityIbmBytes, bufferViews, null);
+        var referenceIbmAccessor = accessors.Count;
+        accessors.Add(new Dictionary<string, object>
+        {
+            ["bufferView"] = identityIbmView, ["componentType"] = 5126, ["count"] = jointCount, ["type"] = "MAT4",
+        });
+
+        const int deformSkinIndex = 0;
+        const int referenceSpaceSkinIndex = 1;
+        var skinJoints = Enumerable.Range(0, jointCount).ToList();
         var skins = new List<object>
         {
-            new { inverseBindMatrices = ibmAccessor, joints = Enumerable.Range(0, jointCount).ToList(), skeleton = rootBoneIndices[0] },
+            new { name = "AC6_DeformSkin", inverseBindMatrices = deformIbmAccessor, joints = skinJoints, skeleton = rootBoneIndices[0] },
+            new { name = "AC6_ReferenceSpaceSkin", inverseBindMatrices = referenceIbmAccessor, joints = skinJoints, skeleton = rootBoneIndices[0] },
         };
 
         // ---- Textures ------------------------------------------------------------------------
@@ -618,7 +665,7 @@ static class GltfBuilder
                     ["doubleSided"] = true,
                     ["extras"] = new Dictionary<string, object>
                     {
-                        ["mtd"] = mat.MTD,
+                        ["mtd"] = mat.MTD ?? string.Empty,
                         ["textures"] = mat.Textures.Where(t => !string.IsNullOrWhiteSpace(t.Path))
                             .ToDictionary(t => t.ParamName, t => (object)Path.GetFileName(t.Path)),
                     },
@@ -638,32 +685,66 @@ static class GltfBuilder
                 materials.Add(m);
             }
 
-            var primitives = new List<object>();
+            var deformPrimitives = new List<object>();
+            var referenceSpacePrimitives = new List<object>();
             foreach (var mesh in part.Flver.Meshes)
             {
                 var prim = BuildPrimitive(part, mesh, bin, accessors, bufferViews, materialBase);
                 if (prim != null)
-                    primitives.Add(prim);
+                {
+                    if (mesh.Dynamic == 0)
+                        referenceSpacePrimitives.Add(prim);
+                    else
+                        deformPrimitives.Add(prim);
+                }
             }
 
-            meshes.Add(new { name = part.Name, primitives });
-            var meshNode = new Dictionary<string, object> { ["name"] = part.Name + "_mesh", ["mesh"] = meshes.Count - 1, ["skin"] = skinIndex };
-            nodes.Add(meshNode);
-            meshNodes.Add(nodes.Count - 1);
+            void AddMeshNode(List<object> primitives, string kind, int skinIndex)
+            {
+                if (primitives.Count == 0)
+                    return;
 
-            // Dummy polys become socket nodes parented to their attach bone (model-space position
-            // re-expressed in bone space), so Unity-side assembly can use them as mount points.
+                var hasBothRepresentations = deformPrimitives.Count > 0 && referenceSpacePrimitives.Count > 0;
+                var suffix = hasBothRepresentations ? "_" + kind : string.Empty;
+                meshes.Add(new { name = part.Name + suffix, primitives });
+                var meshNode = new Dictionary<string, object>
+                {
+                    ["name"] = part.Name + suffix + "_mesh",
+                    ["mesh"] = meshes.Count - 1,
+                    ["skin"] = skinIndex,
+                    ["extras"] = new Dictionary<string, object>
+                    {
+                        ["ac6FlverMeshSpace"] = kind,
+                    },
+                };
+                nodes.Add(meshNode);
+                meshNodes.Add(nodes.Count - 1);
+            }
+
+            AddMeshNode(deformPrimitives, "Dynamic", deformSkinIndex);
+            AddMeshNode(referenceSpacePrimitives, "ReferenceSpace", referenceSpaceSkinIndex);
+
+            // FLVER dummy position/orientation are authored in model space. Re-express that
+            // complete socket transform under AttachBoneIndex so glTF preserves its rest pose
+            // while the socket follows the animated attachment bone.
             foreach (var dummy in part.Flver.Dummies)
             {
-                var attachIndex = dummy.AttachBoneIndex >= 0 ? dummy.AttachBoneIndex : dummy.ParentBoneIndex;
-                var local = Matrix4x4.CreateTranslation(dummy.Position);
+                var attachIndex = dummy.AttachBoneIndex >= 0
+                    ? dummy.AttachBoneIndex
+                    : dummy.ParentBoneIndex;
+                var forward = SafeNormalize(dummy.Forward, -Vector3.UnitZ);
+                var upward = dummy.UseUpwardVector
+                    ? SafeNormalize(dummy.Upward, Vector3.UnitY)
+                    : Vector3.UnitY;
+                var local = Matrix4x4.CreateWorld(Vector3.Zero, forward, upward)
+                    * Matrix4x4.CreateTranslation(dummy.Position);
                 var parentBone = -1;
                 if (attachIndex >= 0 && attachIndex < part.Flver.Nodes.Count
                     && merged.ByName.TryGetValue(part.Flver.Nodes[attachIndex].Name, out var mIdx))
                 {
                     parentBone = mIdx;
-                    if (Matrix4x4.Invert(part.FlverGlobals[attachIndex], out var invBone))
-                        local = Matrix4x4.CreateTranslation(dummy.Position) * invBone;
+                    if (Matrix4x4.Invert(part.FlverGlobals[attachIndex], out var inverseAttachBind))
+                        local *= inverseAttachBind;
                 }
 
                 Matrix4x4.Decompose(local, out _, out var rq, out var tv);
@@ -671,6 +752,13 @@ static class GltfBuilder
                 {
                     ["name"] = $"{part.Name}_dmy_{dummy.ReferenceID}",
                     ["translation"] = new[] { tv.X, tv.Y, tv.Z },
+                    ["rotation"] = new[] { rq.X, rq.Y, rq.Z, rq.W },
+                    ["extras"] = new Dictionary<string, object>
+                    {
+                        ["ac6DummyReferenceId"] = dummy.ReferenceID,
+                        ["ac6AttachBoneIndex"] = dummy.AttachBoneIndex,
+                        ["ac6ParentBoneIndex"] = dummy.ParentBoneIndex,
+                    },
                 };
                 nodes.Add(dn);
                 var dummyNodeIndex = nodes.Count - 1;
@@ -690,8 +778,11 @@ static class GltfBuilder
 
         // ---- Animation ---------------------------------------------------------------------
         var animations = new List<object>();
-        if (anim != null && anim.Frames.Count > 0)
-            animations.Add(BuildAnimation(anim, merged, bin, accessors, bufferViews));
+        foreach (var animation in sourceAnimations)
+        {
+            if (animation.Frames.Count > 0)
+                animations.Add(BuildAnimation(animation, merged, bin, accessors, bufferViews));
+        }
 
         // ---- Assemble JSON -------------------------------------------------------------------
         var sceneNodes = rootBoneIndices.Concat(meshNodes).ToList();
@@ -740,13 +831,20 @@ static class GltfBuilder
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
 
-        // Rigid meshes store vertices in the space of their node; bake them to model space so a
-        // single shared skin (IBM = inverse bind global) works for every primitive.
+        // Dynamic rigid meshes store vertices in the space of their node; bake them to model space
+        // for the deform skin. Dynamic == 0 meshes intentionally remain in bone-local space and
+        // use the separate identity-IBM skin created above.
+        var usesNormalWBones = !mesh.UseBoneWeights && verts.Any(vertex =>
+            vertex.NormalW >= 0 && vertex.NormalW < part.Flver.Nodes.Count &&
+            part.FlverToMerged.ContainsKey(vertex.NormalW));
         var rigidTransform = Matrix4x4.Identity;
-        var isRigid = !mesh.UseBoneWeights && mesh.NodeIndex >= 0 && mesh.NodeIndex < part.FlverGlobals.Length;
+        var isRigid = mesh.Dynamic != 0 && !mesh.UseBoneWeights && !usesNormalWBones &&
+            mesh.NodeIndex >= 0 && mesh.NodeIndex < part.FlverGlobals.Length;
         if (isRigid)
             rigidTransform = part.FlverGlobals[mesh.NodeIndex];
 
+        var jointScratch = new ushort[4];
+        var weightScratch = new float[4];
         for (var i = 0; i < vcount; i++)
         {
             var v = verts[i];
@@ -770,8 +868,10 @@ static class GltfBuilder
             BitConverter.TryWriteBytes(uv.AsSpan(i * 8 + 4), texcoord.Y);
 
             // Joints/weights
-            Span<ushort> j = stackalloc ushort[4];
-            Span<float> w = stackalloc float[4];
+            Array.Clear(jointScratch);
+            Array.Clear(weightScratch);
+            var j = jointScratch.AsSpan();
+            var w = weightScratch.AsSpan();
             if (mesh.UseBoneWeights)
             {
                 float total = 0;
@@ -790,6 +890,10 @@ static class GltfBuilder
                     for (var k = 0; k < 4; k++) w[k] /= total;
                 else if (part.FlverToMerged.TryGetValue(mesh.NodeIndex, out var fallback))
                 { j[0] = (ushort)fallback; w[0] = 1; }
+            }
+            else if (usesNormalWBones && part.FlverToMerged.TryGetValue(v.NormalW, out var normalWBone))
+            {
+                j[0] = (ushort)normalWBone; w[0] = 1;
             }
             else if (part.FlverToMerged.TryGetValue(mesh.NodeIndex, out var rigid))
             {
@@ -865,6 +969,9 @@ static class GltfBuilder
         return result;
     }
 
+    static Vector3 SafeNormalize(Vector3 value, Vector3 fallback)
+        => value.LengthSquared() > 1e-8f ? Vector3.Normalize(value) : fallback;
+
     static object BuildAnimation(PoseJson anim, MergedSkeleton merged, BinWriter bin, List<object> accessors, List<object> bufferViews)
     {
         var frameCount = anim.Frames.Count;
@@ -892,32 +999,37 @@ static class GltfBuilder
             if (!merged.ByName.TryGetValue(anim.Bones[b].Name, out var nodeIndex))
                 continue;
 
-            // A translation track that never moves is just the source skeleton's rest pose; the
-            // merged skeleton may have different (part-specific) bone lengths, so only emit
-            // translation channels for genuinely animated bones.
-            var t0 = anim.Frames[0].LocalTransforms[b].T;
-            var translationAnimated = false;
-            var r0 = anim.Frames[0].LocalTransforms[b].R;
-            var rotationAnimated = false;
-            for (var f = 1; f < frameCount && (!translationAnimated || !rotationAnimated); f++)
+            // HKX values are absolute local transforms for the animation source skeleton. AC6
+            // frame parts carry their own bind-pose bone lengths, so writing those values directly
+            // makes mixed loadouts separate at animated translation tracks. Retarget every sample
+            // as a delta from the animation reference pose, applied to this GLB's merged rest pose.
+            var sourceRest = anim.Bones[b].ReferenceLocalTransform;
+            var targetRest = merged.Bones[nodeIndex];
+            var translationRequired = false;
+            var rotationRequired = false;
+            var scaleRequired = false;
+            for (var f = 0; f < frameCount; f++)
             {
                 var tr = anim.Frames[f].LocalTransforms[b];
-                if ((tr.T - t0).Length() > 1e-4f) translationAnimated = true;
-                if (MathF.Abs(Quaternion.Dot(tr.R, r0)) < 1f - 1e-6f) rotationAnimated = true;
+                if ((tr.T - sourceRest.T).Length() > 1e-4f) translationRequired = true;
+                if (MathF.Abs(Quaternion.Dot(tr.R, sourceRest.R)) < 1f - 1e-6f) rotationRequired = true;
+                if ((tr.S - sourceRest.S).Length() > 1e-4f) scaleRequired = true;
             }
 
             var tBytes = new byte[frameCount * 12];
             var rBytes = new byte[frameCount * 16];
+            var sBytes = new byte[frameCount * 12];
             var prev = Quaternion.Identity;
             for (var f = 0; f < frameCount; f++)
             {
                 var tr = anim.Frames[f].LocalTransforms[b];
-                var t = tr.T;
+                var t = targetRest.T + (tr.T - sourceRest.T);
                 BitConverter.TryWriteBytes(tBytes.AsSpan(f * 12), t.X);
                 BitConverter.TryWriteBytes(tBytes.AsSpan(f * 12 + 4), t.Y);
                 BitConverter.TryWriteBytes(tBytes.AsSpan(f * 12 + 8), t.Z);
 
-                var q = tr.R;
+                var rotationDelta = Quaternion.Normalize(tr.R * Quaternion.Inverse(sourceRest.R));
+                var q = Quaternion.Normalize(rotationDelta * targetRest.R);
                 if (f > 0 && Quaternion.Dot(q, prev) < 0)
                     q = new Quaternion(-q.X, -q.Y, -q.Z, -q.W);
                 prev = q;
@@ -925,9 +1037,19 @@ static class GltfBuilder
                 BitConverter.TryWriteBytes(rBytes.AsSpan(f * 16 + 4), q.Y);
                 BitConverter.TryWriteBytes(rBytes.AsSpan(f * 16 + 8), q.Z);
                 BitConverter.TryWriteBytes(rBytes.AsSpan(f * 16 + 12), q.W);
+
+                var sourceScale = sourceRest.S;
+                var scaleDelta = new Vector3(
+                    MathF.Abs(sourceScale.X) > 1e-6f ? tr.S.X / sourceScale.X : 1f,
+                    MathF.Abs(sourceScale.Y) > 1e-6f ? tr.S.Y / sourceScale.Y : 1f,
+                    MathF.Abs(sourceScale.Z) > 1e-6f ? tr.S.Z / sourceScale.Z : 1f);
+                var scale = targetRest.S * scaleDelta;
+                BitConverter.TryWriteBytes(sBytes.AsSpan(f * 12), scale.X);
+                BitConverter.TryWriteBytes(sBytes.AsSpan(f * 12 + 4), scale.Y);
+                BitConverter.TryWriteBytes(sBytes.AsSpan(f * 12 + 8), scale.Z);
             }
 
-            if (translationAnimated)
+            if (translationRequired)
             {
                 var tView = bin.AddBufferView(tBytes, bufferViews, null);
                 accessors.Add(new Dictionary<string, object> { ["bufferView"] = tView, ["componentType"] = 5126, ["count"] = frameCount, ["type"] = "VEC3" });
@@ -935,12 +1057,20 @@ static class GltfBuilder
                 channels.Add(new { sampler = samplers.Count - 1, target = new { node = nodeIndex, path = "translation" } });
             }
 
-            if (rotationAnimated)
+            if (rotationRequired)
             {
                 var rView = bin.AddBufferView(rBytes, bufferViews, null);
                 accessors.Add(new Dictionary<string, object> { ["bufferView"] = rView, ["componentType"] = 5126, ["count"] = frameCount, ["type"] = "VEC4" });
                 samplers.Add(new { input = timeAcc, output = accessors.Count - 1, interpolation = "LINEAR" });
                 channels.Add(new { sampler = samplers.Count - 1, target = new { node = nodeIndex, path = "rotation" } });
+            }
+
+            if (scaleRequired)
+            {
+                var sView = bin.AddBufferView(sBytes, bufferViews, null);
+                accessors.Add(new Dictionary<string, object> { ["bufferView"] = sView, ["componentType"] = 5126, ["count"] = frameCount, ["type"] = "VEC3" });
+                samplers.Add(new { input = timeAcc, output = accessors.Count - 1, interpolation = "LINEAR" });
+                channels.Add(new { sampler = samplers.Count - 1, target = new { node = nodeIndex, path = "scale" } });
             }
         }
 

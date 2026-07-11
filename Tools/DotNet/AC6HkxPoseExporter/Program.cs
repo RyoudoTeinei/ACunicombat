@@ -20,8 +20,13 @@ if (options == null)
     return 2;
 }
 
-var animationCompendiumBytes = options.CompendiumPath != null ? File.ReadAllBytes(options.CompendiumPath) : null;
-var skeletonHkx = HKX.GenFakeFromTagFile(File.ReadAllBytes(options.SkeletonPath), animationCompendiumBytes);
+var skeletonCompendiumBytes = options.SkeletonCompendiumPath != null
+    ? File.ReadAllBytes(options.SkeletonCompendiumPath)
+    : null;
+var animationCompendiumBytes = options.AnimationCompendiumPath != null
+    ? File.ReadAllBytes(options.AnimationCompendiumPath)
+    : null;
+var skeletonHkx = HKX.GenFakeFromTagFile(File.ReadAllBytes(options.SkeletonPath), skeletonCompendiumBytes);
 
 if (options.DumpObjects)
 {
@@ -37,7 +42,7 @@ if (options.SkeletonOnly)
     var skeletonExport = new PoseExport
     {
         SourceSkeleton = options.SkeletonPath,
-        SourceCompendium = options.CompendiumPath,
+        SourceSkeletonCompendium = options.SkeletonCompendiumPath,
         AnimationName = "SkeletonOnly",
         Duration = 0,
         FrameDuration = 0,
@@ -73,7 +78,8 @@ var export = new PoseExport
 {
     SourceSkeleton = options.SkeletonPath,
     SourceAnimation = options.AnimationPath,
-    SourceCompendium = options.CompendiumPath,
+    SourceSkeletonCompendium = options.SkeletonCompendiumPath,
+    SourceAnimationCompendium = options.AnimationCompendiumPath,
     AnimationName = animationData.Name,
     Duration = animationData.Duration,
     FrameDuration = animationData.FrameDuration,
@@ -197,7 +203,8 @@ sealed class CliOptions
     public required string SkeletonPath { get; init; }
     public string? AnimationPath { get; init; }
     public required string OutputPath { get; init; }
-    public string? CompendiumPath { get; init; }
+    public string? SkeletonCompendiumPath { get; init; }
+    public string? AnimationCompendiumPath { get; init; }
     public long AnimationId { get; init; }
     public int? MaxFrames { get; init; }
     public bool Pretty { get; init; }
@@ -210,6 +217,8 @@ sealed class CliOptions
         string? animation = null;
         string? output = null;
         string? compendium = null;
+        string? skeletonCompendium = null;
+        string? animationCompendium = null;
         long animationId = 0;
         int? maxFrames = null;
         var pretty = false;
@@ -241,6 +250,13 @@ sealed class CliOptions
                 case "--compendium":
                     compendium = RequireValue();
                     break;
+                case "--skeleton-compendium":
+                    skeletonCompendium = RequireValue();
+                    break;
+                case "--animation-compendium":
+                case "--anim-compendium":
+                    animationCompendium = RequireValue();
+                    break;
                 case "--id":
                     animationId = long.Parse(RequireValue());
                     break;
@@ -269,7 +285,12 @@ sealed class CliOptions
             SkeletonPath = Path.GetFullPath(skeleton),
             AnimationPath = animation != null ? Path.GetFullPath(animation) : null,
             OutputPath = output != null ? Path.GetFullPath(output) : "",
-            CompendiumPath = compendium != null ? Path.GetFullPath(compendium) : null,
+            SkeletonCompendiumPath = skeletonCompendium != null
+                ? Path.GetFullPath(skeletonCompendium)
+                : compendium != null ? Path.GetFullPath(compendium) : null,
+            AnimationCompendiumPath = animationCompendium != null
+                ? Path.GetFullPath(animationCompendium)
+                : compendium != null ? Path.GetFullPath(compendium) : null,
             AnimationId = animationId,
             MaxFrames = maxFrames,
             Pretty = pretty,
@@ -281,9 +302,10 @@ sealed class CliOptions
     public static void PrintUsage()
     {
         Console.Error.WriteLine("Usage:");
-        Console.Error.WriteLine("  AC6HkxPoseExporter --skeleton Skeleton.hkx --anim a000_000000.hkx --out pose.json [--compendium c0000.hkx] [--max-frames 30] [--pretty]");
-        Console.Error.WriteLine("  AC6HkxPoseExporter --skeleton Skeleton.hkx --skeleton-only --out skeleton.json [--compendium c0000.hkx] [--pretty]");
-        Console.Error.WriteLine("  AC6HkxPoseExporter --skeleton Skeleton.hkx --dump-objects [--compendium c0000.hkx]");
+        Console.Error.WriteLine("  AC6HkxPoseExporter --skeleton Skeleton.hkx --anim a000_000000.hkx --out pose.json [--skeleton-compendium skeleton.compendium] [--animation-compendium animation.compendium] [--max-frames 30] [--pretty]");
+        Console.Error.WriteLine("  AC6HkxPoseExporter --skeleton Skeleton.hkx --skeleton-only --out skeleton.json [--skeleton-compendium skeleton.compendium] [--pretty]");
+        Console.Error.WriteLine("  AC6HkxPoseExporter --skeleton Skeleton.hkx --dump-objects [--skeleton-compendium skeleton.compendium]");
+        Console.Error.WriteLine("  --compendium remains as a legacy shorthand for both compendium arguments.");
     }
 }
 
@@ -291,7 +313,8 @@ sealed class PoseExport
 {
     public string? SourceSkeleton { get; init; }
     public string? SourceAnimation { get; init; }
-    public string? SourceCompendium { get; init; }
+    public string? SourceSkeletonCompendium { get; init; }
+    public string? SourceAnimationCompendium { get; init; }
     public string? AnimationName { get; init; }
     public float Duration { get; init; }
     public float FrameDuration { get; init; }

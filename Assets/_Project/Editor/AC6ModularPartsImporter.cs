@@ -12,7 +12,7 @@ public static class AC6ModularPartsImporter
     private const string DataRoot = "Assets/_Project/Data/Mechs/AC6ImportedSamples";
     private const string LoadoutPath = DataRoot + "/AC6_Modular_Test_Loadout.asset";
 
-    [MenuItem("Tools/ACunicombat/Mech/Import AC6 Modular Sample Parts")]
+    [MenuItem("Tools/ACunicombat/Legacy/Mech Imports/Import AC6 Modular Sample Parts")]
     public static void ImportSampleParts()
     {
         if (!Directory.Exists(SourceRoot))

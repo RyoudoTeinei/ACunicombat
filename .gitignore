@@ -107,8 +107,8 @@ InitTestScene*.unity*
 # Auto-generated scenes by play mode tests
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
 
-# Generated experimental preview materials. The current importer uses the shared
-# baked materials under Assets/_Project/ImportedFromBlend/MELANDER_1010 instead.
+# Generated experimental preview materials from the retired Blender-era pipeline.
+# The current native FLVER/HKX/DDS pipeline does not reference these assets.
 /Assets/_Project/ImportedFromGame/Animations/*/HkxRestPreviewMaterials/
 /Assets/_Project/ImportedFromGame/Animations/*/HkxRestPreviewMaterials.meta
 
@@ -124,6 +124,14 @@ InitTestScene*.unity*
 /Assets/_Project/LocalSamples/AC6MelanderCase/Generated.meta
 /Assets/_Project/LocalSamples/AC6MelanderCase/Reports/
 /Assets/_Project/LocalSamples/AC6MelanderCase/Reports.meta
+
+# Local skinned modular loadout samples generated from the user's own AC6 files.
+/Assets/_Project/LocalSamples/AC6SkinnedModular/Raw/
+/Assets/_Project/LocalSamples/AC6SkinnedModular/Raw.meta
+/Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/
+/Assets/_Project/LocalSamples/AC6SkinnedModular/Generated.meta
+/Assets/_Project/LocalSamples/AC6SkinnedModular/Reports/
+/Assets/_Project/LocalSamples/AC6SkinnedModular/Reports.meta
 
 # Local game asset copies and pipeline outputs derived from them. Never commit.
 /Resources/

@@ -1,7 +1,7 @@
 # AC6 生素材 → Unity 导入管线
 
-日期:2026-07-10
-状态:管线级验证全部通过(Melander 1010 全套 + 三把武器,骨架/蒙皮/贴图/动画在 Blender 与 Unity 双端确认)。
+日期:2026-07-11
+状态:管线级验证全部通过(Melander 1010 + 2010 + 3010 共 12 个蒙皮部件、5 套原装/混搭 Loadout、每套三个推进器喷口和三件可见武器)。
 
 本文档描述当前实现、工具接口、数据格式,以及在一台新机器上复现整条管线的步骤。
 
@@ -9,13 +9,13 @@
 
 以下事实均已用真实数据数值验证,不是假设:
 
-1. **每个部件的 `skeleton.hkx` 与 c0000 基础骨架同名同拓扑,只有骨长不同。**
-   把各部件 skeleton.hkx 按名覆盖到 c0000 骨架上 = 装配骨架(Melander 1010 全套合并后 219 骨,重叠覆盖 0 冲突)。**不需要"重建骨架"。**
+1. **每个部件的 `skeleton.hkx` 使用同一套 c0000 动画骨命名,但参考姿势会随部件改变。**
+   同型号套装内部可按名合并(1010/2010/3010 各自都是 0 冲突);任意跨型号混搭不能强压成一套静态骨架。实测两套混搭出现 13–14 个共同骨冲突,最坏绑定错位约 1.16m。正确做法是每个部件保留原骨架和权重,由同一时间轴同步驱动。**不需要重建骨架或迁移权重。**
 2. **部件 FLVER 的绑定姿态与合并骨架的全局姿态严格一致**(实测最大误差 1.1mm / 0.04°,浮点噪声级)。
    因此 `bindpose = inverse(合并骨架全局矩阵)` 直接可用,顶点权重原封不动。**不需要权重迁移。**
-3. **HKX 动画的 local TRS 轨道直接驱动这套骨架**,不需要 retarget。
-   注意:动画中静止不动的平移轨道等于"动画录制时那套骨架的骨长",导出时**跳过静止平移轨道**,让部件自己的骨长生效(工具已实现)。
-4. **Blender 完全退出几何/骨架管线**,只在需要烘焙材质时作为贴图生成器(可选)。
+3. **HKX 动画按 reference pose 转为 delta 后驱动每个部件自己的骨架。**
+   平移为 `部件静止位置 + (动画位置 - 动画参考位置)`;旋转为 `动画旋转差 × 部件静止旋转`;缩放同理。每个部件得到同长度、同动作但适配自身 bind pose 的 Clip。Unity 用一个 `MechSynchronizedAnimationPlayer` 同步所有部件 Playable。
+4. **Blender 烘焙管线已彻底停用。** 几何、原权重、骨架、动作、挂点和 DDS 贴图都直接来自 FLVER/HKX/DDS;当前换装样例不得引用 `ImportedFromBlend`、`AC6RawBakedWeapons` 或由旧导入器生成的 Unity 材质。
 5. 坐标系纪律:FromSoft 与 glTF 同为右手 Y-up,**全管线零轴转换**;Unity 侧由 glTF 导入器统一做 RH→LH。任何地方都不要再加轴转换/镜像。
 
 ## 二、管线总览
@@ -23,8 +23,10 @@
 ```
 游戏原始档 / 社区解包资源
   ├─ parts/xx_m_NNNN/  ── *.flver(模型+权重+绑定) + skeleton.hkx(部件骨架) + *.dds(贴图) + a000_8xxxxx.hkx(部件动画)
-  ├─ wp/wp_NNNN/       ── 武器同上
-  └─ chr/c0000*.anibnd.dcx ── Skeleton.hkx + 动画hkx + a000_XX.compendium + TAE(事件)
+  ├─ wp/wp_NNNN/       ── 武器 FLVER + DDS
+  ├─ parts/wp_*.partsbnd.dcx / bs_*.partsbnd.dcx
+  │    └─ binder ID 400 的 *.anibnd ── 装备 skeleton.hkx + 真 compendium + 全部动作 HKX + TAE
+  └─ chr/c0000*.anibnd.dcx ── 机体 Skeleton.hkx + 动画 HKX + a000_XX.compendium + TAE
         │
         │  [AC6AnimExportProbe]  --extract-bnd 解 anibnd(需 oo2core dll)
         │  [AC6HkxPoseExporter]  skeleton.hkx → skeleton JSON;动画hkx + compendium → pose JSON(全采样 local TRS)
@@ -38,7 +40,11 @@
         │
         │  [glTFast 6.19.0](已在 Packages/manifest.json)
         ▼
-  Unity:SkinnedMeshRenderer(共享骨架) + AnimationClip + 挂点空节点
+  Unity
+    ├─ 框架部件:SkinnedMeshRenderer + 原骨架 + 部件专属 delta Clip
+    │    └─ MechSynchronizedAnimationPlayer(机体动作公共时间轴)
+    └─ 武器/推进器:各自原骨架 + 全部原生动作 Clip
+         └─ MechEquipmentAnimationPlayer(每件装备独立时间轴)
 ```
 
 ## 三、新机器环境准备
@@ -108,19 +114,25 @@ AC6PartToGltf.exe
 实现要点(改代码前先读这段):
 - **骨架合并**:base 骨架按 `--part-skeleton-json` 顺序覆盖 local TRS;同名骨被多个部件覆盖时校验一致性(>1mm 记为 conflict 并报告)。FLVER 独有骨(AP_* 机构骨等)自动 graft 到合并骨架(部件骨架里一般已含,graft 是兜底)。
 - **验证**:对每个网格实际使用的共享骨,比较 FLVER 全局(自身父链组合;Disabled 无父级骨存的本来就是模型空间全局)vs 合并骨架全局,输出 max/avg 位置误差与旋转角误差。**改动骨架逻辑后必须先跑 --verify-only 看这个数**。
-- **IBM**:统一 `inverse(骨骼全局)`;部件用到的骨优先取 FLVER 自己的全局(两者已验证相等)。
-- **刚性网格**(`UseBoneWeights=false`):顶点存在骨骼局部空间,导出时先用骨骼全局矩阵变换到模型空间再以权重 1 绑定该骨(喷口等小件都是这类)。
+- **两套蒙皮矩阵**:`FLVER.Mesh.Dynamic` 不只是优化标记。`Dynamic != 0` 的顶点在模型空间,使用 `当前骨骼全局 × inverse(bind 全局)`;`Dynamic == 0` 的装备顶点在各自刚体骨局部空间,使用 `当前骨骼全局 × identity IBM`。glTF 的 IBM 绑定在 skin 而不是 primitive 上,所以导出器为同一骨架建立 `AC6_DeformSkin` 和 `AC6_ReferenceSpaceSkin`,再按 mesh 分组。把两类网格强塞进一套 inverse-bind skin 会让原静止缩放为 0.001/0.01 的刀刃 SFX 在动作中放大数百倍。
+- **刚性网格**(`UseBoneWeights=false`):AC6 装备常把每个顶点所属刚体骨索引放在 `Vertex.NormalW`,并非整个 mesh 共用 `Mesh.NodeIndex`。导出器优先把每个顶点以权重 1 绑定 `NormalW` 指向的骨;只有没有有效 `NormalW` 时才回退到 `Mesh.NodeIndex`。该骨索引会配合上面的对应 skin,使枪机、弹匣、发射架、能量刃和喷口机构保留原动画而不破坏比例。
 - **贴图推断**:AC6 FLVER 材质不含贴图路径(在 matbin 里,解包资源缺)。按命名约定推断:
   部件 `{PART}_01_{a,n,em}`;`Marking` 材质 → `MarkingEmblem_a`;`Limiter` → 不贴图;
   武器去掉手别标记 `WP_[LRE]_NNNN → WP_NNNN`,多材质武器按材质序号 `_01/_02`。
   完整的"材质名→MTD→贴图"清单会写进每个 glTF material 的 `extras`(mtd + textures 字典),Unity 侧可读。
-- **动画通道**:旋转恒定/平移恒定的骨不写对应通道(平移尤其重要——避免动画源骨长覆盖部件骨长);四元数已做半球连续化。
-- **挂点**:每个 FLVER dummy 输出为节点 `{部件名}_dmy_{refID}`,挂在依附骨下(位置已换算到骨骼局部空间)。已知:机体背部/肩部 `ref=800` 系列 = 推进器喷口安装位(同一喷口网格实例化到多个挂点);武器口/特效等参照游戏惯例后续对号。
+- **动画通道**:HKX 的绝对 local TRS 先相对动画 reference pose 求 delta,再应用到当前部件的 merged rest pose。只有 delta 始终为零的通道不写;四元数已做半球连续化。这是跨型号换装动作不断裂的关键。
+- **挂点**:每个 FLVER dummy 按原规则 `CreateWorld(Forward, Up) * Translation(Position)` 生成完整 TRS,挂在 `ParentBoneIndex` 对应骨下,并在 glTF `extras` 写入 ref/attach/parent 编号。不能只导位置,也不能用 `AttachBoneIndex + inverse global` 反算;两种旧算法都会让武器或喷口错位。当前样例使用核心的三个 `ref=800` 安装推进器,使用手臂的 `ref=23/20` 安装左右手武器、`ref=7/8` 安装左右背武器。Unity 导入器会给同名节点追加唯一编号,装配器按 dummy 名称标记匹配,所以三个 `ref=800` 都能注册。
 - **坐标**:全程无轴转换(见核心结论 5)。
 
 ### 4. Unity 侧
 
 - `Packages/manifest.json` 已含 `com.unity.cloud.gltfast: 6.19.0`。`.glb` 放进 Assets 即自动导入为带 SkinnedMeshRenderer + AnimationClip 的 prefab。
+- `MechPartDefinition.VisualRigMode = SynchronizedSkinned` 表示部件保留自己的蒙皮骨架;`SkinnedAnimationClip` 保存该部件的 bind-relative Clip。
+- `MechAssembler` 装配后把四个框架蒙皮部件交给 `MechSynchronizedAnimationPlayer`;播放器使用一个手动时间轴和多个 `AnimationPlayableOutput`。每帧评估后按依赖顺序执行接口所有权:腿先驱动核心的 4 根根链骨,已对齐的核心再驱动头的 10 根与手臂的 20 根接口祖先骨,共 34 根;部件专属骨和原权重不变。
+- 武器和推进器保留各自的装备骨架与全部 HKX Clip。`MechPartDefinition.EquipmentAnimations` 保存动作 ID→Clip,装配器为每个视觉实例建立 `MechEquipmentAnimationPlayer`;机体移动、武器发射/装填、背武器展开和推进器机构动作互不覆盖。游戏逻辑调用 `PlayAction("a000_...")` 即可切换真实装备动作。
+- `MechMountPointDefinition.sourceTransformNameSuffix` 指定导入模型内的 dummy;`matchAllSourceTransforms` 可为同一 ref 注册多个挂点。`MechPartDefinition.instantiateVisualAtAllMounts` 让一个逻辑部件在全部匹配挂点生成视觉实例,但质量、功耗和运行时部件记录只计算一次。
+- `Tools/BuildAC6NativeEquipmentSamples.ps1` 从游戏 `partsbnd` 的 binder ID 400 解出装备 anibnd,使用每件装备自己的真 compendium 批量解码全部动作,再把原 FLVER、DDS 和多段动作直接写入 GLB。`WP_L_1410` 当前原包只有骨架/TAE、没有本地 compendium/动作,管线会如实生成静态装备而不会伪造 Clip。
+- `Tools/ACunicombat/AC6/Build And Validate Skinned Modular Samples` 会生成 12 个框架部件、三种原生推进器和 5 个 Loadout(1010/2010/3010 原装 + Mixed A/B)。每套样例安装原生左手武器、左右背武器和三个推进器实例。验证会检查空骨、独立骨架数、34 个接口骨、完整 dummy 父挂点、原生资源路径、每件装备真实动作数量、首选装备动作采样和静止/动作包围盒,并输出两组截图。2026-07-11 的双 skin 回归测试为 5/5 通过,共享接口位置/旋转/缩放误差均为 0。
 - `Assets/_Project/Editor/AC6GltfSmokeTest.cs`:批处理冒烟测试。把 GLB 放到
   `Assets/_Project/LocalSamples/AC6MelanderCase/Raw/Gltf/`,然后:
   ```
@@ -170,11 +182,10 @@ $GLTF --skeleton-json $OUT/c0000_skeleton.json \
 
 ## 六、未完成事项(接手开发的起点)
 
-1. **换装系统集成**(建议最优先):`MechPartDefinition` 加蒙皮部件路径;`MechAssembler` 装配时实例化共享骨架、把各部件 `SkinnedMeshRenderer.bones[]` 按骨名重绑到共享骨架实例;武器/喷口按 `*_dmy_*` 挂点挂接(喷口要实例化到全部 ref=800 位)。
-2. **动画批量导出**:compendium 已解锁 c0000 全部动作,批量 hkx→pose.json→AnimationClip(repo 里 `AC6OriginalHkxAnimationImporter.cs` 的 JSON→clip 代码可直接复用,它与 pose JSON 同 schema)。root motion 在 Master/Root 轨道里;动作事件在 TAE(已随 anibnd 解出,SoulsFormats 可读)。
-3. **涂装 shader**:解析 `_3m` 掩码通道 + Zone 颜色,做实 `ACunicombat/AC6/Parts Approx`,实现游戏内改色。材质参数的最终真源是游戏的 `allmaterial.matbinbnd.dcx`(解包资源里没有,需从游戏本体解)。
-4. 旧管线代码(Blender 重建骨架/权重迁移、delta 曲线、22 朝向暴力尝试、`MechOriginalHkxPartRetargeter` 衰减参数)可以退役删除。
+1. **动画批量导出**:compendium 已解锁 c0000 全部动作,批量 hkx→pose.json→每部件 delta AnimationClip。root motion 在 Master/Root 轨道里;动作事件在 TAE(已随 anibnd 解出,SoulsFormats 可读)。
+2. **涂装 shader**:解析 `_3m` 掩码通道 + Zone 颜色,做实 `ACunicombat/AC6/Parts Approx`,实现游戏内改色。材质参数的最终真源是游戏的 `allmaterial.matbinbnd.dcx`(解包资源里没有,需从游戏本体解)。
+3. **骨架裁剪/性能**:当前每个部件 GLB 保留完整 c0000 动画骨以保证路径兼容;量产前可裁掉不参与该部件蒙皮且不作为祖先/挂点的分支。
 
 ## 七、历史背景
 
-立项原因与三条旧管线合不拢的分析见《AC6资源导入难点汇总_咨询用.md》;本地素材准备约定见《AC6本地案例资产准备.md》。仓库不提交任何游戏资源:`/Resources/`、`/Tools/LocalOut/`、`LocalSamples/AC6MelanderCase/{Raw,Generated,Reports}` 均已 gitignore,只提交工具、清单与文档。
+立项原因与三条旧管线合不拢的分析见《AC6资源导入难点汇总_咨询用.md》;本地素材准备约定见《AC6本地案例资产准备.md》。仓库不提交任何游戏资源:`/Resources/`、`/Tools/LocalOut/`、`LocalSamples/AC6MelanderCase/{Raw,Generated,Reports}` 和 `LocalSamples/AC6SkinnedModular/{Raw,Generated,Reports}` 均已 gitignore,只提交工具、清单与文档。

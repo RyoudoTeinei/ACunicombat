@@ -30,6 +30,12 @@ namespace ACunicombat.Mechs
         [SerializeField] private Transform explicitAssemblyRoot;
         [SerializeField] private List<MechSlotRootOverride> slotRootOverrides = new List<MechSlotRootOverride>();
 
+        [Header("Synchronized Skinned Parts")]
+        [SerializeField] private AnimationClip synchronizedAnimationClip;
+        [SerializeField] private bool playSynchronizedAnimationOnAwake = true;
+        [SerializeField] private bool loopSynchronizedAnimation = true;
+        [SerializeField] private float synchronizedAnimationSpeed = 1f;
+
         [Header("Physics")]
         [SerializeField] private bool applyMassToRigidbody = true;
         [SerializeField] private Rigidbody targetRigidbody;
@@ -44,6 +50,7 @@ namespace ACunicombat.Mechs
         }
 
         public MechRuntimeState RuntimeState { get; private set; }
+        public AnimationClip SynchronizedAnimationClip => synchronizedAnimationClip;
 
         private void Awake()
         {
@@ -56,6 +63,12 @@ namespace ACunicombat.Mechs
         [ContextMenu("Assemble Mech")]
         public void Assemble()
         {
+            var existingAnimationPlayer = GetComponent<MechSynchronizedAnimationPlayer>();
+            if (existingAnimationPlayer != null)
+            {
+                existingAnimationPlayer.StopPlayback();
+            }
+
             RuntimeState = GetComponent<MechRuntimeState>();
             if (RuntimeState == null)
             {
@@ -82,7 +95,8 @@ namespace ACunicombat.Mechs
                         continue;
                     }
 
-                    var parentMount = ResolveParentMount(assignment.slot, mountRegistry, assemblyRoot);
+                    var parentMounts = ResolveParentMounts(assignment.slot, mountRegistry, assemblyRoot);
+                    var parentMount = parentMounts[0];
                     var instance = CreatePartInstance(assignment.slot, assignment.part, parentMount);
                     var assembledPart = instance.GetComponent<MechAssembledPart>();
                     if (assembledPart == null)
@@ -94,6 +108,16 @@ namespace ACunicombat.Mechs
                     ApplyMaterialOverrides(instance, assignment.part);
                     CreateMountPoints(instance.transform, assignment.part, mountRegistry, mountPoints);
 
+                    if (assignment.part.InstantiateVisualAtAllMounts)
+                    {
+                        for (var mountIndex = 1; mountIndex < parentMounts.Count; mountIndex++)
+                        {
+                            var replica = CreatePartInstance(assignment.slot, assignment.part, parentMounts[mountIndex]);
+                            replica.name = $"{assignment.slot}_{assignment.part.DisplayName}_Visual_{mountIndex + 1}";
+                            ApplyMaterialOverrides(replica, assignment.part);
+                        }
+                    }
+
                     records.Add(new MechAssemblyRecord
                     {
                         slot = assignment.slot,
@@ -103,6 +127,8 @@ namespace ACunicombat.Mechs
                     });
                 }
             }
+
+            ConfigureSynchronizedSkinnedParts(records);
 
             ApplyPhysics(stats);
             RuntimeState.Apply(loadout, stats, validation, records, mountPoints);
@@ -162,19 +188,31 @@ namespace ACunicombat.Mechs
             }
         }
 
-        private Transform ResolveParentMount(
+        private List<Transform> ResolveParentMounts(
             MechPartSlot slot,
             Dictionary<MechPartSlot, List<Transform>> mountRegistry,
             Transform assemblyRoot)
         {
-            if (mountRegistry.TryGetValue(slot, out var mounts) && mounts.Count > 0 && mounts[0] != null)
+            if (mountRegistry.TryGetValue(slot, out var mounts) && mounts.Count > 0)
             {
-                return mounts[0];
+                var validMounts = new List<Transform>(mounts.Count);
+                for (var i = 0; i < mounts.Count; i++)
+                {
+                    if (mounts[i] != null)
+                    {
+                        validMounts.Add(mounts[i]);
+                    }
+                }
+
+                if (validMounts.Count > 0)
+                {
+                    return validMounts;
+                }
             }
 
             if (MechSlotRules.IsBaseAssemblySlot(slot))
             {
-                return assemblyRoot;
+                return new List<Transform> { assemblyRoot };
             }
 
             var fallback = new GameObject(slot + "_FallbackMount");
@@ -183,7 +221,7 @@ namespace ACunicombat.Mechs
             fallback.transform.localRotation = Quaternion.identity;
             fallback.transform.localScale = Vector3.one;
             RegisterMount(mountRegistry, slot, fallback.transform);
-            return fallback.transform;
+            return new List<Transform> { fallback.transform };
         }
 
         private GameObject CreatePartInstance(MechPartSlot assignedSlot, MechPartDefinition part, Transform parent)
@@ -216,8 +254,110 @@ namespace ACunicombat.Mechs
             instance.transform.localPosition = part.LocalPosition;
             instance.transform.localRotation = Quaternion.Euler(part.LocalEulerAngles);
             instance.transform.localScale = part.LocalScale;
+            ConfigureMountedEquipmentAnimation(instance, part);
             return instance;
         }
+
+        private static void ConfigureMountedEquipmentAnimation(GameObject instance, MechPartDefinition part)
+        {
+            if (instance == null || part == null || part.EquipmentAnimations == null ||
+                part.EquipmentAnimations.Count == 0)
+            {
+                return;
+            }
+
+            var player = instance.GetComponent<MechEquipmentAnimationPlayer>();
+            if (player == null)
+            {
+                player = instance.AddComponent<MechEquipmentAnimationPlayer>();
+            }
+
+            player.Configure(
+                part.EquipmentAnimations,
+                part.DefaultEquipmentActionId,
+                part.PlayDefaultEquipmentActionOnAssemble);
+        }
+
+        private void ConfigureSynchronizedSkinnedParts(IReadOnlyList<MechAssemblyRecord> records)
+        {
+            var animationBindings = new List<MechSynchronizedAnimationBinding>();
+            for (var i = 0; i < records.Count; i++)
+            {
+                var record = records[i];
+                if (record?.part == null || record.instance == null || !record.part.UsesSynchronizedSkinnedRig)
+                {
+                    continue;
+                }
+
+                if (record.instance.GetComponentInChildren<SkinnedMeshRenderer>(true) == null)
+                {
+                    if (logValidationIssues)
+                    {
+                        Debug.LogWarning(
+                            $"Skinned mech part {record.part.DisplayName} is marked {MechVisualRigMode.SynchronizedSkinned} but contains no SkinnedMeshRenderer.",
+                            record.instance);
+                    }
+                    continue;
+                }
+
+                var partClip = record.part.SkinnedAnimationClip != null
+                    ? record.part.SkinnedAnimationClip
+                    : synchronizedAnimationClip;
+                if (partClip == null)
+                {
+                    if (logValidationIssues)
+                    {
+                        Debug.LogWarning($"Skinned mech part {record.part.DisplayName} has no animation clip.", record.instance);
+                    }
+                    continue;
+                }
+
+                animationBindings.Add(new MechSynchronizedAnimationBinding(
+                    record.slot,
+                    record.instance,
+                    partClip,
+                    record.part.AncestorDriverSlot,
+                    record.part.AncestorDrivenBoneNames));
+            }
+
+            var player = GetComponent<MechSynchronizedAnimationPlayer>();
+            if (animationBindings.Count == 0)
+            {
+                if (player != null)
+                {
+                    player.Configure(null, null, false, false, 0f);
+                }
+                return;
+            }
+
+            if (player == null)
+            {
+                player = gameObject.AddComponent<MechSynchronizedAnimationPlayer>();
+            }
+
+            player.Configure(
+                animationBindings,
+                playSynchronizedAnimationOnAwake,
+                loopSynchronizedAnimation,
+                synchronizedAnimationSpeed);
+        }
+
+#if UNITY_EDITOR
+        public void EditorConfigureSynchronizedSkinnedParts(
+            AnimationClip animationClip,
+            bool shouldAssembleOnAwake = true,
+            bool shouldCreatePlaceholders = false,
+            bool shouldLoop = true,
+            float playbackSpeed = 1f)
+        {
+            synchronizedAnimationClip = animationClip;
+            assembleOnAwake = shouldAssembleOnAwake;
+            createPlaceholdersForMissingModels = shouldCreatePlaceholders;
+            loopSynchronizedAnimation = shouldLoop;
+            synchronizedAnimationSpeed = playbackSpeed;
+            UnityEditor.EditorUtility.SetDirty(this);
+        }
+#endif
 
         private GameObject CreatePlaceholder(MechPartSlot assignedSlot, Transform parent)
         {
@@ -367,17 +507,76 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                var mountObject = new GameObject(string.IsNullOrWhiteSpace(definition.mountId) ? definition.targetSlot + "_Mount" : definition.mountId);
-                mountObject.transform.SetParent(partRoot, false);
-                mountObject.transform.localPosition = definition.localPosition;
-                mountObject.transform.localRotation = Quaternion.Euler(definition.localEulerAngles);
-                mountObject.transform.localScale = definition.localScale == Vector3.zero ? Vector3.one : definition.localScale;
+                var sourceTransforms = FindMountSourceTransforms(partRoot, definition.sourceTransformNameSuffix);
+                if (sourceTransforms.Count == 0)
+                {
+                    sourceTransforms.Add(partRoot);
+                    if (!string.IsNullOrWhiteSpace(definition.sourceTransformNameSuffix) && logValidationIssues)
+                    {
+                        Debug.LogWarning(
+                            $"Mount '{definition.mountId}' could not find a child transform ending with " +
+                            $"'{definition.sourceTransformNameSuffix}' on part '{part.DisplayName}'. Using the part root.",
+                            partRoot);
+                    }
+                }
 
-                var mountPoint = mountObject.AddComponent<MechMountPoint>();
-                mountPoint.Configure(definition);
-                mountPoints.Add(mountPoint);
-                RegisterMount(mountRegistry, definition.targetSlot, mountObject.transform);
+                var sourceCount = definition.matchAllSourceTransforms ? sourceTransforms.Count : 1;
+                for (var sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++)
+                {
+                    var baseName = string.IsNullOrWhiteSpace(definition.mountId)
+                        ? definition.targetSlot + "_Mount"
+                        : definition.mountId;
+                    var mountName = sourceCount > 1 ? $"{baseName}_{sourceIndex + 1}" : baseName;
+                    var mountObject = new GameObject(mountName);
+                    mountObject.transform.SetParent(sourceTransforms[sourceIndex], false);
+                    mountObject.transform.localPosition = definition.localPosition;
+                    mountObject.transform.localRotation = Quaternion.Euler(definition.localEulerAngles);
+                    mountObject.transform.localScale = definition.localScale == Vector3.zero ? Vector3.one : definition.localScale;
+
+                    var mountPoint = mountObject.AddComponent<MechMountPoint>();
+                    mountPoint.Configure(definition);
+                    mountPoints.Add(mountPoint);
+                    RegisterMount(mountRegistry, definition.targetSlot, mountObject.transform);
+                }
             }
+        }
+
+        private static List<Transform> FindMountSourceTransforms(Transform partRoot, string nameSuffix)
+        {
+            var matches = new List<Transform>();
+            if (partRoot == null || string.IsNullOrWhiteSpace(nameSuffix))
+            {
+                return matches;
+            }
+
+            var transforms = partRoot.GetComponentsInChildren<Transform>(true);
+            for (var i = 0; i < transforms.Length; i++)
+            {
+                var candidate = transforms[i];
+                if (candidate != null && MatchesImportedTransformName(candidate.name, nameSuffix))
+                {
+                    matches.Add(candidate);
+                }
+            }
+
+            return matches;
+        }
+
+        private static bool MatchesImportedTransformName(string transformName, string nameSuffix)
+        {
+            if (string.IsNullOrWhiteSpace(transformName) || string.IsNullOrWhiteSpace(nameSuffix))
+            {
+                return false;
+            }
+
+            var index = transformName.IndexOf(nameSuffix, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            var nextIndex = index + nameSuffix.Length;
+            return nextIndex >= transformName.Length || !char.IsDigit(transformName[nextIndex]);
         }
 
         private void RegisterMount(Dictionary<MechPartSlot, List<Transform>> mountRegistry, MechPartSlot slot, Transform mount)

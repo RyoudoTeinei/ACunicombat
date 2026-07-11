@@ -14,7 +14,7 @@ public static class AC6RawBakedWeaponImporter
     private const string LoadoutPath = DataRoot + "/AC6_Raw_Baked_Weapon_Test_Loadout.asset";
     private const string BlendFrameDataRoot = "Assets/_Project/Data/Mechs/AC6BlendBakedSamples";
 
-    [MenuItem("Tools/ACunicombat/Mech/Import AC6 Raw Baked Weapon Parts")]
+    [MenuItem("Tools/ACunicombat/Legacy/Mech Imports/Import AC6 Raw Baked Weapon Parts")]
     public static void ImportWeaponParts()
     {
         if (!File.Exists(ProjectAbsolutePath(ManifestPath)))

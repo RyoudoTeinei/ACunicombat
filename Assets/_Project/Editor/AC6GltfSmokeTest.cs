@@ -33,7 +33,10 @@ public static class AC6GltfSmokeTest
             log.AppendLine($"GLBs found: {glbPaths.Count}");
 
             foreach (var path in glbPaths)
+            {
+                AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
                 failures += TestOne(path, log) ? 0 : 1;
+            }
         }
         catch (Exception ex)
         {
@@ -64,17 +67,30 @@ public static class AC6GltfSmokeTest
         }
 
         var clips = AssetDatabase.LoadAllAssetsAtPath(assetPath).OfType<AnimationClip>().ToList();
+        var textures = AssetDatabase.LoadAllAssetsAtPath(assetPath).OfType<Texture2D>().ToList();
         var instance = UnityEngine.Object.Instantiate(main);
         try
         {
             var skinned = instance.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             var meshRenderers = instance.GetComponentsInChildren<MeshRenderer>(true);
             var boneCounts = string.Join(",", skinned.Select(s => s.bones.Length));
-            log.AppendLine($"[{name}] skinnedRenderers={skinned.Length} (bones: {boneCounts}) meshRenderers={meshRenderers.Length} clips={clips.Count}");
+            log.AppendLine($"[{name}] skinnedRenderers={skinned.Length} (bones: {boneCounts}) meshRenderers={meshRenderers.Length} clips={clips.Count} textures={textures.Count}");
 
             if (skinned.Length == 0)
             {
                 log.AppendLine($"[{name}] FAIL: no skinned meshes");
+                return false;
+            }
+
+            if (name.Contains("Melander", StringComparison.OrdinalIgnoreCase) && clips.Count == 0)
+            {
+                log.AppendLine($"[{name}] FAIL: animated Melander GLB imported without AnimationClip sub-assets");
+                return false;
+            }
+
+            if (name.Contains("Melander", StringComparison.OrdinalIgnoreCase) && textures.Count == 0)
+            {
+                log.AppendLine($"[{name}] FAIL: textured Melander GLB imported without Texture2D sub-assets");
                 return false;
             }
 
@@ -124,12 +140,40 @@ public static class AC6GltfSmokeTest
         var first = true;
         foreach (var r in root.GetComponentsInChildren<Renderer>(true))
         {
+            var rendererBounds = r.bounds;
             if (r is SkinnedMeshRenderer smr)
+            {
                 smr.updateWhenOffscreen = true;
-            if (first) { bounds = r.bounds; first = false; }
-            else bounds.Encapsulate(r.bounds);
+                var baked = new Mesh();
+                try
+                {
+                    smr.BakeMesh(baked);
+                    rendererBounds = TransformBounds(smr.transform.localToWorldMatrix, baked.bounds);
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(baked);
+                }
+            }
+
+            if (first) { bounds = rendererBounds; first = false; }
+            else bounds.Encapsulate(rendererBounds);
         }
         return bounds;
+    }
+
+    static Bounds TransformBounds(Matrix4x4 matrix, Bounds localBounds)
+    {
+        var center = matrix.MultiplyPoint3x4(localBounds.center);
+        var extents = localBounds.extents;
+        var axisX = matrix.MultiplyVector(new Vector3(extents.x, 0f, 0f));
+        var axisY = matrix.MultiplyVector(new Vector3(0f, extents.y, 0f));
+        var axisZ = matrix.MultiplyVector(new Vector3(0f, 0f, extents.z));
+        extents = new Vector3(
+            Mathf.Abs(axisX.x) + Mathf.Abs(axisY.x) + Mathf.Abs(axisZ.x),
+            Mathf.Abs(axisX.y) + Mathf.Abs(axisY.y) + Mathf.Abs(axisZ.y),
+            Mathf.Abs(axisX.z) + Mathf.Abs(axisY.z) + Mathf.Abs(axisZ.z));
+        return new Bounds(center, extents * 2f);
     }
 
     static void Screenshot(GameObject subject, Bounds bounds, string filePath)

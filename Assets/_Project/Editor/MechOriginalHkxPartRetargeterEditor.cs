@@ -63,7 +63,7 @@ public sealed class MechOriginalHkxPartRetargeterEditor : Editor
         }
     }
 
-    [MenuItem("Tools/ACunicombat/Animation/Bind _AssembledMech To Original HKX Preview")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Bind _AssembledMech To Original HKX Preview")]
     public static void BindAssembledMechToOriginalHkxPreview()
     {
         var assembler = FindTargetAssembler();
@@ -126,7 +126,7 @@ public sealed class MechOriginalHkxPartRetargeterEditor : Editor
             "OK");
     }
 
-    [MenuItem("Tools/ACunicombat/Animation/Stabilize _AssembledMech HKX Retarget")]
+    [MenuItem("Tools/ACunicombat/Legacy/Animation/Stabilize _AssembledMech HKX Retarget")]
     public static void StabilizeAssembledMechHkxRetarget()
     {
         var assembler = FindTargetAssembler();

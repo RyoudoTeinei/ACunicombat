@@ -53,19 +53,18 @@ public static class AC6ReferenceRobotImporter
         "Assets/_Imported/AC6_Reference/AC4_AC_c8110/Textures/e0050_n.dds",
         string.Empty);
 
-    [MenuItem("Tools/ACunicombat/Create Test Robot")]
     public static void CreateTestRobot()
     {
         CreateRobot(Allmind);
     }
 
-    [MenuItem("Tools/ACunicombat/Create Reference Robot/AC6 ALLMIND c4201")]
+    [MenuItem("Tools/ACunicombat/Legacy/Reference Robots/AC6 ALLMIND c4201")]
     public static void CreateAllmindRobot()
     {
         CreateRobot(Allmind);
     }
 
-    [MenuItem("Tools/ACunicombat/Create Reference Robot/Legacy AC4 c8110")]
+    [MenuItem("Tools/ACunicombat/Legacy/Reference Robots/Legacy AC4 c8110")]
     public static void CreateLegacyAc4Robot()
     {
         CreateRobot(LegacyAc4);
