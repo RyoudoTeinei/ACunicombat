@@ -724,27 +724,45 @@ static class GltfBuilder
             AddMeshNode(deformPrimitives, "Dynamic", deformSkinIndex);
             AddMeshNode(referenceSpacePrimitives, "ReferenceSpace", referenceSpaceSkinIndex);
 
-            // FLVER dummy position/orientation are authored in model space. Re-express that
-            // complete socket transform under AttachBoneIndex so glTF preserves its rest pose
-            // while the socket follows the animated attachment bone.
+            // FLVER dummy position/orientation are authored in ParentBoneIndex's reference space
+            // (DSAS NewDummyPolyInfo: dummyLocal * ParentBone.ReferenceFKMatrix). In AC6 part
+            // FLVERs the parent is a parentless identity "container" node, which makes the values
+            // numerically model-space, but we compose the parent reference global anyway.
+            // Flag1 selects whether the dummy follows AttachBoneIndex during animation
+            // (DSAS: CurrentMatrix = ReferenceMatrix * AttachBone.RelativeMatrix when Flag1).
+            // The single-parent glTF encoding of that rule is:
+            //   Flag1: parent under AttachBone, local = dummyRefWorld * inverse(attachBindGlobal)
+            //   else:  keep the static reference pose (parent bone container / scene root).
             foreach (var dummy in part.Flver.Dummies)
             {
-                var attachIndex = dummy.AttachBoneIndex >= 0
-                    ? dummy.AttachBoneIndex
-                    : dummy.ParentBoneIndex;
                 var forward = SafeNormalize(dummy.Forward, -Vector3.UnitZ);
                 var upward = dummy.UseUpwardVector
                     ? SafeNormalize(dummy.Upward, Vector3.UnitY)
                     : Vector3.UnitY;
                 var local = Matrix4x4.CreateWorld(Vector3.Zero, forward, upward)
                     * Matrix4x4.CreateTranslation(dummy.Position);
+                if (dummy.ParentBoneIndex >= 0 && dummy.ParentBoneIndex < part.Flver.Nodes.Count)
+                    local *= part.FlverGlobals[dummy.ParentBoneIndex];
+
                 var parentBone = -1;
-                if (attachIndex >= 0 && attachIndex < part.Flver.Nodes.Count
+                var attachIndex = dummy.AttachBoneIndex >= 0
+                    ? dummy.AttachBoneIndex
+                    : dummy.ParentBoneIndex;
+                if (dummy.Flag1 && attachIndex >= 0 && attachIndex < part.Flver.Nodes.Count
                     && merged.ByName.TryGetValue(part.Flver.Nodes[attachIndex].Name, out var mIdx))
                 {
                     parentBone = mIdx;
                     if (Matrix4x4.Invert(part.FlverGlobals[attachIndex], out var inverseAttachBind))
                         local *= inverseAttachBind;
+                }
+                else if (!dummy.Flag1 && dummy.ParentBoneIndex >= 0 && dummy.ParentBoneIndex < part.Flver.Nodes.Count
+                    && merged.ByName.TryGetValue(part.Flver.Nodes[dummy.ParentBoneIndex].Name, out var pIdx))
+                {
+                    // Non-following dummy whose parent container exists in the tree: express the
+                    // reference world back in that parent's space.
+                    parentBone = pIdx;
+                    if (Matrix4x4.Invert(part.FlverGlobals[dummy.ParentBoneIndex], out var inverseParentBind))
+                        local *= inverseParentBind;
                 }
 
                 Matrix4x4.Decompose(local, out _, out var rq, out var tv);
@@ -758,6 +776,7 @@ static class GltfBuilder
                         ["ac6DummyReferenceId"] = dummy.ReferenceID,
                         ["ac6AttachBoneIndex"] = dummy.AttachBoneIndex,
                         ["ac6ParentBoneIndex"] = dummy.ParentBoneIndex,
+                        ["ac6FollowFlag"] = dummy.Flag1,
                     },
                 };
                 nodes.Add(dn);

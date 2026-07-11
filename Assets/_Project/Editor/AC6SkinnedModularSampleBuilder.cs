@@ -416,10 +416,10 @@ public static class AC6SkinnedModularSampleBuilder
                 key, $"{record.slot} still references a legacy or Blender-baked asset: {modelPath}", report);
 
             var expectedActionCount = ExpectedNativeActionCount(record.part.PartId);
-            ok &= Check(record.part.EquipmentAnimations.Count == expectedActionCount,
+            ok &= Check(expectedActionCount < 0 || record.part.EquipmentAnimations.Count == expectedActionCount,
                 key, $"{record.slot} expected {expectedActionCount} native actions, got {record.part.EquipmentAnimations.Count}", report);
             var equipmentPlayer = record.instance.GetComponent<MechEquipmentAnimationPlayer>();
-            ok &= Check(expectedActionCount == 0 ? equipmentPlayer == null : equipmentPlayer != null,
+            ok &= Check(record.part.EquipmentAnimations.Count == 0 ? equipmentPlayer == null : equipmentPlayer != null,
                 key, $"{record.slot} independent equipment animation player state is incorrect", report);
         }
 
@@ -428,12 +428,15 @@ public static class AC6SkinnedModularSampleBuilder
             : AssetDatabase.GetAssetPath(boosterRecord.part.ModelPrefab);
         ok &= Check(boosterModelPath.StartsWith(NativeEquipmentRoot, StringComparison.OrdinalIgnoreCase),
             key, $"booster still references a legacy or Blender-baked asset: {boosterModelPath}", report);
-        ok &= Check(boosterRecord?.part?.EquipmentAnimations.Count == 4,
-            key, "booster does not expose all four native HKX actions", report);
+        var expectedBoosterActions = ExpectedNativeActionCount(boosterRecord?.part?.PartId);
+        ok &= Check(expectedBoosterActions < 0 || boosterRecord?.part?.EquipmentAnimations.Count == expectedBoosterActions,
+            key, $"booster expected {expectedBoosterActions} native actions, got {boosterRecord?.part?.EquipmentAnimations.Count ?? -1}", report);
 
+        var expectedPlayers = weaponRecords.Count(record => record.part.EquipmentAnimations.Count > 0)
+            + (boosterRecord != null && boosterRecord.part.EquipmentAnimations.Count > 0 ? boosterVisuals.Count : 0);
         var equipmentPlayers = mech.GetComponentsInChildren<MechEquipmentAnimationPlayer>(true);
-        ok &= Check(equipmentPlayers.Length == 6,
-            key, $"expected 6 independent native equipment players, got {equipmentPlayers.Length}", report);
+        ok &= Check(equipmentPlayers.Length == expectedPlayers,
+            key, $"expected {expectedPlayers} independent native equipment players, got {equipmentPlayers.Length}", report);
         for (var i = 0; i < equipmentPlayers.Length; i++)
         {
             var equipmentPlayer = equipmentPlayers[i];
@@ -483,6 +486,44 @@ public static class AC6SkinnedModularSampleBuilder
         }
         ok &= Check(skeletonRoots.Count == 4, key, $"expected 4 independent part skeleton roots, got {skeletonRoots.Count}", report);
 
+        // --- Bind-pose golden socket positions (Uniform1010 only; values measured from the
+        // FLVER dummies with AC6PartToGltf --dump-dummies, X negated for glTFast's RH->LH
+        // conversion). The assembled mech is already animated by the time we get here, so the
+        // goldens are checked on fresh, un-animated instances of the raw part GLBs — that is
+        // the state the FLVER dump values describe. Catches both "socket in wrong space"
+        // failure modes seen earlier.
+        if (string.Equals(key, "Uniform1010", StringComparison.OrdinalIgnoreCase))
+        {
+            ok &= WithRawAssetInstance($"{RawGltfRoot}/AM_M_1010.glb", key, report, instance =>
+            {
+                var pass = CheckGoldenSocket(instance, "_dmy_20", new Vector3(2.271f, 7.906f, -1.971f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_23", new Vector3(-2.270f, 7.904f, -1.974f), key, report);
+                return pass;
+            });
+            ok &= WithRawAssetInstance($"{RawGltfRoot}/BD_M_1010.glb", key, report, instance =>
+            {
+                var pass = CheckGoldenSocket(instance, "_dmy_13", new Vector3(-1.458f, 10.013f, 1.856f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_14", new Vector3(1.458f, 10.013f, 1.856f), key, report);
+                pass &= CheckGoldenSocketSet(instance, "_dmy_800", new[]
+                {
+                    new Vector3(0f, 8.622f, -2.225f),
+                    new Vector3(0.413f, 8.944f, 2.402f),
+                    new Vector3(-0.413f, 8.944f, 2.402f),
+                }, key, report);
+                return pass;
+            });
+        }
+
+        // --- Installation transform must be invariant: equipment root relative to its animated
+        // dummy source may never change, at rest or mid-action.
+        var installBaselines = new Dictionary<MechAssemblyRecord, Matrix4x4>();
+        foreach (var record in equipmentRecords)
+        {
+            if (record.instance == null || record.parentMount == null || record.parentMount.parent == null)
+                continue;
+            installBaselines[record] = record.parentMount.parent.worldToLocalMatrix * record.instance.transform.localToWorldMatrix;
+        }
+
         var sampleTimes = new[] { 0f, clip.length * 0.5f };
         for (var i = 0; i < sampleTimes.Length; i++)
         {
@@ -510,11 +551,29 @@ public static class AC6SkinnedModularSampleBuilder
                 ok &= Check(distance < 12f, key, $"{frameRecords[r].slot} drifted {distance:0.###}m from assembly center", report);
             }
 
+            // Equipment must hug the frame: measure against the frame-only bounds (closest-point
+            // distance), not the combined bounds that the misplaced equipment itself inflates.
+            var frameBounds = CombinedBounds(frameRecords[0].instance);
+            for (var r = 1; r < frameRecords.Count; r++)
+                frameBounds.Encapsulate(CombinedBounds(frameRecords[r].instance));
             for (var r = 0; r < equipmentRecords.Count; r++)
             {
                 var equipmentBounds = CombinedBounds(equipmentRecords[r].instance);
-                var distance = Vector3.Distance(equipmentBounds.center, bounds.center);
-                ok &= Check(distance < 15f, key, $"{equipmentRecords[r].slot} drifted {distance:0.###}m from assembly center", report);
+                var distance = Mathf.Sqrt(frameBounds.SqrDistance(equipmentBounds.center));
+                report.Log.AppendLine($"[{key}] t={sampleTimes[i]:0.###} {equipmentRecords[r].slot} center={Format(equipmentBounds.center)} distToFrame={distance:0.###}m");
+                ok &= Check(distance < 4f, key, $"{equipmentRecords[r].slot} floats {distance:0.###}m away from the frame bounds", report);
+            }
+
+            foreach (var pair in installBaselines)
+            {
+                var record = pair.Key;
+                if (record.instance == null || record.parentMount == null || record.parentMount.parent == null)
+                    continue;
+                var current = record.parentMount.parent.worldToLocalMatrix * record.instance.transform.localToWorldMatrix;
+                var positionDrift = ((Vector3)current.GetColumn(3) - (Vector3)pair.Value.GetColumn(3)).magnitude;
+                var rotationDrift = Quaternion.Angle(current.rotation, pair.Value.rotation);
+                ok &= Check(positionDrift < 0.001f && rotationDrift < 0.05f, key,
+                    $"{record.slot} installation transform drifted at t={sampleTimes[i]:0.###} (pos {positionDrift:0.####}m, rot {rotationDrift:0.###}deg)", report);
             }
         }
 
@@ -531,33 +590,132 @@ public static class AC6SkinnedModularSampleBuilder
         }
     }
 
+    /// <summary>
+    /// Expected native action count per equipment key, read from the manifest that
+    /// Tools/BuildAC6NativeEquipmentSamples.ps1 writes next to the GLBs. Machines without the
+    /// game's partsbnd archives legitimately build equipment with zero actions; the manifest is
+    /// the single source of truth for what was actually decoded. Returns -1 when the part has
+    /// no manifest entry (check skipped).
+    /// </summary>
     private static int ExpectedNativeActionCount(string partId)
     {
         if (string.IsNullOrWhiteSpace(partId))
         {
-            return 0;
+            return -1;
         }
 
-        if (partId.EndsWith("WP_L_0010", StringComparison.OrdinalIgnoreCase) ||
-            partId.EndsWith("WP_L_0230", StringComparison.OrdinalIgnoreCase))
+        _nativeEquipmentManifest ??= LoadNativeEquipmentManifest();
+        foreach (var entry in _nativeEquipmentManifest)
         {
-            return 6;
-        }
-        if (partId.EndsWith("WP_L_0250", StringComparison.OrdinalIgnoreCase))
-        {
-            return 5;
-        }
-        if (partId.EndsWith("WP_L_4210", StringComparison.OrdinalIgnoreCase) ||
-            partId.EndsWith("WP_R_4210", StringComparison.OrdinalIgnoreCase))
-        {
-            return 14;
-        }
-        if (partId.EndsWith("WP_R_4410", StringComparison.OrdinalIgnoreCase))
-        {
-            return 17;
+            if (partId.EndsWith(entry.key, StringComparison.OrdinalIgnoreCase))
+            {
+                return entry.animationCount;
+            }
         }
 
-        return 0;
+        return -1;
+    }
+
+    private static List<NativeEquipmentManifestEntry> _nativeEquipmentManifest;
+
+    private static List<NativeEquipmentManifestEntry> LoadNativeEquipmentManifest()
+    {
+        var manifestPath = NativeEquipmentRoot + "/AC6NativeEquipmentManifest.json";
+        if (!File.Exists(manifestPath))
+        {
+            return new List<NativeEquipmentManifestEntry>();
+        }
+
+        var wrapped = "{\"items\":" + File.ReadAllText(manifestPath) + "}";
+        var manifest = JsonUtility.FromJson<NativeEquipmentManifestWrapper>(wrapped);
+        return manifest?.items ?? new List<NativeEquipmentManifestEntry>();
+    }
+
+    [Serializable]
+    private sealed class NativeEquipmentManifestWrapper
+    {
+        public List<NativeEquipmentManifestEntry> items;
+    }
+
+    [Serializable]
+    private sealed class NativeEquipmentManifestEntry
+    {
+        public string key;
+        public int animationCount;
+    }
+
+    private static bool WithRawAssetInstance(string assetPath, string key, ValidationReport report, Func<GameObject, bool> check)
+    {
+        var asset = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+        if (asset == null)
+        {
+            return Check(false, key, $"golden source asset missing: {assetPath}", report);
+        }
+
+        var instance = UnityEngine.Object.Instantiate(asset);
+        try
+        {
+            return check(instance);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(instance);
+        }
+    }
+
+    private static bool CheckGoldenSocket(GameObject mech, string suffix, Vector3 expectedLocal, string key, ValidationReport report)
+    {
+        var socket = mech.GetComponentsInChildren<Transform>(true)
+            .FirstOrDefault(candidate => candidate.name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+                || candidate.name.Contains(suffix + "_", StringComparison.OrdinalIgnoreCase)
+                || candidate.name.Contains(suffix + " ", StringComparison.OrdinalIgnoreCase));
+        if (socket == null)
+        {
+            return Check(false, key, $"golden socket {suffix} was not found", report);
+        }
+
+        var actual = mech.transform.InverseTransformPoint(socket.position);
+        var distance = Vector3.Distance(actual, expectedLocal);
+        report.Log.AppendLine($"[{key}] golden {suffix}: expected={Format(expectedLocal)} actual={Format(actual)} d={distance:0.####}m");
+        return Check(distance < 0.02f, key, $"socket {suffix} rest position is off by {distance:0.###}m (expected {Format(expectedLocal)}, got {Format(actual)})", report);
+    }
+
+    private static bool CheckGoldenSocketSet(GameObject mech, string suffix, Vector3[] expectedLocals, string key, ValidationReport report)
+    {
+        var sockets = mech.GetComponentsInChildren<Transform>(true)
+            .Where(candidate => candidate.GetComponent<MechMountPoint>() == null
+                && candidate.name.Contains(suffix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (sockets.Count < expectedLocals.Length)
+        {
+            return Check(false, key, $"expected {expectedLocals.Length} sockets matching {suffix}, found {sockets.Count}", report);
+        }
+
+        var ok = true;
+        var unmatched = sockets.Select(socket => mech.transform.InverseTransformPoint(socket.position)).ToList();
+        foreach (var expected in expectedLocals)
+        {
+            var bestIndex = -1;
+            var bestDistance = float.MaxValue;
+            for (var i = 0; i < unmatched.Count; i++)
+            {
+                var distance = Vector3.Distance(unmatched[i], expected);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    bestIndex = i;
+                }
+            }
+
+            report.Log.AppendLine($"[{key}] golden {suffix}: expected={Format(expected)} best={((bestIndex >= 0) ? Format(unmatched[bestIndex]) : "<none>")} d={bestDistance:0.####}m");
+            ok &= Check(bestDistance < 0.02f, key, $"no socket matching {suffix} within 0.02m of {Format(expected)} (best {bestDistance:0.###}m)", report);
+            if (bestIndex >= 0)
+            {
+                unmatched.RemoveAt(bestIndex);
+            }
+        }
+
+        return ok;
     }
 
     private static string ExpectedEquipmentMountSuffix(MechPartSlot slot)
@@ -850,13 +1008,20 @@ public static class AC6SkinnedModularSampleBuilder
     {
         // AC6 WepAbsorpPos prefixes select the source part: 2xxx = body/core,
         // 3xxx = arms. The remaining three digits are the FLVER dummy reference ID.
+        // DSAS NewChrAsm.DoWPN: for AC6 every weapon slot places the model at
+        // RotationX(pi) * dummyCurrentMatrix — one uniform 180-degree X flip, no per-slot or
+        // left/right variants. Encoded here as the mount's local rotation under the dummy node.
+        // Boosters have no DSAS reference implementation (AC6Booster_NotImlementedYet), so the
+        // nozzle mounts start at identity until the screenshots say otherwise.
+        var weaponInstallEuler = new Vector3(180f, 0f, 0f);
+
         if (slot == MechPartSlot.Core)
         {
             return new[]
             {
-                Mount("Booster Nozzles", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_800", true, 10000f),
-                Mount("Left Back", MechPartSlot.LeftBackWeapon, MechHardpointType.BackWeapon, "_dmy_13", false, 10000f),
-                Mount("Right Back", MechPartSlot.RightBackWeapon, MechHardpointType.BackWeapon, "_dmy_14", false, 10000f)
+                Mount("Booster Nozzles", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_800", true, 10000f, Vector3.zero),
+                Mount("Left Back", MechPartSlot.LeftBackWeapon, MechHardpointType.BackWeapon, "_dmy_13", false, 10000f, weaponInstallEuler),
+                Mount("Right Back", MechPartSlot.RightBackWeapon, MechHardpointType.BackWeapon, "_dmy_14", false, 10000f, weaponInstallEuler)
             };
         }
 
@@ -864,8 +1029,8 @@ public static class AC6SkinnedModularSampleBuilder
         {
             return new[]
             {
-                Mount("Left Hand", MechPartSlot.LeftHandWeapon, MechHardpointType.HandWeapon, "_dmy_23", false, 8000f),
-                Mount("Right Hand", MechPartSlot.RightHandWeapon, MechHardpointType.HandWeapon, "_dmy_20", false, 8000f)
+                Mount("Left Hand", MechPartSlot.LeftHandWeapon, MechHardpointType.HandWeapon, "_dmy_23", false, 8000f, weaponInstallEuler),
+                Mount("Right Hand", MechPartSlot.RightHandWeapon, MechHardpointType.HandWeapon, "_dmy_20", false, 8000f, weaponInstallEuler)
             };
         }
 
@@ -878,7 +1043,8 @@ public static class AC6SkinnedModularSampleBuilder
         MechHardpointType hardpointType,
         string sourceTransformNameSuffix,
         bool matchAll,
-        float maxMassKg)
+        float maxMassKg,
+        Vector3 installEulerAngles)
     {
         return new MechMountPointDefinition
         {
@@ -888,6 +1054,7 @@ public static class AC6SkinnedModularSampleBuilder
             maxMassKg = maxMassKg,
             sourceTransformNameSuffix = sourceTransformNameSuffix,
             matchAllSourceTransforms = matchAll,
+            localEulerAngles = installEulerAngles,
             localScale = Vector3.one
         };
     }

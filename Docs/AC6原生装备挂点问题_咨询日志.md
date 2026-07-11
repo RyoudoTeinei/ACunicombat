@@ -186,7 +186,24 @@ parent = AttachBoneIndex;
 
 它结合了旧版较正确的位置与新版完整朝向。对 `BD_M_1010` 单文件探针可看到 dummy 13/14 已恢复到旧版附近的局部位置，同时拥有非 identity 四元数。
 
-**但用户要求暂停时，只重导并检查了 `BD_M_1010` 的节点数据；尚未重新生成全部 12 个框架 GLB，也尚未在 Unity 中完成视觉回归。** 咨询者应把它看成待验证假设，而不是已完成修复。
+### 6.4 结论（2026-07-11,已对照 DSAnimStudio 真实源码逐行核实)
+
+阅读 `NewDummyPolyInfo.cs` / `NewDummyPolyManager.cs` / `NewChrAsm.cs`(GitHub master)后确认:
+
+1. **dummy 的 Position/Forward/Upward 在 ParentBoneIndex 的参考空间**(构造时乘 `ParentBone.ReferenceFKMatrix`);AC6 部件的 ParentBone 全部是 identity 的无父级容器节点(`*_1400_*`、`*_Dmypoly`,已实测),所以数值上等于模型空间。Forward/Upward **不是单位向量**(实测模长 0.18–6),必须归一化。
+2. **Flag1 决定是否跟随 AttachBone 的动画**:`CurrentMatrix = ReferenceMatrix × AttachBone.RelativeMatrix(Flag1 时)`。6.3 的单父级编码与该规则逐项等价,是**正确答案**,不再是假设。已补两处:local 组合 `parentRefGlobal`(容器为 identity 时无影响,保通用性);`Flag1=false` 时改挂静态参考位、不挂 AttachBone。
+3. **武器安装规则:AC6 所有武器槽位统一为 `weaponWorld = RotationX(π) × dummyCurrent`**(NewChrAsm.DoWPN),没有左右手/背部/rail 差异,`FlipBackwards/Sideways` 对 AC6 均为 false,不存在 RotationZ(π)。Unity 侧编码:挂点 mount 的 `localEulerAngles = (180, 0, 0)`,武器实例相对 mount 为 identity。已写入 `BuildFrameMountPoints`。推进器在 DSAS 中未实现(`AC6Booster_NotImlementedYet`),喷口先用 identity,以截图定夺。
+4. **武器自身没有吸附锚点**,FLVER 模型空间原点即安装原点;武器自带 dummy 是枪口(ref=10,朝 -Z)/SFX 点。
+5. rail(17xxx/19xxx)与背挂点(2013/2014)的切换是武器收放状态切换,由游戏逻辑/TAE 驱动;本工程用自己的挂点状态机实现,不复刻 TAE。
+6. 验证金标(1010,FromSoft 模型空间):右手 dmy_20 `(-2.271, 7.906, -1.971)`、左手 dmy_23 `(2.270, 7.904, -1.974)`、背左 dmy_13 `(1.458, 10.013, 1.856)`、背右 dmy_14 `(-1.458, 10.013, 1.856)`、喷口 dmy_800 ×3 `(0, 8.622, -2.225) / (±0.413, 8.944, 2.402)`。已作为硬断言写进 `AC6SkinnedModularSampleBuilder`。金标必须在**未动画的原始 GLB 实例**上测(装配好的机体在验证时已处于动画姿态);Unity 侧坐标 = FromSoft 坐标取 X 反号(glTFast RH→LH)。
+
+### 6.5 回归结果(2026-07-11,本机重新生成全部 22 个 GLB 后)
+
+- 5/5 loadout 全部 PASS(退出码 0),七个金标 socket 误差 0.2–0.9mm。
+- 装备到框架包围盒的最近距离(新验证器按框架 only 包围盒计算)全部 0m;安装变换在静止与动作中点零漂移。
+- 截图人工核查:步枪正确握持于左手、枪管朝前;背部武器挂载正确;混装(MixedB 反关节)同样正确。
+- 验证器改进已落地:动作数改读 `AC6NativeEquipmentManifest.json`(无游戏 partsbnd 的机器如实生成 0 动作装备并按 0 验证);金标断言;框架 only 距离;安装恒等断言。
+- 本机(无游戏本体)装备 GLB 不含原生动作;有 partsbnd 的机器跑 `Tools/BuildAC6NativeEquipmentSamples.ps1` 重新生成即可恢复动作,验证器自动按 manifest 数量断言。
 
 ## 7. 推进器的额外问题
 
