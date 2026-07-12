@@ -673,7 +673,8 @@ public static class AC6SkinnedModularSampleBuilder
                 effectPlayer = mech.AddComponent<MechActionEffectPlayer>();
             }
 
-            effectPlayer.Configure(effectTimeline, runtime, player);
+            // Translated FXR prefabs when the local extraction exists; placeholder otherwise.
+            effectPlayer.Configure(effectTimeline, runtime, player, AC6FxrEffectFactory.BuildLibrary());
         }
 
         var lastEffectTime = -1f;

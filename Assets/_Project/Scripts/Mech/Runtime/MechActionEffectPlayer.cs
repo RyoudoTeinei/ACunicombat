@@ -33,6 +33,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechRuntimeState runtimeState;
         [SerializeField] private MechSynchronizedAnimationPlayer bodyPlayer;
         [SerializeField] private bool spawnPlaceholderParticles = true;
+        [SerializeField] private MechEffectPrefabLibrary effectLibrary;
 
         private readonly List<MechActionEffectSpawnRecord> spawnRecords = new List<MechActionEffectSpawnRecord>();
         private readonly List<GameObject> spawnedObjects = new List<GameObject>();
@@ -45,11 +46,12 @@ namespace ACunicombat.Mechs
         public IReadOnlyList<string> UnresolvedEvents => unresolvedEvents;
         public IReadOnlyList<string> OptionalSkips => optionalSkips;
 
-        public void Configure(MechActionEffectTimeline effectTimeline, MechRuntimeState state, MechSynchronizedAnimationPlayer player)
+        public void Configure(MechActionEffectTimeline effectTimeline, MechRuntimeState state, MechSynchronizedAnimationPlayer player, MechEffectPrefabLibrary library = null)
         {
             timeline = effectTimeline;
             runtimeState = state;
             bodyPlayer = player;
+            effectLibrary = library;
             ResetPlayback();
         }
 
@@ -156,7 +158,16 @@ namespace ACunicombat.Mechs
                     };
                     spawnRecords.Add(spawn);
 
-                    if (spawnPlaceholderParticles)
+                    if (effectLibrary != null && effectLibrary.TryGet(effectEvent.ffxId, out var prefab))
+                    {
+                        var instance = Instantiate(prefab, candidate, false);
+                        instance.transform.localPosition = Vector3.zero;
+                        // Translated prefabs emit along +Z; the dummy's emission axis is -Z.
+                        instance.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+                        PlayAllParticles(instance);
+                        spawnedObjects.Add(instance);
+                    }
+                    else if (spawnPlaceholderParticles)
                     {
                         spawnedObjects.Add(SpawnPlaceholder(candidate, effectEvent.ffxId));
                     }
@@ -196,6 +207,22 @@ namespace ACunicombat.Mechs
                 case 20: return MechPartSlot.LeftHandWeapon;
                 case 21: return MechPartSlot.LeftBackWeapon;
                 default: return MechPartSlot.None;
+            }
+        }
+
+        private static void PlayAllParticles(GameObject root)
+        {
+            var systems = root.GetComponentsInChildren<ParticleSystem>(true);
+            for (var i = 0; i < systems.Length; i++)
+            {
+                if (Application.isPlaying)
+                {
+                    systems[i].Play();
+                }
+                else
+                {
+                    systems[i].Simulate(0.1f, withChildren: false, restart: true);
+                }
             }
         }
 

@@ -136,3 +136,4 @@ InitTestScene*.unity*
 # Local game asset copies and pipeline outputs derived from them. Never commit.
 /Resources/
 /Tools/LocalOut/
+Tools/FxrTranslator/node_modules/
