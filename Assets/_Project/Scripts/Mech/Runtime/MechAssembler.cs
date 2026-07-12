@@ -294,6 +294,16 @@ namespace ACunicombat.Mechs
                 part.EquipmentAnimations,
                 part.DefaultEquipmentActionId,
                 part.PlayDefaultEquipmentActionOnAssemble);
+
+            // Equipment that does not auto-play still needs its native resting pose: sample the
+            // default action's first frame once so gimbals/brackets settle into the pose the
+            // data defines. This drives the real animation target nodes inside the imported
+            // model — never bake action-derived angles onto the wrapper instance, or any later
+            // playback (whose curves carry absolute rest-composed values) doubles the rotation.
+            if (!part.PlayDefaultEquipmentActionOnAssemble && !string.IsNullOrWhiteSpace(part.DefaultEquipmentActionId))
+            {
+                player.SampleActionAtTime(part.DefaultEquipmentActionId, 0f);
+            }
         }
 
         private void ConfigureSynchronizedSkinnedParts(IReadOnlyList<MechAssemblyRecord> records)

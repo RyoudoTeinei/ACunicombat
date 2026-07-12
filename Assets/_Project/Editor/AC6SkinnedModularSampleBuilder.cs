@@ -426,23 +426,24 @@ public static class AC6SkinnedModularSampleBuilder
                 candidate.GetComponentInChildren<Renderer>(true) != null)
             .ToList();
         ok &= Check(boosterVisuals.Count == 2, key, $"expected 2 visible rear booster instances, got {boosterVisuals.Count}", report);
-        var expectedBoosterRotation = boosterRecord?.part == null
-            ? Quaternion.identity
-            : Quaternion.Euler(boosterRecord.part.LocalEulerAngles);
-        var boosterInstallAngle = Quaternion.Angle(Quaternion.identity, expectedBoosterRotation);
-        ok &= Check(boosterInstallAngle > 5f && boosterInstallAngle < 45f, key,
-            $"booster install angle should come from the native gimbal action, got {boosterInstallAngle:0.###}deg", report);
+        // The wrapper install rotation is IDENTITY by design: the resting gimbal pose comes
+        // from sampling the native idle action on the internal animation targets at assembly.
+        // What gets asserted is the FINAL nozzle geometry axis (exhaustDir/pitch below), which
+        // reflects every layer — never wrapper Euler values, which a playing action would
+        // double-apply and which said nothing about the mesh in the first place.
+        ok &= Check(boosterRecord?.part != null && boosterRecord.part.LocalEulerAngles == Vector3.zero, key,
+            "booster wrapper install rotation must stay identity (pose comes from the sampled idle action)", report);
         for (var i = 0; i < boosterVisuals.Count; i++)
         {
             // Semantic seat check: core ref 800 is the flame emission point, and the pod is
             // installed so its own central flame dummy (_dmy_31) sits exactly on it. The root
-            // therefore carries the rotated -p31 install offset; what must be zero is the
-            // distance between the pod's flame anchor and the socket. The root rotation is
-            // the native gimbal installation angle, not identity.
+            // therefore carries the idle-posed -p31 install offset; what must be zero is the
+            // distance between the pod's flame anchor and the socket. The wrapper rotation is
+            // identity by design — the resting pose lives in the sampled idle action.
             var visual = boosterVisuals[i];
             var socket = visual.parent != null ? visual.parent.parent : null;
             var flame = FindChildBySuffix(visual, "_dmy_31");
-            var rotationError = Quaternion.Angle(visual.localRotation, expectedBoosterRotation);
+            var rotationError = Quaternion.Angle(visual.localRotation, Quaternion.identity);
             var scaleError = (visual.localScale - Vector3.one).magnitude;
             var flameError = flame != null && socket != null
                 ? Vector3.Distance(flame.position, socket.position)
@@ -451,8 +452,25 @@ public static class AC6SkinnedModularSampleBuilder
                 $"[{key}] booster {i}: flameToSocket={flameError:0.####}m rootOffset={Format(visual.localPosition)} drot={rotationError:0.###}deg dscale={scaleError:0.####}");
             ok &= Check(flame != null, key, $"booster visual {i} has no _dmy_31 flame anchor", report);
             ok &= Check(flameError < 0.005f, key, $"booster visual {i} flame anchor is {flameError:0.####}m away from its ref 800 socket", report);
-            ok &= Check(rotationError < 0.01f, key, $"booster visual {i} install rotation error is {rotationError:0.###}deg", report);
             ok &= Check(scaleError < 0.0001f, key, $"booster visual {i} root scale error is {scaleError:0.####}", report);
+
+            // FINAL geometry axis, not wrapper numerics: the flame dummy rides the same bone
+            // that skins the bell, so its world frame IS the nozzle axis after every layer
+            // (install transform, sampled idle pose, playing actions) has been applied.
+            // Exhaust must point backward and never upward; exact pitch is logged so it can be
+            // compared against in-game reference footage.
+            if (flame != null)
+            {
+                var exhaustDir = (-flame.forward).normalized;
+                var backDot = Vector3.Dot(exhaustDir, mech.transform.forward); // mech faces -Z; +Z is backward
+                var pitchDeg = Mathf.Asin(Mathf.Clamp(exhaustDir.y, -1f, 1f)) * Mathf.Rad2Deg;
+                report.Log.AppendLine(
+                    $"[{key}] booster {i}: exhaustDir={Format(exhaustDir)} backDot={backDot:0.###} pitchDeg={pitchDeg:0.##}");
+                ok &= Check(backDot > 0.6f, key,
+                    $"booster visual {i} exhaust axis is not pointing backward (backDot {backDot:0.###})", report);
+                ok &= Check(exhaustDir.y <= 0.1f, key,
+                    $"booster visual {i} exhaust axis points upward (y {exhaustDir.y:0.###})", report);
+            }
         }
         for (var i = 0; i < weaponRecords.Count; i++)
         {
@@ -745,8 +763,14 @@ public static class AC6SkinnedModularSampleBuilder
                 var boosterBounds = CombinedBounds(boosterVisuals[0].gameObject);
                 for (var b = 1; b < boosterVisuals.Count; b++)
                     boosterBounds.Encapsulate(CombinedBounds(boosterVisuals[b].gameObject));
+                // Boosters sit on the core's rear: shoot from behind-right so the torso does
+                // not stand between the camera and the nozzles.
                 Screenshot(mech, GrowBounds(boosterBounds, 1.6f),
-                    Path.Combine(ReportRoot, $"Closeup_{key}_Boosters_t{sampleTimes[i]:000}.png"));
+                    Path.Combine(ReportRoot, $"Closeup_{key}_Boosters_t{sampleTimes[i]:000}.png"),
+                    new Vector3(0.55f, 0.3f, 1f));
+                Screenshot(mech, GrowBounds(boosterBounds, 1.6f),
+                    Path.Combine(ReportRoot, $"Closeup_{key}_Boosters_side_t{sampleTimes[i]:000}.png"),
+                    new Vector3(1f, 0.05f, 0.15f));
             }
         }
 
@@ -866,6 +890,34 @@ public static class AC6SkinnedModularSampleBuilder
         }
 
         return Mathf.Sqrt(best);
+    }
+
+    /// <summary>
+    /// Position of the pod's central flame dummy (_dmy_31) in model-root space, measured after
+    /// sampling the first frame of the native idle action on a temporary instance. Falls back
+    /// to the bind pose when the build has no actions (machines without the game's partsbnd).
+    /// </summary>
+    private static Vector3 SampleRestingFlameAnchorLocal(GameObject model, IReadOnlyList<MechEquipmentAnimationDefinition> actions)
+    {
+        var instance = UnityEngine.Object.Instantiate(model);
+        try
+        {
+            var idle = actions?.FirstOrDefault(action =>
+                string.Equals(action.ActionId, "a000_000000", StringComparison.OrdinalIgnoreCase));
+            if (idle?.Clip != null)
+            {
+                idle.Clip.SampleAnimation(instance, 0f);
+            }
+
+            var anchor = FindChildBySuffix(instance.transform, "_dmy_31");
+            return anchor != null
+                ? instance.transform.InverseTransformPoint(anchor.position)
+                : Vector3.zero;
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(instance);
+        }
     }
 
     private static Transform FindChildBySuffix(Transform root, string suffix)
@@ -1084,14 +1136,13 @@ public static class AC6SkinnedModularSampleBuilder
                 missing.Add(sourcePath + " (booster flame anchor _dmy_31 not found)");
                 continue;
             }
-            if (!TryGetEquipmentRootRotation(actions, "a000_000001", 0f, out var installRotation))
-            {
-                missing.Add(sourcePath + " (native booster gimbal root rotation could not be read)");
-                continue;
-            }
-
-            var flameAnchorLocal = model.transform.InverseTransformPoint(flameAnchor.position);
-            var installOffset = -(installRotation * flameAnchorLocal);
+            // Install rotation stays IDENTITY. The resting gimbal pose comes from sampling the
+            // default idle action's first frame at assembly (MechAssembler), which drives the
+            // real animation target nodes inside the GLB. Baking an action-derived angle onto
+            // the wrapper double-applies as soon as any action plays, because the exported
+            // clips carry absolute rest-composed root values. The -p31 offset is measured on an
+            // idle-posed instance so a tilted resting gimbal still puts _dmy_31 on ref 800.
+            var installOffset = -SampleRestingFlameAnchorLocal(model, actions);
 
             var id = $"AC6_NATIVE_{key}";
             var part = LoadOrCreateAsset<MechPartDefinition>($"{PartRoot}/{id}.asset");
@@ -1119,7 +1170,7 @@ public static class AC6SkinnedModularSampleBuilder
                 newDefaultEquipmentActionId: SelectDefaultAction(actions, "a000_000000"),
                 shouldPlayDefaultEquipmentActionOnAssemble: false,
                 newLocalPosition: installOffset,
-                newLocalEulerAngles: installRotation.eulerAngles,
+                newLocalEulerAngles: Vector3.zero,
                 newLocalScale: Vector3.one);
             result[code] = part;
         }
@@ -1627,7 +1678,7 @@ public static class AC6SkinnedModularSampleBuilder
         camera.farClipPlane = 250f;
     }
 
-    private static void Screenshot(GameObject subject, Bounds bounds, string filePath)
+    private static void Screenshot(GameObject subject, Bounds bounds, string filePath, Vector3? viewDirection = null)
     {
         var cameraObject = new GameObject("ValidationScreenshotCamera");
         var lightObject = new GameObject("ValidationScreenshotLight");
@@ -1652,10 +1703,13 @@ public static class AC6SkinnedModularSampleBuilder
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(0.14f, 0.16f, 0.2f);
             camera.cullingMask = 1 << screenshotLayer;
-            var distance = Mathf.Max(bounds.size.magnitude, 1f) * 1.1f;
-            camera.transform.position = bounds.center + new Vector3(0.7f, 0.2f, -1f).normalized * distance;
+            // Distance floor keeps close-ups of small bounds (nozzles) from placing the camera
+            // inside surrounding geometry; the near plane stays proportional but never huge.
+            var distance = Mathf.Max(Mathf.Max(bounds.size.magnitude, 1f) * 1.1f, 2.5f);
+            var direction = (viewDirection ?? new Vector3(0.7f, 0.2f, -1f)).normalized;
+            camera.transform.position = bounds.center + direction * distance;
             camera.transform.LookAt(bounds.center);
-            camera.nearClipPlane = Mathf.Max(0.01f, distance * 0.01f);
+            camera.nearClipPlane = Mathf.Clamp(distance * 0.01f, 0.01f, 0.3f);
             camera.farClipPlane = distance * 10f;
 
             var renderTexture = new RenderTexture(900, 1100, 24);
