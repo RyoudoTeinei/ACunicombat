@@ -194,3 +194,21 @@ TAE 事件层:c0000.anibnd 含 **53 个 .tae**(a00–a500 按腿型/武器类分
 - ❓ 级条目(BD 的 Master 系参考点、AM 肩部 7/8/11、LG 部位标记群等)不影响装配,只影响特效/玩法绑定;做到对应功能时用游戏内录像比对一次即可定案。
 - 装备动作的语义表(第三节下半)基于文件名频段与首帧行为,精确语义需 TAE + 游戏参照。
 - 本表数据来自 1010–9400 全部部件;新 DLC/未扫描型号如出现新 ref 段,重跑 sweep 脚本即可增量更新。
+
+---
+
+## 八、TAE 事件层(2026-07-13 全量解析 53 个 c0000 TAE)
+
+工具:`AC6AnimExportProbe --dump-tae <tae目录> <DSAS的TAE.Template.AC6.xml> <out.json>`(自研 action_template 解析器 + 小端参数解码;SoulsFormats 旧模板解析器不兼容 DSAS V5 模板格式)。产物在 `Tools/LocalOut/c0000_tae_dump.json`(全量 65,759 事件)与 `c0000_action_event_manifest.json`(关键事件 manifest,1,017 个动作),均含游戏数据,不入库,按上述命令再生成。
+
+**实测结论(全部 ✅)**:
+
+1. **事件→挂点的路由确用千位前缀**,与 WepAbsorpPos 同一套:`SpawnOneShotFFX{FFXID, DummyPolyID}` 中 2xxx=核心、3xxx=手臂、4xxx=腿、1xxx=头(c0000 全库分布:核心 460 / 手臂 22 / 腿 16 / 头 4)。特效系统直接照此路由即可。
+2. **足部触地点实锤**:`FootSfxParam_Entity` 的 DummyPolyID = 4700/4701/4720/4721 —— 腿部 700/720(+后足 701/721)就是步尘/着地 SFX 点(第二节的 🔶 升级为 ✅)。
+3. **核心 9xx/85x 群修正**:悬浮动作(a000_010900)在 t=1.07–2.77s 依次于核心 975/855/983、腿 880 喷 FFX 600156/5003000 —— 这些点在飞行中用作**推进伴生/排气特效**,不只是损毁特效(第二节相应条目按此理解)。
+4. 关键事件类型速查:`SpawnOneShotFFX`(特效,503 条)、`Wwise_PlaySound_BySlot`(音效,带 DummyPolyID)、`FootSfxParam_Entity`(足部)、`AttackBehavior/PCBehavior`(判定帧,BehaviorJudgeID)、`Blend/SetTurnSpeed/ChrActionFlag`(动作控制)。c0000 库共 118 种事件类型,其中 36 种模板未命名(❓,多为 8xxx/9xxx 段)。
+5. TAE 动画 ID = 动作文件名后六位十进制(10900 ↔ a000_010900),跨 TAE 文件(a00/a000 等分组)同 ID 事件一致。
+
+**特效通道实施路径**(第 4 节矩阵的落地起点):manifest 给出每个动作的 (时间, FFXID, 前缀路由挂点);Unity 侧按前缀找对应部件实例的 `_dmy_XXX` 节点,在事件时间触发占位粒子——FFXID 后续再对接原版 FXR 解码。
+
+**装备侧 TAE(需游戏 partsbnd 的机器)**:武器枪口特效、背武器展开、推进器点火的事件在各装备 partsbnd 内的 anibnd 里(`BuildAC6NativeEquipmentSamples.ps1` 已解出该 anibnd),对解出目录跑同一条 `--dump-tae` 即可得到装备事件 manifest。

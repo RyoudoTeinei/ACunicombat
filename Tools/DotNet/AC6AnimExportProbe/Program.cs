@@ -83,6 +83,12 @@ if (args.Length > 4 && args[0].Equals("--make-compendium-set", StringComparison.
     return 0;
 }
 
+if (args.Length > 3 && args[0].Equals("--dump-tae", StringComparison.OrdinalIgnoreCase))
+{
+    DumpTae(args[1], args[2], args[3]);
+    return 0;
+}
+
 DumpKnownAnimationTypes();
 return 0;
 }
@@ -685,6 +691,154 @@ static string AccessMethod(MethodBase method)
     return method.IsStatic ? access + " static" : access;
 }
 
+// Dumps every TAE file (a single .tae or a directory of them) to one JSON manifest. Event
+// names and parameter layouts come from a DSAS V5 action template (TAE.Template.AC6.xml,
+// root element action_template) which we parse ourselves — SoulsFormats.TAE.Template expects
+// the older schema and cannot read these files. Parameters are decoded little-endian from the
+// event's raw bytes following the field order declared in the template.
+static void DumpTae(string taePathOrDir, string templatePath, string outputPath)
+{
+    var actionTemplates = LoadActionTemplates(templatePath);
+    var files = Directory.Exists(taePathOrDir)
+        ? Directory.GetFiles(taePathOrDir, "*.tae").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToArray()
+        : new[] { taePathOrDir };
+
+    var taeList = new List<object>();
+    foreach (var file in files)
+    {
+        var tae = SoulsFormats.TAE.Read(file);
+        var animations = new List<object>();
+        foreach (var anim in tae.Animations)
+        {
+            var events = new List<object>();
+            foreach (var ev in anim.Events)
+            {
+                string? typeName = null;
+                Dictionary<string, object?>? parameters = null;
+                if (actionTemplates.TryGetValue(ev.Type, out var actionTemplate))
+                {
+                    typeName = actionTemplate.Name;
+                    parameters = DecodeEventParameters(ev.GetParameterBytes(tae.BigEndian), actionTemplate);
+                }
+
+                events.Add(new
+                {
+                    type = ev.Type,
+                    typeName,
+                    startTime = ev.StartTime,
+                    endTime = ev.EndTime,
+                    parameters,
+                });
+            }
+
+            animations.Add(new
+            {
+                id = anim.ID,
+                name = anim.AnimFileName,
+                eventCount = anim.Events.Count,
+                events,
+            });
+        }
+
+        taeList.Add(new
+        {
+            file = Path.GetFileName(file),
+            eventBank = tae.EventBank,
+            animationCount = tae.Animations.Count,
+            animations,
+        });
+    }
+
+    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+    File.WriteAllText(outputPath, System.Text.Json.JsonSerializer.Serialize(new { taeFiles = taeList },
+        new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine($"Dumped {taeList.Count} TAE files to {outputPath}");
+}
+
+static Dictionary<int, ActionTemplate> LoadActionTemplates(string templatePath)
+{
+    var xml = new System.Xml.XmlDocument();
+    xml.Load(templatePath);
+    var result = new Dictionary<int, ActionTemplate>();
+    var actions = xml.SelectNodes("//action");
+    if (actions == null)
+        return result;
+
+    foreach (System.Xml.XmlNode action in actions)
+    {
+        if (!int.TryParse(action.Attributes?["id"]?.Value, out var id))
+            continue;
+
+        var fields = new List<ActionField>();
+        foreach (System.Xml.XmlNode field in action.ChildNodes)
+        {
+            if (field.NodeType != System.Xml.XmlNodeType.Element)
+                continue;
+
+            Dictionary<long, string>? enums = null;
+            foreach (System.Xml.XmlNode entry in field.ChildNodes)
+            {
+                if (entry.Name != "entry")
+                    continue;
+                if (long.TryParse(entry.Attributes?["value"]?.Value, out var value))
+                {
+                    enums ??= new Dictionary<long, string>();
+                    enums[value] = entry.Attributes?["name"]?.Value ?? value.ToString();
+                }
+            }
+
+            fields.Add(new ActionField(field.Name, field.Attributes?["name"]?.Value ?? field.Name, enums));
+        }
+
+        result[id] = new ActionTemplate(action.Attributes?["name"]?.Value ?? $"Action{id}", fields);
+    }
+
+    return result;
+}
+
+static Dictionary<string, object?> DecodeEventParameters(byte[] bytes, ActionTemplate template)
+{
+    var result = new Dictionary<string, object?>();
+    var offset = 0;
+    foreach (var field in template.Fields)
+    {
+        long? intValue = null;
+        object? value = null;
+        try
+        {
+            switch (field.Type)
+            {
+                case "s8": if (offset + 1 > bytes.Length) return result; intValue = (sbyte)bytes[offset]; offset += 1; break;
+                case "u8": if (offset + 1 > bytes.Length) return result; intValue = bytes[offset]; offset += 1; break;
+                case "s16": if (offset + 2 > bytes.Length) return result; intValue = BitConverter.ToInt16(bytes, offset); offset += 2; break;
+                case "u16": if (offset + 2 > bytes.Length) return result; intValue = BitConverter.ToUInt16(bytes, offset); offset += 2; break;
+                case "s32": if (offset + 4 > bytes.Length) return result; intValue = BitConverter.ToInt32(bytes, offset); offset += 4; break;
+                case "u32": if (offset + 4 > bytes.Length) return result; intValue = BitConverter.ToUInt32(bytes, offset); offset += 4; break;
+                case "s64": if (offset + 8 > bytes.Length) return result; intValue = BitConverter.ToInt64(bytes, offset); offset += 8; break;
+                case "u64": if (offset + 8 > bytes.Length) return result; intValue = (long)BitConverter.ToUInt64(bytes, offset); offset += 8; break;
+                case "f32": if (offset + 4 > bytes.Length) return result; value = BitConverter.ToSingle(bytes, offset); offset += 4; break;
+                case "f64": if (offset + 8 > bytes.Length) return result; value = BitConverter.ToDouble(bytes, offset); offset += 8; break;
+                default: return result; // aob or unknown layout: stop decoding to avoid misalignment
+            }
+        }
+        catch
+        {
+            return result;
+        }
+
+        if (intValue.HasValue)
+        {
+            value = field.Enums != null && field.Enums.TryGetValue(intValue.Value, out var label)
+                ? $"{intValue.Value} ({label})"
+                : intValue.Value;
+        }
+
+        result[field.Name] = value;
+    }
+
+    return result;
+}
+
 static string AccessField(FieldInfo field)
 {
     if (field.IsPublic) return "public";
@@ -705,3 +859,5 @@ static string Params(MethodBase method)
 
 readonly record struct FlverNodeInfo(int Index, string Name, int ParentIndex, string ParentName, string Flags, double X, double Y, double Z);
 readonly record struct HkxBoneInfo(int Index, string Name, int ParentIndex, string ParentName, double X, double Y, double Z);
+sealed record ActionField(string Type, string Name, Dictionary<long, string>? Enums);
+sealed record ActionTemplate(string Name, List<ActionField> Fields);
