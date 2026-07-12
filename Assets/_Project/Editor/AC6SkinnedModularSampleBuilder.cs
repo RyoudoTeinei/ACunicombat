@@ -661,10 +661,31 @@ public static class AC6SkinnedModularSampleBuilder
             installBaselines[record] = record.parentMount.parent.worldToLocalMatrix * record.instance.transform.localToWorldMatrix;
         }
 
+        // --- Placeholder VFX channel: fire the TAE-derived effect timeline of the body action
+        // and assert that every event resolves through the thousands-prefix dummy routing.
+        var effectTimeline = LoadOrCreateEffectTimeline("a000_010900");
+        MechActionEffectPlayer effectPlayer = null;
+        if (effectTimeline != null && runtime != null && player != null)
+        {
+            effectPlayer = mech.GetComponent<MechActionEffectPlayer>();
+            if (effectPlayer == null)
+            {
+                effectPlayer = mech.AddComponent<MechActionEffectPlayer>();
+            }
+
+            effectPlayer.Configure(effectTimeline, runtime, player);
+        }
+
+        var lastEffectTime = -1f;
         var sampleTimes = new[] { 0f, clip.length * 0.5f };
         for (var i = 0; i < sampleTimes.Length; i++)
         {
             player?.EvaluatePlayableGraphAtTime(sampleTimes[i]);
+            if (effectPlayer != null)
+            {
+                effectPlayer.EvaluateWindow(lastEffectTime, sampleTimes[i]);
+                lastEffectTime = sampleTimes[i];
+            }
             if (player != null)
             {
                 player.GetSharedBonePoseErrors(out var positionError, out var rotationError, out var scaleError);
@@ -772,6 +793,43 @@ public static class AC6SkinnedModularSampleBuilder
                     Path.Combine(ReportRoot, $"Closeup_{key}_Boosters_side_t{sampleTimes[i]:000}.png"),
                     new Vector3(1f, 0.05f, 0.15f));
             }
+        }
+
+        // --- Effect channel assertions: every fired TAE event must have resolved through the
+        // prefix routing to at least one dummy on the assembled parts, and every spawn must sit
+        // on the mech (frame bounds + margin). Each spawn is logged with the full diagnostic
+        // fields the effects test matrix requires.
+        if (effectPlayer != null)
+        {
+            var frameBoundsForEffects = CombinedBounds(frameRecords[0].instance);
+            for (var r = 1; r < frameRecords.Count; r++)
+                frameBoundsForEffects.Encapsulate(CombinedBounds(frameRecords[r].instance));
+
+            foreach (var spawn in effectPlayer.SpawnRecords)
+            {
+                var distance = Mathf.Sqrt(frameBoundsForEffects.SqrDistance(spawn.WorldPosition));
+                report.Log.AppendLine(
+                    $"[{key}] EFFECT t={spawn.Time:0.###} ffx={spawn.FfxId} dummy={spawn.DummyPolyId} slot={spawn.Slot} " +
+                    $"node={spawn.DummyPath} pos={Format(mech.transform.InverseTransformPoint(spawn.WorldPosition))} fwd={Format(spawn.WorldForward)} distToFrame={distance:0.###}m");
+                ok &= Check(distance < 2f, key,
+                    $"effect ffx={spawn.FfxId} spawned {distance:0.###}m away from the frame (dummy {spawn.DummyPolyId})", report);
+            }
+
+            foreach (var unresolved in effectPlayer.UnresolvedEvents)
+            {
+                ok &= Check(false, key, $"effect event routing bug: {unresolved}", report);
+            }
+
+            // TAE timelines address the superset of every part's dummies; a part that simply
+            // lacks the dummy is a legitimate skip (the game behaves the same way).
+            foreach (var skipped in effectPlayer.OptionalSkips)
+            {
+                report.Log.AppendLine($"[{key}] EFFECT optional-skip (dummy absent on this loadout): {skipped}");
+            }
+
+            ok &= Check(effectPlayer.SpawnRecords.Count > 0, key, "effect timeline produced no spawns", report);
+            report.Log.AppendLine($"[{key}] EFFECT summary: {effectPlayer.SpawnRecords.Count} spawns, {effectPlayer.OptionalSkips.Count} optional skips, {effectPlayer.UnresolvedEvents.Count} routing bugs (timeline {effectPlayer.Timeline.actionId})");
+            effectPlayer.ResetPlayback();
         }
 
         if (ok)
@@ -918,6 +976,28 @@ public static class AC6SkinnedModularSampleBuilder
         {
             UnityEngine.Object.DestroyImmediate(instance);
         }
+    }
+
+    /// <summary>
+    /// Loads (or creates from the local TAE extraction) the effect timeline asset for a body
+    /// action. Source JSON comes from Tools/ExtractAC6EffectTimelines.py and carries
+    /// game-derived data, so both the JSON and the generated asset stay machine-local; when
+    /// the JSON is absent the effect channel is skipped rather than faked.
+    /// </summary>
+    private static MechActionEffectTimeline LoadOrCreateEffectTimeline(string actionId)
+    {
+        var sourcePath = $"Tools/LocalOut/effect_timelines/{actionId}.json";
+        var assetPath = $"{GeneratedRoot}/Effects/AC6_{actionId}_Effects.asset";
+        if (!File.Exists(sourcePath))
+        {
+            return AssetDatabase.LoadAssetAtPath<MechActionEffectTimeline>(assetPath);
+        }
+
+        EnsureAssetFolder($"{GeneratedRoot}/Effects");
+        var timeline = LoadOrCreateAsset<MechActionEffectTimeline>(assetPath);
+        JsonUtility.FromJsonOverwrite(File.ReadAllText(sourcePath), timeline);
+        EditorUtility.SetDirty(timeline);
+        return timeline;
     }
 
     private static Transform FindChildBySuffix(Transform root, string suffix)
