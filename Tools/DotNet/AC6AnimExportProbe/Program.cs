@@ -89,6 +89,12 @@ if (args.Length > 3 && args[0].Equals("--dump-tae", StringComparison.OrdinalIgno
     return 0;
 }
 
+if (args.Length > 3 && args[0].Equals("--dump-param", StringComparison.OrdinalIgnoreCase))
+{
+    DumpParam(args[1], args[2], args[3]);
+    return 0;
+}
+
 DumpKnownAnimationTypes();
 return 0;
 }
@@ -753,6 +759,40 @@ static void DumpTae(string taePathOrDir, string templatePath, string outputPath)
     File.WriteAllText(outputPath, System.Text.Json.JsonSerializer.Serialize(new { taeFiles = taeList },
         new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     Console.WriteLine($"Dumped {taeList.Count} TAE files to {outputPath}");
+}
+
+// Decrypts an AC6 regulation.bin, extracts one param table and prints every row with named
+// fields from a Paramdex paramdef XML.
+static void DumpParam(string regulationPath, string paramName, string paramdefPath)
+{
+    // The decrypt helper's declaring type differs between SoulsFormats builds; resolve by name.
+    var decrypt = typeof(SoulsFormats.SFUtil).Assembly.GetTypes()
+        .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+        .First(mth => mth.Name == "DecryptAC6Regulation" && mth.GetParameters().Length == 1);
+    var bnd = (SoulsFormats.BND4)decrypt.Invoke(null, new object[] { regulationPath })!;
+    if (paramName == "list")
+    {
+        foreach (var f in bnd.Files)
+            Console.WriteLine(f.Name);
+        return;
+    }
+
+    var file = bnd.Files.FirstOrDefault(f =>
+        f.Name != null && f.Name.EndsWith(paramName + ".param", StringComparison.OrdinalIgnoreCase))
+        ?? throw new FileNotFoundException($"{paramName}.param not found in {regulationPath}");
+
+    var param = SoulsFormats.PARAM.Read(file.Bytes);
+    var def = SoulsFormats.PARAMDEF.XmlDeserialize(paramdefPath);
+    param.ApplyParamdef(def);
+
+    Console.WriteLine($"# {paramName}: {param.Rows.Count} rows, {def.Fields.Count} fields");
+    foreach (var row in param.Rows)
+    {
+        var cells = row.Cells
+            .Where(c => c.Def.InternalType != "dummy8")
+            .Select(c => $"{c.Def.InternalName}={c.Value}");
+        Console.WriteLine($"row {row.ID}: {string.Join(" ", cells)}");
+    }
 }
 
 static Dictionary<int, ActionTemplate> LoadActionTemplates(string templatePath)

@@ -212,3 +212,22 @@ TAE 事件层:c0000.anibnd 含 **53 个 .tae**(a00–a500 按腿型/武器类分
 **特效通道实施路径**(第 4 节矩阵的落地起点):manifest 给出每个动作的 (时间, FFXID, 前缀路由挂点);Unity 侧按前缀找对应部件实例的 `_dmy_XXX` 节点,在事件时间触发占位粒子——FFXID 后续再对接原版 FXR 解码。
 
 **装备侧 TAE(需游戏 partsbnd 的机器)**:武器枪口特效、背武器展开、推进器点火的事件在各装备 partsbnd 内的 anibnd 里(`BuildAC6NativeEquipmentSamples.ps1` 已解出该 anibnd),对解出目录跑同一条 `--dump-tae` 即可得到装备事件 manifest。
+
+---
+
+## 九、推进器体系最终架构(2026-07-13,regulation 实测定案)
+
+工具:`AC6AnimExportProbe --dump-param <regulation.bin> <ParamName> <paramdef.xml>`(AC6 解密内建;paramdef 取自 Smithbox Paramdex;`list` 作为 ParamName 可列出全部 param)。
+
+**四层数据链,每层职责已验证**:
+
+| 层 | 数据源 | 内容 | 级 |
+|---|---|---|---|
+| 插座 | 核心 FLVER dmy_800 ×3(前1后2) | 位置逐核心不同;壳体座圈在核心网格里 | ✅ |
+| 喷铃 | `EquipParamBooster.modelId` → `bs_a_{modelId}` | **喷铃模型跟推进器商品走,不跟核心走**(25 商品→13 模型;P04→1010、12345→2010…);换推进器=换喷口视觉 | ✅ |
+| 安装 | 铃 dmy_31 ↔ 核心 dmy_800 | identity + (−p31);静止姿态=原生 idle(水平,pitch 0°) | ✅ |
+| 点火 | `ThrustersParam_PC`(行 10,全商品共用)| **飞行状态→SFXID→铃 DummyID=31**:主推 410001 / QB 450000 / 突击 440001·循环 440011·收尾 440101 / 悬浮 410000 / 下落 410021 / 排气 410031 / 急转 410001×0.75;各状态 FXR 均在 commoneffects 语料 | ✅ |
+
+推论:游戏里推进器观感的差异来源 = 商品喷铃模型(单铃/多管簇各不同)× 核心插座位置与座圈 × 状态焰——**没有静止倾角参数**;样例的"按核心代码配喷铃"应改语义为"按装备的推进器商品配"(编号巧合恰好能跑)。
+
+顺带:`ThrustersSfxIdParam_*` 与 `BoostParam` 也在 regulation 内,做飞行特效状态机时按需 dump。修正第四节旧条目:推进器**不是**纯隐形内部件。
