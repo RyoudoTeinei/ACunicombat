@@ -229,8 +229,10 @@ public static class AC6SkinnedModularSampleBuilder
         CreateLoadout(loadouts, "Uniform1010", "Melander 1010", frameParts, internals, boosters, weapons, "1010", "1010", "1010", "1010");
         CreateLoadout(loadouts, "Uniform2010", "Nacht 2010", frameParts, internals, boosters, weapons, "2010", "2010", "2010", "2010");
         CreateLoadout(loadouts, "Uniform3010", "Tian-Qiang 3010", frameParts, internals, boosters, weapons, "3010", "3010", "3010", "3010");
-        CreateLoadout(loadouts, "MixedA", "Mixed A 2010/1010/3010/2010", frameParts, internals, boosters, weapons, "2010", "1010", "3010", "2010");
-        CreateLoadout(loadouts, "MixedB", "Mixed B 3010/2010/1010/3010", frameParts, internals, boosters, weapons, "3010", "2010", "1010", "3010");
+        // Mixed loadouts take the left-hand bazooka so the left palm dummy (gun, dmy_23) is
+        // verified too; the uniform loadouts keep melee on the left forearm (dmy_25).
+        CreateLoadout(loadouts, "MixedA", "Mixed A 2010/1010/3010/2010", frameParts, internals, boosters, weapons, "2010", "1010", "3010", "2010", leftHandWeaponKey: "WP_L_1410");
+        CreateLoadout(loadouts, "MixedB", "Mixed B 3010/2010/1010/3010", frameParts, internals, boosters, weapons, "3010", "2010", "1010", "3010", leftHandWeaponKey: "WP_L_1410");
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -400,7 +402,7 @@ public static class AC6SkinnedModularSampleBuilder
         ok &= Check(frameRecords.Count == 4, key, $"expected 4 skinned frame records, got {frameRecords.Count}", report);
         ok &= Check(runtime != null && runtime.LoadoutValid, key, "assembled equipment loadout is invalid", report);
         ok &= Check(boosterRecord?.part?.ModelPrefab != null, key, "visible booster model is missing", report);
-        ok &= Check(weaponRecords.Count == 3, key, $"expected 3 mounted weapons, got {weaponRecords.Count}", report);
+        ok &= Check(weaponRecords.Count == 4, key, $"expected 4 mounted weapons, got {weaponRecords.Count}", report);
 
         var boosterMounts = runtime == null
             ? new List<MechMountPoint>()
@@ -454,6 +456,19 @@ public static class AC6SkinnedModularSampleBuilder
                 key, $"{record.slot} expected mount {expectedMountSuffix}, got {mountSource?.name ?? "<none>"}", report);
             ok &= Check(modelPath.StartsWith(NativeEquipmentRoot, StringComparison.OrdinalIgnoreCase),
                 key, $"{record.slot} still references a legacy or Blender-baked asset: {modelPath}", report);
+
+            // Grip contact: hand-mounted weapons must actually sit in the hand — the palm
+            // (or forearm) dummy has to touch the weapon's surface. Guards against a weapon
+            // that follows its dummy but hovers away from the grip.
+            if (record.slot == MechPartSlot.LeftHandWeapon || record.slot == MechPartSlot.RightHandWeapon)
+            {
+                var gripDistance = mountSource != null && record.instance != null
+                    ? MinDistanceToWeaponSurface(record.instance, mountSource.position)
+                    : float.MaxValue;
+                report.Log.AppendLine($"[{key}] {record.slot} gripDistance={gripDistance:0.####}m");
+                ok &= Check(gripDistance < 0.15f, key,
+                    $"{record.slot} grip point is {gripDistance:0.###}m away from the weapon surface", report);
+            }
 
             var expectedActionCount = ExpectedNativeActionCount(record.part.PartId);
             ok &= Check(expectedActionCount < 0 || record.part.EquipmentAnimations.Count == expectedActionCount,
@@ -793,6 +808,53 @@ public static class AC6SkinnedModularSampleBuilder
     /// Finds the muzzle / firing-direction dummy inside a weapon instance. AC6 weapons use
     /// ref 10 for the primary muzzle; multi-tube back weapons use ref 300/200 series.
     /// </summary>
+    /// <summary>
+    /// Minimum distance from a world-space point to any rendered vertex of the weapon,
+    /// sampled from baked skinned meshes and static mesh filters.
+    /// </summary>
+    private static float MinDistanceToWeaponSurface(GameObject weapon, Vector3 point)
+    {
+        var best = float.MaxValue;
+        foreach (var skinned in weapon.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+        {
+            var baked = new Mesh();
+            try
+            {
+                skinned.BakeMesh(baked);
+                best = Mathf.Min(best, MinDistance(baked.vertices, skinned.transform.localToWorldMatrix, point));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(baked);
+            }
+        }
+
+        foreach (var filter in weapon.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (filter.sharedMesh != null)
+            {
+                best = Mathf.Min(best, MinDistance(filter.sharedMesh.vertices, filter.transform.localToWorldMatrix, point));
+            }
+        }
+
+        return best;
+    }
+
+    private static float MinDistance(Vector3[] vertices, Matrix4x4 localToWorld, Vector3 point)
+    {
+        var best = float.MaxValue;
+        for (var i = 0; i < vertices.Length; i++)
+        {
+            var d = (localToWorld.MultiplyPoint3x4(vertices[i]) - point).sqrMagnitude;
+            if (d < best)
+            {
+                best = d;
+            }
+        }
+
+        return Mathf.Sqrt(best);
+    }
+
     private static Transform FindChildBySuffix(Transform root, string suffix)
     {
         var transforms = root.GetComponentsInChildren<Transform>(true);
@@ -1058,6 +1120,11 @@ public static class AC6SkinnedModularSampleBuilder
             // forearm dummy 25, not the gun/palm dummy 23.
             new NativeWeaponSpec("WP_L_0230", "Native Left Laser Blade 0230", MechPartSlot.LeftHandWeapon, "a000_000000", 4700f, isMelee: true),
             new NativeWeaponSpec("WP_L_0250", "Native Left Blade 0250", MechPartSlot.LeftHandWeapon, "a000_000000", 6100f, isMelee: true),
+            // 1310/1410 are hand-held firearms (regulation: WepAbsorpPos 100 -> right 3020 /
+            // left 3023, i.e. the palm dummies). They exist so the gun grip path is exercised:
+            // with 0010 reclassified as the ASHMEAD pile bunker the samples had no hand gun.
+            new NativeWeaponSpec("WP_R_1310", "Native Right Grenade Launcher 1310", MechPartSlot.RightHandWeapon, "a000_000000", 4900f),
+            new NativeWeaponSpec("WP_L_1410", "Native Left Bazooka 1410", MechPartSlot.LeftHandWeapon, "a000_000000", 4600f),
             new NativeWeaponSpec("WP_L_4210", "Native Left Plasma Missile 4210", MechPartSlot.LeftBackWeapon, "a000_800210", 4200f),
             new NativeWeaponSpec("WP_R_4210", "Native Right Plasma Missile 4210", MechPartSlot.RightBackWeapon, "a000_800210", 4200f),
             new NativeWeaponSpec("WP_R_4410", "Native Right Songbirds 4410", MechPartSlot.RightBackWeapon, "a000_800210", 5500f)
@@ -1194,7 +1261,8 @@ public static class AC6SkinnedModularSampleBuilder
         string headCode,
         string coreCode,
         string armsCode,
-        string legsCode)
+        string legsCode,
+        string leftHandWeaponKey = null)
     {
         var assignments = new List<MechPartAssignment>
         {
@@ -1206,7 +1274,10 @@ public static class AC6SkinnedModularSampleBuilder
             Assignment(MechPartSlot.Generator, internals[MechPartSlot.Generator]),
             Assignment(MechPartSlot.FireControlSystem, internals[MechPartSlot.FireControlSystem]),
             Assignment(MechPartSlot.Radar, internals[MechPartSlot.Radar]),
-            Assignment(MechPartSlot.LeftHandWeapon, weapons[LeftHandWeaponForCode(armsCode)]),
+            Assignment(MechPartSlot.LeftHandWeapon, weapons[leftHandWeaponKey ?? LeftHandWeaponForCode(armsCode)]),
+            // Every loadout carries a right-hand firearm so the palm-grip path (dmy_20,
+            // WepAbsorpPos 100) is always exercised alongside the melee forearm path.
+            Assignment(MechPartSlot.RightHandWeapon, weapons["WP_R_1310"]),
             Assignment(MechPartSlot.LeftBackWeapon, weapons["WP_L_4210"]),
             Assignment(MechPartSlot.RightBackWeapon, weapons[RightBackWeaponForCode(coreCode)])
         };
