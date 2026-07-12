@@ -34,6 +34,11 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechSynchronizedAnimationPlayer bodyPlayer;
         [SerializeField] private bool spawnPlaceholderParticles = true;
         [SerializeField] private MechEffectPrefabLibrary effectLibrary;
+        // Equipment-local mode: weapon/booster TAE addresses the equipment's OWN dummies with
+        // unprefixed ids (e.g. 300, 235). When a search root is set, resolution happens inside
+        // that instance only and no thousands-prefix routing is applied.
+        [SerializeField] private Transform localSearchRoot;
+        [SerializeField] private MechEquipmentAnimationPlayer equipmentSource;
 
         private readonly List<MechActionEffectSpawnRecord> spawnRecords = new List<MechActionEffectSpawnRecord>();
         private readonly List<GameObject> spawnedObjects = new List<GameObject>();
@@ -51,6 +56,23 @@ namespace ACunicombat.Mechs
             timeline = effectTimeline;
             runtimeState = state;
             bodyPlayer = player;
+            localSearchRoot = null;
+            equipmentSource = null;
+            effectLibrary = library;
+            ResetPlayback();
+        }
+
+        /// <summary>
+        /// Equipment-local configuration: events resolve against the equipment instance's own
+        /// dummies (unprefixed ids) and follow the equipment action's playback time.
+        /// </summary>
+        public void ConfigureForEquipment(MechActionEffectTimeline effectTimeline, Transform searchRoot, MechEquipmentAnimationPlayer source, MechEffectPrefabLibrary library = null)
+        {
+            timeline = effectTimeline;
+            runtimeState = null;
+            bodyPlayer = null;
+            localSearchRoot = searchRoot;
+            equipmentSource = source;
             effectLibrary = library;
             ResetPlayback();
         }
@@ -81,12 +103,24 @@ namespace ACunicombat.Mechs
 
         private void Update()
         {
-            if (bodyPlayer == null || !bodyPlayer.IsGraphValid)
+            double current;
+            if (equipmentSource != null)
+            {
+                if (!equipmentSource.IsGraphValid || !equipmentSource.IsPlaying)
+                {
+                    return;
+                }
+
+                current = equipmentSource.PlaybackTime;
+            }
+            else if (bodyPlayer != null && bodyPlayer.IsGraphValid)
+            {
+                current = bodyPlayer.PlaybackTime;
+            }
+            else
             {
                 return;
             }
-
-            var current = bodyPlayer.PlaybackTime;
             if (current < lastEvaluatedTime)
             {
                 // Loop restarted: flush the tail of the previous cycle, then rewind.
@@ -104,7 +138,7 @@ namespace ACunicombat.Mechs
         /// </summary>
         public void EvaluateWindow(float fromExclusive, float toInclusive)
         {
-            if (timeline == null || runtimeState == null)
+            if (timeline == null || (runtimeState == null && localSearchRoot == null))
             {
                 return;
             }
@@ -121,21 +155,35 @@ namespace ACunicombat.Mechs
 
         private void Fire(MechActionEffectEvent effectEvent)
         {
-            var slot = SlotForDummyPolyId(effectEvent.dummyPolyId);
-            var reference = effectEvent.dummyPolyId % 1000;
+            // Local mode: the equipment's own TAE uses unprefixed dummy ids — resolve inside
+            // the equipment instance only. Body mode: thousands-prefix routing across parts.
+            var isLocal = localSearchRoot != null;
+            var slot = isLocal ? MechPartSlot.None : SlotForDummyPolyId(effectEvent.dummyPolyId);
+            var reference = isLocal ? effectEvent.dummyPolyId : effectEvent.dummyPolyId % 1000;
             var suffix = "_dmy_" + reference;
             var resolved = 0;
 
-            var parts = runtimeState.AssembledParts;
-            for (var p = 0; p < parts.Count; p++)
+            var searchRoots = new List<Transform>();
+            if (isLocal)
             {
-                var record = parts[p];
-                if (record?.instance == null || record.slot != slot)
+                searchRoots.Add(localSearchRoot);
+            }
+            else
+            {
+                var parts = runtimeState.AssembledParts;
+                for (var p = 0; p < parts.Count; p++)
                 {
-                    continue;
+                    var record = parts[p];
+                    if (record?.instance != null && record.slot == slot)
+                    {
+                        searchRoots.Add(record.instance.transform);
+                    }
                 }
+            }
 
-                var transforms = record.instance.GetComponentsInChildren<Transform>(true);
+            for (var p = 0; p < searchRoots.Count; p++)
+            {
+                var transforms = searchRoots[p].GetComponentsInChildren<Transform>(true);
                 for (var t = 0; t < transforms.Length; t++)
                 {
                     var candidate = transforms[t];
@@ -181,8 +229,13 @@ namespace ACunicombat.Mechs
                 // Dummy refs are per-category namespaces, so the same ref existing on another
                 // slot proves nothing. The only detectable routing error is an unmappable
                 // prefix (slot == None).
-                var line = $"t={effectEvent.time:0.###} ffx={effectEvent.ffxId} dummy={effectEvent.dummyPolyId} ({slot}{suffix})";
-                if (slot == MechPartSlot.None)
+                var line = $"t={effectEvent.time:0.###} ffx={effectEvent.ffxId} dummy={effectEvent.dummyPolyId} ({(isLocal ? "local" : slot.ToString())}{suffix})";
+                if (isLocal)
+                {
+                    // The equipment's own TAE addressing its own dummies must always resolve.
+                    unresolvedEvents.Add($"{line} — equipment dummy missing");
+                }
+                else if (slot == MechPartSlot.None)
                 {
                     unresolvedEvents.Add($"{line} — unmappable dummy prefix");
                 }

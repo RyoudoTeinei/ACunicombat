@@ -796,6 +796,54 @@ public static class AC6SkinnedModularSampleBuilder
             }
         }
 
+        // --- Weapon-fire effect test: the equipment's OWN TAE addresses its own unprefixed
+        // dummies (muzzle 300, tip 235). Sample the fire action on the pile bunker, drive the
+        // local-mode effect player across it, and assert every event resolves inside the
+        // weapon with spawns on the weapon's geometry.
+        var fireTimeline = LoadOrCreateEffectTimeline("a000_040010");
+        if (fireTimeline != null)
+        {
+            var fireRecord = weaponRecords.FirstOrDefault(record =>
+                record.instance != null &&
+                record.part.PartId.EndsWith("WP_L_0010", StringComparison.OrdinalIgnoreCase) &&
+                record.part.EquipmentAnimations.Count > 0);
+            var firePlayer = fireRecord?.instance.GetComponent<MechEquipmentAnimationPlayer>();
+            if (firePlayer != null && firePlayer.HasAction("a000_040010"))
+            {
+                var weaponEffects = fireRecord.instance.GetComponent<MechActionEffectPlayer>();
+                if (weaponEffects == null)
+                {
+                    weaponEffects = fireRecord.instance.AddComponent<MechActionEffectPlayer>();
+                }
+
+                weaponEffects.ConfigureForEquipment(fireTimeline, fireRecord.instance.transform, firePlayer, AC6FxrEffectFactory.BuildLibrary());
+                firePlayer.SampleActionAtTime("a000_040010", 2.2f);
+                weaponEffects.EvaluateWindow(-1f, 2.2f);
+
+                var weaponBounds = GrowBounds(CombinedBounds(fireRecord.instance), 1.5f);
+                foreach (var spawn in weaponEffects.SpawnRecords)
+                {
+                    var inside = weaponBounds.Contains(spawn.WorldPosition);
+                    report.Log.AppendLine(
+                        $"[{key}] WEAPONFX t={spawn.Time:0.###} ffx={spawn.FfxId} node={spawn.DummyPath} " +
+                        $"pos={Format(mech.transform.InverseTransformPoint(spawn.WorldPosition))} fwd={Format(spawn.WorldForward)} insideWeaponBounds={inside}");
+                    ok &= Check(inside, key, $"weapon effect ffx={spawn.FfxId} spawned outside the weapon bounds", report);
+                }
+
+                foreach (var unresolved in weaponEffects.UnresolvedEvents)
+                {
+                    ok &= Check(false, key, $"weapon effect unresolved: {unresolved}", report);
+                }
+
+                ok &= Check(weaponEffects.SpawnRecords.Count == fireTimeline.events.Count, key,
+                    $"weapon fire expected {fireTimeline.events.Count} effect spawns, got {weaponEffects.SpawnRecords.Count}", report);
+                report.Log.AppendLine($"[{key}] WEAPONFX summary: {weaponEffects.SpawnRecords.Count}/{fireTimeline.events.Count} spawns on {fireRecord.part.PartId}");
+
+                weaponEffects.ResetPlayback();
+                firePlayer.SampleActionAtTime(firePlayer.DefaultActionId, 0f);
+            }
+        }
+
         // --- Effect channel assertions: every fired TAE event must have resolved through the
         // prefix routing to at least one dummy on the assembled parts, and every spawn must sit
         // on the mech (frame bounds + margin). Each spawn is logged with the full diagnostic
