@@ -250,7 +250,9 @@ public static class AC6SkinnedModularSampleBuilder
 
         var previousActiveScene = SceneManager.GetActiveScene();
         Scene validationScene;
-        var isPreviewScene = !batchMode;
+        var isOpenValidationScene = !batchMode &&
+            string.Equals(previousActiveScene.path, ValidationScenePath, StringComparison.OrdinalIgnoreCase);
+        var isPreviewScene = !batchMode && !isOpenValidationScene;
         if (batchMode)
         {
             if (string.IsNullOrWhiteSpace(previousActiveScene.path))
@@ -260,6 +262,15 @@ public static class AC6SkinnedModularSampleBuilder
 
             validationScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             SceneManager.SetActiveScene(validationScene);
+        }
+        else if (isOpenValidationScene)
+        {
+            validationScene = previousActiveScene;
+            var oldRoots = validationScene.GetRootGameObjects();
+            for (var i = 0; i < oldRoots.Length; i++)
+            {
+                UnityEngine.Object.DestroyImmediate(oldRoots[i]);
+            }
         }
         else
         {
@@ -313,8 +324,16 @@ public static class AC6SkinnedModularSampleBuilder
         }
 
         CreateSceneLighting(validationRoot.transform, mechs);
-        if (batchMode)
+        if (batchMode || isOpenValidationScene)
         {
+            // Persist an inspection scene in a coherent mounted rest state. Validation samples
+            // equipment actions independently, so saving immediately after the checks can leave
+            // a booster gimbal or melee attack at an unrelated mid-action pose.
+            for (var i = 0; i < mechs.Count; i++)
+            {
+                SampleValidationPose(mechs[i], animationClip, 0f);
+            }
+
             EnsureAssetFolder(SceneRoot);
             EditorSceneManager.SaveScene(validationScene, ValidationScenePath);
         }
@@ -399,6 +418,18 @@ public static class AC6SkinnedModularSampleBuilder
                 candidate.GetComponentInChildren<Renderer>(true) != null)
             .ToList();
         ok &= Check(boosterVisuals.Count == 3, key, $"expected 3 visible booster instances, got {boosterVisuals.Count}", report);
+        for (var i = 0; i < boosterVisuals.Count; i++)
+        {
+            var visual = boosterVisuals[i];
+            var positionError = visual.localPosition.magnitude;
+            var rotationError = Quaternion.Angle(visual.localRotation, Quaternion.identity);
+            var scaleError = (visual.localScale - Vector3.one).magnitude;
+            report.Log.AppendLine(
+                $"[{key}] booster root {i}: dpos={positionError:0.####}m drot={rotationError:0.###}deg dscale={scaleError:0.####}");
+            ok &= Check(positionError < 0.0001f, key, $"booster visual {i} root position error is {positionError:0.####}m", report);
+            ok &= Check(rotationError < 0.01f, key, $"booster visual {i} root rotation error is {rotationError:0.###}deg", report);
+            ok &= Check(scaleError < 0.0001f, key, $"booster visual {i} root scale error is {scaleError:0.####}", report);
+        }
         for (var i = 0; i < weaponRecords.Count; i++)
         {
             var record = weaponRecords[i];
@@ -421,6 +452,13 @@ public static class AC6SkinnedModularSampleBuilder
             var equipmentPlayer = record.instance.GetComponent<MechEquipmentAnimationPlayer>();
             ok &= Check(record.part.EquipmentAnimations.Count == 0 ? equipmentPlayer == null : equipmentPlayer != null,
                 key, $"{record.slot} independent equipment animation player state is incorrect", report);
+            if (record.part.HasTag("melee"))
+            {
+                ok &= Check(string.Equals(record.part.DefaultEquipmentActionId, "a000_000000", StringComparison.OrdinalIgnoreCase),
+                    key, $"{record.slot} melee default must be native idle a000_000000, got {record.part.DefaultEquipmentActionId}", report);
+                ok &= Check(!record.part.PlayDefaultEquipmentActionOnAssemble,
+                    key, $"{record.slot} melee attack must not autoplay on assembly", report);
+            }
         }
 
         var boosterModelPath = boosterRecord?.part == null
@@ -431,6 +469,10 @@ public static class AC6SkinnedModularSampleBuilder
         var expectedBoosterActions = ExpectedNativeActionCount(boosterRecord?.part?.PartId);
         ok &= Check(expectedBoosterActions < 0 || boosterRecord?.part?.EquipmentAnimations.Count == expectedBoosterActions,
             key, $"booster expected {expectedBoosterActions} native actions, got {boosterRecord?.part?.EquipmentAnimations.Count ?? -1}", report);
+        ok &= Check(string.Equals(boosterRecord?.part?.DefaultEquipmentActionId, "a000_000000", StringComparison.OrdinalIgnoreCase),
+            key, $"booster default must be native idle a000_000000, got {boosterRecord?.part?.DefaultEquipmentActionId ?? "<none>"}", report);
+        ok &= Check(boosterRecord?.part != null && !boosterRecord.part.PlayDefaultEquipmentActionOnAssemble,
+            key, "booster thrust/gimbal action must not autoplay on assembly", report);
 
         var expectedPlayers = weaponRecords.Count(record => record.part.EquipmentAnimations.Count > 0)
             + (boosterRecord != null && boosterRecord.part.EquipmentAnimations.Count > 0 ? boosterVisuals.Count : 0);
@@ -653,7 +695,7 @@ public static class AC6SkinnedModularSampleBuilder
                     ok &= Check(false, key, $"{record.slot} has no muzzle dummy to verify firing direction", report);
                 }
 
-                Screenshot(record.instance, GrowBounds(CombinedBounds(record.instance), 1.35f),
+                Screenshot(mech, GrowBounds(CombinedBounds(record.instance), 1.35f),
                     Path.Combine(ReportRoot, $"Closeup_{key}_{record.slot}_t{sampleTimes[i]:000}.png"));
             }
 
@@ -952,8 +994,10 @@ public static class AC6SkinnedModularSampleBuilder
                 newVisualRigMode: MechVisualRigMode.MountedPrefab,
                 shouldInstantiateVisualAtAllMounts: true,
                 newEquipmentAnimations: actions,
-                newDefaultEquipmentActionId: SelectDefaultAction(actions, "a000_000001"),
-                shouldPlayDefaultEquipmentActionOnAssemble: true,
+                // 000001 is an active gimbal/thrust action whose root starts around 20 degrees
+                // from the mounted frame. Keep it available, but assemble the pod in native idle.
+                newDefaultEquipmentActionId: SelectDefaultAction(actions, "a000_000000"),
+                shouldPlayDefaultEquipmentActionOnAssemble: false,
                 newLocalPosition: Vector3.zero,
                 newLocalEulerAngles: Vector3.zero,
                 newLocalScale: Vector3.one);
@@ -967,11 +1011,12 @@ public static class AC6SkinnedModularSampleBuilder
     {
         var specs = new[]
         {
-            new NativeWeaponSpec("WP_L_0010", "Native Left Rifle 0010", MechPartSlot.LeftHandWeapon, "a000_040010", 4200f),
-            // 0230/0250 are melee: their FLVERs carry laserSFX / MainBrade bones and no -Z gun
-            // muzzle. AC6 mounts left melee weapons on the forearm dummy 25 (WepAbsorpPos 200).
-            new NativeWeaponSpec("WP_L_0230", "Native Left Laser Blade 0230", MechPartSlot.LeftHandWeapon, "a000_040010", 4700f, isMelee: true),
-            new NativeWeaponSpec("WP_L_0250", "Native Left Blade 0250", MechPartSlot.LeftHandWeapon, "a000_040010", 6100f, isMelee: true),
+            // EquipParamWeapon model 10 is PB-033M ASHMEAD and uses WepAbsorpPos 200.
+            new NativeWeaponSpec("WP_L_0010", "Native Pile Bunker ASHMEAD 0010", MechPartSlot.LeftHandWeapon, "a000_000000", 4180f, isMelee: true),
+            // 0230/0250 are also melee. AC6 mounts every WepAbsorpPos 200 weapon on the
+            // forearm dummy 25, not the gun/palm dummy 23.
+            new NativeWeaponSpec("WP_L_0230", "Native Left Laser Blade 0230", MechPartSlot.LeftHandWeapon, "a000_000000", 4700f, isMelee: true),
+            new NativeWeaponSpec("WP_L_0250", "Native Left Blade 0250", MechPartSlot.LeftHandWeapon, "a000_000000", 6100f, isMelee: true),
             new NativeWeaponSpec("WP_L_4210", "Native Left Plasma Missile 4210", MechPartSlot.LeftBackWeapon, "a000_800210", 4200f),
             new NativeWeaponSpec("WP_R_4210", "Native Right Plasma Missile 4210", MechPartSlot.RightBackWeapon, "a000_800210", 4200f),
             new NativeWeaponSpec("WP_R_4410", "Native Right Songbirds 4410", MechPartSlot.RightBackWeapon, "a000_800210", 5500f)
@@ -1008,7 +1053,9 @@ public static class AC6SkinnedModularSampleBuilder
                 newVisualRigMode: MechVisualRigMode.MountedPrefab,
                 newEquipmentAnimations: actions,
                 newDefaultEquipmentActionId: SelectDefaultAction(actions, spec.PreferredActionId),
-                shouldPlayDefaultEquipmentActionOnAssemble: actions.Count > 0,
+                // Melee 040xxx clips are attack/deploy actions. They must be triggered together
+                // with the body action, not autoplayed while the mech is in its mounted rest pose.
+                shouldPlayDefaultEquipmentActionOnAssemble: actions.Count > 0 && !spec.IsMelee,
                 newLocalPosition: Vector3.zero,
                 newLocalEulerAngles: Vector3.zero,
                 newLocalScale: Vector3.one);
@@ -1381,16 +1428,27 @@ public static class AC6SkinnedModularSampleBuilder
     {
         var cameraObject = new GameObject("ValidationScreenshotCamera");
         var lightObject = new GameObject("ValidationScreenshotLight");
+        var subjectTransforms = subject.GetComponentsInChildren<Transform>(true);
+        var originalLayers = new int[subjectTransforms.Length];
+        const int screenshotLayer = 31;
         try
         {
+            for (var i = 0; i < subjectTransforms.Length; i++)
+            {
+                originalLayers[i] = subjectTransforms[i].gameObject.layer;
+                subjectTransforms[i].gameObject.layer = screenshotLayer;
+            }
+
             var light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
             light.intensity = 1.8f;
+            light.cullingMask = 1 << screenshotLayer;
             lightObject.transform.rotation = Quaternion.Euler(45f, -35f, 0f);
 
             var camera = cameraObject.AddComponent<Camera>();
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(0.14f, 0.16f, 0.2f);
+            camera.cullingMask = 1 << screenshotLayer;
             var distance = Mathf.Max(bounds.size.magnitude, 1f) * 1.1f;
             camera.transform.position = bounds.center + new Vector3(0.7f, 0.2f, -1f).normalized * distance;
             camera.transform.LookAt(bounds.center);
@@ -1417,6 +1475,14 @@ public static class AC6SkinnedModularSampleBuilder
         }
         finally
         {
+            for (var i = 0; i < subjectTransforms.Length; i++)
+            {
+                if (subjectTransforms[i] != null)
+                {
+                    subjectTransforms[i].gameObject.layer = originalLayers[i];
+                }
+            }
+
             UnityEngine.Object.DestroyImmediate(cameraObject);
             UnityEngine.Object.DestroyImmediate(lightObject);
         }
