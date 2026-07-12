@@ -420,13 +420,22 @@ public static class AC6SkinnedModularSampleBuilder
         ok &= Check(boosterVisuals.Count == 3, key, $"expected 3 visible booster instances, got {boosterVisuals.Count}", report);
         for (var i = 0; i < boosterVisuals.Count; i++)
         {
+            // Semantic seat check: core ref 800 is the flame emission point, and the pod is
+            // installed so its own central flame dummy (_dmy_31) sits exactly on it. The root
+            // therefore carries the -p31 install offset; what must be zero is the distance
+            // between the pod's flame anchor and the socket, plus rotation/scale identity.
             var visual = boosterVisuals[i];
-            var positionError = visual.localPosition.magnitude;
+            var socket = visual.parent != null ? visual.parent.parent : null;
+            var flame = FindChildBySuffix(visual, "_dmy_31");
             var rotationError = Quaternion.Angle(visual.localRotation, Quaternion.identity);
             var scaleError = (visual.localScale - Vector3.one).magnitude;
+            var flameError = flame != null && socket != null
+                ? Vector3.Distance(flame.position, socket.position)
+                : float.MaxValue;
             report.Log.AppendLine(
-                $"[{key}] booster root {i}: dpos={positionError:0.####}m drot={rotationError:0.###}deg dscale={scaleError:0.####}");
-            ok &= Check(positionError < 0.0001f, key, $"booster visual {i} root position error is {positionError:0.####}m", report);
+                $"[{key}] booster {i}: flameToSocket={flameError:0.####}m rootOffset={Format(visual.localPosition)} drot={rotationError:0.###}deg dscale={scaleError:0.####}");
+            ok &= Check(flame != null, key, $"booster visual {i} has no _dmy_31 flame anchor", report);
+            ok &= Check(flameError < 0.005f, key, $"booster visual {i} flame anchor is {flameError:0.####}m away from its ref 800 socket", report);
             ok &= Check(rotationError < 0.01f, key, $"booster visual {i} root rotation error is {rotationError:0.###}deg", report);
             ok &= Check(scaleError < 0.0001f, key, $"booster visual {i} root scale error is {scaleError:0.####}", report);
         }
@@ -454,7 +463,10 @@ public static class AC6SkinnedModularSampleBuilder
                 key, $"{record.slot} independent equipment animation player state is incorrect", report);
             if (record.part.HasTag("melee"))
             {
-                ok &= Check(string.Equals(record.part.DefaultEquipmentActionId, "a000_000000", StringComparison.OrdinalIgnoreCase),
+                // Machines without the game's partsbnd archives build equipment with zero
+                // actions; the idle-id assertion only applies once actions exist.
+                ok &= Check(record.part.EquipmentAnimations.Count == 0
+                        || string.Equals(record.part.DefaultEquipmentActionId, "a000_000000", StringComparison.OrdinalIgnoreCase),
                     key, $"{record.slot} melee default must be native idle a000_000000, got {record.part.DefaultEquipmentActionId}", report);
                 ok &= Check(!record.part.PlayDefaultEquipmentActionOnAssemble,
                     key, $"{record.slot} melee attack must not autoplay on assembly", report);
@@ -469,7 +481,8 @@ public static class AC6SkinnedModularSampleBuilder
         var expectedBoosterActions = ExpectedNativeActionCount(boosterRecord?.part?.PartId);
         ok &= Check(expectedBoosterActions < 0 || boosterRecord?.part?.EquipmentAnimations.Count == expectedBoosterActions,
             key, $"booster expected {expectedBoosterActions} native actions, got {boosterRecord?.part?.EquipmentAnimations.Count ?? -1}", report);
-        ok &= Check(string.Equals(boosterRecord?.part?.DefaultEquipmentActionId, "a000_000000", StringComparison.OrdinalIgnoreCase),
+        ok &= Check(boosterRecord?.part != null && (boosterRecord.part.EquipmentAnimations.Count == 0
+                || string.Equals(boosterRecord.part.DefaultEquipmentActionId, "a000_000000", StringComparison.OrdinalIgnoreCase)),
             key, $"booster default must be native idle a000_000000, got {boosterRecord?.part?.DefaultEquipmentActionId ?? "<none>"}", report);
         ok &= Check(boosterRecord?.part != null && !boosterRecord.part.PlayDefaultEquipmentActionOnAssemble,
             key, "booster thrust/gimbal action must not autoplay on assembly", report);
@@ -780,6 +793,20 @@ public static class AC6SkinnedModularSampleBuilder
     /// Finds the muzzle / firing-direction dummy inside a weapon instance. AC6 weapons use
     /// ref 10 for the primary muzzle; multi-tube back weapons use ref 300/200 series.
     /// </summary>
+    private static Transform FindChildBySuffix(Transform root, string suffix)
+    {
+        var transforms = root.GetComponentsInChildren<Transform>(true);
+        for (var i = 0; i < transforms.Length; i++)
+        {
+            if (transforms[i].name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return transforms[i];
+            }
+        }
+
+        return null;
+    }
+
     private static Transform FindMuzzleTransform(Transform weaponRoot)
     {
         var transforms = weaponRoot.GetComponentsInChildren<Transform>(true);
@@ -973,6 +1000,20 @@ public static class AC6SkinnedModularSampleBuilder
                 continue;
             }
 
+            // Core ref 800 dummies are flame EMISSION points, not surface mounts — measured
+            // against every core shell they float 0.31-0.77m outside the mesh. The nozzle pod
+            // is therefore aligned so that its own central flame dummy (_dmy_31, the point
+            // BoostParam emits from) coincides with the core's 800 point: install offset =
+            // -p31 in the socket frame. This seats the bell inside the core duct with the
+            // exit at the flame point for all three cores (verified numerically per core).
+            var flameAnchor = FindChildBySuffix(model.transform, "_dmy_31");
+            if (flameAnchor == null)
+            {
+                missing.Add(sourcePath + " (booster flame anchor _dmy_31 not found)");
+                continue;
+            }
+            var installOffset = -model.transform.InverseTransformPoint(flameAnchor.position);
+
             var id = $"AC6_NATIVE_{key}";
             var part = LoadOrCreateAsset<MechPartDefinition>($"{PartRoot}/{id}.asset");
             part.EditorConfigure(
@@ -998,7 +1039,7 @@ public static class AC6SkinnedModularSampleBuilder
                 // from the mounted frame. Keep it available, but assemble the pod in native idle.
                 newDefaultEquipmentActionId: SelectDefaultAction(actions, "a000_000000"),
                 shouldPlayDefaultEquipmentActionOnAssemble: false,
-                newLocalPosition: Vector3.zero,
+                newLocalPosition: installOffset,
                 newLocalEulerAngles: Vector3.zero,
                 newLocalScale: Vector3.one);
             result[code] = part;
