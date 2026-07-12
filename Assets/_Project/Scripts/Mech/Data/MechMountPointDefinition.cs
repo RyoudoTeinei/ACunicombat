@@ -3,6 +3,13 @@ using UnityEngine;
 
 namespace ACunicombat.Mechs
 {
+    public enum MechMountSourceRegion
+    {
+        Any = 0,
+        Front = 10,
+        Rear = 20
+    }
+
     [Serializable]
     public sealed class MechMountPointDefinition
     {
@@ -14,6 +21,8 @@ namespace ACunicombat.Mechs
         public string sourceTransformNameSuffix;
         [Tooltip("Create one mount for every imported child transform matching Source Transform Name Suffix.")]
         public bool matchAllSourceTransforms;
+        [Tooltip("Optionally restrict matching source transforms to the front or rear half of the imported part.")]
+        public MechMountSourceRegion sourceTransformRegion = MechMountSourceRegion.Any;
         public Vector3 localPosition;
         public Vector3 localEulerAngles;
         public Vector3 localScale = Vector3.one;

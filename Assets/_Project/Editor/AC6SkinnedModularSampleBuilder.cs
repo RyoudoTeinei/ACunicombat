@@ -397,6 +397,7 @@ public static class AC6SkinnedModularSampleBuilder
                 (record.slot == MechPartSlot.Booster || MechSlotRules.IsWeaponSlot(record.slot))).ToList();
         var weaponRecords = equipmentRecords.Where(record => MechSlotRules.IsWeaponSlot(record.slot)).ToList();
         var boosterRecord = equipmentRecords.FirstOrDefault(record => record.slot == MechPartSlot.Booster);
+        var coreRecord = frameRecords.FirstOrDefault(record => record.slot == MechPartSlot.Core);
 
         var ok = true;
         ok &= Check(frameRecords.Count == 4, key, $"expected 4 skinned frame records, got {frameRecords.Count}", report);
@@ -407,29 +408,41 @@ public static class AC6SkinnedModularSampleBuilder
         var boosterMounts = runtime == null
             ? new List<MechMountPoint>()
             : runtime.MountPoints.Where(mount => mount != null && mount.TargetSlot == MechPartSlot.Booster).ToList();
-        ok &= Check(boosterMounts.Count == 3, key, $"expected 3 animated booster mounts, got {boosterMounts.Count}", report);
+        ok &= Check(boosterMounts.Count == 2, key, $"expected 2 rear booster mounts, got {boosterMounts.Count}", report);
         for (var i = 0; i < boosterMounts.Count; i++)
         {
             var source = boosterMounts[i].transform.parent;
             ok &= Check(source != null && source.name.IndexOf("_dmy_800", StringComparison.OrdinalIgnoreCase) >= 0,
                 key, $"booster mount {i} is not attached to a _dmy_800 node", report);
+            var sourceLocalZ = source != null && coreRecord?.instance != null
+                ? coreRecord.instance.transform.InverseTransformPoint(source.position).z
+                : float.MinValue;
+            ok &= Check(sourceLocalZ > 0.001f, key,
+                $"booster mount {i} uses a front/effect-only ref 800 at local z={sourceLocalZ:0.###}", report);
         }
 
         var boosterVisuals = mech.GetComponentsInChildren<Transform>(true)
             .Where(candidate => candidate != null && candidate.name.StartsWith("Booster_", StringComparison.Ordinal) &&
                 candidate.GetComponentInChildren<Renderer>(true) != null)
             .ToList();
-        ok &= Check(boosterVisuals.Count == 3, key, $"expected 3 visible booster instances, got {boosterVisuals.Count}", report);
+        ok &= Check(boosterVisuals.Count == 2, key, $"expected 2 visible rear booster instances, got {boosterVisuals.Count}", report);
+        var expectedBoosterRotation = boosterRecord?.part == null
+            ? Quaternion.identity
+            : Quaternion.Euler(boosterRecord.part.LocalEulerAngles);
+        var boosterInstallAngle = Quaternion.Angle(Quaternion.identity, expectedBoosterRotation);
+        ok &= Check(boosterInstallAngle > 5f && boosterInstallAngle < 45f, key,
+            $"booster install angle should come from the native gimbal action, got {boosterInstallAngle:0.###}deg", report);
         for (var i = 0; i < boosterVisuals.Count; i++)
         {
             // Semantic seat check: core ref 800 is the flame emission point, and the pod is
             // installed so its own central flame dummy (_dmy_31) sits exactly on it. The root
-            // therefore carries the -p31 install offset; what must be zero is the distance
-            // between the pod's flame anchor and the socket, plus rotation/scale identity.
+            // therefore carries the rotated -p31 install offset; what must be zero is the
+            // distance between the pod's flame anchor and the socket. The root rotation is
+            // the native gimbal installation angle, not identity.
             var visual = boosterVisuals[i];
             var socket = visual.parent != null ? visual.parent.parent : null;
             var flame = FindChildBySuffix(visual, "_dmy_31");
-            var rotationError = Quaternion.Angle(visual.localRotation, Quaternion.identity);
+            var rotationError = Quaternion.Angle(visual.localRotation, expectedBoosterRotation);
             var scaleError = (visual.localScale - Vector3.one).magnitude;
             var flameError = flame != null && socket != null
                 ? Vector3.Distance(flame.position, socket.position)
@@ -438,7 +451,7 @@ public static class AC6SkinnedModularSampleBuilder
                 $"[{key}] booster {i}: flameToSocket={flameError:0.####}m rootOffset={Format(visual.localPosition)} drot={rotationError:0.###}deg dscale={scaleError:0.####}");
             ok &= Check(flame != null, key, $"booster visual {i} has no _dmy_31 flame anchor", report);
             ok &= Check(flameError < 0.005f, key, $"booster visual {i} flame anchor is {flameError:0.####}m away from its ref 800 socket", report);
-            ok &= Check(rotationError < 0.01f, key, $"booster visual {i} root rotation error is {rotationError:0.###}deg", report);
+            ok &= Check(rotationError < 0.01f, key, $"booster visual {i} install rotation error is {rotationError:0.###}deg", report);
             ok &= Check(scaleError < 0.0001f, key, $"booster visual {i} root scale error is {scaleError:0.####}", report);
         }
         for (var i = 0; i < weaponRecords.Count; i++)
@@ -1062,19 +1075,23 @@ public static class AC6SkinnedModularSampleBuilder
                 continue;
             }
 
-            // Core ref 800 dummies are flame EMISSION points, not surface mounts — measured
-            // against every core shell they float 0.31-0.77m outside the mesh. The nozzle pod
-            // is therefore aligned so that its own central flame dummy (_dmy_31, the point
-            // BoostParam emits from) coincides with the core's 800 point: install offset =
-            // -p31 in the socket frame. This seats the bell inside the core duct with the
-            // exit at the flame point for all three cores (verified numerically per core).
+            // Each core has one front braking/effect-only ref 800 and two rear main-thrust
+            // ref 800 dummies. Only the rear pair instantiate pods. After applying the native
+            // gimbal angle, each pod's central flame dummy (_dmy_31) must remain on ref 800.
             var flameAnchor = FindChildBySuffix(model.transform, "_dmy_31");
             if (flameAnchor == null)
             {
                 missing.Add(sourcePath + " (booster flame anchor _dmy_31 not found)");
                 continue;
             }
-            var installOffset = -model.transform.InverseTransformPoint(flameAnchor.position);
+            if (!TryGetEquipmentRootRotation(actions, "a000_000001", 0f, out var installRotation))
+            {
+                missing.Add(sourcePath + " (native booster gimbal root rotation could not be read)");
+                continue;
+            }
+
+            var flameAnchorLocal = model.transform.InverseTransformPoint(flameAnchor.position);
+            var installOffset = -(installRotation * flameAnchorLocal);
 
             var id = $"AC6_NATIVE_{key}";
             var part = LoadOrCreateAsset<MechPartDefinition>($"{PartRoot}/{id}.asset");
@@ -1102,7 +1119,7 @@ public static class AC6SkinnedModularSampleBuilder
                 newDefaultEquipmentActionId: SelectDefaultAction(actions, "a000_000000"),
                 shouldPlayDefaultEquipmentActionOnAssemble: false,
                 newLocalPosition: installOffset,
-                newLocalEulerAngles: Vector3.zero,
+                newLocalEulerAngles: installRotation.eulerAngles,
                 newLocalScale: Vector3.one);
             result[code] = part;
         }
@@ -1235,6 +1252,77 @@ public static class AC6SkinnedModularSampleBuilder
         return actions[0].ActionId;
     }
 
+    private static bool TryGetEquipmentRootRotation(
+        IReadOnlyList<MechEquipmentAnimationDefinition> actions,
+        string actionId,
+        float timeSeconds,
+        out Quaternion rotation)
+    {
+        rotation = Quaternion.identity;
+        var action = actions?.FirstOrDefault(candidate => candidate?.Clip != null &&
+            string.Equals(candidate.ActionId, actionId, StringComparison.OrdinalIgnoreCase));
+        if (action?.Clip == null)
+        {
+            return false;
+        }
+
+        var quaternionBindings = AnimationUtility.GetCurveBindings(action.Clip)
+            .Where(binding => binding.propertyName.StartsWith("m_LocalRotation.", StringComparison.Ordinal))
+            .GroupBy(binding => binding.path)
+            .OrderBy(group => string.IsNullOrEmpty(group.Key) ? 0 : 1)
+            .ThenBy(group => group.Key?.Length ?? 0);
+        foreach (var group in quaternionBindings)
+        {
+            var components = new float[4];
+            var found = new bool[4];
+            foreach (var binding in group)
+            {
+                var component = RotationComponentIndex(binding.propertyName);
+                var curve = component >= 0 ? AnimationUtility.GetEditorCurve(action.Clip, binding) : null;
+                if (curve == null)
+                {
+                    continue;
+                }
+
+                components[component] = curve.Evaluate(timeSeconds);
+                found[component] = true;
+            }
+
+            if (!found.All(value => value))
+            {
+                continue;
+            }
+
+            var magnitude = Mathf.Sqrt(
+                components[0] * components[0] +
+                components[1] * components[1] +
+                components[2] * components[2] +
+                components[3] * components[3]);
+            if (magnitude < 0.0001f)
+            {
+                continue;
+            }
+
+            rotation = new Quaternion(
+                components[0] / magnitude,
+                components[1] / magnitude,
+                components[2] / magnitude,
+                components[3] / magnitude);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static int RotationComponentIndex(string propertyName)
+    {
+        if (propertyName.EndsWith(".x", StringComparison.Ordinal)) return 0;
+        if (propertyName.EndsWith(".y", StringComparison.Ordinal)) return 1;
+        if (propertyName.EndsWith(".z", StringComparison.Ordinal)) return 2;
+        if (propertyName.EndsWith(".w", StringComparison.Ordinal)) return 3;
+        return -1;
+    }
+
     private static MechPartDefinition CreateInternalPart(string id, string displayName, MechPartSlot slot, MechPartStats stats)
     {
         var part = LoadOrCreateAsset<MechPartDefinition>($"{PartRoot}/{id}.asset");
@@ -1322,7 +1410,8 @@ public static class AC6SkinnedModularSampleBuilder
         {
             return new[]
             {
-                Mount("Booster Nozzles", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_800", true, 10000f),
+                Mount("Booster Nozzles", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_800", true, 10000f,
+                    sourceRegion: MechMountSourceRegion.Rear),
                 Mount("Left Back", MechPartSlot.LeftBackWeapon, MechHardpointType.BackWeapon, "_dmy_13", false, 10000f),
                 Mount("Right Back", MechPartSlot.RightBackWeapon, MechHardpointType.BackWeapon, "_dmy_14", false, 10000f)
             };
@@ -1349,7 +1438,8 @@ public static class AC6SkinnedModularSampleBuilder
         bool matchAll,
         float maxMassKg,
         string[] requiredTags = null,
-        string[] blockedTags = null)
+        string[] blockedTags = null,
+        MechMountSourceRegion sourceRegion = MechMountSourceRegion.Any)
     {
         return new MechMountPointDefinition
         {
@@ -1359,6 +1449,7 @@ public static class AC6SkinnedModularSampleBuilder
             maxMassKg = maxMassKg,
             sourceTransformNameSuffix = sourceTransformNameSuffix,
             matchAllSourceTransforms = matchAll,
+            sourceTransformRegion = sourceRegion,
             localScale = Vector3.one,
             requiredTags = requiredTags ?? Array.Empty<string>(),
             blockedTags = blockedTags ?? Array.Empty<string>()

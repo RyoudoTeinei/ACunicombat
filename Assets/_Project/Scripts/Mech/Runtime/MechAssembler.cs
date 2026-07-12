@@ -526,8 +526,23 @@ namespace ACunicombat.Mechs
                 }
 
                 var sourceTransforms = FindMountSourceTransforms(partRoot, definition.sourceTransformNameSuffix);
+                FilterMountSourceTransforms(partRoot, sourceTransforms, definition.sourceTransformRegion);
                 if (sourceTransforms.Count == 0)
                 {
+                    if (definition.sourceTransformRegion != MechMountSourceRegion.Any)
+                    {
+                        if (logValidationIssues)
+                        {
+                            Debug.LogWarning(
+                                $"Mount '{definition.mountId}' could not find a child transform ending with " +
+                                $"'{definition.sourceTransformNameSuffix}' in the {definition.sourceTransformRegion} region " +
+                                $"of part '{part.DisplayName}'. The mount was not created.",
+                                partRoot);
+                        }
+
+                        continue;
+                    }
+
                     sourceTransforms.Add(partRoot);
                     if (!string.IsNullOrWhiteSpace(definition.sourceTransformNameSuffix) && logValidationIssues)
                     {
@@ -578,6 +593,31 @@ namespace ACunicombat.Mechs
             }
 
             return matches;
+        }
+
+        private static void FilterMountSourceTransforms(
+            Transform partRoot,
+            List<Transform> sourceTransforms,
+            MechMountSourceRegion region)
+        {
+            if (partRoot == null || sourceTransforms == null || region == MechMountSourceRegion.Any)
+            {
+                return;
+            }
+
+            const float regionEpsilon = 0.001f;
+            sourceTransforms.RemoveAll(candidate =>
+            {
+                if (candidate == null)
+                {
+                    return true;
+                }
+
+                var localZ = partRoot.InverseTransformPoint(candidate.position).z;
+                return region == MechMountSourceRegion.Rear
+                    ? localZ <= regionEpsilon
+                    : localZ >= -regionEpsilon;
+            });
         }
 
         private static bool MatchesImportedTransformName(string transformName, string nameSuffix)
