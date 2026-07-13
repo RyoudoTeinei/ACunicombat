@@ -258,3 +258,32 @@ backDot = +0.940 ✓、pitchDeg = +19.97°（向上）✓
 - GLB 解码：Python 直接解析 GLB JSON/BIN chunk，按 Hamilton 四元数组合节点层级，输出 dummy 世界 forward（rest 与动画第 0 帧覆盖对比）。
 - System.Numerics 顺序：`Transform(v, qA*qB)` 与顺序施加对照（qA=90°X，qB=90°Y，v=+Z）。
 - glTFast 约定：仓库金标 socket 断言值（builder 600-649 行）对照原始 GLB 世界坐标。
+
+## 10. 游戏机实施回报（2026-07-14）
+
+已按第 9.4 节修正导出器并重建 12 个框架 GLB、3 个推进器 GLB 和 8 个武器 GLB。Unity 自动验证随后暴露出咨询结论遗漏的一条原始语义：
+
+```text
+BS_A_1010.flver --dump-dummies
+ref 31 Forward=(0,0,-1.95) Up=(0,0.54,0)
+ref 41 Forward=(0,0,-1.95) Up=(0,0.54,0)
+ref 51 Forward=(0,0,-1.95) Up=(0,0.54,0)
+```
+
+即核心后方 `ref 800 Forward=+Z`,但推进器焰点 `ref 31/41/51 Forward=-Z`。导出器仍应把 FLVER `Forward` 正确映射到 glTF 局部 `+Z`;然而推进器 dummy 的 Forward 指向喷管内部,物理排气方向应为 `-flame.forward`,不能使用第 9.4 节建议的 `+flame.forward`。这不是恢复旧的 socket 翻转,而是两种原生 dummy 各自的语义不同。
+
+最终 Unity 报告：
+
+```text
+5/5 loadout PASS
+每台可见后推进器数量 = 2
+flameToSocket = 0m
+exhaustDir = (0,-0.342,+0.940)
+backDot = 0.940
+pitchDeg = -19.97°
+34 个接口骨 position/rotation/scale error = 0
+左右手武器 gripDistance = 0.0747m .. 0.1482m
+Validation passed for 5 loadouts.
+```
+
+对应报告为 `Assets/_Project/LocalSamples/AC6SkinnedModular/Reports/skinned_modular_validation.txt`。框架、武器和推进器 GLB 均来自原生 FLVER/HKX/DDS 管线,未恢复 Blender 烘焙资源。

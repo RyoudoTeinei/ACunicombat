@@ -25,6 +25,7 @@ public static class AC6SkinnedModularSampleBuilder
         "Assets/_Project/LocalSamples/AC6MelanderCase/Raw/Gltf/Melander_1010_Rerun.glb";
     private const string NativeEquipmentRoot =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Raw/NativeEquipment";
+    private const string BoosterMountedDisplayActionId = "a000_000001";
 
     private static readonly Regex EquipmentActionPattern =
         new Regex(@"a\d{3}_\d+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -426,20 +427,20 @@ public static class AC6SkinnedModularSampleBuilder
                 candidate.GetComponentInChildren<Renderer>(true) != null)
             .ToList();
         ok &= Check(boosterVisuals.Count == 2, key, $"expected 2 visible rear booster instances, got {boosterVisuals.Count}", report);
-        // The wrapper install rotation is IDENTITY by design: the resting gimbal pose comes
-        // from sampling the native idle action on the internal animation targets at assembly.
+        // The wrapper install rotation is IDENTITY by design: the mounted display pose comes
+        // from sampling frame zero of the native gimbal action on animation targets at assembly.
         // What gets asserted is the FINAL nozzle geometry axis (exhaustDir/pitch below), which
         // reflects every layer — never wrapper Euler values, which a playing action would
         // double-apply and which said nothing about the mesh in the first place.
         ok &= Check(boosterRecord?.part != null && boosterRecord.part.LocalEulerAngles == Vector3.zero, key,
-            "booster wrapper install rotation must stay identity (pose comes from the sampled idle action)", report);
+            "booster wrapper install rotation must stay identity (pose comes from the sampled display action)", report);
         for (var i = 0; i < boosterVisuals.Count; i++)
         {
             // Semantic seat check: core ref 800 is the flame emission point, and the pod is
             // installed so its own central flame dummy (_dmy_31) sits exactly on it. The root
-            // therefore carries the idle-posed -p31 install offset; what must be zero is the
+            // therefore carries the display-posed -p31 install offset; what must be zero is the
             // distance between the pod's flame anchor and the socket. The wrapper rotation is
-            // identity by design — the resting pose lives in the sampled idle action.
+            // identity by design — the resting pose lives in the sampled display action.
             var visual = boosterVisuals[i];
             var socket = visual.parent != null ? visual.parent.parent : null;
             var flame = FindChildBySuffix(visual, "_dmy_31");
@@ -455,13 +456,15 @@ public static class AC6SkinnedModularSampleBuilder
             ok &= Check(scaleError < 0.0001f, key, $"booster visual {i} root scale error is {scaleError:0.####}", report);
 
             // FINAL geometry axis, not wrapper numerics: the flame dummy rides the same bone
-            // that skins the bell, so its world frame IS the nozzle axis after every layer
-            // (install transform, sampled idle pose, playing actions) has been applied.
+            // that skins the bell, so its world frame follows the nozzle after every layer
+            // (install transform, sampled idle pose, playing actions) has been applied. AC6's
+            // booster FLVERs author dummies 31/41/51 with Forward=-Z, pointing inward through
+            // the pod; the physical exhaust direction is therefore the dummy's local -Z.
             // Exhaust must point backward and never upward; exact pitch is logged so it can be
             // compared against in-game reference footage.
             if (flame != null)
             {
-                var exhaustDir = (-flame.forward).normalized;
+                var exhaustDir = -flame.forward.normalized;
                 var backDot = Vector3.Dot(exhaustDir, mech.transform.forward); // mech faces -Z; +Z is backward
                 var pitchDeg = Mathf.Asin(Mathf.Clamp(exhaustDir.y, -1f, 1f)) * Mathf.Rad2Deg;
                 report.Log.AppendLine(
@@ -470,6 +473,12 @@ public static class AC6SkinnedModularSampleBuilder
                     $"booster visual {i} exhaust axis is not pointing backward (backDot {backDot:0.###})", report);
                 ok &= Check(exhaustDir.y <= 0.1f, key,
                     $"booster visual {i} exhaust axis points upward (y {exhaustDir.y:0.###})", report);
+                if (boosterRecord?.part != null && boosterRecord.part.EquipmentAnimations.Any(action =>
+                        string.Equals(action.ActionId, BoosterMountedDisplayActionId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    ok &= Check(pitchDeg >= -35f && pitchDeg <= -5f, key,
+                        $"booster visual {i} display-pose pitch is {pitchDeg:0.##} degrees; expected a rear-down angle", report);
+                }
             }
         }
         for (var i = 0; i < weaponRecords.Count; i++)
@@ -528,8 +537,8 @@ public static class AC6SkinnedModularSampleBuilder
         ok &= Check(expectedBoosterActions < 0 || boosterRecord?.part?.EquipmentAnimations.Count == expectedBoosterActions,
             key, $"booster expected {expectedBoosterActions} native actions, got {boosterRecord?.part?.EquipmentAnimations.Count ?? -1}", report);
         ok &= Check(boosterRecord?.part != null && (boosterRecord.part.EquipmentAnimations.Count == 0
-                || string.Equals(boosterRecord.part.DefaultEquipmentActionId, "a000_000000", StringComparison.OrdinalIgnoreCase)),
-            key, $"booster default must be native idle a000_000000, got {boosterRecord?.part?.DefaultEquipmentActionId ?? "<none>"}", report);
+                || string.Equals(boosterRecord.part.DefaultEquipmentActionId, BoosterMountedDisplayActionId, StringComparison.OrdinalIgnoreCase)),
+            key, $"booster default must be native mounted display {BoosterMountedDisplayActionId}, got {boosterRecord?.part?.DefaultEquipmentActionId ?? "<none>"}", report);
         ok &= Check(boosterRecord?.part != null && !boosterRecord.part.PlayDefaultEquipmentActionOnAssemble,
             key, "booster thrust/gimbal action must not autoplay on assembly", report);
 
@@ -1001,19 +1010,22 @@ public static class AC6SkinnedModularSampleBuilder
 
     /// <summary>
     /// Position of the pod's central flame dummy (_dmy_31) in model-root space, measured after
-    /// sampling the first frame of the native idle action on a temporary instance. Falls back
+    /// sampling the first frame of the native mounted-display action on a temporary instance.
+    /// Falls back to native idle, then
     /// to the bind pose when the build has no actions (machines without the game's partsbnd).
     /// </summary>
-    private static Vector3 SampleRestingFlameAnchorLocal(GameObject model, IReadOnlyList<MechEquipmentAnimationDefinition> actions)
+    private static Vector3 SampleMountedFlameAnchorLocal(GameObject model, IReadOnlyList<MechEquipmentAnimationDefinition> actions)
     {
         var instance = UnityEngine.Object.Instantiate(model);
         try
         {
-            var idle = actions?.FirstOrDefault(action =>
-                string.Equals(action.ActionId, "a000_000000", StringComparison.OrdinalIgnoreCase));
-            if (idle?.Clip != null)
+            var displayPose = actions?.FirstOrDefault(action =>
+                    string.Equals(action.ActionId, BoosterMountedDisplayActionId, StringComparison.OrdinalIgnoreCase))
+                ?? actions?.FirstOrDefault(action =>
+                    string.Equals(action.ActionId, "a000_000000", StringComparison.OrdinalIgnoreCase));
+            if (displayPose?.Clip != null)
             {
-                idle.Clip.SampleAnimation(instance, 0f);
+                displayPose.Clip.SampleAnimation(instance, 0f);
             }
 
             var anchor = FindChildBySuffix(instance.transform, "_dmy_31");
@@ -1266,12 +1278,12 @@ public static class AC6SkinnedModularSampleBuilder
                 continue;
             }
             // Install rotation stays IDENTITY. The resting gimbal pose comes from sampling the
-            // default idle action's first frame at assembly (MechAssembler), which drives the
+            // mounted-display action's first frame at assembly (MechAssembler), which drives the
             // real animation target nodes inside the GLB. Baking an action-derived angle onto
             // the wrapper double-applies as soon as any action plays, because the exported
-            // clips carry absolute rest-composed root values. The -p31 offset is measured on an
-            // idle-posed instance so a tilted resting gimbal still puts _dmy_31 on ref 800.
-            var installOffset = -SampleRestingFlameAnchorLocal(model, actions);
+            // clips carry absolute rest-composed root values. The -p31 offset is measured on a
+            // display-posed instance so a tilted resting gimbal still puts _dmy_31 on ref 800.
+            var installOffset = -SampleMountedFlameAnchorLocal(model, actions);
 
             var id = $"AC6_NATIVE_{key}";
             var part = LoadOrCreateAsset<MechPartDefinition>($"{PartRoot}/{id}.asset");
@@ -1294,9 +1306,9 @@ public static class AC6SkinnedModularSampleBuilder
                 newVisualRigMode: MechVisualRigMode.MountedPrefab,
                 shouldInstantiateVisualAtAllMounts: true,
                 newEquipmentAnimations: actions,
-                // 000001 is an active gimbal/thrust action whose root starts around 20 degrees
-                // from the mounted frame. Keep it available, but assemble the pod in native idle.
-                newDefaultEquipmentActionId: SelectDefaultAction(actions, "a000_000000"),
+                // 000001 frame zero is the game's mounted rear-down display pose. Sample it once
+                // during assembly without autoplaying the action timeline.
+                newDefaultEquipmentActionId: SelectDefaultAction(actions, BoosterMountedDisplayActionId),
                 shouldPlayDefaultEquipmentActionOnAssemble: false,
                 newLocalPosition: installOffset,
                 newLocalEulerAngles: Vector3.zero,

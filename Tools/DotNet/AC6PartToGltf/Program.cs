@@ -739,7 +739,10 @@ static class GltfBuilder
                 var upward = dummy.UseUpwardVector
                     ? SafeNormalize(dummy.Upward, Vector3.UnitY)
                     : Vector3.UnitY;
-                var local = Matrix4x4.CreateWorld(Vector3.Zero, forward, upward)
+                // System.Numerics.CreateWorld treats its forward argument as local -Z.
+                // FLVER dummies author Forward as local +Z, so negate the argument once
+                // here instead of exporting every equipment socket with a 180-degree yaw.
+                var local = Matrix4x4.CreateWorld(Vector3.Zero, -forward, upward)
                     * Matrix4x4.CreateTranslation(dummy.Position);
                 if (dummy.ParentBoneIndex >= 0 && dummy.ParentBoneIndex < part.Flver.Nodes.Count)
                     local *= part.FlverGlobals[dummy.ParentBoneIndex];
