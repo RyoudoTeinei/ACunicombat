@@ -184,3 +184,77 @@ Game/chr/c0000.behbnd.dcx
 - 本轮临时的 `a000_000001` 展示姿态实验已撤销，不提交错误代码。
 - `Assets/Scenes/SampleScene.unity` 是用户已有的未提交修改，不属于本咨询提交，也不得回退或暂存。
 - 本次提交应只包含本日志和六张游戏参考截图。
+
+## 9. 咨询结论（2026-07-14，开发机数值验证）
+
+以下结论全部由仓库内已提交的数据数值复现得出，验证脚本方法附后。逐条回应第 6 节问题。
+
+### 9.1 问题 4 的裁决：+19.972° X 在原生数据中就是"喷管向后下方"
+
+直接解码 `Raw/NativeEquipment/BS_A_1010_NATIVE.glb`（未经 glTFast，与导出器输出逐位一致）：
+
+```text
+_dmy_31/41/51 世界 forward（glTF 右手 Y-up 空间）：
+  rest（参考姿态）      = ( 0,  0.000, +1.000)   水平朝 +Z
+  a000_000001 第 0 帧   = ( 0, -0.342, +0.940)   俯角 19.97°，朝后下方
+```
+
+与六张游戏原图的后下姿态一致。**HKX → 导出器 → GLB 这段链路是正确的，`a000_000001` 第 0 帧极可能就是机库展示姿态。**
+
+### 9.2 问题 3 的裁决：乘法顺序正确，System.Numerics 是 Hamilton 约定
+
+PowerShell 实测 `System.Numerics.Quaternion`：`Transform(v, qA*qB)` 等价于先施加 qB 再施加 qA，即 `operator*` 与数学 Hamilton 约定和 Unity 一致（并非 XNA 翻转约定）。因此：
+
+```csharp
+rotationDelta = tr.R * Inverse(sourceRest.R);   // = tr ⊗ rest⁻¹（父空间 delta）
+q = rotationDelta * targetRest.R;               // = tr ⊗ rest⁻¹ ⊗ targetRest
+```
+
+是父空间 delta 重定向的标准公式，正确。9.1 的 GLB 实测反向印证了这一点。
+
+glTFast 侧同样无罪：对比金标 socket（Unity 空间）与原始 GLB 坐标，`AM_M_1010 _dmy_25` 原始 x=+2.895 → 金标 −2.895，`BD_M_1010 _dmy_13` 原始 +1.458 → 金标 −1.458，Z 全部保持——glTFast 使用 X 镜像约定，四元数变换为 `(x,−y,−z,w)`，绕 X 的纯俯仰旋转完全不受影响。
+
+### 9.3 真正的病灶：核心后方 `_dmy_800` 的节点朝向在 GLB 中被 180° 掉头（回应问题 5/6/7）
+
+解码 `Raw/Gltf/BD_M_1010.glb` 的三个 `_dmy_800` 节点：
+
+```text
+前方  pos=( 0.000, 8.622, -2.225)  fwd=( 0, 0, +1)   朝后
+后左  pos=(-0.413, 8.944, +2.402)  fwd=( 0, 0, -1)   朝前 ← 180° yaw
+后右  pos=(+0.413, 8.944, +2.402)  fwd=( 0, 0, -1)   朝前 ← 180° yaw
+```
+
+这与本日志第 3 节 FLVER 诊断表（后方 Forward=+Z）**矛盾**——180° 是导出器的 dummy 朝向转换引入的（疑似按 glTF "−Z 为前"的 LookRotation 约定重建了 dummy 基向量；前方 dummy 的 FLVER 朝向本为 −Z，被同一变换翻成 +Z，恰好互为镜像证据）。
+
+失败实验的每个数字由此完全解释：
+
+```text
+推进器 wrapper 为 identity → 直接继承 socket 的 180° yaw
+GLB 第 0 帧 fwd ( 0, -0.342, +0.940)
+  绕 Y 转 180°  → ( 0, -0.342, -0.940)
+  验证器取 −flame.forward → ( 0, +0.342, +0.940)   ← 与实验打印值逐位一致
+backDot = +0.940 ✓、pitchDeg = +19.97°（向上）✓
+```
+
+验证器 `exhaustDir = (−flame.forward)`（AC6SkinnedModularSampleBuilder.cs:464）的负号在 idle 水平姿态下与 180° yaw 互相掩护，两错相抵通过了基线验证；动画一采样即暴露。
+
+对问题 7 的直接回答：三个核心的后方 socket 朝向完全相同（都是同一个被翻转的 180° 帧），**俯仰角不来自核心 socket，而来自推进器自身动作**；核心差异体现在 socket 位置（第 3 节表格）与嵌入偏移。若游戏内实测各核心俯仰角确有差异，才需要继续找第二数据层（见 9.5 遗留项）。
+
+### 9.4 修复方案（满足第 7 节全部要求）
+
+1. **修导出器**：`AC6PartToGltf/Program.cs` 的 dummy 朝向转换改为直接以 FLVER Forward/Up 构建节点旋转（Forward→+Z 基），移除 −Z-forward 约定；重新生成全部 GLB（核心、推进器、武器）。
+2. **修验证器**：`exhaustDir = +flame.forward`（负号随 180° 一起退场）；其余断言不变。修复后期望值：idle 水平；`a000_000001` 第 0 帧 pitch = −19.97°（后下），与截图一致。
+3. **恢复被撤销的实验**：socket 修复后，重新启用"装配时采样 `a000_000001` 第 0 帧作为展示姿态"，此时符号正确。
+4. **警惕连带翻转**：武器挂载可能一直依赖"socket 与武器 dummy 双双翻转、两错相抵"才显示正确（`_dmy_200/_dmy_13/_dmy_14` 同样过了这个转换）。重新生成 GLB 后必须整套重跑金标验证，武器朝向若翻转说明其原本就依赖病灶，需同步修正挂载约定。
+
+### 9.5 游戏机上的遗留验证项
+
+- 用 FLVER 直读确认后方 `_dmy_800` 原始 Forward 确为 +Z（钉死导出器转换这一环）。
+- 问题 1/2（机库状态的 BHV/TAE 路由、TAE 条目与 binder 内 HKX 的 mini-header 映射）仍未解，但已不阻塞展示姿态闭环：`a000_000001` 第 0 帧 + 修复后的 socket 帧即可数据复现截图姿态。
+- 游戏内逐核心量一次实际俯仰角：若三核心确实不同，按 9.3 结论需另找数据层；若相同（约 20°），本方案即闭环。
+
+### 9.6 复现方法
+
+- GLB 解码：Python 直接解析 GLB JSON/BIN chunk，按 Hamilton 四元数组合节点层级，输出 dummy 世界 forward（rest 与动画第 0 帧覆盖对比）。
+- System.Numerics 顺序：`Transform(v, qA*qB)` 与顺序施加对照（qA=90°X，qB=90°Y，v=+Z）。
+- glTFast 约定：仓库金标 socket 断言值（builder 600-649 行）对照原始 GLB 世界坐标。
