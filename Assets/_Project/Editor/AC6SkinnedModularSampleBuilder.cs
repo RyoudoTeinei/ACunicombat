@@ -26,6 +26,7 @@ public static class AC6SkinnedModularSampleBuilder
     private const string NativeEquipmentRoot =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Raw/NativeEquipment";
     private const string BoosterMountedDisplayActionId = "a000_000001";
+    private static readonly Vector3 NativeBoosterInstallEuler = new Vector3(180f, 0f, 0f);
     private static readonly Vector3 NativeWeaponInstallEuler = new Vector3(0f, 180f, 0f);
 
     private static readonly Regex EquipmentActionPattern =
@@ -428,14 +429,18 @@ public static class AC6SkinnedModularSampleBuilder
                 candidate.GetComponentInChildren<Renderer>(true) != null)
             .ToList();
         ok &= Check(boosterVisuals.Count == 2, key, $"expected 2 visible rear booster instances, got {boosterVisuals.Count}", report);
-        // The wrapper install transform is IDENTITY: the native booster root sits directly on
-        // the selected core's rear ref 800, while the mounted display pose comes
-        // from sampling frame zero of the native gimbal action on animation targets at assembly.
-        // What gets asserted is the FINAL nozzle geometry axis (exhaustDir/pitch below), which
-        // reflects every layer — never wrapper Euler values, which a playing action would
-        // double-apply and which said nothing about the mesh in the first place.
-        ok &= Check(boosterRecord?.part != null && boosterRecord.part.LocalEulerAngles == Vector3.zero, key,
-            "booster wrapper install rotation must stay identity (pose comes from the sampled display action)", report);
+        // The corrected dummy exporter exposes the booster resource with its visible nozzle
+        // end facing forward/up relative to a rear ref 800. The native equipment boundary
+        // contributes a half-turn about X; the sampled display action then supplies the real
+        // gimbal pitch. Keeping the wrapper at identity installs the complete pod backward even
+        // though a sign-flipped dummy-axis check can still report a rear/down exhaust vector.
+        var boosterInstallRotationError = boosterRecord?.part == null
+            ? float.MaxValue
+            : Quaternion.Angle(
+                Quaternion.Euler(boosterRecord.part.LocalEulerAngles),
+                Quaternion.Euler(NativeBoosterInstallEuler));
+        ok &= Check(boosterInstallRotationError < 0.05f, key,
+            $"booster install rotation is {boosterRecord?.part?.LocalEulerAngles.ToString() ?? "<none>"}; expected {NativeBoosterInstallEuler}", report);
         for (var i = 0; i < boosterVisuals.Count; i++)
         {
             // Semantic seat check: core ref 800 is the model installation socket. The booster
@@ -448,7 +453,9 @@ public static class AC6SkinnedModularSampleBuilder
             var rootError = socket != null
                 ? Vector3.Distance(visual.position, socket.position)
                 : float.MaxValue;
-            var rotationError = Quaternion.Angle(visual.localRotation, Quaternion.identity);
+            var rotationError = Quaternion.Angle(
+                visual.localRotation,
+                Quaternion.Euler(NativeBoosterInstallEuler));
             var scaleError = (visual.localScale - Vector3.one).magnitude;
             var flameError = flame != null && socket != null
                 ? Vector3.Distance(flame.position, socket.position)
@@ -463,13 +470,14 @@ public static class AC6SkinnedModularSampleBuilder
             // FINAL geometry axis, not wrapper numerics: the flame dummy rides the same bone
             // that skins the bell, so its world frame follows the nozzle after every layer
             // (install transform, sampled idle pose, playing actions) has been applied. AC6's
-            // booster FLVERs author dummies 31/41/51 with Forward=-Z, pointing inward through
-            // the pod; the physical exhaust direction is therefore the dummy's local -Z.
-            // Exhaust must point backward and never upward; exact pitch is logged so it can be
-            // compared against in-game reference footage.
+            // booster FLVERs author dummies 31/41/51 along the visible nozzle direction. Use
+            // the actual frame direction, not its negation: the previous negative sign combined
+            // with a backward-installed model and let two independent errors pass validation.
+            // Exhaust must point backward and never upward; exact pitch is logged for comparison
+            // against the in-game reference captures.
             if (flame != null)
             {
-                var exhaustDir = -flame.forward.normalized;
+                var exhaustDir = flame.forward.normalized;
                 var backDot = Vector3.Dot(exhaustDir, mech.transform.forward); // mech faces -Z; +Z is backward
                 var pitchDeg = Mathf.Asin(Mathf.Clamp(exhaustDir.y, -1f, 1f)) * Mathf.Rad2Deg;
                 report.Log.AppendLine(
@@ -1294,7 +1302,7 @@ public static class AC6SkinnedModularSampleBuilder
                 newDefaultEquipmentActionId: SelectDefaultAction(actions, BoosterMountedDisplayActionId),
                 shouldPlayDefaultEquipmentActionOnAssemble: false,
                 newLocalPosition: Vector3.zero,
-                newLocalEulerAngles: Vector3.zero,
+                newLocalEulerAngles: NativeBoosterInstallEuler,
                 newLocalScale: Vector3.one);
             result[code] = part;
         }

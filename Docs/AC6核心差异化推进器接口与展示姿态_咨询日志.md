@@ -261,6 +261,8 @@ backDot = +0.940 ✓、pitchDeg = +19.97°（向上）✓
 
 ## 10. 游戏机实施回报（2026-07-14）
 
+> 本节记录了当时的中间结论，其中 `identity` 安装和 `-flame.forward` 已被后续可见模型检查证伪。最终结论见第 11 节。
+
 已按第 9.4 节修正导出器并重建 12 个框架 GLB、3 个推进器 GLB 和 8 个武器 GLB。Unity 自动验证随后暴露出咨询结论遗漏的一条原始语义：
 
 ```text
@@ -287,3 +289,22 @@ Validation passed for 5 loadouts.
 ```
 
 对应报告为 `Assets/_Project/LocalSamples/AC6SkinnedModular/Reports/skinned_modular_validation.txt`。框架、武器和推进器 GLB 均来自原生 FLVER/HKX/DDS 管线,未恢复 Blender 烘焙资源。
+
+## 11. 可见模型反装回归与最终修正（2026-07-14）
+
+用户对 Unity 近景图进行人工检查后确认：第 10 节虽然数值验证通过，但推进器可见模型仍然前后反装，喷嘴出口朝向核心。根因是两个错误互相抵消：
+
+1. 推进器 wrapper 保持 identity，完整可见模型相对核心后部 socket 反装；
+2. 验证器使用 `exhaustDir = -flame.forward`，把反装后的 dummy 方向再次取反，因此仍得到后下方的“正确”数值。
+
+最终安装与验证契约改为：
+
+```text
+booster resource root -> selected core rear ref 800
+local position        = (0, 0, 0)
+local rotation        = Euler(180, 0, 0)
+local scale           = (1, 1, 1)
+exhaustDir            = +flame.forward
+```
+
+重新生成 1010/2010/3010 与 Mixed A/B 后，五套 loadout 全部通过。报告值仍为 `exhaustDir=(0,-0.342,+0.940)`、`backDot=0.940`、`pitchDeg=-19.97°`，但现在它来自实际正向而非负号补偿。`Closeup_Uniform1010_Boosters_side_t000.png` 与 `Closeup_Uniform3010_Boosters_side_t000.png` 也确认喷嘴出口远离核心并朝机体后下方。

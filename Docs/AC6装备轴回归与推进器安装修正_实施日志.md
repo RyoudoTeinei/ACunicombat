@@ -64,11 +64,11 @@ installOffset = -position(_dmy_31)
 ```text
 booster resource root -> selected core rear ref 800
 local position        = (0, 0, 0)
-local rotation        = identity
+local rotation        = Euler(180, 0, 0)
 local scale           = (1, 1, 1)
 ```
 
-核心前方的效果用 `ref=800` 仍由 `sourceRegion: Rear` 排除。每台机体只实例化两个后部推进器。推进器的 `a000_000001` 第 0 帧只负责机构的后下展示姿态，不负责模型根的安装平移。
+核心前方的效果用 `ref=800` 仍由 `sourceRegion: Rear` 排除。每台机体只实例化两个后部推进器。推进器的 `a000_000001` 第 0 帧只负责机构的后下展示姿态，不负责模型根的安装平移。可见模型在原生装备边界还需要绕 X 轴半转；若保持 identity，喷嘴出口会朝向核心，模型实际处于前后反装状态。
 
 ## 4. 验证修正
 
@@ -82,7 +82,7 @@ flameToSocket < 5 mm
 
 ```text
 rootToSocket < 5 mm
-root rotation error < 0.05 deg
+root rotation error against Euler(180, 0, 0) < 0.05 deg
 root scale error < 0.0001
 ```
 
@@ -95,6 +95,8 @@ root scale error < 0.0001
 ```
 
 这些非零焰点距离是资源内部结构差异，不是安装误差。
+
+排气方向必须直接使用 `flame.forward`。旧实现使用 `-flame.forward`，恰好把“模型反装”和“验证轴取反”两个错误抵消，因此即使报告得到后下方向，可见喷嘴仍然朝向核心。现在验证器检查真实正向，并配合 X 轴半转断言模型安装姿态。
 
 ## 5. Unity 实测结果
 
@@ -110,6 +112,8 @@ root scale error < 0.0001
 背部武器静止 forwardness = 1.000
 ```
 
+这里的 `exhaustDir=(0,-0.342,+0.940)` 来自实际的 `+flame.forward`，不再是对反装模型取负号得到的伪正确结果。
+
 近景图位于本机目录：
 
 ```text
@@ -121,4 +125,3 @@ Assets/_Project/LocalSamples/AC6SkinnedModular/Reports/
 ## 6. 管线边界
 
 本轮继续使用原生 FLVER/HKX/DDS -> glTF/Unity 管线，没有恢复 Blender 烘焙资源，也没有在导出文件里手工烘死装备姿态。
-
