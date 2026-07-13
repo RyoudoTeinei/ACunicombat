@@ -121,7 +121,7 @@ AC6PartToGltf.exe
   武器去掉手别标记 `WP_[LRE]_NNNN → WP_NNNN`,多材质武器按材质序号 `_01/_02`。
   完整的"材质名→MTD→贴图"清单会写进每个 glTF material 的 `extras`(mtd + textures 字典),Unity 侧可读。
 - **动画通道**:HKX 的绝对 local TRS 先相对动画 reference pose 求 delta,再应用到当前部件的 merged rest pose。只有 delta 始终为零的通道不写;四元数已做半球连续化。这是跨型号换装动作不断裂的关键。
-- **挂点**:每个 FLVER dummy 都按完整 `Forward/Up/Position` 生成 TRS,挂在 `ParentBoneIndex` 对应骨下,并在 glTF `extras` 写入 ref/attach/parent 编号。`System.Numerics.Matrix4x4.CreateWorld` 把参数 `forward` 当作局部 `-Z`,而 FLVER `Forward` 要映射到 glTF 局部 `+Z`,所以实现必须使用 `CreateWorld(Vector3.Zero, -Forward, Up) * Translation(Position)`。不能只导位置,也不能用 `AttachBoneIndex + inverse global` 反算;这些旧算法会让武器或喷口错位。当前样例只使用核心后方的两个 `ref=800` 安装推进器（前方同编号节点是效果点）,使用手臂的 `ref=23/20` 安装左右手枪械、`ref=25` 安装左臂近战武器、核心 `ref=13/14` 安装左右背武器。
+- **挂点**:每个 FLVER dummy 都按完整 `Forward/Up/Position` 生成 TRS,挂在 `ParentBoneIndex` 对应骨下,并在 glTF `extras` 写入 ref/attach/parent 编号。`System.Numerics.Matrix4x4.CreateWorld` 把参数 `forward` 当作局部 `-Z`,而 FLVER `Forward` 要映射到 glTF 局部 `+Z`,所以实现必须使用 `CreateWorld(Vector3.Zero, -Forward, Up) * Translation(Position)`。不能只导位置,也不能用 `AttachBoneIndex + inverse global` 反算;这些旧算法会让武器或喷口错位。该修正会让旧版依赖错误 dummy 轴的武器整体反向,因此原生武器在 Unity 安装边界统一使用 `LocalEulerAngles=(0,180,0)`,并以枪口/工作端朝向断言防回归。当前样例只使用核心后方的两个 `ref=800` 安装推进器（前方同编号节点是效果点）,使用手臂的 `ref=23/20` 安装左右手枪械、`ref=25` 安装左臂近战武器、核心 `ref=13/14` 安装左右背武器。
 - **坐标**:全程无轴转换(见核心结论 5)。
 
 ### 4. Unity 侧
@@ -129,10 +129,10 @@ AC6PartToGltf.exe
 - `Packages/manifest.json` 已含 `com.unity.cloud.gltfast: 6.19.0`。`.glb` 放进 Assets 即自动导入为带 SkinnedMeshRenderer + AnimationClip 的 prefab。
 - `MechPartDefinition.VisualRigMode = SynchronizedSkinned` 表示部件保留自己的蒙皮骨架;`SkinnedAnimationClip` 保存该部件的 bind-relative Clip。
 - `MechAssembler` 装配后把四个框架蒙皮部件交给 `MechSynchronizedAnimationPlayer`;播放器使用一个手动时间轴和多个 `AnimationPlayableOutput`。每帧评估后按依赖顺序执行接口所有权:腿先驱动核心的 4 根根链骨,已对齐的核心再驱动头的 10 根与手臂的 20 根接口祖先骨,共 34 根;部件专属骨和原权重不变。
-- 武器和推进器保留各自的装备骨架与全部 HKX Clip。`MechPartDefinition.EquipmentAnimations` 保存动作 ID→Clip,装配器为每个视觉实例建立 `MechEquipmentAnimationPlayer`;机体移动、武器发射/装填、背武器展开和推进器机构动作互不覆盖。游戏逻辑调用 `PlayAction("a000_...")` 即可切换真实装备动作。推进器装配时采样 `a000_000001` 第 0 帧作为稳定后下展示姿态,但不自动播放时间轴。原始推进器 FLVER 的 `_dmy_31/41/51 Forward=-Z` 指向喷管内部,所以物理排气轴是 Unity dummy 的 `-forward`。
+- 武器和推进器保留各自的装备骨架与全部 HKX Clip。`MechPartDefinition.EquipmentAnimations` 保存动作 ID→Clip,装配器为每个视觉实例建立 `MechEquipmentAnimationPlayer`;机体移动、武器发射/装填、背武器展开和推进器机构动作互不覆盖。游戏逻辑调用 `PlayAction("a000_...")` 即可切换真实装备动作。推进器资源根以 identity 直接安装到当前核心自己的后部 `ref=800`;`_dmy_31/41/51` 是资源内部的排焰/特效点,不能拿来反推整个模型的安装平移。装配时采样 `a000_000001` 第 0 帧作为稳定后下展示姿态,但不自动播放时间轴。原始推进器 FLVER 的 `_dmy_31/41/51 Forward=-Z` 指向喷管内部,所以物理排气轴是 Unity dummy 的 `-forward`。
 - `MechMountPointDefinition.sourceTransformNameSuffix` 指定导入模型内的 dummy;`matchAllSourceTransforms` 可为同一 ref 注册多个挂点。`MechPartDefinition.instantiateVisualAtAllMounts` 让一个逻辑部件在全部匹配挂点生成视觉实例,但质量、功耗和运行时部件记录只计算一次。
 - `Tools/BuildAC6NativeEquipmentSamples.ps1` 从游戏 `partsbnd` 的 binder ID 400 解出装备 anibnd,使用每件装备自己的真 compendium 批量解码全部动作,再把原 FLVER、DDS 和多段动作直接写入 GLB。`WP_L_1410` 当前原包只有骨架/TAE、没有本地 compendium/动作,管线会如实生成静态装备而不会伪造 Clip。
-- `Tools/ACunicombat/AC6/Build And Validate Skinned Modular Samples` 会生成 12 个框架部件、三种原生推进器和 5 个 Loadout(1010/2010/3010 原装 + Mixed A/B)。每套样例安装左右手武器、左右背武器和两个后方推进器实例。验证会检查空骨、独立骨架数、34 个接口骨、完整 dummy 父挂点、原生资源路径、每件装备真实动作数量、首选装备动作采样、推进器焰点/最终排气轴和静止/动作包围盒,并输出固定视角截图。2026-07-14 的 dummy 轴与展示姿态回归测试为 5/5 通过,共享接口位置/旋转/缩放误差均为 0,推进器焰点到接口距离为 0m,排气俯角为 `-19.97°`。
+- `Tools/ACunicombat/AC6/Build And Validate Skinned Modular Samples` 会生成 12 个框架部件、三种原生推进器和 5 个 Loadout(1010/2010/3010 原装 + Mixed A/B)。每套样例安装左右手武器、左右背武器和两个后方推进器实例。验证会检查空骨、独立骨架数、34 个接口骨、完整 dummy 父挂点、原生资源路径、每件装备真实动作数量、首选装备动作采样、全部武器工作端朝向、推进器资源根到核心 socket、最终排气轴和静止/动作包围盒,并输出固定视角与装备近景截图。2026-07-14 回归测试为 5/5 通过,共享接口位置/旋转/缩放误差均为 0,推进器根到接口距离为 0m,排气俯角为 `-19.97°`;焰点与接口的距离只保留作诊断,不能再作为安装正确的通过条件。
 - `Assets/_Project/Editor/AC6GltfSmokeTest.cs`:批处理冒烟测试。把 GLB 放到
   `Assets/_Project/LocalSamples/AC6MelanderCase/Raw/Gltf/`,然后:
   ```

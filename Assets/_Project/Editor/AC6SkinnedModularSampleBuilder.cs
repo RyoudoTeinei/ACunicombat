@@ -26,6 +26,7 @@ public static class AC6SkinnedModularSampleBuilder
     private const string NativeEquipmentRoot =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Raw/NativeEquipment";
     private const string BoosterMountedDisplayActionId = "a000_000001";
+    private static readonly Vector3 NativeWeaponInstallEuler = new Vector3(0f, 180f, 0f);
 
     private static readonly Regex EquipmentActionPattern =
         new Regex(@"a\d{3}_\d+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -427,7 +428,8 @@ public static class AC6SkinnedModularSampleBuilder
                 candidate.GetComponentInChildren<Renderer>(true) != null)
             .ToList();
         ok &= Check(boosterVisuals.Count == 2, key, $"expected 2 visible rear booster instances, got {boosterVisuals.Count}", report);
-        // The wrapper install rotation is IDENTITY by design: the mounted display pose comes
+        // The wrapper install transform is IDENTITY: the native booster root sits directly on
+        // the selected core's rear ref 800, while the mounted display pose comes
         // from sampling frame zero of the native gimbal action on animation targets at assembly.
         // What gets asserted is the FINAL nozzle geometry axis (exhaustDir/pitch below), which
         // reflects every layer — never wrapper Euler values, which a playing action would
@@ -436,23 +438,26 @@ public static class AC6SkinnedModularSampleBuilder
             "booster wrapper install rotation must stay identity (pose comes from the sampled display action)", report);
         for (var i = 0; i < boosterVisuals.Count; i++)
         {
-            // Semantic seat check: core ref 800 is the flame emission point, and the pod is
-            // installed so its own central flame dummy (_dmy_31) sits exactly on it. The root
-            // therefore carries the display-posed -p31 install offset; what must be zero is the
-            // distance between the pod's flame anchor and the socket. The wrapper rotation is
-            // identity by design — the resting pose lives in the sampled display action.
+            // Semantic seat check: core ref 800 is the model installation socket. The booster
+            // resource root must sit on it. _dmy_31 is an exhaust/effect anchor inside the pod;
+            // forcing that point onto ref 800 pushes the complete visible nozzle assembly out
+            // of the core by exactly the flame-anchor offset.
             var visual = boosterVisuals[i];
             var socket = visual.parent != null ? visual.parent.parent : null;
             var flame = FindChildBySuffix(visual, "_dmy_31");
+            var rootError = socket != null
+                ? Vector3.Distance(visual.position, socket.position)
+                : float.MaxValue;
             var rotationError = Quaternion.Angle(visual.localRotation, Quaternion.identity);
             var scaleError = (visual.localScale - Vector3.one).magnitude;
             var flameError = flame != null && socket != null
                 ? Vector3.Distance(flame.position, socket.position)
                 : float.MaxValue;
             report.Log.AppendLine(
-                $"[{key}] booster {i}: flameToSocket={flameError:0.####}m rootOffset={Format(visual.localPosition)} drot={rotationError:0.###}deg dscale={scaleError:0.####}");
+                $"[{key}] booster {i}: rootToSocket={rootError:0.####}m flameFromSocket={flameError:0.####}m rootOffset={Format(visual.localPosition)} drot={rotationError:0.###}deg dscale={scaleError:0.####}");
             ok &= Check(flame != null, key, $"booster visual {i} has no _dmy_31 flame anchor", report);
-            ok &= Check(flameError < 0.005f, key, $"booster visual {i} flame anchor is {flameError:0.####}m away from its ref 800 socket", report);
+            ok &= Check(rootError < 0.005f, key, $"booster visual {i} root is {rootError:0.####}m away from its ref 800 socket", report);
+            ok &= Check(rotationError < 0.05f, key, $"booster visual {i} root rotation error is {rotationError:0.###} degrees", report);
             ok &= Check(scaleError < 0.0001f, key, $"booster visual {i} root scale error is {scaleError:0.####}", report);
 
             // FINAL geometry axis, not wrapper numerics: the flame dummy rides the same bone
@@ -496,6 +501,13 @@ public static class AC6SkinnedModularSampleBuilder
                 key, $"{record.slot} expected mount {expectedMountSuffix}, got {mountSource?.name ?? "<none>"}", report);
             ok &= Check(modelPath.StartsWith(NativeEquipmentRoot, StringComparison.OrdinalIgnoreCase),
                 key, $"{record.slot} still references a legacy or Blender-baked asset: {modelPath}", report);
+            var installRotationError = record.part == null
+                ? float.MaxValue
+                : Quaternion.Angle(
+                    Quaternion.Euler(record.part.LocalEulerAngles),
+                    Quaternion.Euler(NativeWeaponInstallEuler));
+            ok &= Check(installRotationError < 0.05f, key,
+                $"{record.slot} native weapon install rotation is {record.part?.LocalEulerAngles.ToString() ?? "<none>"}; expected {NativeWeaponInstallEuler}", report);
 
             // Grip contact: hand-mounted weapons must actually sit in the hand — the palm
             // (or forearm) dummy has to touch the weapon's surface. Guards against a weapon
@@ -763,16 +775,19 @@ public static class AC6SkinnedModularSampleBuilder
 
                 if (muzzle != null)
                 {
-                    // The muzzle dummy's own frame encodes the firing direction (FLVER forward
-                    // = the frame's -Z, preserved through glTF). Positions are useless here:
+                    // The muzzle dummy's own +Z now preserves FLVER Forward directly. The
+                    // weapon wrapper's 180-degree yaw converts the model convention to the
+                    // corrected frame-socket convention. Positions are useless here:
                     // e.g. WP_L_0010's dmy_10 sits at the receiver, not the barrel tip.
                     var muzzleLocal = mech.transform.InverseTransformPoint(muzzle.position);
-                    var muzzleDir = -muzzle.forward;
+                    var muzzleDir = muzzle.forward;
                     var mechForward = -mech.transform.forward;
                     var forwardness = Vector3.Dot(muzzleDir.normalized, mechForward.normalized);
                     report.Log.AppendLine($"[{key}] t={sampleTimes[i]:0.###} DIAG {record.slot} muzzleLocal={Format(muzzleLocal)} muzzleDir={Format(muzzleDir)} forwardness={forwardness:0.###}");
-                    // Only asserted at rest: mid-action the arm may legitimately re-aim the gun.
-                    if (!isMelee && i == 0)
+                    // Assert every installed weapon at rest, including melee equipment. A prior
+                    // exporter-axis change reversed both guns and the pile bunker while the
+                    // melee path was exempt from this guard. Mid-action may legitimately re-aim.
+                    if (i == 0)
                     {
                         // A reversed weapon scores around -1, sideways around 0; the bind pose
                         // may legitimately droop the barrel, so only require "clearly forward".
@@ -780,9 +795,9 @@ public static class AC6SkinnedModularSampleBuilder
                             $"{record.slot} muzzle points away from mech forward at rest (dot {forwardness:0.###}, muzzle {muzzle.name})", report);
                     }
                 }
-                else if (!isMelee && i == 0)
+                else if (i == 0)
                 {
-                    ok &= Check(false, key, $"{record.slot} has no muzzle dummy to verify firing direction", report);
+                    ok &= Check(false, key, $"{record.slot} has no muzzle/working-end dummy to verify its installed direction", report);
                 }
 
                 Screenshot(mech, GrowBounds(CombinedBounds(record.instance), 1.35f),
@@ -1006,37 +1021,6 @@ public static class AC6SkinnedModularSampleBuilder
         }
 
         return Mathf.Sqrt(best);
-    }
-
-    /// <summary>
-    /// Position of the pod's central flame dummy (_dmy_31) in model-root space, measured after
-    /// sampling the first frame of the native mounted-display action on a temporary instance.
-    /// Falls back to native idle, then
-    /// to the bind pose when the build has no actions (machines without the game's partsbnd).
-    /// </summary>
-    private static Vector3 SampleMountedFlameAnchorLocal(GameObject model, IReadOnlyList<MechEquipmentAnimationDefinition> actions)
-    {
-        var instance = UnityEngine.Object.Instantiate(model);
-        try
-        {
-            var displayPose = actions?.FirstOrDefault(action =>
-                    string.Equals(action.ActionId, BoosterMountedDisplayActionId, StringComparison.OrdinalIgnoreCase))
-                ?? actions?.FirstOrDefault(action =>
-                    string.Equals(action.ActionId, "a000_000000", StringComparison.OrdinalIgnoreCase));
-            if (displayPose?.Clip != null)
-            {
-                displayPose.Clip.SampleAnimation(instance, 0f);
-            }
-
-            var anchor = FindChildBySuffix(instance.transform, "_dmy_31");
-            return anchor != null
-                ? instance.transform.InverseTransformPoint(anchor.position)
-                : Vector3.zero;
-        }
-        finally
-        {
-            UnityEngine.Object.DestroyImmediate(instance);
-        }
     }
 
     /// <summary>
@@ -1269,22 +1253,21 @@ public static class AC6SkinnedModularSampleBuilder
             }
 
             // Each core has one front braking/effect-only ref 800 and two rear main-thrust
-            // ref 800 dummies. Only the rear pair instantiate pods. After applying the native
-            // gimbal angle, each pod's central flame dummy (_dmy_31) must remain on ref 800.
+            // ref 800 dummies. Only the rear pair instantiate pods. Their core-specific
+            // positions and orientations come directly from those two frame dummies.
             var flameAnchor = FindChildBySuffix(model.transform, "_dmy_31");
             if (flameAnchor == null)
             {
                 missing.Add(sourcePath + " (booster flame anchor _dmy_31 not found)");
                 continue;
             }
-            // Install rotation stays IDENTITY. The resting gimbal pose comes from sampling the
+            // The complete install transform stays IDENTITY. The model root is the attachment
+            // origin and inherits the selected core's ref 800 frame directly. _dmy_31 is an
+            // exhaust/effect anchor, not the model installation origin. The resting pose comes from sampling the
             // mounted-display action's first frame at assembly (MechAssembler), which drives the
             // real animation target nodes inside the GLB. Baking an action-derived angle onto
             // the wrapper double-applies as soon as any action plays, because the exported
-            // clips carry absolute rest-composed root values. The -p31 offset is measured on a
-            // display-posed instance so a tilted resting gimbal still puts _dmy_31 on ref 800.
-            var installOffset = -SampleMountedFlameAnchorLocal(model, actions);
-
+            // clips carry absolute rest-composed root values.
             var id = $"AC6_NATIVE_{key}";
             var part = LoadOrCreateAsset<MechPartDefinition>($"{PartRoot}/{id}.asset");
             part.EditorConfigure(
@@ -1310,7 +1293,7 @@ public static class AC6SkinnedModularSampleBuilder
                 // during assembly without autoplaying the action timeline.
                 newDefaultEquipmentActionId: SelectDefaultAction(actions, BoosterMountedDisplayActionId),
                 shouldPlayDefaultEquipmentActionOnAssemble: false,
-                newLocalPosition: installOffset,
+                newLocalPosition: Vector3.zero,
                 newLocalEulerAngles: Vector3.zero,
                 newLocalScale: Vector3.one);
             result[code] = part;
@@ -1374,7 +1357,11 @@ public static class AC6SkinnedModularSampleBuilder
                 // with the body action, not autoplayed while the mech is in its mounted rest pose.
                 shouldPlayDefaultEquipmentActionOnAssemble: actions.Count > 0 && !spec.IsMelee,
                 newLocalPosition: Vector3.zero,
-                newLocalEulerAngles: Vector3.zero,
+                // The corrected dummy exporter preserves FLVER Forward as local +Z. Frame
+                // sockets and weapon models are both authored toward -Z, so equipment needs
+                // one 180-degree yaw at the installation boundary. Without it the visible
+                // weapon reverses while a sign-flipped muzzle test can still report success.
+                newLocalEulerAngles: NativeWeaponInstallEuler,
                 newLocalScale: Vector3.one);
             result[spec.Key] = part;
         }
@@ -1587,15 +1574,17 @@ public static class AC6SkinnedModularSampleBuilder
     {
         // AC6 WepAbsorpPos prefixes select the source part: 2xxx = body/core,
         // 3xxx = arms. The remaining three digits are the FLVER dummy reference ID.
-        // Installation rotation is IDENTITY for every AC6 equipment slot. Evidence chain
-        // (2026-07-11, close-range regression after the RotationX(pi) attempt was refuted):
+        // Mount definitions remain identity. Native weapon parts carry a Y=180 installation
+        // correction at the part boundary because the corrected glTF dummy frame preserves
+        // FLVER Forward as local +Z while AC6 weapon geometry is authored facing -Z.
+        // Evidence chain:
         //  - The mech faces -Z in FromSoft model space (HD ref=14 camera dummy sits 6.66 in
         //    front of the face at -Z looking back; eye SFX dummies fire -Z).
         //  - Every measured muzzle fires -Z in its weapon's model space (WP_L_0010 dmy_10,
         //    WP_R_4210 dmy_300/301/302, WP_R_4410 dmy_200/300; blade thrust of WP_L_0250 too).
-        //  - The mount dummies' CreateWorld frames are ~identity (forward -Z, up +Y).
-        //  So identity install aligns muzzle with mech forward; DSAS's RotationX(pi) belongs to
-        //  DSAS's own render convention and must NOT be replayed here.
+        //  - The exporter no longer leaves those mount dummies at an accidental identity; it
+        //    correctly maps their FLVER Forward into glTF +Z, introducing the expected yaw.
+        //  - Repeating that yaw on the weapon wrapper restores the native model orientation.
         // AC6 left-hand melee weapons use the forearm dummy 25 (WepAbsorpPos 200 -> 3025), not
         // the palm dummy 23 (WepAbsorpPos 100 -> 3023); the mounts express that via tags.
         if (slot == MechPartSlot.Core)
