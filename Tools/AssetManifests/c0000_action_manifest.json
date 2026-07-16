@@ -1,0 +1,88 @@
+{
+  "comment": "机体动作库清单：动作库管线的唯一数据入口。加动作 = 在 entries 里加一条 + 依次跑 Tools/BuildAC6ActionClips.ps1 和 Unity 菜单 Build Action Library。字段语义见 Docs/AC6动作库管线_设计.md；动作 ID 判定依据见 Docs/AC6机体动作判定表_2026-07-17.md。",
+  "poseJsonRoot": "Tools/LocalOut/actions",
+  "skeleton": "Tools/LocalOut/anibnd/c0000/4000000_Skeleton.hkx",
+  "anibndRoot": "Tools/LocalOut/anibnd",
+  "entries": [
+    {
+      "actionId": "a000_010900",
+      "hkx": "a000_010900",
+      "layer": "FullBody",
+      "loop": true,
+      "blendInSeconds": 0.25,
+      "blendOutSeconds": 0.25,
+      "enabled": true,
+      "note": "悬停待机（机库/悬浮 idle，可转向）。showcase 现用基础动作。"
+    },
+    {
+      "actionId": "a000_010102",
+      "hkx": "a000_010102",
+      "layer": "FullBody",
+      "loop": true,
+      "blendInSeconds": 0.2,
+      "blendOutSeconds": 0.2,
+      "enabled": true,
+      "note": "方向推进稳态循环（四方向之一，朝向待目检；备选 010112/010122/010132）。ForwardFlight 基础层。"
+    },
+    {
+      "actionId": "a000_010100",
+      "hkx": "a000_010100",
+      "layer": "FullBody",
+      "loop": false,
+      "blendInSeconds": 0.08,
+      "blendOutSeconds": 0.1,
+      "enabled": true,
+      "note": "方向推进进入段（喷口脉冲在 0.2/0.5s）。QuickBoost 阶段第一拍。"
+    },
+    {
+      "actionId": "a000_010103",
+      "hkx": "a000_010103",
+      "layer": "FullBody",
+      "loop": false,
+      "blendInSeconds": 0.08,
+      "blendOutSeconds": 0.15,
+      "enabled": true,
+      "note": "方向推进制动退出段（带根骨冲量）。QuickBoost 阶段第二拍。"
+    },
+    {
+      "actionId": "a000_011010",
+      "hkx": "a000_011010",
+      "layer": "FullBody",
+      "loop": false,
+      "blendInSeconds": 0.1,
+      "blendOutSeconds": 0.2,
+      "enabled": true,
+      "note": "着陆（中强度）。Recovery 阶段备选。"
+    },
+    {
+      "actionId": "a200_030020",
+      "hkx": "a200_030020",
+      "layer": "UpperBody",
+      "loop": false,
+      "blendInSeconds": 0.12,
+      "blendOutSeconds": 0.15,
+      "enabled": false,
+      "note": "持枪抬臂进入（a200 bank）。待武器类别→bank 映射确认后启用；HKX 在 c0000_a200_xx anibnd，需先解包到 anibndRoot。"
+    },
+    {
+      "actionId": "a200_030022",
+      "hkx": "a200_030022",
+      "layer": "UpperBody",
+      "loop": true,
+      "blendInSeconds": 0.1,
+      "blendOutSeconds": 0.15,
+      "enabled": false,
+      "note": "持枪保持循环（a200 bank）。同上待启用。"
+    },
+    {
+      "actionId": "a200_030030",
+      "hkx": "a200_030030",
+      "layer": "UpperBody",
+      "loop": false,
+      "blendInSeconds": 0.05,
+      "blendOutSeconds": 0.12,
+      "enabled": false,
+      "note": "开火/后坐执行（a200 bank，RumbleCam+Type19）。同上待启用。"
+    }
+  ]
+}

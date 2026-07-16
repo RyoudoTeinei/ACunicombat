@@ -76,6 +76,11 @@ namespace ACunicombat.Mechs
 
         public IReadOnlyList<MechBodyActionDefinition> Actions => actions;
 
+#if UNITY_EDITOR
+        /// <summary>Mutable list for the action-library builder; not for runtime use.</summary>
+        public List<MechBodyActionDefinition> EditorActions => actions;
+#endif
+
         public bool TryGetAction(string actionId, out MechBodyActionDefinition definition)
         {
             definition = null;
