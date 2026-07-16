@@ -206,3 +206,87 @@ Tools/DotNet/AC6PartToGltf
 Docs/AC6生素材导入管线.md
 Docs/AC6挂点与动画全量参考.md
 ```
+
+## 9. 咨询结论（2026-07-17，开发机）
+
+逐条回应第 5 节。注意：开发机上 `Raw/` 目录（gitignored）里的 GLB 是 a1bdac6 修复之前的旧产物，本节 5.4 的结论不依赖它们，而是从已入库且在游戏机上验证通过的代码语义反推，并附可复跑的数值工具。
+
+### 9.1 问题 5.4 的裁决：喷焰沿 `_dmy_31` 的 +Z（transform.forward）发射，删除硬编码 180°
+
+三个事实链条：
+
+1. **语义已由座面修复定死**：a1bdac6/6d56a97 之后，`ref 800` 是模型安装 socket（推进器 root 直接坐上去、继承其帧），`_dmy_31/41/51` 是排气/特效锚点——builder 注释与断言（`AC6SkinnedModularSampleBuilder.cs:446-448、480`）已经写明。
+2. **验证器现在断言 `exhaustDir = flame.forward`（正号，`:480`）指向后方且不向上，并在重新生成的 GLB 上通过**——即修复后的数据里，`_dmy_31` 的 +Z 世界方向就是排气方向。
+3. **导出器修复（a1bdac6 对 `Program.cs` 的 `-forward`）消除了旧 GLB 中 dummy 帧的 180° 掉头**。`CreateExhaust()` 里的 `Quaternion.Euler(0f, 180f, 0f)` 正是对旧翻转数据的手工补偿——在新数据上它变成二次反转，把喷焰打进机体内部，与截图现象一致。
+
+修复方式：
+
+- 删除 `CreateExhaust()` 的硬编码 180°，粒子对象 localRotation = identity，发射轴用父 dummy 的 +Z（ParticleSystem 本地 +Z 即 `transform.forward`）。
+- 不同推进器/不同核心**不需要**任何额外旋转：socket 帧 + 原生 dummy 已携带全部朝向（金标验证已跨 1010/2010/3010 证明）。
+- 按第 7 节第 5/7 条补世界轴断言（伪代码）：
+
+```text
+exhaust = flameDummy.forward
+Check( Dot(exhaust, mech.forward) > 0.6 )                        // 指向后方（mech faces -Z）
+Check( Dot(exhaust, (flameDummy.pos - core.pos).normalized) > 0 ) // 远离核心，而非射入机体
+对每个粒子对象断言其世界发射轴与 exhaust 夹角 < 5°
+```
+
+- 数值复核工具已入库：`Tools/GlbDummyProbe.py`。在游戏机上对重新生成的 GLB 运行：
+
+```text
+python Tools/GlbDummyProbe.py <BS_A_*.glb> dmy --anim 000001
+python Tools/GlbDummyProbe.py <BD_M_*.glb> _dmy_800
+```
+
+预期：修复后推进器 dummy rest fwd 与核心后方 socket fwd 同为 +Z（glTF 空间=向后），`a000_000001` 第 0 帧 pitch ≈ −19.97°（后下）。若任一符号不符，先修数据再动代码。
+
+### 9.2 问题 5.2 的建议：动作与网格分离，短期方案 2、长期方案 3，明确否决方案 1
+
+- **否决方案 1**（每部件 GLB 内嵌多条 Clip）：每加一个动作复制 12 份网格容器，资源体积和重导出成本线性爆炸，且动作与模型版本互相锁死。
+- **短期（解本次缺口）用方案 2**：模型 GLB 只含骨架+蒙皮（一次性）；每条动作走现有 `HKX → pose JSON → 按部件 bind pose 适配` 链路，但产物是独立的 Unity `.clip` 资产（每动作 × 4 框架部件），由批量导入器生成。现有适配代码全部复用，只是把"取 GLB 里最长的 Clip"改成"从动作库按 actionId 取"。
+- **长期收敛到方案 3**（canonical rig）：这本来就是资源导入咨询定下的架构——共享骨架实例 + 按名重绑 `SkinnedMeshRenderer.bones`。完全统一后，每条动作只需一条针对 canonical 骨架路径的 Clip（n_动作 × 1 而非 × 4），34 根接口骨同步问题自然消失，因为四个部件蒙的就是同一副骨架。方案 2 的动作库数据结构应按"未来每动作只剩一条 Clip"设计，迁移时只删适配层。
+
+### 9.3 问题 5.3 的建议：动作注册表 + 双层 LayerMixer 的 PlayableGraph
+
+数据层（ScriptableObject，换装不改代码）：
+
+```text
+MechActionRegistry:
+  actionId → { 每槽位 Clip 集（方案2）或 canonical Clip（方案3）,
+               loop, layer(FullBody/UpperBody), blendIn/blendOut 秒,
+               效果时间线引用（现有 MechActionEffectTimeline） }
+```
+
+图结构（每机体一个 PlayableGraph，装备播放器并入同图共享时钟）：
+
+```text
+AnimationLayerMixerPlayable
+ ├─ Layer 0（全身基础）：双槽 AnimationMixerPlayable，当前/下一动作交叉淡化
+ │    （权重按图时间推进，禁用 Time.deltaTime 累加，保证与装备 HKX 同基准）
+ └─ Layer 1（上半身叠加）：持枪/瞄准/开火，AvatarMask 用共享骨架的
+      脊柱+双臂 transform 路径列表构建（Generic 骨架用 AddTransformPath，
+      不需要 humanoid Avatar）；weight 0→1 淡入，开火结束淡出
+```
+
+- 换装后重建 graph 输出绑定即可，没有 Animator Controller 资产。
+- 瞄准跟踪（枪口指向目标）不属于动作层：在 LateUpdate/Playables 后处理做上臂链 IK 微调，叠加在 Layer 1 姿态之上，幅度受限（±15° 级），超限由火控转身逻辑接管——与《信号级传感器与火控仿真_设计实现.md》§18 的姿态控制责任划分一致。
+- 关于 3.3 的定性：根节点轨迹**不是要移除的权宜**——按传感器/火控实现基准，运动权威本来就在运动系统，动作永远只提供姿态。缺的是"飞行姿态 Clip"这一层，不是"根运动"那一层。验收第 1 条应据此理解：根节点继续由控制器/物理驱动，同时骨骼有姿态变化。
+
+### 9.4 问题 5.1 的回答方式：不猜 ID，给出可执行的判定流程
+
+动作 ID 语义必须在游戏机上从数据判定，流程按证据强度排序：
+
+1. **TAE 是权威源**：`tae_action/b000.tae` 用 SoulsFormats 的 TAE 类直接解析（AC6 与 ER 同代格式），每个 Animation 条目携带 ID 与 mini-header（含 `ImportsHKX/AllowDelayLoad/引用动画文件 ID`）——这同时解掉旧咨询遗留的"TAE 显示名 vs binder 内 HKX 文件"的 alias 映射问题（推进器 TAE 同法处理）。输出表列：`TAE anim ID | 引用 HKX | 循环标志 | 事件摘要（SFX/状态/判定帧）`。
+2. **根运动剖面分类**：用现有 AC6HkxPoseExporter 批量导出候选动作的根骨曲线，按运动学特征自动分桶——持续前向速度=飞行循环；0.2–0.4 s 横向冲量+快速衰减=QB 变体（按冲量方向分左右前后）；根几乎静止+手臂链大幅旋转=持枪/瞄准/开火族。分桶结果回填第 1 步的表。
+3. **DSAnimStudio 目检**只做最后确认（第 1、2 步筛出的候选每类看 2–3 条），不做地毯式翻找。
+4. 上半身叠加判定：TAE 事件里带部分骨骼混合标记、或根骨+腿链曲线为空/恒定而脊柱以上有曲线的动作即叠加型——第 2 步的曲线数据可以直接判，不需要猜。
+
+`ThrustersLocomotionParam_PC` 的未知整数字段建议与第 1 步产物对照：若字段值命中 TAE anim ID 集合，即为状态→动作路由表，QB/飞行的官方入口就从这里读。
+
+### 9.5 建议的实施顺序
+
+1. 喷焰轴修复 + 世界轴断言（9.1，半天，独立交付）；
+2. TAE 解析与动作判定表（9.4，游戏机，1 天）；
+3. 动作库批量导出（9.2 方案 2）+ 注册表与双层 graph（9.3），先接 ForwardFlight/QB/持枪三个动作族打通验收 1–4；
+4. 骨骼姿态差与喷焰世界轴自动断言（验收 7），截图归档（验收 8）。
