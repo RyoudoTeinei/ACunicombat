@@ -288,6 +288,7 @@ namespace ACunicombat.Mechs
             go.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
 
             var particles = go.AddComponent<ParticleSystem>();
+            particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var main = particles.main;
             main.duration = 0.6f;
             main.loop = false;

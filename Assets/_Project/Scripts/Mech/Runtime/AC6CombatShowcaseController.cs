@@ -1,0 +1,707 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+namespace ACunicombat.Mechs
+{
+    /// <summary>
+    /// Runs a compact combat-pipeline showcase over an assembled modular mech. Original HKX
+    /// clips drive the frame and equipment. Root translation, target motion and projectile
+    /// flight are deliberately authored here because those are gameplay simulation concerns,
+    /// not baked animation data.
+    /// </summary>
+    [DisallowMultipleComponent]
+    public sealed class AC6CombatShowcaseController : MonoBehaviour
+    {
+        private enum ShowcasePhase
+        {
+            HoverLaunch,
+            ForwardFlight,
+            QuickBoost,
+            RangedWeaponFire,
+            MissileLaunch,
+            PileBunkerFire,
+            Recovery
+        }
+
+        [SerializeField] private GameObject mech;
+        [SerializeField] private Transform target;
+        [SerializeField] private Camera showcaseCamera;
+        [SerializeField] private MechActionEffectTimeline bodyEffectTimeline;
+        [SerializeField] private MechActionEffectTimeline meleeEffectTimeline;
+        [SerializeField] private MechEffectPrefabLibrary effectLibrary;
+        [SerializeField, Min(2f)] private float phaseDuration = 4f;
+        [SerializeField] private bool loop = true;
+
+        private readonly List<ParticleSystem> boosterExhausts = new List<ParticleSystem>();
+        private readonly List<MechEquipmentAnimationPlayer> boosterPlayers =
+            new List<MechEquipmentAnimationPlayer>();
+        private readonly List<MechEquipmentAnimationPlayer> missilePlayers =
+            new List<MechEquipmentAnimationPlayer>();
+
+        private MechRuntimeState runtimeState;
+        private MechSynchronizedAnimationPlayer bodyPlayer;
+        private MechEquipmentAnimationPlayer rightHandWeaponPlayer;
+        private MechEquipmentAnimationPlayer pileBunkerPlayer;
+        private MechActionEffectPlayer pileBunkerEffects;
+        private Vector3 origin;
+        private float elapsed;
+        private int activePhase = -1;
+        private int launchedMissiles;
+        private int materialsWithBaseMap;
+        private int materialCount;
+
+        public string CurrentPhaseName => ((ShowcasePhase)Mathf.Max(0, activePhase)).ToString();
+        public int LaunchedMissiles => launchedMissiles;
+
+        public void Configure(
+            GameObject mechRoot,
+            Transform movingTarget,
+            Camera sceneCamera,
+            MechActionEffectTimeline bodyTimeline,
+            MechActionEffectTimeline meleeTimeline,
+            MechEffectPrefabLibrary library)
+        {
+            mech = mechRoot;
+            target = movingTarget;
+            showcaseCamera = sceneCamera;
+            bodyEffectTimeline = bodyTimeline;
+            meleeEffectTimeline = meleeTimeline;
+            effectLibrary = library;
+        }
+
+        private void Start()
+        {
+            if (mech == null)
+            {
+                mech = gameObject;
+            }
+
+            origin = mech.transform.position;
+            BindAssembledParts();
+            ConfigureBodyEffects();
+            BuildBoosterExhausts();
+            CountMaterialBindings();
+            Debug.Log(
+                $"[AC6CombatShowcase] Bindings: boosters={boosterPlayers.Count}, " +
+                $"missilePods={missilePlayers.Count}, rightHand={(rightHandWeaponPlayer != null ? 1 : 0)}, " +
+                $"pileBunker={(pileBunkerPlayer != null ? 1 : 0)}, " +
+                $"exhausts={boosterExhausts.Count}, fxrPrefabs={(effectLibrary == null ? 0 : effectLibrary.entries.Count)}.",
+                mech);
+            EnterPhase(0);
+        }
+
+        private void Update()
+        {
+            var phaseCount = Enum.GetValues(typeof(ShowcasePhase)).Length;
+            elapsed += Time.deltaTime;
+            var phase = Mathf.FloorToInt(elapsed / phaseDuration);
+            if (phase >= phaseCount)
+            {
+                if (!loop)
+                {
+                    phase = phaseCount - 1;
+                    elapsed = phase * phaseDuration + phaseDuration;
+                }
+                else
+                {
+                    elapsed %= phaseCount * phaseDuration;
+                    phase = 0;
+                    launchedMissiles = 0;
+                }
+            }
+
+            if (phase != activePhase)
+            {
+                EnterPhase(phase);
+            }
+
+            var phaseTime = elapsed - phase * phaseDuration;
+            var normalized = Mathf.Clamp01(phaseTime / phaseDuration);
+            ApplyMotion((ShowcasePhase)phase, normalized);
+            AnimateTarget();
+        }
+
+        private void LateUpdate()
+        {
+            if (showcaseCamera == null || mech == null)
+            {
+                return;
+            }
+
+            var focus = mech.transform.position + Vector3.up * 4.8f;
+            var desired = mech.transform.position + new Vector3(13f, 8.5f, 20f);
+            showcaseCamera.transform.position = Vector3.Lerp(
+                showcaseCamera.transform.position,
+                desired,
+                1f - Mathf.Exp(-3f * Time.deltaTime));
+            showcaseCamera.transform.rotation = Quaternion.LookRotation(
+                focus - showcaseCamera.transform.position,
+                Vector3.up);
+        }
+
+        private void BindAssembledParts()
+        {
+            runtimeState = mech.GetComponent<MechRuntimeState>();
+            bodyPlayer = mech.GetComponent<MechSynchronizedAnimationPlayer>();
+            boosterPlayers.Clear();
+            missilePlayers.Clear();
+
+            if (runtimeState == null)
+            {
+                Debug.LogError("[AC6CombatShowcase] MechRuntimeState is missing.", mech);
+                return;
+            }
+
+            for (var i = 0; i < runtimeState.AssembledParts.Count; i++)
+            {
+                var record = runtimeState.AssembledParts[i];
+                if (record?.instance == null)
+                {
+                    continue;
+                }
+
+                var player = record.instance.GetComponent<MechEquipmentAnimationPlayer>();
+                if (record.slot == MechPartSlot.Booster)
+                {
+                    boosterPlayers.AddRange(mech.GetComponentsInChildren<MechEquipmentAnimationPlayer>(true)
+                        .Where(candidate => candidate != null &&
+                            candidate.gameObject.name.IndexOf("Booster", StringComparison.OrdinalIgnoreCase) >= 0));
+                }
+                else if (record.slot == MechPartSlot.LeftBackWeapon ||
+                         record.slot == MechPartSlot.RightBackWeapon)
+                {
+                    if (player != null && player.HasAction("a000_800410"))
+                    {
+                        missilePlayers.Add(player);
+                    }
+                }
+                else if (record.slot == MechPartSlot.RightHandWeapon && player != null)
+                {
+                    rightHandWeaponPlayer = player;
+                }
+                else if (record.slot == MechPartSlot.LeftHandWeapon &&
+                         player != null && player.HasAction("a000_040010"))
+                {
+                    pileBunkerPlayer = player;
+                    if (meleeEffectTimeline != null)
+                    {
+                        pileBunkerEffects = record.instance.GetComponent<MechActionEffectPlayer>();
+                        if (pileBunkerEffects == null)
+                        {
+                            pileBunkerEffects = record.instance.AddComponent<MechActionEffectPlayer>();
+                        }
+
+                        pileBunkerEffects.ConfigureForEquipment(
+                            meleeEffectTimeline,
+                            record.instance.transform,
+                            pileBunkerPlayer,
+                            effectLibrary);
+                    }
+                }
+            }
+
+            boosterPlayers.RemoveAll(candidate => candidate == null);
+            for (var i = boosterPlayers.Count - 1; i >= 0; i--)
+            {
+                if (boosterPlayers.IndexOf(boosterPlayers[i]) != i)
+                {
+                    boosterPlayers.RemoveAt(i);
+                }
+            }
+        }
+
+        private void ConfigureBodyEffects()
+        {
+            if (bodyEffectTimeline == null || runtimeState == null || bodyPlayer == null)
+            {
+                return;
+            }
+
+            var player = mech.GetComponent<MechActionEffectPlayer>();
+            if (player == null)
+            {
+                player = mech.AddComponent<MechActionEffectPlayer>();
+            }
+
+            player.Configure(bodyEffectTimeline, runtimeState, bodyPlayer, effectLibrary);
+            bodyPlayer.Play();
+        }
+
+        private void EnterPhase(int phase)
+        {
+            activePhase = phase;
+            var state = (ShowcasePhase)phase;
+            switch (state)
+            {
+                case ShowcasePhase.HoverLaunch:
+                    PlayBoosterAction("a000_000001");
+                    SetBoosterExhaust(true, 0.7f);
+                    break;
+                case ShowcasePhase.ForwardFlight:
+                    PlayBoosterAction("a000_000001");
+                    SetBoosterExhaust(true, 1f);
+                    break;
+                case ShowcasePhase.QuickBoost:
+                    PlayBoosterAction("a000_000002");
+                    SetBoosterExhaust(true, 2.2f);
+                    SpawnBurstAtBoosters(new Color(0.25f, 0.65f, 1f, 1f), 1.2f);
+                    break;
+                case ShowcasePhase.RangedWeaponFire:
+                    SetBoosterExhaust(true, 0.35f);
+                    FireRightHandWeapon();
+                    break;
+                case ShowcasePhase.MissileLaunch:
+                    SetBoosterExhaust(true, 0.45f);
+                    FireMissileSalvo();
+                    break;
+                case ShowcasePhase.PileBunkerFire:
+                    SetBoosterExhaust(false, 0f);
+                    if (pileBunkerPlayer != null)
+                    {
+                        pileBunkerEffects?.ResetPlayback();
+                        pileBunkerPlayer.PlayAction("a000_040010");
+                    }
+                    break;
+                case ShowcasePhase.Recovery:
+                    PlayBoosterAction("a000_000003");
+                    SetBoosterExhaust(false, 0f);
+                    break;
+            }
+
+            Debug.Log($"[AC6CombatShowcase] Phase {phase + 1}: {state}", mech);
+        }
+
+        private void ApplyMotion(ShowcasePhase phase, float t)
+        {
+            Vector3 localOffset;
+            float pitch;
+            switch (phase)
+            {
+                case ShowcasePhase.HoverLaunch:
+                    localOffset = new Vector3(0f, Mathf.SmoothStep(0f, 3f, t), 0f);
+                    pitch = -4f * t;
+                    break;
+                case ShowcasePhase.ForwardFlight:
+                    localOffset = new Vector3(0f, 3f + Mathf.Sin(t * Mathf.PI) * 0.4f, -14f * t);
+                    pitch = -9f;
+                    break;
+                case ShowcasePhase.QuickBoost:
+                    localOffset = new Vector3(Mathf.SmoothStep(0f, 11f, t), 3f, -14f - 8f * t);
+                    pitch = -13f;
+                    break;
+                case ShowcasePhase.RangedWeaponFire:
+                    localOffset = new Vector3(11f, 3f + Mathf.Sin(t * Mathf.PI * 2f) * 0.15f, -22f);
+                    pitch = -3f;
+                    break;
+                case ShowcasePhase.MissileLaunch:
+                    localOffset = new Vector3(11f, 3.2f + Mathf.Sin(t * Mathf.PI * 2f) * 0.15f, -22f);
+                    pitch = -3f;
+                    break;
+                case ShowcasePhase.PileBunkerFire:
+                    localOffset = new Vector3(11f, 3f, -22f - Mathf.SmoothStep(0f, 5f, t));
+                    pitch = -8f;
+                    break;
+                default:
+                    localOffset = Vector3.Lerp(new Vector3(11f, 3f, -27f), Vector3.zero, Smooth01(t));
+                    pitch = Mathf.Lerp(-8f, 0f, t);
+                    break;
+            }
+
+            mech.transform.position = origin + localOffset;
+            mech.transform.rotation = Quaternion.Euler(pitch, 0f, 0f);
+        }
+
+        private void AnimateTarget()
+        {
+            if (target == null || mech == null)
+            {
+                return;
+            }
+
+            var time = Time.time;
+            target.position = mech.transform.position + new Vector3(
+                Mathf.Sin(time * 0.45f) * 8f,
+                5f + Mathf.Sin(time * 0.8f) * 2f,
+                -34f + Mathf.Cos(time * 0.45f) * 5f);
+            target.Rotate(25f * Time.deltaTime, 40f * Time.deltaTime, 15f * Time.deltaTime, Space.Self);
+        }
+
+        private void PlayBoosterAction(string actionId)
+        {
+            for (var i = 0; i < boosterPlayers.Count; i++)
+            {
+                if (boosterPlayers[i].HasAction(actionId))
+                {
+                    boosterPlayers[i].PlayAction(actionId);
+                }
+            }
+        }
+
+        private void FireMissileSalvo()
+        {
+            var before = launchedMissiles;
+            for (var i = 0; i < missilePlayers.Count; i++)
+            {
+                var player = missilePlayers[i];
+                var actionId = FirstAvailableAction(player,
+                    "a000_800410", "a000_800411", "a000_800412", "a000_000100");
+                if (!string.IsNullOrEmpty(actionId))
+                {
+                    player.PlayAction(actionId);
+                }
+
+                var anchors = player.GetComponentsInChildren<Transform>(true)
+                    .Where(candidate => candidate.name.EndsWith("_dmy_300", StringComparison.OrdinalIgnoreCase)
+                        || candidate.name.EndsWith("_dmy_301", StringComparison.OrdinalIgnoreCase)
+                        || candidate.name.EndsWith("_dmy_302", StringComparison.OrdinalIgnoreCase))
+                    .Take(3)
+                    .ToArray();
+                if (anchors.Length == 0)
+                {
+                    anchors = new[] { player.transform };
+                }
+
+                for (var anchorIndex = 0; anchorIndex < anchors.Length; anchorIndex++)
+                {
+                    SpawnMissile(anchors[anchorIndex], i * 0.12f + anchorIndex * 0.08f);
+                }
+            }
+
+            Debug.Log(
+                $"[AC6CombatShowcase] Missile salvo spawned {launchedMissiles - before} projectiles " +
+                $"from {missilePlayers.Count} original-HKX equipment players.",
+                mech);
+        }
+
+        private void SpawnMissile(Transform anchor, float launchDelay)
+        {
+            var missile = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            missile.name = "Showcase_Plasma_Missile";
+            missile.transform.position = anchor.position;
+            missile.transform.localScale = new Vector3(0.12f, 0.32f, 0.12f);
+
+            var collider = missile.GetComponent<Collider>();
+            if (collider != null)
+            {
+                Destroy(collider);
+            }
+
+            var renderer = missile.GetComponent<Renderer>();
+            renderer.sharedMaterial = CreateRuntimeMaterial(
+                "Showcase Missile",
+                new Color(0.15f, 0.45f, 1f, 1f),
+                true);
+
+            var trail = missile.AddComponent<TrailRenderer>();
+            trail.time = 0.65f;
+            trail.startWidth = 0.18f;
+            trail.endWidth = 0.01f;
+            trail.minVertexDistance = 0.04f;
+            trail.sharedMaterial = CreateRuntimeMaterial(
+                "Showcase Missile Trail",
+                new Color(0.2f, 0.7f, 1f, 0.85f),
+                true);
+
+            var mover = missile.AddComponent<AC6ShowcaseMissile>();
+            mover.Configure(target, 22f, 5f, launchDelay);
+            SpawnBurst(anchor, new Color(0.25f, 0.7f, 1f, 1f), 0.55f);
+            launchedMissiles++;
+        }
+
+        private void FireRightHandWeapon()
+        {
+            if (rightHandWeaponPlayer == null)
+            {
+                Debug.LogWarning("[AC6CombatShowcase] Ranged weapon fire skipped: no right-hand equipment player.", mech);
+                return;
+            }
+
+            var actionId = FirstAvailableAction(
+                rightHandWeaponPlayer,
+                "a000_800210",
+                "a000_800090",
+                "a000_800000");
+            if (!string.IsNullOrEmpty(actionId))
+            {
+                rightHandWeaponPlayer.PlayAction(actionId);
+            }
+
+            var muzzle = rightHandWeaponPlayer.GetComponentsInChildren<Transform>(true)
+                .FirstOrDefault(candidate =>
+                    candidate.name.EndsWith("_dmy_300", StringComparison.OrdinalIgnoreCase) ||
+                    candidate.name.EndsWith("_dmy_301", StringComparison.OrdinalIgnoreCase) ||
+                    candidate.name.EndsWith("_dmy_100", StringComparison.OrdinalIgnoreCase));
+            SpawnBurst(
+                muzzle != null ? muzzle : rightHandWeaponPlayer.transform,
+                new Color(1f, 0.48f, 0.08f, 1f),
+                1.45f);
+            Debug.Log($"[AC6CombatShowcase] Ranged weapon fired action {actionId}.", mech);
+        }
+
+        private void BuildBoosterExhausts()
+        {
+            boosterExhausts.Clear();
+            for (var i = 0; i < boosterPlayers.Count; i++)
+            {
+                var anchors = boosterPlayers[i].GetComponentsInChildren<Transform>(true)
+                    .Where(candidate => candidate.name.EndsWith("_dmy_31", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                for (var anchorIndex = 0; anchorIndex < anchors.Length; anchorIndex++)
+                {
+                    boosterExhausts.Add(CreateExhaust(anchors[anchorIndex]));
+                }
+            }
+        }
+
+        private ParticleSystem CreateExhaust(Transform anchor)
+        {
+            var root = new GameObject("Showcase_Booster_Exhaust");
+            root.transform.SetParent(anchor, false);
+            root.transform.localPosition = Vector3.zero;
+            root.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            var particles = root.AddComponent<ParticleSystem>();
+            particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = particles.main;
+            main.duration = 1f;
+            main.loop = true;
+            main.playOnAwake = false;
+            main.startLifetime = 0.24f;
+            main.startSpeed = 10f;
+            main.startSize = 0.24f;
+            main.startColor = new Color(0.25f, 0.65f, 1f, 0.95f);
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+            var emission = particles.emission;
+            emission.rateOverTime = 80f;
+            var shape = particles.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 6f;
+            shape.radius = 0.06f;
+
+            var color = particles.colorOverLifetime;
+            color.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(Color.white, 0f),
+                    new GradientColorKey(new Color(0.1f, 0.45f, 1f), 0.35f),
+                    new GradientColorKey(new Color(0.04f, 0.1f, 0.35f), 1f)
+                },
+                new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+
+            var particleRenderer = root.GetComponent<ParticleSystemRenderer>();
+            particleRenderer.sharedMaterial = CreateRuntimeMaterial(
+                "Showcase Booster Exhaust",
+                new Color(0.2f, 0.65f, 1f, 1f),
+                true);
+            return particles;
+        }
+
+        private void SetBoosterExhaust(bool enabled, float intensity)
+        {
+            for (var i = 0; i < boosterExhausts.Count; i++)
+            {
+                var particles = boosterExhausts[i];
+                var emission = particles.emission;
+                emission.rateOverTime = 80f * Mathf.Max(0.1f, intensity);
+                var main = particles.main;
+                main.startSpeed = 10f * Mathf.Max(0.25f, intensity);
+                if (enabled)
+                {
+                    if (!particles.isPlaying)
+                    {
+                        particles.Play();
+                    }
+                }
+                else
+                {
+                    particles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                }
+            }
+        }
+
+        private void SpawnBurstAtBoosters(Color color, float size)
+        {
+            for (var i = 0; i < boosterExhausts.Count; i++)
+            {
+                SpawnBurst(boosterExhausts[i].transform.parent, color, size);
+            }
+        }
+
+        private static void SpawnBurst(Transform anchor, Color color, float size)
+        {
+            if (anchor == null)
+            {
+                return;
+            }
+
+            var root = new GameObject("Showcase_Weapon_Burst");
+            root.transform.SetParent(anchor, false);
+            root.transform.localPosition = Vector3.zero;
+            root.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            var particles = root.AddComponent<ParticleSystem>();
+            particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = particles.main;
+            main.duration = 0.35f;
+            main.loop = false;
+            main.startLifetime = 0.32f;
+            main.startSpeed = 6f;
+            main.startSize = size;
+            main.startColor = color;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            var emission = particles.emission;
+            emission.rateOverTime = 0f;
+            emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 24) });
+            var shape = particles.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 14f;
+            shape.radius = 0.04f;
+            root.GetComponent<ParticleSystemRenderer>().sharedMaterial = CreateRuntimeMaterial(
+                "Showcase Burst",
+                color,
+                true);
+            particles.Play();
+            Destroy(root, 1.5f);
+        }
+
+        private void CountMaterialBindings()
+        {
+            materialCount = 0;
+            materialsWithBaseMap = 0;
+            var renderers = mech.GetComponentsInChildren<Renderer>(true);
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                var materials = renderers[i].sharedMaterials;
+                for (var materialIndex = 0; materialIndex < materials.Length; materialIndex++)
+                {
+                    var material = materials[materialIndex];
+                    if (material == null)
+                    {
+                        continue;
+                    }
+
+                    materialCount++;
+                    if (material.mainTexture != null ||
+                        (material.HasProperty("_BaseMap") && material.GetTexture("_BaseMap") != null))
+                    {
+                        materialsWithBaseMap++;
+                    }
+                }
+            }
+
+            Debug.Log(
+                $"[AC6CombatShowcase] Material bindings: {materialsWithBaseMap}/{materialCount} have base textures. " +
+                "Zone paint masks/palette are not implemented yet.",
+                mech);
+        }
+
+        private void OnGUI()
+        {
+            var style = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.UpperLeft,
+                fontSize = 16,
+                normal = { textColor = Color.white }
+            };
+            GUI.Box(
+                new Rect(18f, 18f, 400f, 104f),
+                $"AC6 COMBAT PIPELINE SHOWCASE\n" +
+                $"Phase: {CurrentPhaseName}\n" +
+                $"Missiles: {launchedMissiles}   Textured materials: {materialsWithBaseMap}/{materialCount}\n" +
+                "Frame/equipment: original HKX | Flight path: runtime simulation",
+                style);
+        }
+
+        private static string FirstAvailableAction(
+            MechEquipmentAnimationPlayer player,
+            params string[] actionIds)
+        {
+            for (var i = 0; i < actionIds.Length; i++)
+            {
+                if (player.HasAction(actionIds[i]))
+                {
+                    return actionIds[i];
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static float Smooth01(float value)
+        {
+            value = Mathf.Clamp01(value);
+            return value * value * (3f - 2f * value);
+        }
+
+        private static Material CreateRuntimeMaterial(string materialName, Color color, bool emissive)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
+            var material = new Material(shader) { name = materialName };
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", color);
+            }
+            if (material.HasProperty("_Color"))
+            {
+                material.SetColor("_Color", color);
+            }
+            if (emissive && material.HasProperty("_EmissionColor"))
+            {
+                material.EnableKeyword("_EMISSION");
+                material.SetColor("_EmissionColor", color * 4f);
+            }
+            return material;
+        }
+    }
+
+    [DisallowMultipleComponent]
+    public sealed class AC6ShowcaseMissile : MonoBehaviour
+    {
+        private Transform target;
+        private float speed;
+        private float turnRate;
+        private float delay;
+        private float life;
+
+        public void Configure(Transform newTarget, float newSpeed, float newTurnRate, float launchDelay)
+        {
+            target = newTarget;
+            speed = newSpeed;
+            turnRate = newTurnRate;
+            delay = launchDelay;
+        }
+
+        private void Update()
+        {
+            life += Time.deltaTime;
+            if (life > 8f)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            if (delay > 0f)
+            {
+                delay -= Time.deltaTime;
+                return;
+            }
+
+            var desired = target == null
+                ? transform.forward
+                : (target.position - transform.position).normalized;
+            if (desired.sqrMagnitude < 0.001f)
+            {
+                desired = transform.forward;
+            }
+
+            transform.rotation = Quaternion.Slerp(
+                transform.rotation,
+                Quaternion.LookRotation(desired, Vector3.up),
+                1f - Mathf.Exp(-turnRate * Time.deltaTime));
+            transform.position += transform.forward * (speed * Time.deltaTime);
+        }
+    }
+}
