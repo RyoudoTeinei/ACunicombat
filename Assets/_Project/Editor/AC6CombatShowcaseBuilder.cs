@@ -32,6 +32,8 @@ public static class AC6CombatShowcaseBuilder
     private static bool batchSawRangedWeaponFire;
     private static bool batchSawMaterialBindings;
     private static bool batchSawRequiredEquipment;
+    private static bool batchSawExhaustAxisPass;
+    private static bool batchSawExhaustAxisFail;
 
     static AC6CombatShowcaseBuilder()
     {
@@ -198,6 +200,8 @@ public static class AC6CombatShowcaseBuilder
         batchSawRangedWeaponFire = false;
         batchSawMaterialBindings = false;
         batchSawRequiredEquipment = false;
+        batchSawExhaustAxisPass = false;
+        batchSawExhaustAxisFail = false;
         batchStartedUtc = DateTime.UtcNow;
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
@@ -250,6 +254,14 @@ public static class AC6CombatShowcaseBuilder
         {
             batchSawRequiredEquipment = true;
         }
+        if (condition.Contains("Exhaust axis check: PASS"))
+        {
+            batchSawExhaustAxisPass = true;
+        }
+        if (condition.Contains("Exhaust axis check: FAIL"))
+        {
+            batchSawExhaustAxisFail = true;
+        }
     }
 
     private static void UpdateBatchValidation()
@@ -265,12 +277,15 @@ public static class AC6CombatShowcaseBuilder
             batchSawMissileSalvo &&
             batchSawRangedWeaponFire &&
             batchSawMaterialBindings &&
-            batchSawRequiredEquipment;
+            batchSawRequiredEquipment &&
+            batchSawExhaustAxisPass &&
+            !batchSawExhaustAxisFail;
         Debug.Log(
             $"[AC6CombatShowcaseValidation] RESULT={(success ? "PASS" : "FAIL")} " +
             $"phases={BatchPhases.Count}/7 ranged={batchSawRangedWeaponFire} " +
             $"missile={batchSawMissileSalvo} " +
-            $"materials={batchSawMaterialBindings} equipment={batchSawRequiredEquipment}");
+            $"materials={batchSawMaterialBindings} equipment={batchSawRequiredEquipment} " +
+            $"exhaustAxis={(batchSawExhaustAxisPass && !batchSawExhaustAxisFail)}");
         EditorApplication.isPlaying = false;
         EditorApplication.delayCall += () => EditorApplication.Exit(success ? 0 : 2);
     }

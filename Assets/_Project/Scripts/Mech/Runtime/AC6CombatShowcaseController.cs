@@ -34,6 +34,12 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(2f)] private float phaseDuration = 4f;
         [SerializeField] private bool loop = true;
 
+        [Header("Body actions (optional until the TAE action table is confirmed)")]
+        [SerializeField] private MechBodyActionPlayer bodyActionPlayer;
+        [SerializeField] private string flightBodyActionId = "";
+        [SerializeField] private string quickBoostBodyActionId = "";
+        [SerializeField] private string rangedAimUpperBodyActionId = "";
+
         private readonly List<ParticleSystem> boosterExhausts = new List<ParticleSystem>();
         private readonly List<MechEquipmentAnimationPlayer> boosterPlayers =
             new List<MechEquipmentAnimationPlayer>();
@@ -82,6 +88,7 @@ namespace ACunicombat.Mechs
             BindAssembledParts();
             ConfigureBodyEffects();
             BuildBoosterExhausts();
+            ValidateExhaustAxes();
             CountMaterialBindings();
             Debug.Log(
                 $"[AC6CombatShowcase] Bindings: boosters={boosterPlayers.Count}, " +
@@ -241,15 +248,18 @@ namespace ACunicombat.Mechs
                     break;
                 case ShowcasePhase.ForwardFlight:
                     PlayBoosterAction("a000_000001");
+                    PlayBodyAction(flightBodyActionId);
                     SetBoosterExhaust(true, 1f);
                     break;
                 case ShowcasePhase.QuickBoost:
                     PlayBoosterAction("a000_000002");
+                    PlayBodyAction(quickBoostBodyActionId);
                     SetBoosterExhaust(true, 2.2f);
                     SpawnBurstAtBoosters(new Color(0.25f, 0.65f, 1f, 1f), 1.2f);
                     break;
                 case ShowcasePhase.RangedWeaponFire:
                     SetBoosterExhaust(true, 0.35f);
+                    PlayUpperBodyAction(rangedAimUpperBodyActionId);
                     FireRightHandWeapon();
                     break;
                 case ShowcasePhase.MissileLaunch:
@@ -460,7 +470,11 @@ namespace ACunicombat.Mechs
             var root = new GameObject("Showcase_Booster_Exhaust");
             root.transform.SetParent(anchor, false);
             root.transform.localPosition = Vector3.zero;
-            root.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            // The flame dummy's +Z IS the exhaust direction since the dummy-axis exporter fix
+            // (a1bdac6): the sample builder asserts flame.forward points backward and passes.
+            // An extra local yaw here double-flips on the corrected data and fires the plume
+            // into the hull, so the emitter inherits the dummy frame unchanged.
+            root.transform.localRotation = Quaternion.identity;
             var particles = root.AddComponent<ParticleSystem>();
             particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var main = particles.main;
@@ -498,6 +512,67 @@ namespace ACunicombat.Mechs
                 new Color(0.2f, 0.65f, 1f, 1f),
                 true);
             return particles;
+        }
+
+        /// <summary>
+        /// Final-geometry assertion for the exhaust plumes (acceptance items 5/7 of the
+        /// showcase consult): every emitter's world +Z must point backward relative to the
+        /// mech (which faces -Z, same convention as the sample builder) and away from the
+        /// core, so a regression anywhere in the dummy/install chain fails loudly instead
+        /// of rendering flames inside the hull. Batch validation keys on the PASS/FAIL log.
+        /// </summary>
+        private void ValidateExhaustAxes()
+        {
+            var corePosition = mech.transform.position;
+            if (runtimeState != null)
+            {
+                for (var i = 0; i < runtimeState.AssembledParts.Count; i++)
+                {
+                    var record = runtimeState.AssembledParts[i];
+                    if (record?.instance != null && record.slot == MechPartSlot.Core)
+                    {
+                        corePosition = record.instance.transform.position;
+                        break;
+                    }
+                }
+            }
+
+            var back = mech.transform.forward;
+            var pass = boosterExhausts.Count > 0;
+            for (var i = 0; i < boosterExhausts.Count; i++)
+            {
+                var emitter = boosterExhausts[i].transform;
+                var axis = emitter.forward;
+                var backDot = Vector3.Dot(axis, back);
+                var awayDot = Vector3.Dot(axis, (emitter.position - corePosition).normalized);
+                var ok = backDot > 0.6f && awayDot > 0f;
+                pass &= ok;
+                Debug.Log(
+                    $"[AC6CombatShowcase] Exhaust {i}: axis={axis:F3} backDot={backDot:0.###} " +
+                    $"awayDot={awayDot:0.###} {(ok ? "ok" : "WRONG")}",
+                    emitter);
+            }
+
+            Debug.Log(
+                $"[AC6CombatShowcase] Exhaust axis check: {(pass ? "PASS" : "FAIL")} " +
+                $"({boosterExhausts.Count} emitters).",
+                mech);
+        }
+
+        private void PlayBodyAction(string actionId)
+        {
+            if (bodyActionPlayer != null && !string.IsNullOrWhiteSpace(actionId))
+            {
+                bodyActionPlayer.PlayFullBody(actionId);
+            }
+        }
+
+        private void PlayUpperBodyAction(string actionId)
+        {
+            if (bodyActionPlayer != null && !string.IsNullOrWhiteSpace(actionId))
+            {
+                bodyActionPlayer.PlayUpperBody(actionId);
+            }
         }
 
         private void SetBoosterExhaust(bool enabled, float intensity)
@@ -541,7 +616,8 @@ namespace ACunicombat.Mechs
             var root = new GameObject("Showcase_Weapon_Burst");
             root.transform.SetParent(anchor, false);
             root.transform.localPosition = Vector3.zero;
-            root.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            // Same convention as CreateExhaust: post-fix dummies emit along their own +Z.
+            root.transform.localRotation = Quaternion.identity;
             var particles = root.AddComponent<ParticleSystem>();
             particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var main = particles.main;
