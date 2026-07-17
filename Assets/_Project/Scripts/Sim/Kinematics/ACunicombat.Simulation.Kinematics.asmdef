@@ -1,0 +1,17 @@
+{
+    "name": "ACunicombat.Simulation.Kinematics",
+    "rootNamespace": "ACunicombat.Simulation.Kinematics",
+    "references": [
+        "ACunicombat.Simulation.Core",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

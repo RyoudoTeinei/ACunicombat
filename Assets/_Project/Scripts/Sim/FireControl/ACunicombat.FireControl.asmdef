@@ -1,0 +1,19 @@
+{
+    "name": "ACunicombat.FireControl",
+    "rootNamespace": "ACunicombat.FireControl",
+    "references": [
+        "ACunicombat.Simulation.Core",
+        "ACunicombat.Sensing.Contracts",
+        "ACunicombat.Tracking",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

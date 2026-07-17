@@ -1,0 +1,33 @@
+{
+    "name": "ACunicombat.Tests.EditMode",
+    "rootNamespace": "ACunicombat.Tests.EditMode",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "ACunicombat.Simulation.Core",
+        "ACunicombat.Sensing.Contracts",
+        "ACunicombat.Simulation.Kinematics",
+        "ACunicombat.Simulation.World",
+        "ACunicombat.Sensors",
+        "ACunicombat.ElectronicWarfare",
+        "ACunicombat.Tracking",
+        "ACunicombat.FireControl",
+        "Unity.Mathematics",
+        "Unity.Collections"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

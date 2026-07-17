@@ -1,0 +1,20 @@
+{
+    "name": "ACunicombat.Simulation.World",
+    "rootNamespace": "ACunicombat.Simulation.World",
+    "references": [
+        "ACunicombat.Simulation.Core",
+        "ACunicombat.Simulation.Kinematics",
+        "Unity.Mathematics",
+        "Unity.Collections",
+        "Unity.Burst"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

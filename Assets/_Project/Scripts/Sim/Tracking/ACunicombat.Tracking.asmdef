@@ -1,0 +1,19 @@
+{
+    "name": "ACunicombat.Tracking",
+    "rootNamespace": "ACunicombat.Tracking",
+    "references": [
+        "ACunicombat.Simulation.Core",
+        "ACunicombat.Sensing.Contracts",
+        "Unity.Mathematics",
+        "Unity.Collections"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

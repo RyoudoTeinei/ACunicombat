@@ -1,0 +1,17 @@
+{
+    "name": "ACunicombat.Sensing.Contracts",
+    "rootNamespace": "ACunicombat.Sensing.Contracts",
+    "references": [
+        "ACunicombat.Simulation.Core",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

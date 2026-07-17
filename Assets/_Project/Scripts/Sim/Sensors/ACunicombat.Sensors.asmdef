@@ -1,0 +1,22 @@
+{
+    "name": "ACunicombat.Sensors",
+    "rootNamespace": "ACunicombat.Sensors",
+    "references": [
+        "ACunicombat.Simulation.Core",
+        "ACunicombat.Sensing.Contracts",
+        "ACunicombat.Simulation.Kinematics",
+        "ACunicombat.Simulation.World",
+        "Unity.Mathematics",
+        "Unity.Collections",
+        "Unity.Burst"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
