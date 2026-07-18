@@ -13,7 +13,7 @@ namespace ACunicombat.Sensors
     ///   1. Complete 上一批 JobHandle（存于 pendingJobs，不在 Schedule 后立即 Complete）
     ///   2. 检测点交付融合层（DetectionRing 由 Driver 转交 Tracking）
     ///   3. world.SwapSnapshots + grid.Rebuild
-    ///   4. scheduler.TryConsumeDue 收集到期驻留（主线程）
+    ///   4. scheduler.ConsumeDue 按优先级+预算收集到期驻留（主线程）
     ///   5. 候选筛选 Job：grid.QueryBeamBroadphase → 距离筛 → 波束点积筛
     ///   6. 解析遮挡 Job（AnalyticOcclusion）∥ 气泡内 RaycastCommand 批次
     ///   7. 回波/SNR/判决/测量生成 Job（RadarMath；消费 EW 预先写入的 JamContribution/
@@ -29,6 +29,9 @@ namespace ACunicombat.Sensors
         public const int DetectionRingCapacity = 4096;
         public const int CandidateCapacity = 2048;
 
+        /// <summary>每传感器 Tick 的驻留预算（4.2：超预算低优先级顺延，不伪造刷新）。</summary>
+        public const int DwellBudgetPerTick = 16;
+
         private readonly SimWorld world;
         private readonly SpatialHashGrid grid;
         private readonly DwellScheduler scheduler;
@@ -36,7 +39,7 @@ namespace ACunicombat.Sensors
         private NativeList<Measurement> detectionRing;
         private NativeList<EmissionEvent> emissionRing;
         private NativeArray<Measurement> dwellScratch;
-        private NativeArray<int> mergeScratch;
+        private NativeList<Dwell> dueDwells;
 
         /// <summary>EW 在自身更新阶段写入、本系统只读的注入缓冲（5 节规则红线）。</summary>
         private NativeList<JamContribution> jamInbox;
@@ -52,7 +55,7 @@ namespace ACunicombat.Sensors
             detectionRing = new NativeList<Measurement>(DetectionRingCapacity, Allocator.Persistent);
             emissionRing = new NativeList<EmissionEvent>(1024, Allocator.Persistent);
             dwellScratch = new NativeArray<Measurement>(256, Allocator.Persistent);
-            mergeScratch = new NativeArray<int>(256, Allocator.Persistent);
+            dueDwells = new NativeList<Dwell>(64, Allocator.Persistent);
             jamInbox = new NativeList<JamContribution>(256, Allocator.Persistent);
             syntheticInbox = new NativeList<SyntheticDetection>(256, Allocator.Persistent);
         }
@@ -70,11 +73,13 @@ namespace ACunicombat.Sensors
         public void Tick(double simTime)
         {
             world.SwapSnapshots(simTime);
-            grid.Rebuild(world.ReadSnapshot, world.EntityCapacityInUse);
+            grid.Rebuild(world.ReadSnapshot, world.AliveMask, world.EntityCapacityInUse);
 
-            while (scheduler.TryConsumeDue(simTime, out var dwell))
+            dueDwells.Clear();
+            scheduler.ConsumeDue(simTime, DwellBudgetPerTick, dueDwells);
+            for (var i = 0; i < dueDwells.Length; i++)
             {
-                ProcessDwell(in dwell);
+                ProcessDwell(dueDwells[i]);
             }
         }
 
@@ -85,7 +90,7 @@ namespace ACunicombat.Sensors
             //   grid.QueryBeamBroadphase → 点积筛 → AnalyticOcclusion →
             //   RadarMath.ReceivedPowerDb/SnrDb(+jamInbox 汇总) → RollDetection(种子=21 节哈希链)
             //   → 误差模型出 Measurement → syntheticInbox 中匹配本驻留的合成点追加
-            //   → ResolutionMerge.MergeInPlace(dwellScratch, n, capability, res, mergeScratch)
+            //   → ResolutionMerge.MergeInPlace(dwellScratch, n, capability, res)
             //   → detectionRing.AddRange + emissionRing 登记
             throw new NotImplementedException("阶段 1 垂直切片实现点——见类注释与设计文档 10.1/19.1。");
         }
@@ -95,7 +100,7 @@ namespace ACunicombat.Sensors
             detectionRing.Dispose();
             emissionRing.Dispose();
             dwellScratch.Dispose();
-            mergeScratch.Dispose();
+            dueDwells.Dispose();
             jamInbox.Dispose();
             syntheticInbox.Dispose();
         }

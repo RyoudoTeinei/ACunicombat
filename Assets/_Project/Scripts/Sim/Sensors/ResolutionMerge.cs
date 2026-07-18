@@ -23,43 +23,39 @@ namespace ACunicombat.Sensors
 
         /// <summary>
         /// 就地合并 detections[0..count)，返回合并后的数量（结果压缩在数组前段）。
-        /// scratch 需至少 count 个 int（调用方预分配，Persistent）。
+        /// 实现顺序：先把数组本体按 SNR 降序原地排序，再单趟贪心聚类——
+        /// 簇核写入位置 k 时恒有 k ≤ 当前读取位置 s，且 (k, s) 之间只剩已消费元素，
+        /// 不存在"结果覆盖未处理检测点"的别名问题。
         /// </summary>
         public static int MergeInPlace(
             NativeArray<Measurement> detections, int count,
-            SensorCapability capability, in Resolutions res, NativeArray<int> scratch)
+            SensorCapability capability, in Resolutions res)
         {
             if (count <= 1)
             {
                 return count;
             }
 
-            // SNR 降序排序索引（插入排序：驻留内 n 很小，稳定且确定）。
-            for (var i = 0; i < count; i++)
-            {
-                scratch[i] = i;
-            }
-
+            // SNR 降序插入排序（驻留内 n 很小，稳定且确定）。
             for (var i = 1; i < count; i++)
             {
-                var key = scratch[i];
-                var keySnr = detections[key].SnrDb;
+                var key = detections[i];
                 var j = i - 1;
-                while (j >= 0 && detections[scratch[j]].SnrDb < keySnr)
+                while (j >= 0 && detections[j].SnrDb < key.SnrDb)
                 {
-                    scratch[j + 1] = scratch[j];
+                    detections[j + 1] = detections[j];
                     j--;
                 }
 
-                scratch[j + 1] = key;
+                detections[j + 1] = key;
             }
 
             // 贪心聚类：按 SNR 序取点，能并入已有簇核则并入，否则自成簇核。
-            // 簇核判据只对簇核比较（消除两两合并的次序依赖，结果确定）。
+            // 判据只对簇核比较（消除两两合并的次序依赖，结果确定）。
             var mergedCount = 0;
             for (var s = 0; s < count; s++)
             {
-                var candidate = detections[scratch[s]];
+                var candidate = detections[s];
                 var assigned = false;
                 for (var c = 0; c < mergedCount; c++)
                 {
@@ -146,11 +142,17 @@ namespace ACunicombat.Sensors
             return merged;
         }
 
-        /// <summary>标量混合方差：σ² = Σwᵢ(σᵢ² + μᵢ²) − μ̄²，含簇内均值离差项。</summary>
+        /// <summary>
+        /// 标量混合方差，中心化形式：σ² = Σwᵢ(σᵢ² + (μᵢ − μ̄)²)。
+        /// 与设计文档 10.6 的 Σwᵢ(σᵢ²+μᵢ²)−μ̄² 数学等价，但避免大数平方相减的
+        /// float 灾难性抵消（μ~10⁴ 时非中心化形式误差可达个位数）。
+        /// </summary>
         public static float MixtureVariance(float wA, float muA, float varA, float wB, float muB, float varB)
         {
             var mean = wA * muA + wB * muB;
-            return wA * (varA + muA * muA) + wB * (varB + muB * muB) - mean * mean;
+            var dA = muA - mean;
+            var dB = muB - mean;
+            return wA * (varA + dA * dA) + wB * (varB + dB * dB);
         }
 
         private static float AngleBetween(float3 u, float3 v) =>

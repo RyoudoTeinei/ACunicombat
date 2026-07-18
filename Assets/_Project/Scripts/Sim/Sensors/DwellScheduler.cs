@@ -30,20 +30,28 @@ namespace ACunicombat.Sensors
     }
 
     /// <summary>
-    /// 驻留调度器（设计文档 4.2）：到期队列 = (DueTime, Priority, Sequence) 三键最小堆，
-    /// 保证同输入同弹出顺序（确定性）。超预算时低优先级驻留顺延——调用方少弹几个即可，
-    /// 航迹年龄如实增加，不伪造刷新。容量预分配，禁止自动扩容（20 节）。
+    /// 驻留调度器（设计文档 4.2）。语义分两层：
+    /// 1. 到期检测：按 DueTime 最小堆——未到期的驻留永远不会被消费；
+    /// 2. 到期集合内：按 (Priority, DueTime, Sequence) 排序消费，预算封顶——
+    ///    超预算的低优先级驻留**回队顺延**（DueTime 不变，航迹年龄如实增加，不伪造刷新）。
+    /// 过载时导弹末制导恒压过更早到期的广域搜索，这正是优先级存在的意义。
+    /// 全路径确定：同输入同弹出顺序。容量预分配，禁止自动扩容（20 节）。
     /// </summary>
     public sealed class DwellScheduler : IDisposable
     {
         private NativeList<Dwell> heap;
+        private NativeList<Dwell> dueScratch;
 
         public DwellScheduler(int capacity)
         {
             heap = new NativeList<Dwell>(capacity, Allocator.Persistent);
+            dueScratch = new NativeList<Dwell>(capacity, Allocator.Persistent);
         }
 
         public int Count => heap.Length;
+
+        /// <summary>因预算不足被顺延的驻留次数累计（性能/过载监控指标）。</summary>
+        public long DeferredCount { get; private set; }
 
         public void Schedule(in Dwell dwell)
         {
@@ -56,24 +64,62 @@ namespace ACunicombat.Sensors
             SiftUp(heap.Length - 1);
         }
 
-        /// <summary>弹出一个已到期驻留；无到期驻留返回 false。一个传感器 Tick 可弹 0~k 个。</summary>
-        public bool TryConsumeDue(double simTime, out Dwell dwell)
+        /// <summary>
+        /// 消费本 Tick 的到期驻留：最多 budget 个，按优先级序写入 results（调用方先 Clear）。
+        /// 超预算的到期驻留回队顺延。返回实际消费数。
+        /// </summary>
+        public int ConsumeDue(double simTime, int budget, NativeList<Dwell> results)
         {
-            if (heap.Length == 0 || heap[0].DueTime > simTime)
+            dueScratch.Clear();
+            while (heap.Length > 0 && heap[0].DueTime <= simTime)
             {
-                dwell = default;
-                return false;
+                dueScratch.Add(heap[0]);
+                PopRoot();
             }
 
-            dwell = heap[0];
-            heap[0] = heap[heap.Length - 1];
-            heap.RemoveAt(heap.Length - 1);
-            if (heap.Length > 0)
+            // 到期集合内按 (Priority, DueTime, Sequence) 插入排序——n 为单 Tick 到期数，很小。
+            for (var i = 1; i < dueScratch.Length; i++)
             {
-                SiftDown(0);
+                var key = dueScratch[i];
+                var j = i - 1;
+                while (j >= 0 && PriorityAfter(dueScratch[j], key))
+                {
+                    dueScratch[j + 1] = dueScratch[j];
+                    j--;
+                }
+
+                dueScratch[j + 1] = key;
             }
 
-            return true;
+            var consumed = math.min(budget, dueScratch.Length);
+            for (var i = 0; i < consumed; i++)
+            {
+                results.Add(dueScratch[i]);
+            }
+
+            for (var i = consumed; i < dueScratch.Length; i++)
+            {
+                Schedule(dueScratch[i]);
+                DeferredCount++;
+            }
+
+            return consumed;
+        }
+
+        /// <summary>a 是否应排在 key 之后（优先级序：Priority 小者先，同则 DueTime 早者先）。</summary>
+        private static bool PriorityAfter(in Dwell a, in Dwell key)
+        {
+            if (a.Priority != key.Priority)
+            {
+                return a.Priority > key.Priority;
+            }
+
+            if (a.DueTime != key.DueTime)
+            {
+                return a.DueTime > key.DueTime;
+            }
+
+            return a.Sequence > key.Sequence;
         }
 
         private static bool Before(in Dwell a, in Dwell b)
@@ -89,6 +135,16 @@ namespace ACunicombat.Sensors
             }
 
             return a.Sequence < b.Sequence;
+        }
+
+        private void PopRoot()
+        {
+            heap[0] = heap[heap.Length - 1];
+            heap.RemoveAt(heap.Length - 1);
+            if (heap.Length > 0)
+            {
+                SiftDown(0);
+            }
         }
 
         private void SiftUp(int i)
@@ -138,6 +194,7 @@ namespace ACunicombat.Sensors
             if (heap.IsCreated)
             {
                 heap.Dispose();
+                dueScratch.Dispose();
             }
         }
     }

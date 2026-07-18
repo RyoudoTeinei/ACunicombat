@@ -43,27 +43,30 @@ namespace ACunicombat.Tracking
 
             // F = [I dtI; 0 I] ⇒ FPFᵀ 分块展开：
             // Ppp' = Ppp + dt(Ppv + Pvp) + dt²Pvv;  Ppv' = Ppv + dtPvv;  Pvv' = Pvv
-            var p = s.P;
+            // 必须从原始矩阵读、写到新矩阵：就地更新会让后续迭代把新值当旧值读，
+            // 非对角块多算过程项（Matrix6 是 struct，赋值即拷贝）。
+            var src = s.P;
+            var dst = s.P;
             for (var i = 0; i < 3; i++)
             {
                 for (var j = 0; j < 3; j++)
                 {
-                    var ppv = p[i, j + 3];
-                    var pvp = p[i + 3, j];
-                    var pvv = p[i + 3, j + 3];
-                    p[i, j] += dt * (ppv + pvp) + dt * dt * pvv;
-                    p[i, j + 3] = ppv + dt * pvv;
-                    p[j + 3, i] = p[i, j + 3];
+                    var ppv = src[i, j + 3];
+                    var pvp = src[i + 3, j];
+                    var pvv = src[i + 3, j + 3];
+                    dst[i, j] = src[i, j] + dt * (ppv + pvp) + dt * dt * pvv;
+                    dst[i, j + 3] = ppv + dt * pvv;
+                    dst[j + 3, i] = dst[i, j + 3];
                 }
             }
 
             for (var i = 0; i < 3; i++)
             {
-                p[i, i] += qPosition * dt;
-                p[i + 3, i + 3] += qVelocity * dt;
+                dst[i, i] += qPosition * dt;
+                dst[i + 3, i + 3] += qVelocity * dt;
             }
 
-            s.P = p;
+            s.P = dst;
             Symmetrize(ref s.P);
         }
 

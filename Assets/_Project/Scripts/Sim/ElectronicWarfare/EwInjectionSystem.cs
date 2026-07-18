@@ -18,13 +18,16 @@ namespace ACunicombat.ElectronicWarfare
         /// <summary>
         /// EW 合成假目标的 RNG 种子键（21 节 v1.2）：干扰机句柄 + 受害传感器 +
         /// 驻留序号 + 注入点序号的哈希链，与候选枚举顺序无关，重放稳定。
+        /// 驻留序号的高低 32 位作为两个独立字段入链——v1.2 禁止任何异或折叠
+        /// （1 与 1&lt;&lt;32 折叠后同值即是反例）。
         /// </summary>
         public static uint SyntheticSeed(
             uint sessionSeed, EmitterId jammer, SensorId victim, ulong dwellSequence, uint pointIndex)
         {
-            return SimHash.Chain(
+            var chained = SimHash.Chain(
                 sessionSeed, jammer.Packed, victim.Packed,
-                (uint)dwellSequence ^ (uint)(dwellSequence >> 32), pointIndex);
+                (uint)dwellSequence, (uint)(dwellSequence >> 32));
+            return SimHash.Combine(chained, pointIndex);
         }
 
         /// <summary>

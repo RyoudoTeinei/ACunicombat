@@ -44,6 +44,9 @@ namespace ACunicombat.Simulation.World
         /// <summary>传感器 Job 只读快照。</summary>
         public NativeArray<KinematicState> ReadSnapshot => aIsWrite ? bufferB : bufferA;
 
+        /// <summary>存活掩码（只读消费）：空间索引重建必须据此过滤，已注销实体不得进入候选。</summary>
+        public NativeArray<bool> AliveMask => alive;
+
         public int EntityCapacityInUse => highWater;
 
         public SimEntityId Register(in KinematicState initial)

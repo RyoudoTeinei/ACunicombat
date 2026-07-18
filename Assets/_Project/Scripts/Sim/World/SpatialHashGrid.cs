@@ -22,13 +22,20 @@ namespace ACunicombat.Simulation.World
         public static int3 CellOf(double3 positionWorld) =>
             (int3)math.floor(positionWorld / CellSizeMeters);
 
-        /// <summary>每传感器 Tick 增量重建（首版全量重建，实体数百级开销可忽略）。</summary>
-        public void Rebuild(NativeArray<Kinematics.KinematicState> snapshot, int count)
+        /// <summary>
+        /// 每传感器 Tick 增量重建（首版全量重建，实体数百级开销可忽略）。
+        /// 必须按存活掩码过滤：已注销实体的槽位数据仍留在快照里，不过滤就会被继续探测。
+        /// </summary>
+        public void Rebuild(
+            NativeArray<Kinematics.KinematicState> snapshot, NativeArray<bool> aliveMask, int count)
         {
             cells.Clear();
             for (var i = 0; i < count; i++)
             {
-                cells.Add(CellOf(snapshot[i].PositionWorld), i);
+                if (aliveMask[i])
+                {
+                    cells.Add(CellOf(snapshot[i].PositionWorld), i);
+                }
             }
         }
 
