@@ -32,6 +32,12 @@ namespace ACunicombat.Mechs
 
         [Tooltip("Native action id, e.g. a000_012345. TAE-derived; never invent ids by filename range.")]
         public string actionId;
+        [Tooltip("Human-reviewed Chinese action name from the AC6 action catalog.")]
+        public string displayNameZh;
+        [Tooltip("Human-reviewed broad category from the AC6 action catalog.")]
+        public string categoryZh;
+        [Tooltip("Catalog semantic state. Production registries accept aligned OfficialMapped entries or manual Confirmed entries.")]
+        public string reviewStatus = "NeedsReview";
         public MechBodyActionLayer layer = MechBodyActionLayer.FullBody;
         public bool loop = true;
         [Min(0f)] public float blendInSeconds = 0.15f;

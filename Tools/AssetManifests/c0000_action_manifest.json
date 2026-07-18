@@ -61,8 +61,8 @@
       "loop": false,
       "blendInSeconds": 0.12,
       "blendOutSeconds": 0.15,
-      "enabled": false,
-      "note": "持枪抬臂进入（a200 bank）。待武器类别→bank 映射确认后启用；HKX 在 c0000_a200_xx anibnd，需先解包到 anibndRoot。"
+      "enabled": true,
+      "note": "持枪抬臂进入（a200 bank）。当前作为 showcase 临时步枪映射启用；正式映射仍以武器类别→bank 参数表为准。"
     },
     {
       "actionId": "a200_030022",
@@ -71,8 +71,8 @@
       "loop": true,
       "blendInSeconds": 0.1,
       "blendOutSeconds": 0.15,
-      "enabled": false,
-      "note": "持枪保持循环（a200 bank）。同上待启用。"
+      "enabled": true,
+      "note": "持枪保持循环（a200 bank）。当前作为 showcase 临时步枪映射启用。"
     },
     {
       "actionId": "a200_030030",
@@ -81,8 +81,8 @@
       "loop": false,
       "blendInSeconds": 0.05,
       "blendOutSeconds": 0.12,
-      "enabled": false,
-      "note": "开火/后坐执行（a200 bank，RumbleCam+Type19）。同上待启用。"
+      "enabled": true,
+      "note": "开火/后坐执行（a200 bank，RumbleCam+Type19）。当前作为 showcase 临时步枪映射启用。"
     }
   ]
 }

@@ -14,14 +14,44 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class AC6CombatShowcaseController : MonoBehaviour
     {
+        private const string DefaultIdleBodyActionId = "a000_000000";
+        private const string DefaultForwardBoostBodyActionId = "a000_120200";
+        private const string DefaultLeftQuickBoostBodyActionId = "a000_028002";
+        private const string DefaultLeftQuickBoostBrakeBodyActionId = "a000_004242";
+        private const string DefaultRightQuickBoostBodyActionId = "a000_028003";
+        private const string DefaultRightQuickBoostBrakeBodyActionId = "a000_004243";
+        private const string DefaultRecoveryBodyActionId = "a000_000000";
+        private const string DefaultRangedRaiseUpperBodyActionId = "a200_030020";
+        private const string DefaultRangedHoldUpperBodyActionId = "a200_030022";
+        private const string DefaultRangedFireUpperBodyActionId = "a200_030030";
+
+        private static readonly string[] DefaultUpperBodyBoneNames =
+        {
+            "Spine1", "Neck", "Offset_ClavicleLink", "Spine1_EX", "Head",
+            "L_ClavicleLink", "R_ClavicleLink", "L_ClavicleLink_EX", "Offset_L_Clavicle",
+            "Offset_R_Clavicle", "R_ClavicleLink_EX", "L_Clavicle", "R_Clavicle",
+            "L_ArmJoint", "R_ArmJoint", "L_ClavicleEX_A", "L_ClavicleEX_B",
+            "Root_L_UpperArm", "R_ClavicleEX_A", "R_ClavicleEX_B", "Root_R_UpperArm",
+            "L_UpperArm", "R_UpperArm", "L_ForeArm", "L_UpArmEX_A", "L_UpArmEX_B",
+            "L_UpArmTwist", "R_ForeArm", "R_UpArmEX_A", "R_UpArmEX_B", "R_UpArmTwist",
+            "L_Elbow", "L_ForeArmTwist", "L_HandTwist", "L_Wrist", "R_Elbow",
+            "R_ForeArmTwist", "R_HandTwist", "R_Wrist", "Root_L_Hand", "Root_R_Hand",
+            "L_Hand", "R_Hand", "L_Finger0", "L_Finger1", "L_Finger2", "L_Finger3",
+            "L_Finger4", "L_Weapon_00", "R_Finger0", "R_Finger1", "R_Finger2",
+            "R_Finger3", "R_Finger4", "R_Weapon_00", "L_Finger01", "L_Finger11",
+            "L_Finger21", "L_Finger31", "L_Finger41", "R_Finger01", "R_Finger11",
+            "R_Finger21", "R_Finger31", "R_Finger41", "L_Finger02", "L_Finger12",
+            "L_Finger22", "L_Finger32", "L_Finger42", "R_Finger02", "R_Finger12",
+            "R_Finger22", "R_Finger32", "R_Finger42"
+        };
+
         private enum ShowcasePhase
         {
-            HoverLaunch,
-            ForwardFlight,
-            QuickBoost,
-            RangedWeaponFire,
-            MissileLaunch,
-            PileBunkerFire,
+            Standby,
+            ForwardAssaultBoost,
+            LeftQuickBoost,
+            RightQuickBoost,
+            RaiseAndFire,
             Recovery
         }
 
@@ -31,14 +61,23 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechActionEffectTimeline bodyEffectTimeline;
         [SerializeField] private MechActionEffectTimeline meleeEffectTimeline;
         [SerializeField] private MechEffectPrefabLibrary effectLibrary;
-        [SerializeField, Min(2f)] private float phaseDuration = 4f;
+        [SerializeField, Min(2f)] private float phaseDuration = 3.5f;
         [SerializeField] private bool loop = true;
 
         [Header("Body actions (optional until the TAE action table is confirmed)")]
+        [SerializeField] private MechActionRegistry actionRegistry;
         [SerializeField] private MechBodyActionPlayer bodyActionPlayer;
-        [SerializeField] private string flightBodyActionId = "";
-        [SerializeField] private string quickBoostBodyActionId = "";
-        [SerializeField] private string rangedAimUpperBodyActionId = "";
+        [SerializeField] private List<string> upperBodyBoneNames = new List<string>();
+        [SerializeField] private string idleBodyActionId = DefaultIdleBodyActionId;
+        [SerializeField] private string forwardBoostBodyActionId = DefaultForwardBoostBodyActionId;
+        [SerializeField] private string leftQuickBoostBodyActionId = DefaultLeftQuickBoostBodyActionId;
+        [SerializeField] private string leftQuickBoostBrakeBodyActionId = DefaultLeftQuickBoostBrakeBodyActionId;
+        [SerializeField] private string rightQuickBoostBodyActionId = DefaultRightQuickBoostBodyActionId;
+        [SerializeField] private string rightQuickBoostBrakeBodyActionId = DefaultRightQuickBoostBrakeBodyActionId;
+        [SerializeField] private string recoveryBodyActionId = DefaultRecoveryBodyActionId;
+        [SerializeField] private string rangedRaiseUpperBodyActionId = "a200_030020";
+        [SerializeField] private string rangedHoldUpperBodyActionId = "a200_030022";
+        [SerializeField] private string rangedFireUpperBodyActionId = "a200_030030";
 
         private readonly List<ParticleSystem> boosterExhausts = new List<ParticleSystem>();
         private readonly List<MechEquipmentAnimationPlayer> boosterPlayers =
@@ -57,9 +96,22 @@ namespace ACunicombat.Mechs
         private int launchedMissiles;
         private int materialsWithBaseMap;
         private int materialCount;
+        private bool quickBoostBrakePlayed;
+        private bool rangedHoldPlayed;
+        private bool rangedFirePlayed;
+        private bool rangedLayerCleared;
+        private readonly HashSet<string> playedBodyActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> playedUpperBodyActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<PoseProbe> poseProbes = new List<PoseProbe>();
+        private readonly Dictionary<Transform, Quaternion> phaseStartRotations =
+            new Dictionary<Transform, Quaternion>();
+        private readonly Dictionary<ShowcasePhase, float> phasePoseDeltas =
+            new Dictionary<ShowcasePhase, float>();
 
         public string CurrentPhaseName => ((ShowcasePhase)Mathf.Max(0, activePhase)).ToString();
         public int LaunchedMissiles => launchedMissiles;
+        public bool IsBodyActionGraphValid => bodyActionPlayer != null && bodyActionPlayer.IsGraphValid;
+        public int BodyActionProbeCount => poseProbes.Count;
 
         public void Configure(
             GameObject mechRoot,
@@ -77,6 +129,37 @@ namespace ACunicombat.Mechs
             effectLibrary = library;
         }
 
+        public void ConfigureBodyActions(
+            MechActionRegistry registry,
+            IEnumerable<string> maskedUpperBodyBoneNames,
+            string idleActionId,
+            string forwardBoostActionId,
+            string leftQuickBoostActionId,
+            string leftQuickBoostBrakeActionId,
+            string rightQuickBoostActionId,
+            string rightQuickBoostBrakeActionId,
+            string recoveryActionId,
+            string rangedRaiseActionId,
+            string rangedHoldActionId,
+            string rangedFireActionId)
+        {
+            actionRegistry = registry;
+            upperBodyBoneNames = maskedUpperBodyBoneNames?
+                .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+                .Distinct(StringComparer.Ordinal)
+                .ToList() ?? new List<string>();
+            idleBodyActionId = idleActionId;
+            forwardBoostBodyActionId = forwardBoostActionId;
+            leftQuickBoostBodyActionId = leftQuickBoostActionId;
+            leftQuickBoostBrakeBodyActionId = leftQuickBoostBrakeActionId;
+            rightQuickBoostBodyActionId = rightQuickBoostActionId;
+            rightQuickBoostBrakeBodyActionId = rightQuickBoostBrakeActionId;
+            recoveryBodyActionId = recoveryActionId;
+            rangedRaiseUpperBodyActionId = rangedRaiseActionId;
+            rangedHoldUpperBodyActionId = rangedHoldActionId;
+            rangedFireUpperBodyActionId = rangedFireActionId;
+        }
+
         private void Start()
         {
             if (mech == null)
@@ -86,7 +169,9 @@ namespace ACunicombat.Mechs
 
             origin = mech.transform.position;
             BindAssembledParts();
+            ConfigureBodyActionsRuntime();
             ConfigureBodyEffects();
+            BuildPoseProbes();
             BuildBoosterExhausts();
             ValidateExhaustAxes();
             CountMaterialBindings();
@@ -126,7 +211,9 @@ namespace ACunicombat.Mechs
 
             var phaseTime = elapsed - phase * phaseDuration;
             var normalized = Mathf.Clamp01(phaseTime / phaseDuration);
+            ApplyPhaseActions((ShowcasePhase)phase, normalized);
             ApplyMotion((ShowcasePhase)phase, normalized);
+            SamplePhasePose((ShowcasePhase)phase);
             AnimateTarget();
         }
 
@@ -221,6 +308,18 @@ namespace ACunicombat.Mechs
 
         private void ConfigureBodyEffects()
         {
+            // The legacy body-effect player owns a MechSynchronizedAnimationPlayer graph.
+            // Running it beside MechBodyActionPlayer makes both graphs drive the same Animators.
+            if (bodyActionPlayer != null && bodyActionPlayer.IsGraphValid)
+            {
+                var legacyEffectPlayer = mech.GetComponent<MechActionEffectPlayer>();
+                if (legacyEffectPlayer != null)
+                {
+                    legacyEffectPlayer.enabled = false;
+                }
+                return;
+            }
+
             if (bodyEffectTimeline == null || runtimeState == null || bodyPlayer == null)
             {
                 return;
@@ -238,43 +337,47 @@ namespace ACunicombat.Mechs
 
         private void EnterPhase(int phase)
         {
+            FinalizePhasePose();
             activePhase = phase;
             var state = (ShowcasePhase)phase;
+            quickBoostBrakePlayed = false;
+            rangedHoldPlayed = false;
+            rangedFirePlayed = false;
+            rangedLayerCleared = false;
+            CapturePhasePoseStart();
             switch (state)
             {
-                case ShowcasePhase.HoverLaunch:
-                    PlayBoosterAction("a000_000001");
-                    SetBoosterExhaust(true, 0.7f);
+                case ShowcasePhase.Standby:
+                    ClearUpperBodyAction();
+                    PlayBodyAction(idleBodyActionId);
+                    SetBoosterExhaust(false, 0f);
                     break;
-                case ShowcasePhase.ForwardFlight:
+                case ShowcasePhase.ForwardAssaultBoost:
                     PlayBoosterAction("a000_000001");
-                    PlayBodyAction(flightBodyActionId);
-                    SetBoosterExhaust(true, 1f);
+                    PlayBodyAction(forwardBoostBodyActionId);
+                    SetBoosterExhaust(true, 1.5f);
+                    SpawnBurstAtBoosters(new Color(0.25f, 0.65f, 1f, 1f), 0.9f);
                     break;
-                case ShowcasePhase.QuickBoost:
+                case ShowcasePhase.LeftQuickBoost:
                     PlayBoosterAction("a000_000002");
-                    PlayBodyAction(quickBoostBodyActionId);
+                    PlayBodyAction(leftQuickBoostBodyActionId);
                     SetBoosterExhaust(true, 2.2f);
                     SpawnBurstAtBoosters(new Color(0.25f, 0.65f, 1f, 1f), 1.2f);
                     break;
-                case ShowcasePhase.RangedWeaponFire:
+                case ShowcasePhase.RightQuickBoost:
+                    PlayBoosterAction("a000_000002");
+                    PlayBodyAction(rightQuickBoostBodyActionId);
+                    SetBoosterExhaust(true, 2.2f);
+                    SpawnBurstAtBoosters(new Color(0.25f, 0.65f, 1f, 1f), 1.2f);
+                    break;
+                case ShowcasePhase.RaiseAndFire:
+                    PlayBodyAction(idleBodyActionId);
                     SetBoosterExhaust(true, 0.35f);
-                    PlayUpperBodyAction(rangedAimUpperBodyActionId);
-                    FireRightHandWeapon();
-                    break;
-                case ShowcasePhase.MissileLaunch:
-                    SetBoosterExhaust(true, 0.45f);
-                    FireMissileSalvo();
-                    break;
-                case ShowcasePhase.PileBunkerFire:
-                    SetBoosterExhaust(false, 0f);
-                    if (pileBunkerPlayer != null)
-                    {
-                        pileBunkerEffects?.ResetPlayback();
-                        pileBunkerPlayer.PlayAction("a000_040010");
-                    }
+                    PlayUpperBodyAction(rangedRaiseUpperBodyActionId);
                     break;
                 case ShowcasePhase.Recovery:
+                    ClearUpperBodyAction();
+                    PlayBodyAction(recoveryBodyActionId);
                     PlayBoosterAction("a000_000003");
                     SetBoosterExhaust(false, 0f);
                     break;
@@ -283,44 +386,171 @@ namespace ACunicombat.Mechs
             Debug.Log($"[AC6CombatShowcase] Phase {phase + 1}: {state}", mech);
         }
 
+        private void ApplyPhaseActions(ShowcasePhase phase, float normalized)
+        {
+            if (phase == ShowcasePhase.LeftQuickBoost &&
+                !quickBoostBrakePlayed && normalized >= 0.22f)
+            {
+                quickBoostBrakePlayed = PlayBodyAction(leftQuickBoostBrakeBodyActionId);
+            }
+            else if (phase == ShowcasePhase.RightQuickBoost &&
+                     !quickBoostBrakePlayed && normalized >= 0.22f)
+            {
+                quickBoostBrakePlayed = PlayBodyAction(rightQuickBoostBrakeBodyActionId);
+            }
+
+            if (phase != ShowcasePhase.RaiseAndFire)
+            {
+                return;
+            }
+
+            // The raise clip is only 0.267 seconds long. Transition before it fades itself out.
+            if (!rangedHoldPlayed && normalized >= 0.06f)
+            {
+                rangedHoldPlayed = PlayUpperBodyAction(rangedHoldUpperBodyActionId);
+            }
+            if (!rangedFirePlayed && normalized >= 0.24f)
+            {
+                rangedFirePlayed = PlayUpperBodyAction(rangedFireUpperBodyActionId);
+                FireRightHandWeapon();
+            }
+            if (!rangedLayerCleared && normalized >= 0.82f)
+            {
+                ClearUpperBodyAction();
+                rangedLayerCleared = true;
+            }
+        }
+
+        private void ConfigureBodyActionsRuntime()
+        {
+            RecoverMissingBodyActionConfiguration();
+            if (actionRegistry == null || runtimeState == null)
+            {
+                Debug.LogWarning(
+                    "[AC6CombatShowcase] Body action graph skipped: registry or runtime state is missing.",
+                    mech);
+                return;
+            }
+
+            if (bodyPlayer != null)
+            {
+                bodyPlayer.StopPlayback();
+                bodyPlayer.enabled = false;
+            }
+
+            bodyActionPlayer = mech.GetComponent<MechBodyActionPlayer>();
+            if (bodyActionPlayer == null)
+            {
+                bodyActionPlayer = mech.AddComponent<MechBodyActionPlayer>();
+            }
+
+            bodyActionPlayer.Configure(
+                actionRegistry,
+                runtimeState,
+                upperBodyBoneNames,
+                idleBodyActionId,
+                1f);
+
+            if (bodyActionPlayer.IsGraphValid &&
+                string.Equals(
+                    bodyActionPlayer.ActiveFullBodyActionId,
+                    idleBodyActionId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                playedBodyActions.Add(idleBodyActionId);
+                Debug.Log($"[AC6CombatShowcase] Body action PASS: {idleBodyActionId}", mech);
+            }
+
+            Debug.Log(
+                $"[AC6CombatShowcase] Body action graph: " +
+                $"{(bodyActionPlayer.IsGraphValid ? "PASS" : "FAIL")} " +
+                $"parts={bodyActionPlayer.PartCount} sharedBones={bodyActionPlayer.SharedBoneBindingCount} " +
+                $"upperMaskBones={upperBodyBoneNames.Count}.",
+                mech);
+        }
+
+        private void RecoverMissingBodyActionConfiguration()
+        {
+#if UNITY_EDITOR
+            if (actionRegistry == null)
+            {
+                actionRegistry = UnityEditor.AssetDatabase.LoadAssetAtPath<MechActionRegistry>(
+                    "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Actions/AC6CombatShowcaseRegistry.asset");
+            }
+#endif
+            if (upperBodyBoneNames == null)
+            {
+                upperBodyBoneNames = new List<string>();
+            }
+            if (upperBodyBoneNames.Count == 0)
+            {
+                upperBodyBoneNames.AddRange(DefaultUpperBodyBoneNames);
+            }
+
+            idleBodyActionId = DefaultActionId(idleBodyActionId, DefaultIdleBodyActionId);
+            forwardBoostBodyActionId = DefaultActionId(
+                forwardBoostBodyActionId, DefaultForwardBoostBodyActionId);
+            leftQuickBoostBodyActionId = DefaultActionId(
+                leftQuickBoostBodyActionId, DefaultLeftQuickBoostBodyActionId);
+            leftQuickBoostBrakeBodyActionId = DefaultActionId(
+                leftQuickBoostBrakeBodyActionId, DefaultLeftQuickBoostBrakeBodyActionId);
+            rightQuickBoostBodyActionId = DefaultActionId(
+                rightQuickBoostBodyActionId, DefaultRightQuickBoostBodyActionId);
+            rightQuickBoostBrakeBodyActionId = DefaultActionId(
+                rightQuickBoostBrakeBodyActionId, DefaultRightQuickBoostBrakeBodyActionId);
+            recoveryBodyActionId = DefaultActionId(recoveryBodyActionId, DefaultRecoveryBodyActionId);
+            rangedRaiseUpperBodyActionId = DefaultActionId(
+                rangedRaiseUpperBodyActionId, DefaultRangedRaiseUpperBodyActionId);
+            rangedHoldUpperBodyActionId = DefaultActionId(
+                rangedHoldUpperBodyActionId, DefaultRangedHoldUpperBodyActionId);
+            rangedFireUpperBodyActionId = DefaultActionId(
+                rangedFireUpperBodyActionId, DefaultRangedFireUpperBodyActionId);
+        }
+
+        private static string DefaultActionId(string configured, string fallback) =>
+            string.IsNullOrWhiteSpace(configured) ? fallback : configured;
+
         private void ApplyMotion(ShowcasePhase phase, float t)
         {
             Vector3 localOffset;
             float pitch;
+            float roll;
             switch (phase)
             {
-                case ShowcasePhase.HoverLaunch:
+                case ShowcasePhase.Standby:
                     localOffset = new Vector3(0f, Mathf.SmoothStep(0f, 3f, t), 0f);
                     pitch = -4f * t;
+                    roll = 0f;
                     break;
-                case ShowcasePhase.ForwardFlight:
-                    localOffset = new Vector3(0f, 3f + Mathf.Sin(t * Mathf.PI) * 0.4f, -14f * t);
-                    pitch = -9f;
+                case ShowcasePhase.ForwardAssaultBoost:
+                    localOffset = new Vector3(0f, 3f + Mathf.Sin(t * Mathf.PI) * 0.35f, -18f * t);
+                    pitch = -11f;
+                    roll = 0f;
                     break;
-                case ShowcasePhase.QuickBoost:
-                    localOffset = new Vector3(Mathf.SmoothStep(0f, 11f, t), 3f, -14f - 8f * t);
-                    pitch = -13f;
+                case ShowcasePhase.LeftQuickBoost:
+                    localOffset = new Vector3(Mathf.SmoothStep(0f, -10f, t), 3f, -18f - 6f * t);
+                    pitch = -7f;
+                    roll = -9f * Mathf.Sin(t * Mathf.PI);
                     break;
-                case ShowcasePhase.RangedWeaponFire:
-                    localOffset = new Vector3(11f, 3f + Mathf.Sin(t * Mathf.PI * 2f) * 0.15f, -22f);
+                case ShowcasePhase.RightQuickBoost:
+                    localOffset = new Vector3(Mathf.SmoothStep(-10f, 0f, t), 3f, -24f - 6f * t);
+                    pitch = -7f;
+                    roll = 9f * Mathf.Sin(t * Mathf.PI);
+                    break;
+                case ShowcasePhase.RaiseAndFire:
+                    localOffset = new Vector3(0f, 3f + Mathf.Sin(t * Mathf.PI * 2f) * 0.15f, -30f);
                     pitch = -3f;
-                    break;
-                case ShowcasePhase.MissileLaunch:
-                    localOffset = new Vector3(11f, 3.2f + Mathf.Sin(t * Mathf.PI * 2f) * 0.15f, -22f);
-                    pitch = -3f;
-                    break;
-                case ShowcasePhase.PileBunkerFire:
-                    localOffset = new Vector3(11f, 3f, -22f - Mathf.SmoothStep(0f, 5f, t));
-                    pitch = -8f;
+                    roll = 0f;
                     break;
                 default:
-                    localOffset = Vector3.Lerp(new Vector3(11f, 3f, -27f), Vector3.zero, Smooth01(t));
-                    pitch = Mathf.Lerp(-8f, 0f, t);
+                    localOffset = Vector3.Lerp(new Vector3(0f, 3f, -30f), Vector3.zero, Smooth01(t));
+                    pitch = Mathf.Lerp(-3f, 0f, t);
+                    roll = 0f;
                     break;
             }
 
             mech.transform.position = origin + localOffset;
-            mech.transform.rotation = Quaternion.Euler(pitch, 0f, 0f);
+            mech.transform.rotation = Quaternion.Euler(pitch, 0f, roll);
         }
 
         private void AnimateTarget()
@@ -544,12 +774,14 @@ namespace ACunicombat.Mechs
                 var emitter = boosterExhausts[i].transform;
                 var axis = emitter.forward;
                 var backDot = Vector3.Dot(axis, back);
-                var awayDot = Vector3.Dot(axis, (emitter.position - corePosition).normalized);
-                var ok = backDot > 0.6f && awayDot > 0f;
+                var startDistance = Vector3.Distance(emitter.position, corePosition);
+                var plumeDistance = Vector3.Distance(emitter.position + axis * 2f, corePosition);
+                var distanceGain = plumeDistance - startDistance;
+                var ok = backDot > 0.6f && distanceGain > 0.05f;
                 pass &= ok;
                 Debug.Log(
                     $"[AC6CombatShowcase] Exhaust {i}: axis={axis:F3} backDot={backDot:0.###} " +
-                    $"awayDot={awayDot:0.###} {(ok ? "ok" : "WRONG")}",
+                    $"plumeDistanceGain={distanceGain:0.###}m {(ok ? "ok" : "WRONG")}",
                     emitter);
             }
 
@@ -559,19 +791,148 @@ namespace ACunicombat.Mechs
                 mech);
         }
 
-        private void PlayBodyAction(string actionId)
+        private bool PlayBodyAction(string actionId)
         {
-            if (bodyActionPlayer != null && !string.IsNullOrWhiteSpace(actionId))
+            if (bodyActionPlayer == null || string.IsNullOrWhiteSpace(actionId))
             {
-                bodyActionPlayer.PlayFullBody(actionId);
+                return false;
+            }
+
+            var played = bodyActionPlayer.PlayFullBody(actionId);
+            if (played && playedBodyActions.Add(actionId))
+            {
+                Debug.Log($"[AC6CombatShowcase] Body action PASS: {actionId}", mech);
+            }
+            else if (!played)
+            {
+                Debug.LogError($"[AC6CombatShowcase] Body action FAIL: {actionId}", mech);
+            }
+            return played;
+        }
+
+        private bool PlayUpperBodyAction(string actionId)
+        {
+            if (bodyActionPlayer == null || string.IsNullOrWhiteSpace(actionId))
+            {
+                return false;
+            }
+
+            var played = bodyActionPlayer.PlayUpperBody(actionId);
+            if (played && playedUpperBodyActions.Add(actionId))
+            {
+                Debug.Log($"[AC6CombatShowcase] Upper-body action PASS: {actionId}", mech);
+            }
+            else if (!played)
+            {
+                Debug.LogError($"[AC6CombatShowcase] Upper-body action FAIL: {actionId}", mech);
+            }
+            return played;
+        }
+
+        private void ClearUpperBodyAction()
+        {
+            bodyActionPlayer?.ClearUpperBody(0.12f);
+        }
+
+        private void BuildPoseProbes()
+        {
+            poseProbes.Clear();
+            if (runtimeState == null)
+            {
+                return;
+            }
+
+            var wanted = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "Spine1", "Neck", "L_Clavicle", "R_Clavicle", "L_UpperArm", "R_UpperArm",
+                "L_ForeArm", "R_ForeArm", "L_Wrist", "R_Wrist", "L_Thigh", "R_Thigh",
+                "L_Knee", "R_Knee", "L_Foot", "R_Foot"
+            };
+            for (var i = 0; i < runtimeState.AssembledParts.Count; i++)
+            {
+                var record = runtimeState.AssembledParts[i];
+                if (record?.instance == null || record.part == null ||
+                    !record.part.UsesSynchronizedSkinnedRig)
+                {
+                    continue;
+                }
+
+                var skinnedRenderers = record.instance.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+                var added = new HashSet<Transform>();
+                for (var rendererIndex = 0; rendererIndex < skinnedRenderers.Length; rendererIndex++)
+                {
+                    var bones = skinnedRenderers[rendererIndex].bones;
+                    for (var boneIndex = 0; boneIndex < bones.Length; boneIndex++)
+                    {
+                        var candidate = bones[boneIndex];
+                        if (candidate != null && wanted.Contains(candidate.name) && added.Add(candidate))
+                        {
+                            poseProbes.Add(new PoseProbe(
+                                $"{record.slot}/{candidate.name}",
+                                candidate));
+                        }
+                    }
+                }
+            }
+
+            Debug.Log($"[AC6CombatShowcase] Body pose probes: {poseProbes.Count}.", mech);
+        }
+
+        private void CapturePhasePoseStart()
+        {
+            phaseStartRotations.Clear();
+            for (var i = 0; i < poseProbes.Count; i++)
+            {
+                var transform = poseProbes[i].Transform;
+                if (transform != null)
+                {
+                    phaseStartRotations[transform] = transform.localRotation;
+                }
             }
         }
 
-        private void PlayUpperBodyAction(string actionId)
+        private void SamplePhasePose(ShowcasePhase phase)
         {
-            if (bodyActionPlayer != null && !string.IsNullOrWhiteSpace(actionId))
+            var maxDelta = 0f;
+            for (var i = 0; i < poseProbes.Count; i++)
             {
-                bodyActionPlayer.PlayUpperBody(actionId);
+                var transform = poseProbes[i].Transform;
+                if (transform != null && phaseStartRotations.TryGetValue(transform, out var startRotation))
+                {
+                    maxDelta = Mathf.Max(maxDelta, Quaternion.Angle(startRotation, transform.localRotation));
+                }
+            }
+
+            if (!phasePoseDeltas.TryGetValue(phase, out var existing) || maxDelta > existing)
+            {
+                phasePoseDeltas[phase] = maxDelta;
+            }
+        }
+
+        private void FinalizePhasePose()
+        {
+            if (activePhase < 0)
+            {
+                return;
+            }
+
+            var phase = (ShowcasePhase)activePhase;
+            phasePoseDeltas.TryGetValue(phase, out var delta);
+            Debug.Log(
+                $"[AC6CombatShowcase] Body pose phase {phase}: maxLocalRotationDelta={delta:0.###}deg " +
+                $"probes={poseProbes.Count}.",
+                mech);
+            if (phase == ShowcasePhase.ForwardAssaultBoost ||
+                phase == ShowcasePhase.LeftQuickBoost ||
+                phase == ShowcasePhase.RightQuickBoost ||
+                phase == ShowcasePhase.RaiseAndFire ||
+                phase == ShowcasePhase.Recovery)
+            {
+                var pass = poseProbes.Count > 0 && delta > 0.5f;
+                Debug.Log(
+                    $"[AC6CombatShowcase] Body pose check: {(pass ? "PASS" : "FAIL")} " +
+                    $"phase={phase} delta={delta:0.###}deg.",
+                    mech);
             }
         }
 
@@ -683,12 +1044,33 @@ namespace ACunicombat.Mechs
                 normal = { textColor = Color.white }
             };
             GUI.Box(
-                new Rect(18f, 18f, 400f, 104f),
-                $"AC6 COMBAT PIPELINE SHOWCASE\n" +
-                $"Phase: {CurrentPhaseName}\n" +
-                $"Missiles: {launchedMissiles}   Textured materials: {materialsWithBaseMap}/{materialCount}\n" +
-                "Frame/equipment: original HKX | Flight path: runtime simulation",
+                new Rect(18f, 18f, 560f, 132f),
+                $"AC6 固定动作演示\n" +
+                $"阶段：{PhaseDisplayName((ShowcasePhase)Mathf.Max(0, activePhase))}\n" +
+                $"全身：{bodyActionPlayer?.ActiveFullBodyActionId ?? "-"}   " +
+                $"上身：{bodyActionPlayer?.ActiveUpperBodyActionId ?? "-"}\n" +
+                $"材质贴图：{materialsWithBaseMap}/{materialCount}\n" +
+                "前向位移由运行时模拟；左右 QB 使用方向段 + 已目检制动段。",
                 style);
+        }
+
+        private static string PhaseDisplayName(ShowcasePhase phase)
+        {
+            switch (phase)
+            {
+                case ShowcasePhase.Standby:
+                    return "待机";
+                case ShowcasePhase.ForwardAssaultBoost:
+                    return "前向 AB（官方 Boost Flight 姿态）";
+                case ShowcasePhase.LeftQuickBoost:
+                    return "左 QB";
+                case ShowcasePhase.RightQuickBoost:
+                    return "右 QB";
+                case ShowcasePhase.RaiseAndFire:
+                    return "抬臂、保持瞄准、开火";
+                default:
+                    return "恢复待机";
+            }
         }
 
         private static string FirstAvailableAction(
@@ -730,6 +1112,18 @@ namespace ACunicombat.Mechs
                 material.SetColor("_EmissionColor", color * 4f);
             }
             return material;
+        }
+
+        private readonly struct PoseProbe
+        {
+            public PoseProbe(string label, Transform transform)
+            {
+                Label = label;
+                Transform = transform;
+            }
+
+            public string Label { get; }
+            public Transform Transform { get; }
         }
     }
 

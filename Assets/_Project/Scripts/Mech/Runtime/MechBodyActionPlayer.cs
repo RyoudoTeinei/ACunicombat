@@ -55,6 +55,7 @@ namespace ACunicombat.Mechs
         public MechActionRegistry Registry => registry;
         public bool IsGraphValid => graph.IsValid();
         public double GraphTime => clock;
+        public int PartCount => parts.Count;
         public int SharedBoneBindingCount => sharedBoneBindings.Count;
         public string ActiveFullBodyActionId => layers[0].Active?.actionId ?? string.Empty;
         public string ActiveUpperBodyActionId => layers[1].Active?.actionId ?? string.Empty;

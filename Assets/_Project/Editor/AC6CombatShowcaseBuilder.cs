@@ -18,6 +18,10 @@ public static class AC6CombatShowcaseBuilder
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Loadouts/AC6_Skinned_Uniform1010.asset";
     private const string AnimationPath =
         "Assets/_Project/LocalSamples/AC6MelanderCase/Raw/Gltf/Melander_1010_Rerun.glb";
+    private const string ShowcaseActionRegistryPath =
+        "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Actions/AC6CombatShowcaseRegistry.asset";
+    private const string GeneratedActionsRoot =
+        "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Actions";
     private const string BodyTimelinePath =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Effects/AC6_a000_010900_Effects.asset";
     private const string MeleeTimelinePath =
@@ -28,12 +32,72 @@ public static class AC6CombatShowcaseBuilder
     private const string AutoBuildSessionKey = "ACunicombat.AC6CombatShowcase.AutoBuildAttempted";
     private static readonly HashSet<string> BatchPhases = new HashSet<string>();
     private static DateTime batchStartedUtc;
-    private static bool batchSawMissileSalvo;
     private static bool batchSawRangedWeaponFire;
     private static bool batchSawMaterialBindings;
     private static bool batchSawRequiredEquipment;
     private static bool batchSawExhaustAxisPass;
     private static bool batchSawExhaustAxisFail;
+    private static bool batchSawBodyActionGraph;
+    private static readonly HashSet<string> BatchBodyActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> BatchUpperBodyActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> BatchPoseChecks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly string[] RequiredBodyActions =
+    {
+        "a000_000000", "a000_120200", "a000_028002", "a000_004242",
+        "a000_028003", "a000_004243"
+    };
+
+    private static readonly string[] RequiredUpperBodyActions =
+    {
+        "a200_030020", "a200_030022", "a200_030030"
+    };
+
+    private static readonly string[] RequiredPosePhases =
+    {
+        "ForwardAssaultBoost", "LeftQuickBoost", "RightQuickBoost", "RaiseAndFire", "Recovery"
+    };
+
+    private static readonly ShowcaseActionSpec[] ShowcaseActions =
+    {
+        new ShowcaseActionSpec("a000_000000", "基础待机", MechBodyActionLayer.FullBody, true, 0.12f, 0.12f),
+        new ShowcaseActionSpec("a000_120200", "前向 AB 演示（官方 Boost Flight 姿态）", MechBodyActionLayer.FullBody, true, 0.08f, 0.12f),
+        new ShowcaseActionSpec("a000_028002", "左 QB 方向段候选", MechBodyActionLayer.FullBody, false, 0.04f, 0.08f),
+        new ShowcaseActionSpec("a000_004242", "左 QB 收束（人工目检：左移制动）", MechBodyActionLayer.FullBody, false, 0.04f, 0.1f),
+        new ShowcaseActionSpec("a000_028003", "右 QB 方向段候选", MechBodyActionLayer.FullBody, false, 0.04f, 0.08f),
+        new ShowcaseActionSpec("a000_004243", "右 QB 收束（人工目检：右移制动）", MechBodyActionLayer.FullBody, false, 0.04f, 0.1f),
+        new ShowcaseActionSpec("a200_030020", "抬臂", MechBodyActionLayer.UpperBody, false, 0.04f, 0.06f),
+        new ShowcaseActionSpec("a200_030022", "举枪保持", MechBodyActionLayer.UpperBody, true, 0.04f, 0.06f),
+        new ShowcaseActionSpec("a200_030030", "开火与后坐", MechBodyActionLayer.UpperBody, false, 0.03f, 0.1f),
+    };
+
+    private static readonly (MechPartSlot Slot, string Token)[] ShowcaseFrameSlots =
+    {
+        (MechPartSlot.Head, "HD"),
+        (MechPartSlot.Core, "BD"),
+        (MechPartSlot.Arms, "AM"),
+        (MechPartSlot.Legs, "LG"),
+    };
+
+    private static readonly string[] UpperBodyBoneNames =
+    {
+        "Spine1", "Neck", "Offset_ClavicleLink", "Spine1_EX", "Head",
+        "L_ClavicleLink", "R_ClavicleLink", "L_ClavicleLink_EX", "Offset_L_Clavicle",
+        "Offset_R_Clavicle", "R_ClavicleLink_EX", "L_Clavicle", "R_Clavicle",
+        "L_ArmJoint", "R_ArmJoint", "L_ClavicleEX_A", "L_ClavicleEX_B",
+        "Root_L_UpperArm", "R_ClavicleEX_A", "R_ClavicleEX_B", "Root_R_UpperArm",
+        "L_UpperArm", "R_UpperArm", "L_ForeArm", "L_UpArmEX_A", "L_UpArmEX_B",
+        "L_UpArmTwist", "R_ForeArm", "R_UpArmEX_A", "R_UpArmEX_B", "R_UpArmTwist",
+        "L_Elbow", "L_ForeArmTwist", "L_HandTwist", "L_Wrist", "R_Elbow",
+        "R_ForeArmTwist", "R_HandTwist", "R_Wrist", "Root_L_Hand", "Root_R_Hand",
+        "L_Hand", "R_Hand", "L_Finger0", "L_Finger1", "L_Finger2", "L_Finger3",
+        "L_Finger4", "L_Weapon_00", "R_Finger0", "R_Finger1", "R_Finger2",
+        "R_Finger3", "R_Finger4", "R_Weapon_00", "L_Finger01", "L_Finger11",
+        "L_Finger21", "L_Finger31", "L_Finger41", "R_Finger01", "R_Finger11",
+        "R_Finger21", "R_Finger31", "R_Finger41", "L_Finger02", "L_Finger12",
+        "L_Finger22", "L_Finger32", "L_Finger42", "R_Finger02", "R_Finger12",
+        "R_Finger22", "R_Finger32", "R_Finger42"
+    };
 
     static AC6CombatShowcaseBuilder()
     {
@@ -51,13 +115,28 @@ public static class AC6CombatShowcaseBuilder
 
         EditorUtility.DisplayDialog(
             "AC6 Combat Showcase",
-            "Built and opened AC6CombatShowcase.unity. Press Play to run the seven-phase loop.",
+            "Built and opened AC6CombatShowcase.unity. Press Play to run the six-phase AB/QB/fire loop.",
             "OK");
     }
 
     public static bool Build(out string error)
     {
         error = string.Empty;
+        var actionBuildReport = AC6ActionLibraryBuilder.Build();
+        if (!BuildShowcaseActionRegistry(out var actionRegistry, out var showcaseRegistryError))
+        {
+            error = $"{showcaseRegistryError} {actionBuildReport}";
+            return false;
+        }
+        var missingActions = RequiredBodyActions.Concat(RequiredUpperBodyActions)
+            .Where(actionId => !actionRegistry.HasAction(actionId))
+            .ToArray();
+        if (missingActions.Length > 0)
+        {
+            error = $"Action registry is incomplete: {string.Join(", ", missingActions)}. {actionBuildReport}";
+            return false;
+        }
+
         var loadout = AssetDatabase.LoadAssetAtPath<MechLoadoutDefinition>(LoadoutPath);
         if (loadout == null)
         {
@@ -172,6 +251,19 @@ public static class AC6CombatShowcaseBuilder
             AssetDatabase.LoadAssetAtPath<MechActionEffectTimeline>(BodyTimelinePath),
             AssetDatabase.LoadAssetAtPath<MechActionEffectTimeline>(MeleeTimelinePath),
             AC6FxrEffectFactory.BuildLibrary());
+        controller.ConfigureBodyActions(
+            actionRegistry,
+            UpperBodyBoneNames,
+            "a000_000000",
+            "a000_120200",
+            "a000_028002",
+            "a000_004242",
+            "a000_028003",
+            "a000_004243",
+            "a000_000000",
+            "a200_030020",
+            "a200_030022",
+            "a200_030030");
 
         EditorSceneManager.SaveScene(scene, ScenePath);
         AssetDatabase.SaveAssets();
@@ -196,25 +288,29 @@ public static class AC6CombatShowcaseBuilder
         }
 
         BatchPhases.Clear();
-        batchSawMissileSalvo = false;
         batchSawRangedWeaponFire = false;
         batchSawMaterialBindings = false;
         batchSawRequiredEquipment = false;
         batchSawExhaustAxisPass = false;
         batchSawExhaustAxisFail = false;
+        batchSawBodyActionGraph = false;
+        BatchBodyActions.Clear();
+        BatchUpperBodyActions.Clear();
+        BatchPoseChecks.Clear();
         batchStartedUtc = DateTime.UtcNow;
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
         Application.logMessageReceived += CaptureBatchLog;
         EditorApplication.update += UpdateBatchValidation;
         EditorApplication.isPlaying = true;
-        Debug.Log("[AC6CombatShowcaseValidation] Started 31-second play-mode validation.");
+        Debug.Log("[AC6CombatShowcaseValidation] Started 24-second play-mode validation.");
     }
 
     private static void TryBuildOnFirstImport()
     {
         if (SessionState.GetBool(AutoBuildSessionKey, false) ||
-            AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath) != null)
+            (AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath) != null &&
+             AssetDatabase.LoadAssetAtPath<MechActionRegistry>(ShowcaseActionRegistryPath) != null))
         {
             return;
         }
@@ -231,10 +327,6 @@ public static class AC6CombatShowcaseBuilder
         if (condition.Contains("[AC6CombatShowcase] Phase "))
         {
             BatchPhases.Add(condition);
-        }
-        if (condition.Contains("Missile salvo spawned") && !condition.Contains("spawned 0"))
-        {
-            batchSawMissileSalvo = true;
         }
         if (condition.Contains("Ranged weapon fired action") &&
             !condition.EndsWith("action .", StringComparison.Ordinal))
@@ -262,32 +354,161 @@ public static class AC6CombatShowcaseBuilder
         {
             batchSawExhaustAxisFail = true;
         }
+        if (condition.Contains("Body action graph: PASS"))
+        {
+            batchSawBodyActionGraph = true;
+        }
+        CaptureId(condition, "Body action PASS: ", BatchBodyActions);
+        CaptureId(condition, "Upper-body action PASS: ", BatchUpperBodyActions);
+        if (condition.Contains("Body pose check: PASS phase="))
+        {
+            var marker = "phase=";
+            var start = condition.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
+            var end = condition.IndexOf(' ', start);
+            BatchPoseChecks.Add(end > start ? condition.Substring(start, end - start) : condition.Substring(start));
+        }
     }
 
     private static void UpdateBatchValidation()
     {
-        if ((DateTime.UtcNow - batchStartedUtc).TotalSeconds < 32d)
+        if ((DateTime.UtcNow - batchStartedUtc).TotalSeconds < 24d)
         {
             return;
         }
 
         EditorApplication.update -= UpdateBatchValidation;
         Application.logMessageReceived -= CaptureBatchLog;
-        var success = BatchPhases.Count >= 7 &&
-            batchSawMissileSalvo &&
+        var success = BatchPhases.Count >= 6 &&
             batchSawRangedWeaponFire &&
             batchSawMaterialBindings &&
             batchSawRequiredEquipment &&
             batchSawExhaustAxisPass &&
-            !batchSawExhaustAxisFail;
+            !batchSawExhaustAxisFail &&
+            batchSawBodyActionGraph &&
+            RequiredBodyActions.All(BatchBodyActions.Contains) &&
+            RequiredUpperBodyActions.All(BatchUpperBodyActions.Contains) &&
+            RequiredPosePhases.All(BatchPoseChecks.Contains);
         Debug.Log(
             $"[AC6CombatShowcaseValidation] RESULT={(success ? "PASS" : "FAIL")} " +
-            $"phases={BatchPhases.Count}/7 ranged={batchSawRangedWeaponFire} " +
-            $"missile={batchSawMissileSalvo} " +
+            $"phases={BatchPhases.Count}/6 ranged={batchSawRangedWeaponFire} " +
             $"materials={batchSawMaterialBindings} equipment={batchSawRequiredEquipment} " +
-            $"exhaustAxis={(batchSawExhaustAxisPass && !batchSawExhaustAxisFail)}");
+            $"exhaustAxis={(batchSawExhaustAxisPass && !batchSawExhaustAxisFail)} " +
+            $"bodyGraph={batchSawBodyActionGraph} bodyActions={BatchBodyActions.Count}/{RequiredBodyActions.Length} " +
+            $"upperActions={BatchUpperBodyActions.Count}/{RequiredUpperBodyActions.Length} " +
+            $"poseChecks={BatchPoseChecks.Count}/{RequiredPosePhases.Length}");
         EditorApplication.isPlaying = false;
         EditorApplication.delayCall += () => EditorApplication.Exit(success ? 0 : 2);
+    }
+
+    private static void CaptureId(string condition, string marker, HashSet<string> destination)
+    {
+        var markerIndex = condition.IndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            return;
+        }
+
+        var start = markerIndex + marker.Length;
+        var end = condition.IndexOfAny(new[] { ' ', '.', '\r', '\n' }, start);
+        destination.Add(end > start ? condition.Substring(start, end - start) : condition.Substring(start));
+    }
+
+    private static bool BuildShowcaseActionRegistry(
+        out MechActionRegistry registry,
+        out string error)
+    {
+        error = string.Empty;
+        registry = AssetDatabase.LoadAssetAtPath<MechActionRegistry>(ShowcaseActionRegistryPath);
+        if (registry == null)
+        {
+            EnsureFolder(GeneratedActionsRoot);
+            registry = ScriptableObject.CreateInstance<MechActionRegistry>();
+            AssetDatabase.CreateAsset(registry, ShowcaseActionRegistryPath);
+        }
+
+        registry.EditorActions.Clear();
+        for (var actionIndex = 0; actionIndex < ShowcaseActions.Length; actionIndex++)
+        {
+            var spec = ShowcaseActions[actionIndex];
+            var slotClips = LoadShowcaseClips(spec);
+            if (slotClips.Count != ShowcaseFrameSlots.Length)
+            {
+                AC6ActionLibraryBuilder.BuildReviewAction(
+                    spec.ActionId,
+                    spec.Layer.ToString(),
+                    spec.Loop);
+                slotClips = LoadShowcaseClips(spec);
+            }
+
+            if (slotClips.Count != ShowcaseFrameSlots.Length)
+            {
+                error = $"Showcase clips are incomplete for {spec.ActionId}: " +
+                        $"{slotClips.Count}/{ShowcaseFrameSlots.Length}.";
+                return false;
+            }
+
+            registry.EditorActions.Add(new MechBodyActionDefinition
+            {
+                actionId = spec.ActionId,
+                displayNameZh = spec.DisplayNameZh,
+                categoryZh = "固定演示动作",
+                reviewStatus = "ShowcaseOnly",
+                layer = spec.Layer,
+                loop = spec.Loop,
+                blendInSeconds = spec.BlendInSeconds,
+                blendOutSeconds = spec.BlendOutSeconds,
+                slotClips = slotClips,
+            });
+        }
+
+        EditorUtility.SetDirty(registry);
+        AssetDatabase.SaveAssets();
+        return true;
+    }
+
+    private static List<MechBodyActionDefinition.SlotClip> LoadShowcaseClips(
+        ShowcaseActionSpec spec)
+    {
+        var clips = new List<MechBodyActionDefinition.SlotClip>();
+        for (var slotIndex = 0; slotIndex < ShowcaseFrameSlots.Length; slotIndex++)
+        {
+            var (slot, token) = ShowcaseFrameSlots[slotIndex];
+            var clipPath = $"{GeneratedActionsRoot}/{spec.ActionId}/" +
+                           $"AC6_{spec.ActionId}_{token}.anim";
+            var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(clipPath);
+            if (clip != null)
+            {
+                clips.Add(new MechBodyActionDefinition.SlotClip { slot = slot, clip = clip });
+            }
+        }
+
+        return clips;
+    }
+
+    private sealed class ShowcaseActionSpec
+    {
+        public ShowcaseActionSpec(
+            string actionId,
+            string displayNameZh,
+            MechBodyActionLayer layer,
+            bool loop,
+            float blendInSeconds,
+            float blendOutSeconds)
+        {
+            ActionId = actionId;
+            DisplayNameZh = displayNameZh;
+            Layer = layer;
+            Loop = loop;
+            BlendInSeconds = blendInSeconds;
+            BlendOutSeconds = blendOutSeconds;
+        }
+
+        public string ActionId { get; }
+        public string DisplayNameZh { get; }
+        public MechBodyActionLayer Layer { get; }
+        public bool Loop { get; }
+        public float BlendInSeconds { get; }
+        public float BlendOutSeconds { get; }
     }
 
     private static Material GetOrCreateTargetMaterial()
