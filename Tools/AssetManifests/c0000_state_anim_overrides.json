@@ -1,0 +1,40 @@
+{
+ "comment": "状态→动作 的别名/占位覆盖：BHV 引用的 TAE ID 无物理文件时，指定实际使用的动作。QB 224xx 系按别名推断落到 0042xx/1224xx（依据见 Docs/AC6动作衔接咨询回复 §2）。方向变体待目检后细化。",
+ "entries": [
+  {
+   "stateIndex": 77,
+   "actionId": "a000_004240",
+   "noteZh": "QB：22400 别名推断"
+  },
+  {
+   "stateIndex": 78,
+   "actionId": "a000_004240",
+   "noteZh": "ロック時QB：方向变体待细化（004240-43）"
+  },
+  {
+   "stateIndex": 79,
+   "actionId": "a000_004240",
+   "noteZh": "BD中QB"
+  },
+  {
+   "stateIndex": 80,
+   "actionId": "a000_004240",
+   "noteZh": "ロック時BD中QB"
+  },
+  {
+   "stateIndex": 82,
+   "actionId": "a000_122410",
+   "noteZh": "空中QB：1224xx 物理文件存在（TAE 123010 系）"
+  },
+  {
+   "stateIndex": 28,
+   "actionId": "a000_022300",
+   "noteZh": "ジャンプ開始：22340 无物理，用 22300 系占位"
+  },
+  {
+   "stateIndex": 29,
+   "actionId": "a000_022300",
+   "noteZh": "ジャンプ加速"
+  }
+ ]
+}

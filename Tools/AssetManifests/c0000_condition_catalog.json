@@ -1,0 +1,1162 @@
+{
+ "comment": "BHV 条件原子目录：行为图编译器按 text 精确匹配查绑定。bindingKind=ConstFalse 的原子求值恒假（其 反転 恒真），映射新原子改 bindingKind/param 后重编译图资产即可。padBits/ccfBits 的位定义见各条 noteZh。",
+ "padBitNames": {
+  "0": "移動入力",
+  "1": "地上ブースト",
+  "2": "クイックブースト発動",
+  "3": "ダッシュ回り込み",
+  "4": "飛行ブースト",
+  "5": "走行",
+  "6": "ジャンプ",
+  "7": "上昇開始ブースト",
+  "8": "↓移動",
+  "9": "スライディング",
+  "10": "クイックターン",
+  "11": "走行（遅延開放）",
+  "12": "↑移動",
+  "13": "エイム押した",
+  "14": "猛ダッシュ",
+  "15": "三角飛び",
+  "16": "乗り物：乗車",
+  "17": "ジャンプ押している",
+  "18": "乗り物：降車",
+  "19": "乗り物：加速",
+  "20": "入力無し（一瞬で判定）"
+ },
+ "charControlFlagBitNames": {
+  "0": "移動用アニメキャンセルフラグ",
+  "1": "ブースト用アニメキャンセルフラグ",
+  "2": "QB用アニメキャンセルフラグ",
+  "3": "ブレーキ用アニメキャンセルフラグ",
+  "4": "右手攻撃用アニメキャンセルフラグ"
+ },
+ "atoms": [
+  {
+   "text": "エネルギー 空っぽ 反転",
+   "refCount": 3424,
+   "negate": true,
+   "bindingKind": "EnergyEmpty",
+   "bindingParam": 0,
+   "noteZh": "能量耗尽"
+  },
+  {
+   "text": "ターゲット攻撃中",
+   "refCount": 2139,
+   "negate": false,
+   "bindingKind": "TargetAttacking",
+   "bindingParam": 0,
+   "noteZh": "ターゲット攻撃中"
+  },
+  {
+   "text": "パッド入力 移動入力",
+   "refCount": 2128,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 0,
+   "noteZh": "padBit[0]=移動入力"
+  },
+  {
+   "text": "着地判定 空中 一致",
+   "refCount": 1584,
+   "negate": false,
+   "bindingKind": "Airborne",
+   "bindingParam": 0,
+   "noteZh": "着地判定 空中"
+  },
+  {
+   "text": "ソフトアセン 【移行期間用】ソフトアセンが有効か 反転",
+   "refCount": 1437,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ソフトアセン"
+  },
+  {
+   "text": "【プロペラ制御判定フラグ】 特殊効果 指定IDの効果があるか 反転",
+   "refCount": 1424,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 【プロペラ制御判定フラグ】"
+  },
+  {
+   "text": "ソフトアセン 【移行期間用】ソフトアセンが有効か",
+   "refCount": 1145,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ソフトアセン"
+  },
+  {
+   "text": "ターゲットロック中 固定ロック中",
+   "refCount": 1069,
+   "negate": false,
+   "bindingKind": "LockedOn",
+   "bindingParam": 0,
+   "noteZh": "ターゲットロック中 固定ロック中"
+  },
+  {
+   "text": "攻撃ステート行動タイプ ブーストモード",
+   "refCount": 878,
+   "negate": false,
+   "bindingKind": "AttackStateType",
+   "bindingParam": 1,
+   "noteZh": "攻撃ステート行動タイプ ブーストモード (typeId=1)"
+  },
+  {
+   "text": "【test】【オーバーヒート状態判定フラグ】 特殊効果 指定IDの効果があるか 反転",
+   "refCount": 824,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 【test】【オーバーヒート状態判定フラグ】"
+  },
+  {
+   "text": "攻撃ステート行動タイプ エイムモード",
+   "refCount": 765,
+   "negate": false,
+   "bindingKind": "AttackStateType",
+   "bindingParam": 2,
+   "noteZh": "攻撃ステート行動タイプ エイムモード (typeId=2)"
+  },
+  {
+   "text": "キャラ制御フラグ 移動用アニメキャンセルフラグ",
+   "refCount": 725,
+   "negate": false,
+   "bindingKind": "CharControlFlag",
+   "bindingParam": 0,
+   "noteZh": "ccfBit[0]=移動用アニメキャンセルフラグ"
+  },
+  {
+   "text": "エネルギー 空っぽ",
+   "refCount": 661,
+   "negate": false,
+   "bindingKind": "EnergyEmpty",
+   "bindingParam": 0,
+   "noteZh": "能量耗尽"
+  },
+  {
+   "text": "アニメーション終了 本体アニメ",
+   "refCount": 660,
+   "negate": false,
+   "bindingKind": "BodyAnimFinished",
+   "bindingParam": 0,
+   "noteZh": "アニメーション終了 本体アニメ"
+  },
+  {
+   "text": "速度 ブレーキする速度 反転",
+   "refCount": 645,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 速度"
+  },
+  {
+   "text": "【ステルス状態発動】 特殊効果 指定IDの効果があるか",
+   "refCount": 635,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 【ステルス状態発動】"
+  },
+  {
+   "text": "着地判定 接地 一致",
+   "refCount": 579,
+   "negate": false,
+   "bindingKind": "Grounded",
+   "bindingParam": 0,
+   "noteZh": "着地判定 接地"
+  },
+  {
+   "text": "パッド入力 地上ブースト",
+   "refCount": 553,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 1,
+   "noteZh": "padBit[1]=地上ブースト"
+  },
+  {
+   "text": "パッド入力 クイックブースト発動",
+   "refCount": 523,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 2,
+   "noteZh": "padBit[2]=クイックブースト発動"
+  },
+  {
+   "text": "パッド入力 地上ブースト 反転",
+   "refCount": 511,
+   "negate": true,
+   "bindingKind": "PadInput",
+   "bindingParam": 1,
+   "noteZh": "padBit[1]=地上ブースト"
+  },
+  {
+   "text": "パッド入力 ダッシュ回り込み",
+   "refCount": 506,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 3,
+   "noteZh": "padBit[3]=ダッシュ回り込み"
+  },
+  {
+   "text": "パッド入力 移動入力 反転",
+   "refCount": 470,
+   "negate": true,
+   "bindingKind": "PadInput",
+   "bindingParam": 0,
+   "noteZh": "padBit[0]=移動入力"
+  },
+  {
+   "text": "キャラ制御フラグ ブースト用アニメキャンセルフラグ",
+   "refCount": 390,
+   "negate": false,
+   "bindingKind": "CharControlFlag",
+   "bindingParam": 1,
+   "noteZh": "ccfBit[1]=ブースト用アニメキャンセルフラグ"
+  },
+  {
+   "text": "パッド入力 飛行ブースト 反転",
+   "refCount": 386,
+   "negate": true,
+   "bindingKind": "PadInput",
+   "bindingParam": 4,
+   "noteZh": "padBit[4]=飛行ブースト"
+  },
+  {
+   "text": "攻撃関連その他 ガード中か",
+   "refCount": 384,
+   "negate": false,
+   "bindingKind": "Guarding",
+   "bindingParam": 0,
+   "noteZh": "攻撃関連その他 ガード中か"
+  },
+  {
+   "text": "移動関連その他 地面が床か（空中にいるときは下にある床を判定） 反転",
+   "refCount": 380,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動関連その他"
+  },
+  {
+   "text": "速度 落下しているとみなす速度",
+   "refCount": 380,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 速度"
+  },
+  {
+   "text": "攻撃ステート行動タイプ ブーストモード 反転",
+   "refCount": 327,
+   "negate": true,
+   "bindingKind": "AttackStateType",
+   "bindingParam": 1,
+   "noteZh": "攻撃ステート行動タイプ ブーストモード (typeId=1)"
+  },
+  {
+   "text": "パッド入力 走行",
+   "refCount": 315,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 5,
+   "noteZh": "padBit[5]=走行"
+  },
+  {
+   "text": "パッド入力 ジャンプ",
+   "refCount": 301,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 6,
+   "noteZh": "padBit[6]=ジャンプ"
+  },
+  {
+   "text": "キャラ制御フラグ QB用アニメキャンセルフラグ",
+   "refCount": 294,
+   "negate": false,
+   "bindingKind": "CharControlFlag",
+   "bindingParam": 2,
+   "noteZh": "ccfBit[2]=QB用アニメキャンセルフラグ"
+  },
+  {
+   "text": "パッド入力 飛行ブースト",
+   "refCount": 289,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 4,
+   "noteZh": "padBit[4]=飛行ブースト"
+  },
+  {
+   "text": "パッド入力 上昇開始ブースト",
+   "refCount": 280,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 7,
+   "noteZh": "padBit[7]=上昇開始ブースト"
+  },
+  {
+   "text": "着地判定 強硬直 一致 反転",
+   "refCount": 276,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": ""
+  },
+  {
+   "text": "速度 ブレーキする速度",
+   "refCount": 265,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 速度"
+  },
+  {
+   "text": "パッド入力 ↓移動",
+   "refCount": 246,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 8,
+   "noteZh": "padBit[8]=↓移動"
+  },
+  {
+   "text": "パッド入力 スライディング",
+   "refCount": 245,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 9,
+   "noteZh": "padBit[9]=スライディング"
+  },
+  {
+   "text": "パッド入力 クイックターン",
+   "refCount": 212,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 10,
+   "noteZh": "padBit[10]=クイックターン"
+  },
+  {
+   "text": "移動方向 左180度",
+   "refCount": 199,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動方向"
+  },
+  {
+   "text": "移動方向 右180度",
+   "refCount": 199,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動方向"
+  },
+  {
+   "text": "【プロペラ制御判定フラグ】 特殊効果 指定IDの効果があるか",
+   "refCount": 198,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 【プロペラ制御判定フラグ】"
+  },
+  {
+   "text": "ターゲット攻撃中 オートサイティング状態を見ない",
+   "refCount": 194,
+   "negate": false,
+   "bindingKind": "TargetAttacking",
+   "bindingParam": 0,
+   "noteZh": "ターゲット攻撃中 オートサイティング状態を見ない"
+  },
+  {
+   "text": "ターゲット攻撃中 反転",
+   "refCount": 187,
+   "negate": true,
+   "bindingKind": "TargetAttacking",
+   "bindingParam": 0,
+   "noteZh": "ターゲット攻撃中"
+  },
+  {
+   "text": "[10m] 移動関連その他 地面からの足元高さ",
+   "refCount": 182,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: [10m]"
+  },
+  {
+   "text": "攻撃関連その他 ガード中か 反転",
+   "refCount": 181,
+   "negate": true,
+   "bindingKind": "Guarding",
+   "bindingParam": 0,
+   "noteZh": "攻撃関連その他 ガード中か"
+  },
+  {
+   "text": "[1.5m] 移動関連その他 地面からの足元高さ",
+   "refCount": 178,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: [1.5m]"
+  },
+  {
+   "text": "速度 高速ブレーキする速度",
+   "refCount": 158,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 速度"
+  },
+  {
+   "text": "移動関連その他 ワイヤー引き寄せ中か",
+   "refCount": 151,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動関連その他"
+  },
+  {
+   "text": "壁当たり 角度もチェック",
+   "refCount": 149,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 壁当たり"
+  },
+  {
+   "text": "移動関連その他 ワイヤーの長さ",
+   "refCount": 149,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動関連その他"
+  },
+  {
+   "text": "制御プログラム終了",
+   "refCount": 133,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 制御プログラム終了"
+  },
+  {
+   "text": "【ブースト中ダメージ加算遷移判定フラグ】 特殊効果 指定IDの効果があるか",
+   "refCount": 128,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 【ブースト中ダメージ加算遷移判定フラグ】"
+  },
+  {
+   "text": "ターゲットロック中 固定ロック中 反転",
+   "refCount": 127,
+   "negate": true,
+   "bindingKind": "LockedOn",
+   "bindingParam": 0,
+   "noteZh": "ターゲットロック中 固定ロック中"
+  },
+  {
+   "text": "パッド入力 走行（遅延開放） 反転",
+   "refCount": 124,
+   "negate": true,
+   "bindingKind": "PadInput",
+   "bindingParam": 11,
+   "noteZh": "padBit[11]=走行（遅延開放）"
+  },
+  {
+   "text": "落下中",
+   "refCount": 114,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 落下中"
+  },
+  {
+   "text": "速度 ブレーキやめる速度",
+   "refCount": 113,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 速度"
+  },
+  {
+   "text": "移動方向 左90度",
+   "refCount": 102,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動方向"
+  },
+  {
+   "text": "移動方向 右90度",
+   "refCount": 102,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動方向"
+  },
+  {
+   "text": "移動関連その他 ダッシュできる",
+   "refCount": 100,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動関連その他"
+  },
+  {
+   "text": "【ステルス状態発動】 特殊効果 指定IDの効果があるか 反転",
+   "refCount": 88,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 【ステルス状態発動】"
+  },
+  {
+   "text": "着地判定 空中 一致 反転",
+   "refCount": 85,
+   "negate": true,
+   "bindingKind": "Airborne",
+   "bindingParam": 0,
+   "noteZh": "着地判定 空中"
+  },
+  {
+   "text": "キャラ制御フラグ ブレーキ用アニメキャンセルフラグ",
+   "refCount": 81,
+   "negate": false,
+   "bindingKind": "CharControlFlag",
+   "bindingParam": 3,
+   "noteZh": "ccfBit[3]=ブレーキ用アニメキャンセルフラグ"
+  },
+  {
+   "text": "パッド入力 ↑移動",
+   "refCount": 78,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 12,
+   "noteZh": "padBit[12]=↑移動"
+  },
+  {
+   "text": "パッド入力 エイム押した",
+   "refCount": 76,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 13,
+   "noteZh": "padBit[13]=エイム押した"
+  },
+  {
+   "text": "着地判定 硬直キャンセルできる 一致",
+   "refCount": 72,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": ""
+  },
+  {
+   "text": "旋回方向 正面旋回左（大）",
+   "refCount": 69,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 旋回方向"
+  },
+  {
+   "text": "旋回方向 正面旋回右（大）",
+   "refCount": 69,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 旋回方向"
+  },
+  {
+   "text": "攻撃関連その他 エイムモード中か 反転",
+   "refCount": 66,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 攻撃関連その他"
+  },
+  {
+   "text": "移動関連その他 落下モーション無視 反転",
+   "refCount": 65,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動関連その他"
+  },
+  {
+   "text": "ターゲットロック中 見てるだけ",
+   "refCount": 57,
+   "negate": false,
+   "bindingKind": "LockedOn",
+   "bindingParam": 0,
+   "noteZh": "ターゲットロック中 見てるだけ"
+  },
+  {
+   "text": "本体ステート経過時間 0.1 超過",
+   "refCount": 47,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 本体ステート経過時間"
+  },
+  {
+   "text": "パッド入力 猛ダッシュ",
+   "refCount": 36,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 14,
+   "noteZh": "padBit[14]=猛ダッシュ"
+  },
+  {
+   "text": "着地判定 着地した 一致",
+   "refCount": 36,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": ""
+  },
+  {
+   "text": "着地判定 弱硬直 一致",
+   "refCount": 36,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": ""
+  },
+  {
+   "text": "着地判定 強硬直 一致",
+   "refCount": 36,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": ""
+  },
+  {
+   "text": "ステート経過時間（選択式） 切り替え元の攻撃ステートが終了した",
+   "refCount": 35,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ステート経過時間（選択式）"
+  },
+  {
+   "text": "移動方向 左180度 反転",
+   "refCount": 33,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動方向"
+  },
+  {
+   "text": "移動方向 右180度 反転",
+   "refCount": 33,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動方向"
+  },
+  {
+   "text": "攻撃関連その他 エイムモード中か",
+   "refCount": 32,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 攻撃関連その他"
+  },
+  {
+   "text": "パッド入力 三角飛び",
+   "refCount": 31,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 15,
+   "noteZh": "padBit[15]=三角飛び"
+  },
+  {
+   "text": "壁当たり 接触しているか調べるだけ",
+   "refCount": 31,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 壁当たり"
+  },
+  {
+   "text": "攻撃ステート行動タイプ エイムモード 反転",
+   "refCount": 30,
+   "negate": true,
+   "bindingKind": "AttackStateType",
+   "bindingParam": 2,
+   "noteZh": "攻撃ステート行動タイプ エイムモード (typeId=2)"
+  },
+  {
+   "text": "移動方向 左90度 反転",
+   "refCount": 28,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動方向"
+  },
+  {
+   "text": "移動方向 右90度 反転",
+   "refCount": 28,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動方向"
+  },
+  {
+   "text": "[5m] 移動関連その他 地面からの足元高さ",
+   "refCount": 26,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: [5m]"
+  },
+  {
+   "text": "ステート関連その他 記憶しているアクション情報",
+   "refCount": 25,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ステート関連その他"
+  },
+  {
+   "text": "ステート経過時間 0.2 超過",
+   "refCount": 24,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ステート経過時間"
+  },
+  {
+   "text": "ダメージアクションタイプ 能動ガード 自分 反転",
+   "refCount": 24,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージアクションタイプ"
+  },
+  {
+   "text": "※仮対応 キャラ制御フラグ 右手攻撃用アニメキャンセルフラグ",
+   "refCount": 20,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ※仮対応"
+  },
+  {
+   "text": "ステート経過時間 0.1 超過",
+   "refCount": 18,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ステート経過時間"
+  },
+  {
+   "text": "本体ステート行動タイプ 乗車中 反転",
+   "refCount": 14,
+   "negate": true,
+   "bindingKind": "BodyStateType",
+   "bindingParam": 3,
+   "noteZh": "本体ステート行動タイプ 乗車中 (typeId=3)"
+  },
+  {
+   "text": "移動関連その他 ダッシュできる 反転",
+   "refCount": 12,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動関連その他"
+  },
+  {
+   "text": "速度 ブースト吹かし速度",
+   "refCount": 12,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 速度"
+  },
+  {
+   "text": "移動関連その他 防具サブタイプ",
+   "refCount": 11,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動関連その他"
+  },
+  {
+   "text": "キャラ制御フラグ 右手攻撃用アニメキャンセルフラグ",
+   "refCount": 11,
+   "negate": false,
+   "bindingKind": "CharControlFlag",
+   "bindingParam": 4,
+   "noteZh": "ccfBit[4]=右手攻撃用アニメキャンセルフラグ"
+  },
+  {
+   "text": "ダメージアクションタイプ 能動ガード 自分",
+   "refCount": 10,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージアクションタイプ"
+  },
+  {
+   "text": "補給関連 補給要求が出ている",
+   "refCount": 9,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 補給関連"
+  },
+  {
+   "text": "パッド入力 乗り物：乗車",
+   "refCount": 9,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 16,
+   "noteZh": "padBit[16]=乗り物：乗車"
+  },
+  {
+   "text": "パッド入力 走行 反転",
+   "refCount": 9,
+   "negate": true,
+   "bindingKind": "PadInput",
+   "bindingParam": 5,
+   "noteZh": "padBit[5]=走行"
+  },
+  {
+   "text": "パッド入力 ジャンプ押している 反転",
+   "refCount": 9,
+   "negate": true,
+   "bindingKind": "PadInput",
+   "bindingParam": 17,
+   "noteZh": "padBit[17]=ジャンプ押している"
+  },
+  {
+   "text": "速度 ブースト左右後移動で速度が落ちている",
+   "refCount": 8,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 速度"
+  },
+  {
+   "text": "パッド入力 ジャンプ押している",
+   "refCount": 8,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 17,
+   "noteZh": "padBit[17]=ジャンプ押している"
+  },
+  {
+   "text": "ダメージタイプ 中ダメージ",
+   "refCount": 8,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージタイプ"
+  },
+  {
+   "text": "ダメージタイプ 大ダメージ",
+   "refCount": 8,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージタイプ"
+  },
+  {
+   "text": "旋回方向 正面旋回左",
+   "refCount": 6,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 旋回方向"
+  },
+  {
+   "text": "旋回方向 正面旋回右",
+   "refCount": 6,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 旋回方向"
+  },
+  {
+   "text": "※キャンセルフラグ（仮） キャラ制御フラグ リロード用アニメキャンセルフラグ",
+   "refCount": 6,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ※キャンセルフラグ（仮）"
+  },
+  {
+   "text": "ダメージアクションタイプ スーパーアーマーブレイク 自分",
+   "refCount": 6,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージアクションタイプ"
+  },
+  {
+   "text": "ダメージタイプ 吹っ飛びダメージ",
+   "refCount": 6,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージタイプ"
+  },
+  {
+   "text": "アニメレイヤー関連 右腕(攻撃)加算アニメ アニメーション再生中 反転",
+   "refCount": 4,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: アニメレイヤー関連"
+  },
+  {
+   "text": "速度 ブレーキやめる速度 反転",
+   "refCount": 4,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 速度"
+  },
+  {
+   "text": "ダメージタイプ 小ダメージ",
+   "refCount": 4,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージタイプ"
+  },
+  {
+   "text": "ダメージタイプ 特大吹っ飛びダメージ",
+   "refCount": 4,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージタイプ"
+  },
+  {
+   "text": "ダメージアクションタイプ ガードブレイク 自分",
+   "refCount": 4,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージアクションタイプ"
+  },
+  {
+   "text": "本体ステート行動タイプ 乗車中",
+   "refCount": 4,
+   "negate": false,
+   "bindingKind": "BodyStateType",
+   "bindingParam": 3,
+   "noteZh": "本体ステート行動タイプ 乗車中 (typeId=3)"
+  },
+  {
+   "text": "ダメージタイプ ダメージアニメ再生無し 反転",
+   "refCount": 4,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージタイプ"
+  },
+  {
+   "text": "パッド入力 乗り物：降車",
+   "refCount": 4,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 18,
+   "noteZh": "padBit[18]=乗り物：降車"
+  },
+  {
+   "text": "移動方向 後ろ移動から前移動切り返し",
+   "refCount": 3,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動方向"
+  },
+  {
+   "text": "本体ステート経過時間 0.05 超過",
+   "refCount": 3,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 本体ステート経過時間"
+  },
+  {
+   "text": "壁当たり 接触しているか調べるだけ 反転",
+   "refCount": 3,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 壁当たり"
+  },
+  {
+   "text": "【カバー判定フラグ_左側】 特殊効果 指定IDの効果があるか",
+   "refCount": 3,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 【カバー判定フラグ_左側】"
+  },
+  {
+   "text": "【カバー判定フラグ_右側】 特殊効果 指定IDの効果があるか",
+   "refCount": 3,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 【カバー判定フラグ_右側】"
+  },
+  {
+   "text": "壁当たり カバーアクション可能か",
+   "refCount": 2,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 壁当たり"
+  },
+  {
+   "text": "ステート経過時間 0.1 未満",
+   "refCount": 2,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ステート経過時間"
+  },
+  {
+   "text": "ターゲット攻撃中 オートサイティング状態を見ない 反転",
+   "refCount": 2,
+   "negate": true,
+   "bindingKind": "TargetAttacking",
+   "bindingParam": 0,
+   "noteZh": "ターゲット攻撃中 オートサイティング状態を見ない"
+  },
+  {
+   "text": "パッド入力 三角飛び 反転",
+   "refCount": 2,
+   "negate": true,
+   "bindingKind": "PadInput",
+   "bindingParam": 15,
+   "noteZh": "padBit[15]=三角飛び"
+  },
+  {
+   "text": "ステート経過時間（選択式） ジャンプ入力最大時間経過した",
+   "refCount": 2,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ステート経過時間（選択式）"
+  },
+  {
+   "text": "移動関連その他 ワイヤーの長さ 反転",
+   "refCount": 2,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動関連その他"
+  },
+  {
+   "text": "移動関連その他 ワイヤー出しているか 反転",
+   "refCount": 2,
+   "negate": true,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 移動関連その他"
+  },
+  {
+   "text": "ダメージタイプ 極小ダメージ",
+   "refCount": 2,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ダメージタイプ"
+  },
+  {
+   "text": "本体ステート行動タイプ なし 反転",
+   "refCount": 2,
+   "negate": true,
+   "bindingKind": "BodyStateType",
+   "bindingParam": 4,
+   "noteZh": "本体ステート行動タイプ なし (typeId=4)"
+  },
+  {
+   "text": "本体ステート行動タイプ 待機 反転",
+   "refCount": 2,
+   "negate": true,
+   "bindingKind": "BodyStateType",
+   "bindingParam": 5,
+   "noteZh": "本体ステート行動タイプ 待機 (typeId=5)"
+  },
+  {
+   "text": "パッド入力 乗り物：加速",
+   "refCount": 2,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 19,
+   "noteZh": "padBit[19]=乗り物：加速"
+  },
+  {
+   "text": "AP 本体 0",
+   "refCount": 1,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: AP"
+  },
+  {
+   "text": "パッド入力 入力無し（一瞬で判定）",
+   "refCount": 1,
+   "negate": false,
+   "bindingKind": "PadInput",
+   "bindingParam": 20,
+   "noteZh": "padBit[20]=入力無し（一瞬で判定）"
+  },
+  {
+   "text": "なし",
+   "refCount": 1,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: なし"
+  },
+  {
+   "text": "本体ステート経過時間 0.25 超過",
+   "refCount": 1,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 本体ステート経過時間"
+  },
+  {
+   "text": "パッド入力 乗り物：加速 反転",
+   "refCount": 1,
+   "negate": true,
+   "bindingKind": "PadInput",
+   "bindingParam": 19,
+   "noteZh": "padBit[19]=乗り物：加速"
+  },
+  {
+   "text": "【エレベータ乗り込み判定】 特殊効果 指定IDの効果があるか",
+   "refCount": 1,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: 【エレベータ乗り込み判定】"
+  },
+  {
+   "text": "ステート経過時間 100 超過",
+   "refCount": 1,
+   "negate": false,
+   "bindingKind": "ConstFalse",
+   "bindingParam": 0,
+   "noteZh": "未映射家族: ステート経過時間"
+  }
+ ],
+ "stateTypeIds": {
+  "1": "ブーストモード",
+  "2": "エイムモード",
+  "3": "乗車中",
+  "4": "なし",
+  "5": "待機"
+ }
+}
