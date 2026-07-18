@@ -1,0 +1,79 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "待機",
+      "NextStates": [
+        {
+          "NextStateName": "アイテム使用《回復》 ",
+          "Conditions": [
+            "パッド入力 アイテム使用",
+            "[回復] アイテム関連 使用時アニメ",
+            "攻撃可能状態"
+          ]
+        },
+        {
+          "NextStateName": "アイテム使用《投げナイフ》 ",
+          "Conditions": [
+            "パッド入力 アイテム使用",
+            "[投げナイフ] アイテム関連 使用時アニメ",
+            "攻撃可能状態"
+          ]
+        },
+        {
+          "NextStateName": "【test】回復モード_発動《投げビン》 ",
+          "Conditions": [
+            "パッド入力 アイテム使用",
+            "[投げビン] アイテム関連 使用時アニメ",
+            "攻撃可能状態",
+            "【クールタイム経過判定】 特殊効果 指定IDの効果があるか 反転"
+          ]
+        },
+        {
+          "NextStateName": "【test】回復モード_解除 ",
+          "Conditions": [
+            "パッド入力 アイテム使用",
+            "[投げビン] アイテム関連 使用時アニメ",
+            "攻撃可能状態",
+            "【回復モード判定】 特殊効果 指定IDの効果があるか"
+          ]
+        }
+      ]
+    },
+    {
+      "StateName": "アイテム使用《回復》",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "アイテム使用《投げナイフ》",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "【test】回復モード_発動《投げビン》",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "【test】回復モード_解除",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    }
+  ]
+}

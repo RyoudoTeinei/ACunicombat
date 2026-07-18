@@ -1,0 +1,22 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "待機",
+      "NextStates": [
+        {
+          "NextStateName": "攻撃中 ",
+          "Conditions": ["パッド入力 トリガーボタン押した"]
+        }
+      ]
+    },
+    {
+      "StateName": "攻撃中",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["制御プログラム終了"]
+        }
+      ]
+    }
+  ]
+}

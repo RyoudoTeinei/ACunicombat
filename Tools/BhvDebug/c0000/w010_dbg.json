@@ -1,0 +1,97 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "待機",
+      "NextStates": [
+        {
+          "NextStateName": "待機⇒起動 ",
+          "Conditions": ["パッド入力 トリガーボタン押した", "攻撃可能状態"]
+        }
+      ]
+    },
+    {
+      "StateName": "待機⇒起動",
+      "NextStates": [
+        {
+          "NextStateName": "射撃開始 ",
+          "Conditions": ["アニメーション終了 武器アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃待機",
+      "NextStates": [
+        {
+          "NextStateName": "起動⇒待機 ",
+          "Conditions": ["ステート経過時間 10 超過"]
+        },
+        {
+          "NextStateName": "射撃開始 ",
+          "Conditions": ["パッド入力 トリガーボタン押している", "攻撃可能状態"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃開始",
+      "NextStates": [
+        {
+          "NextStateName": "射撃（マルチロック待機） ",
+          "Conditions": ["アニメーション終了 武器アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃（マルチロック待機）",
+      "NextStates": [
+        {
+          "NextStateName": "射撃 ",
+          "Conditions": ["パッド入力 トリガーボタン押している 反転"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃",
+      "NextStates": [
+        {
+          "NextStateName": "射撃（再生フレーム引き継ぎ） ",
+          "Conditions": ["パッド入力 トリガーボタン押している 反転"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃（再生フレーム引き継ぎ）",
+      "NextStates": [
+        {
+          "NextStateName": "射撃終了 ",
+          "Conditions": ["アニメーション終了 武器アニメ"]
+        },
+        {
+          "NextStateName": "射撃（マルチロック待機） ",
+          "Conditions": ["パッド入力 トリガーボタン押している", "攻撃可能状態"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃終了",
+      "NextStates": [
+        {
+          "NextStateName": "射撃待機 ",
+          "Conditions": ["アニメーション終了 武器アニメ"]
+        },
+        {
+          "NextStateName": "射撃 ",
+          "Conditions": ["パッド入力 トリガーボタン押している", "攻撃可能状態"]
+        }
+      ]
+    },
+    {
+      "StateName": "起動⇒待機",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    }
+  ]
+}

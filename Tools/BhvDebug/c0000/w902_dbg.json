@@ -1,0 +1,52 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "待機",
+      "NextStates": [
+        {
+          "NextStateName": "ステルス開始 ",
+          "Conditions": [
+            "パッド入力 ステルス",
+            "本体ステート行動タイプ ステルス状態 反転",
+            "着地判定 空中 一致 反転"
+          ]
+        }
+      ]
+    },
+    {
+      "StateName": "ステルス開始",
+      "NextStates": [
+        {
+          "NextStateName": "ステルスモード ",
+          "Conditions": [
+            "ステート経過時間（選択式） 切り替え先のステートが終了した"
+          ]
+        }
+      ]
+    },
+    {
+      "StateName": "ステルスモード",
+      "NextStates": [
+        {
+          "NextStateName": "ステルス解除 ",
+          "Conditions": [
+            "パッド入力 ステルス",
+            "本体ステート行動タイプ ステルス状態 反転",
+            "着地判定 空中 一致 反転"
+          ]
+        }
+      ]
+    },
+    {
+      "StateName": "ステルス解除",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": [
+            "ステート経過時間（選択式） 切り替え先のステートが終了した"
+          ]
+        }
+      ]
+    }
+  ]
+}

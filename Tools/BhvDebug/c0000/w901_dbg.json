@@ -1,0 +1,145 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "待機",
+      "NextStates": [
+        {
+          "NextStateName": "ワイヤー射出 ",
+          "Conditions": ["パッド入力 ワイヤー射出", "攻撃可能状態"]
+        }
+      ]
+    },
+    {
+      "StateName": "ワイヤー射出",
+      "NextStates": [
+        {
+          "NextStateName": "ワイヤー移動_開始 ",
+          "Conditions": [
+            "アニメーション終了 攻撃アニメ",
+            "移動関連その他 ワイヤー出しているか"
+          ]
+        },
+        {
+          "NextStateName": "ワイヤー射出キャンセル ",
+          "Conditions": [
+            "アニメーション終了 攻撃アニメ",
+            "移動関連その他 ワイヤー出しているか 反転"
+          ]
+        }
+      ]
+    },
+    {
+      "StateName": "ワイヤー射出キャンセル",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": []
+        }
+      ]
+    },
+    {
+      "StateName": "ワイヤー射出キャンセル（ワイヤー移動から遷移）",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["ステート経過時間 0.5 超過"]
+        }
+      ]
+    },
+    {
+      "StateName": "ワイヤー移動_開始",
+      "NextStates": [
+        {
+          "NextStateName": "ワイヤー移動_引き寄せ中 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        },
+        {
+          "NextStateName": "ワイヤー射出キャンセル（ワイヤー移動から遷移） ",
+          "Conditions": ["パッド入力 ワイヤー射出"]
+        }
+      ]
+    },
+    {
+      "StateName": "ワイヤー移動_引き寄せ中",
+      "NextStates": [
+        {
+          "NextStateName": "ワイヤー移動_壁着地_開始 ",
+          "Conditions": [
+            "[100m以内] 移動関連その他 ワイヤーの長さ",
+            "着地判定 空中 一致"
+          ]
+        },
+        {
+          "NextStateName": "ワイヤー移動_地面着地 ",
+          "Conditions": [
+            "[30m以内] 移動関連その他 ワイヤーの長さ",
+            "着地判定 空中 一致 反転"
+          ]
+        },
+        {
+          "NextStateName": "ワイヤー射出キャンセル（ワイヤー移動から遷移） ",
+          "Conditions": ["パッド入力 ワイヤー射出"]
+        }
+      ]
+    },
+    {
+      "StateName": "ワイヤー移動_地面着地",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": []
+        }
+      ]
+    },
+    {
+      "StateName": "ワイヤー移動_壁着地_開始",
+      "NextStates": [
+        {
+          "NextStateName": "ワイヤー移動_壁着地 ",
+          "Conditions": [
+            "壁当たり 接触しているか調べるだけ",
+            "着地判定 空中 一致"
+          ]
+        },
+        {
+          "NextStateName": "ワイヤー移動_地面着地 ",
+          "Conditions": [
+            "アニメーション終了 攻撃アニメ",
+            "着地判定 空中 一致 反転"
+          ]
+        },
+        {
+          "NextStateName": "ワイヤー移動_地面着地 ※保険",
+          "Conditions": [
+            "アニメーション終了 攻撃アニメ",
+            "ステート経過時間 1 超過"
+          ]
+        }
+      ]
+    },
+    {
+      "StateName": "ワイヤー移動_壁着地",
+      "NextStates": [
+        {
+          "NextStateName": "ワイヤー移動_壁ジャンプ ",
+          "Conditions": ["着地判定 空中 一致", "ステート経過時間 0.2 超過"]
+        },
+        {
+          "NextStateName": "ワイヤー移動_地面着地 ",
+          "Conditions": ["着地判定 空中 一致 反転", "ステート経過時間 0.2 超過"]
+        }
+      ]
+    },
+    {
+      "StateName": "ワイヤー移動_壁ジャンプ",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": [
+            "ステート経過時間（選択式） 切り替え先のステートが終了した"
+          ]
+        }
+      ]
+    }
+  ]
+}

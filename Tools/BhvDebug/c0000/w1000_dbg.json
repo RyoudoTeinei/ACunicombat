@@ -1,0 +1,8 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "新規ステート",
+      "NextStates": []
+    }
+  ]
+}

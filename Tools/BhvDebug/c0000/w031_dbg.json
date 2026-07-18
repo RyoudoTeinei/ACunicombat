@@ -1,0 +1,88 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "待機",
+      "NextStates": [
+        {
+          "NextStateName": "武器展開 ",
+          "Conditions": ["なし"]
+        }
+      ]
+    },
+    {
+      "StateName": "武器展開",
+      "NextStates": [
+        {
+          "NextStateName": "武器展開待機 ",
+          "Conditions": ["アニメーション終了 武器アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "武器展開待機",
+      "NextStates": [
+        {
+          "NextStateName": "PA展開 ",
+          "Conditions": ["パッド入力 トリガーボタン押した"]
+        },
+        {
+          "NextStateName": "機能切り替え① ",
+          "Conditions": ["パッド入力 武器変形"]
+        }
+      ]
+    },
+    {
+      "StateName": "PA展開",
+      "NextStates": [
+        {
+          "NextStateName": "PA展開中 ",
+          "Conditions": ["アニメーション終了 武器アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "PA展開中",
+      "NextStates": [
+        {
+          "NextStateName": "PA解除 ",
+          "Conditions": ["パッド入力 トリガーボタン押した"]
+        },
+        {
+          "NextStateName": "機能切り替え② ",
+          "Conditions": ["パッド入力 武器変形"]
+        }
+      ]
+    },
+    {
+      "StateName": "PA解除",
+      "NextStates": [
+        {
+          "NextStateName": "武器展開待機 ",
+          "Conditions": ["アニメーション終了 武器アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "機能切り替え①",
+      "NextStates": [
+        {
+          "NextStateName": "【ダミー】格納中 ",
+          "Conditions": ["アニメーション終了 武器アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "機能切り替え②",
+      "NextStates": [
+        {
+          "NextStateName": "【ダミー】格納中 ",
+          "Conditions": ["アニメーション終了 武器アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "【ダミー】格納中",
+      "NextStates": []
+    }
+  ]
+}

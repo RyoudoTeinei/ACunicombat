@@ -1,0 +1,22 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "待機",
+      "NextStates": [
+        {
+          "NextStateName": "ブーストON ",
+          "Conditions": ["パッド入力 地上ブースト"]
+        }
+      ]
+    },
+    {
+      "StateName": "ブーストON",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["パッド入力 地上ブースト"]
+        }
+      ]
+    }
+  ]
+}

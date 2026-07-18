@@ -1,0 +1,187 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "待機",
+      "NextStates": [
+        {
+          "NextStateName": "射撃待機 ",
+          "Conditions": ["パッド入力 トリガーボタン押している"]
+        },
+        {
+          "NextStateName": "リロード ",
+          "Conditions": ["パッド入力 弾丸リロード"]
+        },
+        {
+          "NextStateName": "リロード ",
+          "Conditions": ["残弾数 マガジン空っぽ"]
+        },
+        {
+          "NextStateName": "銃→近接武器変形 ",
+          "Conditions": ["パッド入力 武器変形"]
+        },
+        {
+          "NextStateName": "武器変形攻撃（銃→変形） ",
+          "Conditions": ["パッド入力 武器変形攻撃"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃待機",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": [
+            "ステート経過時間 0.5 超過",
+            "パッド入力 トリガーボタン押している 反転"
+          ]
+        },
+        {
+          "NextStateName": "射撃 ",
+          "Conditions": [
+            "パッド入力 トリガーボタン押している",
+            "射撃 銃口がターゲット方向に向いている",
+            "攻撃可能状態"
+          ]
+        },
+        {
+          "NextStateName": "射撃時リロード ",
+          "Conditions": ["パッド入力 弾丸リロード"]
+        },
+        {
+          "NextStateName": "射撃時リロード ",
+          "Conditions": ["残弾数 マガジン空っぽ"]
+        },
+        {
+          "NextStateName": "銃→近接武器変形 ",
+          "Conditions": ["パッド入力 武器変形"]
+        },
+        {
+          "NextStateName": "武器変形攻撃（銃→変形） ",
+          "Conditions": ["パッド入力 武器変形攻撃"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃",
+      "NextStates": [
+        {
+          "NextStateName": "射撃待機 ",
+          "Conditions": ["パッド入力 トリガーボタン押している 反転"]
+        },
+        {
+          "NextStateName": "射撃時リロード ",
+          "Conditions": ["パッド入力 弾丸リロード"]
+        },
+        {
+          "NextStateName": "射撃時リロード ",
+          "Conditions": ["残弾数 マガジン空っぽ"]
+        },
+        {
+          "NextStateName": "銃→近接武器変形 ",
+          "Conditions": ["パッド入力 武器変形"]
+        },
+        {
+          "NextStateName": "武器変形攻撃（銃→変形） ",
+          "Conditions": ["パッド入力 武器変形攻撃"]
+        }
+      ]
+    },
+    {
+      "StateName": "リロード",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": [
+            "アニメーション終了 本体アニメ",
+            "パッド入力 トリガーボタン押している 反転"
+          ]
+        },
+        {
+          "NextStateName": "射撃待機 ",
+          "Conditions": [
+            "アニメーション終了 本体アニメ",
+            "パッド入力 トリガーボタン押している"
+          ]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃時リロード",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": [
+            "アニメーション終了 本体アニメ",
+            "パッド入力 トリガーボタン押している 反転"
+          ]
+        },
+        {
+          "NextStateName": "射撃待機 ",
+          "Conditions": ["アニメーション終了 本体アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "銃→近接武器変形",
+      "NextStates": [
+        {
+          "NextStateName": "近接武器待機 ",
+          "Conditions": ["アニメーション終了 本体アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "武器変形攻撃（銃→変形）",
+      "NextStates": [
+        {
+          "NextStateName": "近接武器待機 ",
+          "Conditions": ["アニメーション終了 本体アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "近接武器待機",
+      "NextStates": [
+        {
+          "NextStateName": "近接攻撃中 ",
+          "Conditions": ["パッド入力 トリガーボタン押した"]
+        },
+        {
+          "NextStateName": "近接武器→銃変形 ",
+          "Conditions": ["パッド入力 武器変形"]
+        },
+        {
+          "NextStateName": "武器変形攻撃（近接→銃） ",
+          "Conditions": ["パッド入力 武器変形攻撃"]
+        }
+      ]
+    },
+    {
+      "StateName": "近接攻撃中",
+      "NextStates": [
+        {
+          "NextStateName": "近接武器待機 ",
+          "Conditions": ["制御プログラム終了"]
+        }
+      ]
+    },
+    {
+      "StateName": "近接武器→銃変形",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 本体アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "武器変形攻撃（近接→銃）",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 本体アニメ"]
+        }
+      ]
+    }
+  ]
+}

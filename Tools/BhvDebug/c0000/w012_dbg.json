@@ -1,0 +1,321 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "待機",
+      "NextStates": [
+        {
+          "NextStateName": "射撃 ",
+          "Conditions": [
+            "パッド入力 トリガーボタン押している",
+            "攻撃可能状態",
+            "本体ステート行動タイプ 腕武器射撃硬直 反転",
+            "本体ステート行動タイプ 格闘攻撃 反転",
+            "本体ステート行動タイプ ガードブレイク 反転"
+          ]
+        },
+        {
+          "NextStateName": "空中時射撃 ",
+          "Conditions": [
+            "パッド入力 トリガーボタン押している",
+            "攻撃可能状態",
+            "本体ステート行動タイプ 腕武器射撃硬直 反転",
+            "本体ステート行動タイプ 格闘攻撃 反転",
+            "本体ステート行動タイプ ガードブレイク 反転",
+            "着地判定 空中 一致"
+          ]
+        },
+        {
+          "NextStateName": "リロード① ",
+          "Conditions": ["パッド入力 弾丸リロード"]
+        },
+        {
+          "NextStateName": "リロード① ",
+          "Conditions": ["残弾数 マガジン空っぽ"]
+        },
+        {
+          "NextStateName": "待機時武器切り替え（通常⇒変形後） ",
+          "Conditions": ["パッド入力 武器切り替え"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        },
+        {
+          "NextStateName": "待機 ",
+          "Conditions": [
+            "キャラ制御フラグ 移動用アニメキャンセルフラグ",
+            "パッド入力 入力無し（一瞬で判定） 反転"
+          ]
+        },
+        {
+          "NextStateName": "射撃時リロード① ",
+          "Conditions": [
+            "パッド入力 弾丸リロード",
+            "キャラ制御フラグ リロード用アニメキャンセルフラグ"
+          ]
+        },
+        {
+          "NextStateName": "射撃時リロード① ",
+          "Conditions": [
+            "残弾数 マガジン空っぽ",
+            "キャラ制御フラグ リロード用アニメキャンセルフラグ"
+          ]
+        }
+      ]
+    },
+    {
+      "StateName": "空中時射撃",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        },
+        {
+          "NextStateName": "待機 ",
+          "Conditions": [
+            "キャラ制御フラグ 移動用アニメキャンセルフラグ",
+            "パッド入力 入力無し（一瞬で判定） 反転"
+          ]
+        },
+        {
+          "NextStateName": "射撃時リロード① ",
+          "Conditions": [
+            "パッド入力 弾丸リロード",
+            "キャラ制御フラグ リロード用アニメキャンセルフラグ"
+          ]
+        },
+        {
+          "NextStateName": "射撃時リロード① ",
+          "Conditions": [
+            "残弾数 マガジン空っぽ",
+            "キャラ制御フラグ リロード用アニメキャンセルフラグ"
+          ]
+        }
+      ]
+    },
+    {
+      "StateName": "リロード①",
+      "NextStates": [
+        {
+          "NextStateName": "リロード② ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "リロード②",
+      "NextStates": [
+        {
+          "NextStateName": "リロード③ ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "リロード③",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃時リロード①",
+      "NextStates": [
+        {
+          "NextStateName": "射撃時リロード② ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "射撃時リロード②",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_待機",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_起動 ",
+          "Conditions": ["パッド入力 トリガーボタン押している"]
+        },
+        {
+          "NextStateName": "待機時武器切り替え（変形後⇒通常） ",
+          "Conditions": ["パッド入力 武器切り替え"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_起動",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_射撃開始 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_射撃待機",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_射撃終了→待機 ",
+          "Conditions": [
+            "パッド入力 トリガーボタン押している 反転",
+            "ステート経過時間 2 超過"
+          ]
+        },
+        {
+          "NextStateName": "変形時_射撃開始 ",
+          "Conditions": ["パッド入力 トリガーボタン押している", "攻撃可能状態"]
+        },
+        {
+          "NextStateName": "変形時_武器切り替え ",
+          "Conditions": ["パッド入力 武器切り替え"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_射撃開始",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_射撃中 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_射撃中",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_射撃終了 ",
+          "Conditions": ["パッド入力 トリガーボタン押している 反転"]
+        },
+        {
+          "NextStateName": "変形時_武器切り替え ",
+          "Conditions": ["パッド入力 武器切り替え"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_射撃終了",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_射撃待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_射撃終了→待機",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_射撃起動待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_射撃起動待機",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_格納① ",
+          "Conditions": [
+            "ターゲットロック中 固定ロック中 反転",
+            "ステート経過時間 10 超過"
+          ]
+        },
+        {
+          "NextStateName": "変形時_射撃待機→起動 ",
+          "Conditions": ["パッド入力 トリガーボタン押している"]
+        },
+        {
+          "NextStateName": "起動待機時武器切り替え①（変形後⇒通常） ",
+          "Conditions": ["パッド入力 武器切り替え"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_射撃待機→起動",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_射撃開始 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_武器切り替え",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_格納①",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_格納② ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "変形時_格納②",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "待機時武器切り替え（通常⇒変形後）",
+      "NextStates": [
+        {
+          "NextStateName": "変形時_射撃待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "待機時武器切り替え（変形後⇒通常）",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["なし"]
+        }
+      ]
+    },
+    {
+      "StateName": "起動待機時武器切り替え①（変形後⇒通常）",
+      "NextStates": [
+        {
+          "NextStateName": "起動待機時武器切り替え②（変形後⇒通常） ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    },
+    {
+      "StateName": "起動待機時武器切り替え②（変形後⇒通常）",
+      "NextStates": [
+        {
+          "NextStateName": "待機 ",
+          "Conditions": ["アニメーション終了 攻撃アニメ"]
+        }
+      ]
+    }
+  ]
+}

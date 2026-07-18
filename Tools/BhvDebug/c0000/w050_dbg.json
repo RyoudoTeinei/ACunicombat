@@ -1,0 +1,40 @@
+﻿{
+  "AllStates": [
+    {
+      "StateName": "背中待機",
+      "NextStates": [
+        {
+          "NextStateName": "手武器と合体 ",
+          "Conditions": ["攻撃関連その他 武器変形中か"]
+        }
+      ]
+    },
+    {
+      "StateName": "手武器と合体",
+      "NextStates": [
+        {
+          "NextStateName": "合体中 ",
+          "Conditions": ["攻撃関連その他 武器変形中か 反転"]
+        }
+      ]
+    },
+    {
+      "StateName": "合体中",
+      "NextStates": [
+        {
+          "NextStateName": "手武器から分離 ",
+          "Conditions": ["攻撃関連その他 武器変形中か"]
+        }
+      ]
+    },
+    {
+      "StateName": "手武器から分離",
+      "NextStates": [
+        {
+          "NextStateName": "背中待機 ",
+          "Conditions": ["攻撃関連その他 武器変形中か 反転"]
+        }
+      ]
+    }
+  ]
+}
