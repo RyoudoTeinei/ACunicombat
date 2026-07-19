@@ -49,6 +49,26 @@ namespace ACunicombat.Mechs
             Reset();
         }
 
+        /// <summary>
+        /// 运行期补挂动作播放器（showcase 控制器在 Start() 才装配 player）：
+        /// 立即补播当前状态动画，避免绑定前进入的状态哑播。
+        /// </summary>
+        public void AttachActionPlayer(MechBodyActionPlayer player)
+        {
+            actionPlayer = player;
+            if (graph == null || currentState < 0 || player == null)
+            {
+                return;
+            }
+
+            ref readonly var state = ref graph.states[currentState];
+            if (state.animAvailable && !string.IsNullOrEmpty(state.actionId)
+                && player.HasAction(state.actionId))
+            {
+                player.PlayFullBody(state.actionId);
+            }
+        }
+
         public void Reset()
         {
             currentState = -1;

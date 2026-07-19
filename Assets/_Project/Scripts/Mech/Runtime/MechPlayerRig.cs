@@ -43,15 +43,40 @@ namespace ACunicombat.Mechs
                 graphRunner.StateChanged += OnGraphStateChanged;
             }
 
-            if (weaponLayer != null && actionPlayer != null)
-            {
-                weaponLayer.Configure(actionPlayer);
-            }
-
             if (cam != null && motion != null)
             {
                 cam.Configure(transform, motion);
             }
+        }
+
+        /// <summary>
+        /// MechBodyActionPlayer 由 showcase 控制器在 Start() 里装配到机体根上（外部控制模式
+        /// 仍保留该职责），因此这里延迟绑定：每帧尝试直到拿到。
+        /// </summary>
+        private bool EnsureActionPlayer()
+        {
+            if (actionPlayer != null)
+            {
+                return true;
+            }
+
+            actionPlayer = GetComponentInChildren<MechBodyActionPlayer>();
+            if (actionPlayer == null)
+            {
+                return false;
+            }
+
+            if (weaponLayer != null)
+            {
+                weaponLayer.Configure(actionPlayer);
+            }
+
+            if (graphRunner != null)
+            {
+                graphRunner.AttachActionPlayer(actionPlayer);
+            }
+
+            return true;
         }
 
         private void OnDestroy()
@@ -91,6 +116,7 @@ namespace ACunicombat.Mechs
             }
 
             var dt = Time.deltaTime;
+            EnsureActionPlayer();
             lastFrame = input.Sample();
 
             if (cam != null)

@@ -63,6 +63,9 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechEffectPrefabLibrary effectLibrary;
         [SerializeField, Min(2f)] private float phaseDuration = 3.5f;
         [SerializeField] private bool loop = true;
+        [Tooltip("外部控制模式：保留 Start() 的部件/动作/特效装配，但不进入演示阶段循环，" +
+                 "动作选择交给行为图解释器 + 玩家输入（MechPlayerRig）。")]
+        [SerializeField] private bool externalControlMode;
 
         [Header("Body actions (optional until the TAE action table is confirmed)")]
         [SerializeField] private MechActionRegistry actionRegistry;
@@ -181,11 +184,27 @@ namespace ACunicombat.Mechs
                 $"pileBunker={(pileBunkerPlayer != null ? 1 : 0)}, " +
                 $"exhausts={boosterExhausts.Count}, fxrPrefabs={(effectLibrary == null ? 0 : effectLibrary.entries.Count)}.",
                 mech);
+            if (externalControlMode)
+            {
+                return; // 装配完成即退出：不进入演示阶段，动作由外部行为图驱动。
+            }
+
             EnterPhase(0);
         }
 
+        /// <summary>外部控制模式开关（玩家控制场景构建器写入）。</summary>
+        public void SetExternalControlMode(bool value) => externalControlMode = value;
+
+        /// <summary>Start() 装配出的动作播放器（外部控制模式下由 MechPlayerRig 消费）。</summary>
+        public MechBodyActionPlayer ConfiguredBodyActionPlayer => bodyActionPlayer;
+
         private void Update()
         {
+            if (externalControlMode)
+            {
+                return;
+            }
+
             var phaseCount = Enum.GetValues(typeof(ShowcasePhase)).Length;
             elapsed += Time.deltaTime;
             var phase = Mathf.FloorToInt(elapsed / phaseDuration);
