@@ -51,6 +51,9 @@ namespace ACunicombat.Mechs
         private readonly LayerState[] layers = { new LayerState(), new LayerState() };
         private PlayableGraph graph;
         private double clock;
+        private int upperBodyMaskPartCount;
+        private int upperBodyMaskMatchedBoneCount;
+        private int upperBodyMaskActivePathCount;
 
         public MechActionRegistry Registry => registry;
         public bool IsGraphValid => graph.IsValid();
@@ -59,6 +62,10 @@ namespace ACunicombat.Mechs
         public int SharedBoneBindingCount => sharedBoneBindings.Count;
         public string ActiveFullBodyActionId => layers[0].Active?.actionId ?? string.Empty;
         public string ActiveUpperBodyActionId => layers[1].Active?.actionId ?? string.Empty;
+        public float UpperBodyLayerWeight => layers[1].LayerWeight;
+        public int UpperBodyMaskPartCount => upperBodyMaskPartCount;
+        public int UpperBodyMaskMatchedBoneCount => upperBodyMaskMatchedBoneCount;
+        public int UpperBodyMaskActivePathCount => upperBodyMaskActivePathCount;
 
         public void Configure(
             MechActionRegistry actionRegistry,
@@ -444,6 +451,9 @@ namespace ACunicombat.Mechs
         {
             graph = PlayableGraph.Create($"{name}_MechBodyActions");
             graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
+            upperBodyMaskPartCount = 0;
+            upperBodyMaskMatchedBoneCount = 0;
+            upperBodyMaskActivePathCount = 0;
 
             for (var i = 0; i < parts.Count; i++)
             {
@@ -457,10 +467,13 @@ namespace ACunicombat.Mechs
                     part.LayerMixer.SetInputWeight(layerIndex, layerIndex == 0 ? 1f : 0f);
                 }
 
-                var mask = BuildUpperBodyMask(part);
+                var mask = BuildUpperBodyMask(part, out var matchedBoneCount, out var activePathCount);
                 if (mask != null)
                 {
                     part.LayerMixer.SetLayerMaskFromAvatarMask(1, mask);
+                    upperBodyMaskPartCount++;
+                    upperBodyMaskMatchedBoneCount += matchedBoneCount;
+                    upperBodyMaskActivePathCount += activePathCount;
                 }
 
                 var output = AnimationPlayableOutput.Create(graph, $"Part_{i:00}", part.Animator);
@@ -468,18 +481,29 @@ namespace ACunicombat.Mechs
             }
 
             graph.Play();
+            Debug.Log(
+                $"[MechBodyActionPlayer] Upper-body masks: parts={upperBodyMaskPartCount}/{parts.Count}, " +
+                $"matchedBones={upperBodyMaskMatchedBoneCount}, activePaths={upperBodyMaskActivePathCount}.",
+                this);
         }
 
-        private AvatarMask BuildUpperBodyMask(PartState part)
+        private AvatarMask BuildUpperBodyMask(
+            PartState part,
+            out int matchedBoneCount,
+            out int activePathCount)
         {
+            matchedBoneCount = 0;
+            activePathCount = 0;
             if (upperBodyBoneNames.Count == 0)
             {
                 return null;
             }
 
             var mask = new AvatarMask { name = $"{part.Source.PartRoot.name}_UpperBodyMask" };
-            var found = 0;
+            var root = part.Source.PartRoot.transform;
             var transforms = part.Source.PartRoot.GetComponentsInChildren<Transform>(true);
+            var wantedNames = new HashSet<string>(upperBodyBoneNames, System.StringComparer.Ordinal);
+            var activeTransforms = new HashSet<Transform>();
             for (var nameIndex = 0; nameIndex < upperBodyBoneNames.Count; nameIndex++)
             {
                 var boneName = upperBodyBoneNames[nameIndex];
@@ -492,14 +516,77 @@ namespace ACunicombat.Mechs
                 {
                     if (string.Equals(transforms[i].name, boneName, System.StringComparison.Ordinal))
                     {
-                        mask.AddTransformPath(transforms[i], false);
-                        found++;
+                        matchedBoneCount++;
                         break;
                     }
                 }
             }
 
-            return found > 0 ? mask : null;
+            if (matchedBoneCount == 0)
+            {
+                return null;
+            }
+
+            // AvatarMask paths must be relative to the Animator GameObject. AddTransformPath
+            // derives paths from the scene root, which is wrong after modular parts are nested
+            // under the assembled mech. Build the complete relative path table explicitly and
+            // keep the ancestor chain active so masked child curves can reach the arm bones.
+            for (var i = 0; i < transforms.Length; i++)
+            {
+                if (!wantedNames.Contains(transforms[i].name))
+                {
+                    continue;
+                }
+
+                for (var current = transforms[i]; current != null; current = current.parent)
+                {
+                    activeTransforms.Add(current);
+                    if (current == root)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            mask.transformCount = transforms.Length;
+            for (var i = 0; i < transforms.Length; i++)
+            {
+                var path = GetRelativeTransformPath(transforms[i], root);
+                if (path == null)
+                {
+                    continue;
+                }
+
+                var active = activeTransforms.Contains(transforms[i]);
+                mask.SetTransformPath(i, path);
+                mask.SetTransformActive(i, active);
+                if (active)
+                {
+                    activePathCount++;
+                }
+            }
+
+            return mask;
+        }
+
+        private static string GetRelativeTransformPath(Transform target, Transform root)
+        {
+            if (target == root)
+            {
+                return string.Empty;
+            }
+
+            var segments = new Stack<string>();
+            for (var current = target; current != null && current != root; current = current.parent)
+            {
+                segments.Push(current.name);
+                if (current.parent == root)
+                {
+                    return string.Join("/", segments);
+                }
+            }
+
+            return null;
         }
 
         private void DestroyGraph()
