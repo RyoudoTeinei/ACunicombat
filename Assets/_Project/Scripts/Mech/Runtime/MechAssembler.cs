@@ -300,6 +300,16 @@ namespace ACunicombat.Mechs
             // data defines. This drives the real animation target nodes inside the imported
             // model — never bake action-derived angles onto the wrapper instance, or any later
             // playback (whose curves carry absolute rest-composed values) doubles the rotation.
+            if (!part.PlayDefaultEquipmentActionOnAssemble &&
+                (part.Slot == MechPartSlot.LeftBackWeapon || part.Slot == MechPartSlot.RightBackWeapon))
+            {
+                // AC6 shoulder idle clips are sparse and do not key every door or deployment
+                // bone. Reconstruct the fully stowed pose from the ends of the official
+                // aimed->deployed and deployed->rest transitions before sampling idle.
+                player.SampleActionAtEnd("a000_800320");
+                player.SampleActionAtEnd("a000_800310");
+            }
+
             if (!part.PlayDefaultEquipmentActionOnAssemble && !string.IsNullOrWhiteSpace(part.DefaultEquipmentActionId))
             {
                 player.SampleActionAtTime(part.DefaultEquipmentActionId, 0f);

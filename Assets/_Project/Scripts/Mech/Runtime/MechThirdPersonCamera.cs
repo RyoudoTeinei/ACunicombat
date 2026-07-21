@@ -11,21 +11,31 @@ namespace ACunicombat.Mechs
     {
         [SerializeField] private Transform followTarget;
         [SerializeField] private MechFlightMotionController motion;
-        [SerializeField] private float distance = 9f;
-        [SerializeField] private float height = 3f;
+        [SerializeField] private float distance = 20f;
+        [SerializeField] private float focusHeight = 6f;
         [SerializeField] private float pitchSensitivity = 0.12f;
         [SerializeField] private float minPitch = -60f;
         [SerializeField] private float maxPitch = 70f;
         [SerializeField] private float followLerp = 12f;
 
-        private float pitchDegrees = 10f;
+        private float pitchDegrees = 8f;
 
         public float PitchDegrees => pitchDegrees;
+
+        public Quaternion AimRotation => ComputeRotation();
 
         public void Configure(Transform target, MechFlightMotionController motionController)
         {
             followTarget = target;
             motion = motionController;
+            SnapBehindTarget();
+        }
+
+        public void ConfigureFraming(float followDistance, float targetFocusHeight, float initialPitchDegrees)
+        {
+            distance = Mathf.Max(1f, followDistance);
+            focusHeight = Mathf.Max(0f, targetFocusHeight);
+            pitchDegrees = Mathf.Clamp(initialPitchDegrees, minPitch, maxPitch);
             SnapBehindTarget();
         }
 
@@ -37,10 +47,10 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            transform.SetPositionAndRotation(ComputePosition(1f), ComputeRotation());
+            transform.SetPositionAndRotation(ComputePosition(), ComputeRotation());
         }
 
-        public void Tick(in MechPlayerInputFrame frame, float deltaTime)
+        public void UpdateLook(in MechPlayerInputFrame frame)
         {
             if (followTarget == null || motion == null)
             {
@@ -49,20 +59,35 @@ namespace ACunicombat.Mechs
 
             pitchDegrees = Mathf.Clamp(
                 pitchDegrees - frame.MouseDelta.y * pitchSensitivity, minPitch, maxPitch);
+        }
+
+        public void Follow(float deltaTime)
+        {
+            if (followTarget == null || motion == null)
+            {
+                return;
+            }
 
             var t = 1f - Mathf.Exp(-followLerp * deltaTime);
             transform.SetPositionAndRotation(
-                Vector3.Lerp(transform.position, ComputePosition(1f), t),
+                Vector3.Lerp(transform.position, ComputePosition(), t),
                 ComputeRotation());
         }
 
-        private Quaternion ComputeRotation() =>
-            Quaternion.Euler(pitchDegrees, motion.YawDegrees, 0f); // Roll 恒 0
+        public void Tick(in MechPlayerInputFrame frame, float deltaTime)
+        {
+            UpdateLook(in frame);
+            Follow(deltaTime);
+        }
 
-        private Vector3 ComputePosition(float blend)
+        private Quaternion ComputeRotation() =>
+            Quaternion.Euler(pitchDegrees, motion.LogicalYawDegrees, 0f); // Roll remains zero.
+
+        private Vector3 ComputePosition()
         {
             var rot = ComputeRotation();
-            return followTarget.position - rot * Vector3.forward * distance + Vector3.up * height;
+            var focusPoint = followTarget.position + Vector3.up * focusHeight;
+            return focusPoint - rot * Vector3.forward * distance;
         }
     }
 }

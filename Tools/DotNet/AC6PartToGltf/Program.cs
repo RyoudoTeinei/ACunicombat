@@ -3,8 +3,9 @@
 // skeleton, verifies each part FLVER's bind pose against the merged skeleton, and exports a
 // skinned glTF 2.0 binary (.glb) with optional animation from a pose JSON.
 //
-// Coordinate convention: everything stays in FromSoft/Havok space (right-handed, Y-up), which is
-// also glTF's native convention. No axis conversion is performed anywhere in this tool.
+// Coordinate convention: FromSoft/Havok data is reflected across X before it is written to glTF.
+// glTF importers such as glTFast perform the inverse RH->Unity reflection, so the final Unity
+// hierarchy keeps the source model's anatomical left/right instead of silently mirroring it.
 
 using System.Numerics;
 using System.Reflection;
@@ -495,6 +496,16 @@ sealed class PartModel
 
 static class GltfBuilder
 {
+    private static readonly Matrix4x4 FromSoftToGltfBasis = Matrix4x4.CreateScale(-1f, 1f, 1f);
+
+    private static Vector3 ToGltfVector(Vector3 value) => new(-value.X, value.Y, value.Z);
+
+    private static Quaternion ToGltfRotation(Quaternion value) =>
+        Quaternion.Normalize(new Quaternion(value.X, -value.Y, -value.Z, value.W));
+
+    private static Matrix4x4 ToGltfMatrix(Matrix4x4 value) =>
+        FromSoftToGltfBasis * value * FromSoftToGltfBasis;
+
     public static byte[] Build(MergedSkeleton merged, List<PartModel> parts, IReadOnlyList<PoseJson> sourceAnimations, CliOptions options)
     {
         var bin = new BinWriter();
@@ -511,8 +522,10 @@ static class GltfBuilder
         foreach (var bone in merged.Bones)
         {
             var n = new Dictionary<string, object> { ["name"] = bone.Name };
-            if (bone.T != Vector3.Zero) n["translation"] = new[] { bone.T.X, bone.T.Y, bone.T.Z };
-            if (bone.R != Quaternion.Identity) n["rotation"] = new[] { bone.R.X, bone.R.Y, bone.R.Z, bone.R.W };
+            var translation = ToGltfVector(bone.T);
+            var rotation = ToGltfRotation(bone.R);
+            if (translation != Vector3.Zero) n["translation"] = new[] { translation.X, translation.Y, translation.Z };
+            if (rotation != Quaternion.Identity) n["rotation"] = new[] { rotation.X, rotation.Y, rotation.Z, rotation.W };
             if (bone.S != Vector3.One) n["scale"] = new[] { bone.S.X, bone.S.Y, bone.S.Z };
             nodes.Add(n);
         }
@@ -553,7 +566,7 @@ static class GltfBuilder
 
         var ibmBytes = new byte[jointCount * 64];
         for (var i = 0; i < jointCount; i++)
-            WriteMatrix(ibmBytes.AsSpan(i * 64), ibms[i]);
+            WriteMatrix(ibmBytes.AsSpan(i * 64), ToGltfMatrix(ibms[i]));
         var ibmView = bin.AddBufferView(ibmBytes, bufferViews, null);
         var deformIbmAccessor = accessors.Count;
         accessors.Add(new Dictionary<string, object>
@@ -768,6 +781,7 @@ static class GltfBuilder
                         local *= inverseParentBind;
                 }
 
+                local = ToGltfMatrix(local);
                 Matrix4x4.Decompose(local, out _, out var rq, out var tv);
                 var dn = new Dictionary<string, object>
                 {
@@ -842,6 +856,9 @@ static class GltfBuilder
         if (faceSet == null) return null;
         var indices = Triangulate(faceSet, verts.Count);
         if (indices.Count == 0) return null;
+        // Reflecting one axis reverses triangle handedness. Restore front-face winding.
+        for (var i = 0; i + 2 < indices.Count; i += 3)
+            (indices[i + 1], indices[i + 2]) = (indices[i + 2], indices[i + 1]);
 
         var vcount = verts.Count;
         var pos = new byte[vcount * 12];
@@ -872,6 +889,7 @@ static class GltfBuilder
             var v = verts[i];
             var p = v.Position;
             if (isRigid) p = Vector3.Transform(p, rigidTransform);
+            p = ToGltfVector(p);
             min = Vector3.Min(min, p);
             max = Vector3.Max(max, p);
             BitConverter.TryWriteBytes(pos.AsSpan(i * 12), p.X);
@@ -881,6 +899,7 @@ static class GltfBuilder
             var n = v.Normal;
             if (isRigid) n = Vector3.TransformNormal(n, rigidTransform);
             if (n.LengthSquared() > 1e-6f) n = Vector3.Normalize(n);
+            n = ToGltfVector(n);
             BitConverter.TryWriteBytes(nrm.AsSpan(i * 12), n.X);
             BitConverter.TryWriteBytes(nrm.AsSpan(i * 12 + 4), n.Y);
             BitConverter.TryWriteBytes(nrm.AsSpan(i * 12 + 8), n.Z);
@@ -1045,13 +1064,13 @@ static class GltfBuilder
             for (var f = 0; f < frameCount; f++)
             {
                 var tr = anim.Frames[f].LocalTransforms[b];
-                var t = targetRest.T + (tr.T - sourceRest.T);
+                var t = ToGltfVector(targetRest.T + (tr.T - sourceRest.T));
                 BitConverter.TryWriteBytes(tBytes.AsSpan(f * 12), t.X);
                 BitConverter.TryWriteBytes(tBytes.AsSpan(f * 12 + 4), t.Y);
                 BitConverter.TryWriteBytes(tBytes.AsSpan(f * 12 + 8), t.Z);
 
                 var rotationDelta = Quaternion.Normalize(tr.R * Quaternion.Inverse(sourceRest.R));
-                var q = Quaternion.Normalize(rotationDelta * targetRest.R);
+                var q = ToGltfRotation(Quaternion.Normalize(rotationDelta * targetRest.R));
                 if (f > 0 && Quaternion.Dot(q, prev) < 0)
                     q = new Quaternion(-q.X, -q.Y, -q.Z, -q.W);
                 prev = q;

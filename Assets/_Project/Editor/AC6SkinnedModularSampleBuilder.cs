@@ -19,6 +19,10 @@ public static class AC6SkinnedModularSampleBuilder
     private const string PartRoot = GeneratedRoot + "/Parts";
     private const string LoadoutRoot = GeneratedRoot + "/Loadouts";
     private const string SceneRoot = GeneratedRoot + "/Scenes";
+    private const string MaterialRoot = GeneratedRoot + "/Materials/TestNavy";
+    private const string ColorMaskRoot = GeneratedRoot + "/ColorMasks";
+    private const string ActivePaintPresetPath =
+        "Assets/_Project/Data/Mechs/AC6PaintPresets/acunicombat_test_navy.json";
     private const string ReportRoot = "Assets/_Project/LocalSamples/AC6SkinnedModular/Reports";
     private const string ValidationScenePath = SceneRoot + "/AC6SkinnedModularValidation.unity";
     private const string AnimationSourcePath =
@@ -89,6 +93,18 @@ public static class AC6SkinnedModularSampleBuilder
         }
     }
 
+    public static bool BuildSampleAssetsForPipeline(out string report)
+    {
+        if (!TryBuildSampleAssets(out var result, out var error))
+        {
+            report = error;
+            return false;
+        }
+
+        report = $"Built {result.FrameParts.Count} skinned frame parts and {result.Loadouts.Count} loadouts.";
+        return true;
+    }
+
     [InitializeOnLoadMethod]
     private static void RunRequestedValidationAfterReload()
     {
@@ -155,8 +171,14 @@ public static class AC6SkinnedModularSampleBuilder
         EnsureAssetFolder(PartRoot);
         EnsureAssetFolder(LoadoutRoot);
         EnsureAssetFolder(SceneRoot);
+        EnsureAssetFolder(MaterialRoot);
         Directory.CreateDirectory(ReportRoot);
         AssetDatabase.Refresh();
+
+        if (!TryLoadPaintPreset(ActivePaintPresetPath, out var paintPreset, out error))
+        {
+            return false;
+        }
 
         AssetDatabase.ImportAsset(AnimationSourcePath, ImportAssetOptions.ForceUpdate);
         var animationClip = AssetDatabase.LoadAllAssetsAtPath(AnimationSourcePath)
@@ -195,6 +217,7 @@ public static class AC6SkinnedModularSampleBuilder
                 var id = $"AC6_SKIN_{slot.Token}_M_{code}";
                 var assetPath = $"{PartRoot}/{id}.asset";
                 var part = LoadOrCreateAsset<MechPartDefinition>(assetPath);
+                var materialOverrides = BuildPaintMaterialOverrides(model, slot.Token, code, paintPreset);
                 part.EditorConfigure(
                     id,
                     $"AC6 {SetDisplayName(code)} {slot.DisplayName}",
@@ -204,7 +227,7 @@ public static class AC6SkinnedModularSampleBuilder
                     BuildFrameStats(slot.Slot, MassScale(code)),
                     BuildFrameMountPoints(slot.Slot),
                     new[] { "frame", "ac6-skinned", $"set-{code}", slot.Token.ToLowerInvariant() },
-                    null,
+                    materialOverrides,
                     MechVisualRigMode.SynchronizedSkinned,
                     partClip,
                     AncestorDriverForSlot(slot.Slot),
@@ -232,8 +255,8 @@ public static class AC6SkinnedModularSampleBuilder
         CreateLoadout(loadouts, "Uniform1010", "Melander 1010", frameParts, internals, boosters, weapons, "1010", "1010", "1010", "1010");
         CreateLoadout(loadouts, "Uniform2010", "Nacht 2010", frameParts, internals, boosters, weapons, "2010", "2010", "2010", "2010");
         CreateLoadout(loadouts, "Uniform3010", "Tian-Qiang 3010", frameParts, internals, boosters, weapons, "3010", "3010", "3010", "3010");
-        // Mixed loadouts take the left-hand bazooka so the left palm dummy (gun, dmy_23) is
-        // verified too; the uniform loadouts keep melee on the left forearm (dmy_25).
+        // Mixed loadouts take the left-hand bazooka while the player-facing Uniform1010
+        // loadout uses the left grenade launcher. Both exercise the left palm dummy (dmy_23).
         CreateLoadout(loadouts, "MixedA", "Mixed A 2010/1010/3010/2010", frameParts, internals, boosters, weapons, "2010", "1010", "3010", "2010", leftHandWeaponKey: "WP_L_1410");
         CreateLoadout(loadouts, "MixedB", "Mixed B 3010/2010/1010/3010", frameParts, internals, boosters, weapons, "3010", "2010", "1010", "3010", leftHandWeaponKey: "WP_L_1410");
 
@@ -242,6 +265,317 @@ public static class AC6SkinnedModularSampleBuilder
 
         result = new BuildResult(animationClip, frameParts, loadouts);
         return true;
+    }
+
+    private static bool TryLoadPaintPreset(
+        string assetPath,
+        out PaintPresetRecord preset,
+        out string error)
+    {
+        preset = null;
+        error = string.Empty;
+        var text = AssetDatabase.LoadAssetAtPath<TextAsset>(assetPath);
+        if (text == null)
+        {
+            error = $"AC6 paint preset was not found:\n{assetPath}";
+            return false;
+        }
+
+        preset = JsonUtility.FromJson<PaintPresetRecord>(text.text);
+        if (preset == null || string.IsNullOrWhiteSpace(preset.baseColor))
+        {
+            error = $"AC6 paint preset is invalid:\n{assetPath}";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static Material[] BuildPaintMaterialOverrides(
+        GameObject model,
+        string slotToken,
+        string code,
+        PaintPresetRecord preset)
+    {
+        var modelPath = AssetDatabase.GetAssetPath(model);
+        var embeddedAssets = AssetDatabase.LoadAllAssetsAtPath(modelPath);
+        var sourceMaterials = embeddedAssets
+            .OfType<Material>()
+            .ToArray();
+        var embeddedTextures = embeddedAssets
+            .OfType<Texture2D>()
+            .ToArray();
+        if (sourceMaterials.Length == 0)
+        {
+            Debug.LogWarning($"[AC6Paint] No paintable material was found in {modelPath}.");
+            return Array.Empty<Material>();
+        }
+
+        var maskPath = $"{ColorMaskRoot}/{slotToken}_M_{code}_01_3m.png";
+        ConfigureMaskImporter(maskPath);
+        var mask = AssetDatabase.LoadAssetAtPath<Texture2D>(maskPath);
+        if (mask == null)
+        {
+            Debug.LogWarning(
+                $"[AC6Paint] Zone mask is missing: {maskPath}. " +
+                "Run Tools/ImportAC6FrameColorMasks.ps1, then rebuild the sample assets.");
+        }
+
+        var shader = Shader.Find("ACunicombat/AC6/Parts Approx");
+        if (shader == null)
+        {
+            Debug.LogError("[AC6Paint] Shader ACunicombat/AC6/Parts Approx was not found.");
+            return Array.Empty<Material>();
+        }
+
+        var overrides = new List<Material>();
+        for (var i = 0; i < sourceMaterials.Length; i++)
+        {
+            var source = sourceMaterials[i];
+            var safeName = Regex.Replace(source.name, @"[^A-Za-z0-9_-]+", "_");
+            var materialPath = $"{MaterialRoot}/{slotToken}_M_{code}_{safeName}.mat";
+            var material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+            if (material == null)
+            {
+                material = new Material(shader);
+                AssetDatabase.CreateAsset(material, materialPath);
+            }
+            else
+            {
+                material.shader = shader;
+            }
+
+            material.name = source.name;
+            ConfigurePaintMaterial(
+                material,
+                source,
+                embeddedTextures,
+                mask,
+                preset,
+                IsPaintSurface(source));
+            EditorUtility.SetDirty(material);
+            overrides.Add(material);
+        }
+
+        Debug.Log(
+            $"[AC6Paint] Built {overrides.Count}/{sourceMaterials.Length} opaque material overrides " +
+            $"for {slotToken}_M_{code}.");
+        return overrides.ToArray();
+    }
+
+    private static bool IsPaintSurface(Material material)
+    {
+        if (material == null)
+        {
+            return false;
+        }
+
+        var name = material.name;
+        return name.IndexOf("EYE", StringComparison.OrdinalIgnoreCase) < 0 &&
+               name.IndexOf("Prats", StringComparison.OrdinalIgnoreCase) < 0 &&
+               name.IndexOf("Limiter", StringComparison.OrdinalIgnoreCase) < 0 &&
+               name.IndexOf("Lmiter", StringComparison.OrdinalIgnoreCase) < 0 &&
+               name.IndexOf("Marking", StringComparison.OrdinalIgnoreCase) < 0 &&
+               name.IndexOf("Emissive", StringComparison.OrdinalIgnoreCase) < 0;
+    }
+
+    private static void ConfigureMaskImporter(string assetPath)
+    {
+        var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+        if (importer == null)
+        {
+            return;
+        }
+
+        // The packed Blend reference feeds this PNG through Blender's sRGB image transform
+        // before the constant ramps. Keeping it linear collapses most BC1 values into Zone 4.
+        var changed = !importer.sRGBTexture ||
+                      !importer.mipmapEnabled ||
+                      importer.textureType != TextureImporterType.Default;
+        importer.sRGBTexture = true;
+        importer.mipmapEnabled = true;
+        importer.textureType = TextureImporterType.Default;
+        if (changed)
+        {
+            importer.SaveAndReimport();
+        }
+    }
+
+    private static void ConfigurePaintMaterial(
+        Material destination,
+        Material source,
+        IReadOnlyList<Texture2D> embeddedTextures,
+        Texture2D mask,
+        PaintPresetRecord preset,
+        bool isPaintSurface)
+    {
+        var baseMap = FindTexture(source, "_BaseColorTexture", "_BaseMap", "_MainTex");
+        if (baseMap == null && !IsMarkingSurface(source))
+        {
+            baseMap = FindEmbeddedTexture(embeddedTextures, "_a");
+        }
+
+        var normalMap = FindTexture(source, "_NormalTexture", "_BumpMap", "_NormalMap")
+            ?? FindEmbeddedTexture(embeddedTextures, "_n");
+        var emissionMap = FindTexture(source, "_EmissiveTexture", "_EmissionMap")
+            ?? FindEmbeddedTexture(embeddedTextures, "_em");
+
+        destination.SetTexture("_BaseMap", baseMap);
+        destination.SetTexture("_BumpMap", normalMap);
+        destination.SetTexture("_Mask3Map", mask);
+        destination.SetTexture("_EmissionMap", emissionMap);
+        destination.SetColor("_BaseColor", Color.white);
+        destination.SetFloat("_UseSourceAlbedo", isPaintSurface ? 0f : 1f);
+        destination.SetFloat("_ZoneMode", isPaintSurface && mask != null ? 1f : 0f);
+        destination.SetFloat("_ZoneMaskStrength", isPaintSurface && mask != null ? 1f : 0f);
+        var zoneColors = ResolveZoneColors(preset);
+        for (var zoneIndex = 0; zoneIndex < zoneColors.Length; zoneIndex++)
+        {
+            destination.SetColor($"_Zone{zoneIndex + 1}Color", zoneColors[zoneIndex]);
+        }
+        destination.SetFloat("_AlbedoDetailStrength", 0.24f);
+        destination.SetFloat("_Metallic", 0.48f);
+        destination.SetFloat("_Smoothness", 0.38f);
+        destination.SetFloat("_BumpScale", 0.8f);
+        destination.SetFloat("_OcclusionStrength", 0.12f);
+        destination.SetFloat("_MaskMetallicInfluence", 0.08f);
+        destination.SetFloat("_MaskSmoothnessInfluence", 0.1f);
+        destination.SetFloat("_PaintInfluence", 0f);
+        destination.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
+        destination.SetOverrideTag("RenderType", "Opaque");
+
+        if (normalMap != null)
+        {
+            destination.EnableKeyword("_NORMALMAP");
+        }
+        else
+        {
+            destination.DisableKeyword("_NORMALMAP");
+        }
+
+        if (emissionMap != null && IsEmissionSurface(source))
+        {
+            destination.SetColor("_EmissionColor", Color.white);
+            destination.SetFloat("_EmissionStrength", 2f);
+            destination.EnableKeyword("_EMISSION");
+        }
+        else
+        {
+            destination.SetColor("_EmissionColor", Color.black);
+            destination.SetFloat("_EmissionStrength", 0f);
+            destination.DisableKeyword("_EMISSION");
+        }
+    }
+
+    private static bool IsMarkingSurface(Material material)
+    {
+        if (material == null)
+        {
+            return false;
+        }
+
+        var name = material.name;
+        return name.IndexOf("Prats", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               name.IndexOf("Marking", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool IsEmissionSurface(Material material)
+    {
+        if (material == null)
+        {
+            return false;
+        }
+
+        var name = material.name;
+        return name.IndexOf("EYE", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               name.IndexOf("Limiter", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               name.IndexOf("Lmiter", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               name.IndexOf("Emissive", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static Texture2D FindEmbeddedTexture(
+        IReadOnlyList<Texture2D> textures,
+        string suffix)
+    {
+        if (textures == null || string.IsNullOrWhiteSpace(suffix))
+        {
+            return null;
+        }
+
+        for (var i = 0; i < textures.Count; i++)
+        {
+            var texture = textures[i];
+            if (texture != null && texture.name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return texture;
+            }
+        }
+
+        return null;
+    }
+
+    private static Texture FindTexture(Material material, params string[] propertyNames)
+    {
+        for (var i = 0; i < propertyNames.Length; i++)
+        {
+            var propertyName = propertyNames[i];
+            if (material.HasProperty(propertyName))
+            {
+                var texture = material.GetTexture(propertyName);
+                if (texture != null)
+                {
+                    return texture;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static Color ParseHtmlColor(string html, Color fallback)
+    {
+        return ColorUtility.TryParseHtmlString(html, out var color) ? color : fallback;
+    }
+
+    private static Color[] ResolveZoneColors(PaintPresetRecord preset)
+    {
+        var fallbacks = new[]
+        {
+            ParseHtmlColor(preset.baseColor, new Color(0.14f, 0.36f, 0.66f, 1f)),
+            ParseHtmlColor(preset.subColor, new Color(0.15f, 0.17f, 0.21f, 1f)),
+            ParseHtmlColor(preset.supportColor, new Color(0.35f, 0.49f, 0.67f, 1f)),
+            ParseHtmlColor(preset.optionalColor, new Color(0.09f, 0.19f, 0.32f, 1f)),
+            ParseHtmlColor(preset.deviceColor, new Color(0.42f, 0.47f, 0.52f, 1f)),
+            new Color(0.19f, 0.22f, 0.27f, 1f),
+            new Color(0.04f, 0.055f, 0.08f, 1f)
+        };
+
+        if (preset.zoneColors == null || preset.zoneColors.Length != fallbacks.Length)
+        {
+            return fallbacks;
+        }
+
+        var resolved = new Color[fallbacks.Length];
+        for (var i = 0; i < resolved.Length; i++)
+        {
+            resolved[i] = ParseHtmlColor(preset.zoneColors[i], fallbacks[i]);
+        }
+
+        return resolved;
+    }
+
+    [Serializable]
+    private sealed class PaintPresetRecord
+    {
+        public string source;
+        public int rowId;
+        public string displayName;
+        public string baseColor;
+        public string subColor;
+        public string supportColor;
+        public string optionalColor;
+        public string deviceColor;
+        public string[] zoneColors;
     }
 
     private static void BuildValidationSceneAndRunChecks(BuildResult result, ValidationReport report, bool batchMode)
@@ -617,8 +951,9 @@ public static class AC6SkinnedModularSampleBuilder
         ok &= Check(skeletonRoots.Count == 4, key, $"expected 4 independent part skeleton roots, got {skeletonRoots.Count}", report);
 
         // --- Bind-pose golden socket positions (Uniform1010 only; values measured from the
-        // FLVER dummies with AC6PartToGltf --dump-dummies, X negated for glTFast's RH->LH
-        // conversion). The assembled mech is already animated by the time we get here, so the
+        // FLVER dummies with AC6PartToGltf --dump-dummies). AC6PartToGltf pre-converts the source
+        // basis, and glTFast converts it back while importing, so these retain source-space X.
+        // The assembled mech is already animated by the time we get here, so the
         // goldens are checked on fresh, un-animated instances of the raw part GLBs — that is
         // the state the FLVER dump values describe. Catches both "socket in wrong space"
         // failure modes seen earlier.
@@ -626,15 +961,18 @@ public static class AC6SkinnedModularSampleBuilder
         {
             ok &= WithRawAssetInstance($"{RawGltfRoot}/AM_M_1010.glb", key, report, instance =>
             {
-                var pass = CheckGoldenSocket(instance, "_dmy_20", new Vector3(2.271f, 7.906f, -1.971f), key, report);
-                pass &= CheckGoldenSocket(instance, "_dmy_23", new Vector3(-2.270f, 7.904f, -1.974f), key, report);
-                pass &= CheckGoldenSocket(instance, "_dmy_25", new Vector3(-2.895f, 7.655f, -0.746f), key, report);
+                var pass = CheckGoldenSocket(instance, "_dmy_20", new Vector3(-2.271f, 7.906f, -1.971f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_23", new Vector3(2.270f, 7.904f, -1.974f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_25", new Vector3(2.895f, 7.655f, -0.746f), key, report);
+                pass &= CheckAnatomicalSocketSide(instance, "_dmy_20", true, key, report);
+                pass &= CheckAnatomicalSocketSide(instance, "_dmy_23", false, key, report);
+                pass &= CheckAnatomicalSocketSide(instance, "_dmy_25", false, key, report);
                 return pass;
             });
             ok &= WithRawAssetInstance($"{RawGltfRoot}/BD_M_1010.glb", key, report, instance =>
             {
-                var pass = CheckGoldenSocket(instance, "_dmy_13", new Vector3(-1.458f, 10.013f, 1.856f), key, report);
-                pass &= CheckGoldenSocket(instance, "_dmy_14", new Vector3(1.458f, 10.013f, 1.856f), key, report);
+                var pass = CheckGoldenSocket(instance, "_dmy_13", new Vector3(1.458f, 10.013f, 1.856f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_14", new Vector3(-1.458f, 10.013f, 1.856f), key, report);
                 pass &= CheckGoldenSocketSet(instance, "_dmy_800", new[]
                 {
                     new Vector3(0f, 8.622f, -2.225f),
@@ -652,8 +990,8 @@ public static class AC6SkinnedModularSampleBuilder
         {
             ok &= WithRawAssetInstance($"{RawGltfRoot}/BD_M_2010.glb", key, report, instance =>
             {
-                var pass = CheckGoldenSocket(instance, "_dmy_13", new Vector3(-1.525f, 10.309f, 1.938f), key, report);
-                pass &= CheckGoldenSocket(instance, "_dmy_14", new Vector3(1.525f, 10.309f, 1.938f), key, report);
+                var pass = CheckGoldenSocket(instance, "_dmy_13", new Vector3(1.525f, 10.309f, 1.938f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_14", new Vector3(-1.525f, 10.309f, 1.938f), key, report);
                 pass &= CheckGoldenSocketSet(instance, "_dmy_800", new[]
                 {
                     new Vector3(0f, 8.763f, -2.225f),
@@ -668,8 +1006,8 @@ public static class AC6SkinnedModularSampleBuilder
         {
             ok &= WithRawAssetInstance($"{RawGltfRoot}/BD_M_3010.glb", key, report, instance =>
             {
-                var pass = CheckGoldenSocket(instance, "_dmy_13", new Vector3(-1.180f, 10.747f, 1.798f), key, report);
-                pass &= CheckGoldenSocket(instance, "_dmy_14", new Vector3(1.180f, 10.747f, 1.798f), key, report);
+                var pass = CheckGoldenSocket(instance, "_dmy_13", new Vector3(1.180f, 10.747f, 1.798f), key, report);
+                pass &= CheckGoldenSocket(instance, "_dmy_14", new Vector3(-1.180f, 10.747f, 1.798f), key, report);
                 pass &= CheckGoldenSocketSet(instance, "_dmy_800", new[]
                 {
                     new Vector3(0f, 9.081f, -2.225f),
@@ -1144,6 +1482,27 @@ public static class AC6SkinnedModularSampleBuilder
         return Check(distance < 0.02f, key, $"socket {suffix} rest position is off by {distance:0.###}m (expected {Format(expectedLocal)}, got {Format(actual)})", report);
     }
 
+    private static bool CheckAnatomicalSocketSide(GameObject mech, string suffix, bool expectRight, string key, ValidationReport report)
+    {
+        var socket = mech.GetComponentsInChildren<Transform>(true)
+            .FirstOrDefault(candidate => candidate.name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+                || candidate.name.Contains(suffix + "_", StringComparison.OrdinalIgnoreCase)
+                || candidate.name.Contains(suffix + " ", StringComparison.OrdinalIgnoreCase));
+        if (socket == null)
+        {
+            return Check(false, key, $"anatomical socket {suffix} was not found", report);
+        }
+
+        // Native AC6 part GLBs face local -Z. For that facing, anatomical right is local -X.
+        var visibleForward = -mech.transform.forward;
+        var visibleRight = Vector3.Cross(mech.transform.up, visibleForward).normalized;
+        var sideDistance = Vector3.Dot(socket.position - mech.transform.position, visibleRight);
+        var correctSide = expectRight ? sideDistance > 0.1f : sideDistance < -0.1f;
+        report.Log.AppendLine($"[{key}] anatomical {suffix}: expected={(expectRight ? "right" : "left")} signedDistance={sideDistance:0.###}m");
+        return Check(correctSide, key,
+            $"socket {suffix} is on the visible {(sideDistance >= 0f ? "right" : "left")} but is defined as anatomical {(expectRight ? "right" : "left")}", report);
+    }
+
     private static bool CheckGoldenSocketSet(GameObject mech, string suffix, Vector3[] expectedLocals, string key, ValidationReport report)
     {
         var sockets = mech.GetComponentsInChildren<Transform>(true)
@@ -1323,11 +1682,15 @@ public static class AC6SkinnedModularSampleBuilder
             // 1310/1410 are hand-held firearms (regulation: WepAbsorpPos 100 -> right 3020 /
             // left 3023, i.e. the palm dummies). They exist so the gun grip path is exercised:
             // with 0010 reclassified as the ASHMEAD pile bunker the samples had no hand gun.
+            new NativeWeaponSpec("WP_L_1310", "Native Left Grenade Launcher 1310", MechPartSlot.LeftHandWeapon, "a000_800210", 4900f),
             new NativeWeaponSpec("WP_R_1310", "Native Right Grenade Launcher 1310", MechPartSlot.RightHandWeapon, "a000_000000", 4900f),
+            new NativeWeaponSpec("WP_R_1610", "MA-J-200 RANSETSU-RF", MechPartSlot.RightHandWeapon, "a000_800210", 4210f),
             new NativeWeaponSpec("WP_L_1410", "Native Left Bazooka 1410", MechPartSlot.LeftHandWeapon, "a000_000000", 4600f),
-            new NativeWeaponSpec("WP_L_4210", "Native Left Plasma Missile 4210", MechPartSlot.LeftBackWeapon, "a000_800210", 4200f),
-            new NativeWeaponSpec("WP_R_4210", "Native Right Plasma Missile 4210", MechPartSlot.RightBackWeapon, "a000_800210", 4200f),
-            new NativeWeaponSpec("WP_R_4410", "Native Right Songbirds 4410", MechPartSlot.RightBackWeapon, "a000_800210", 5500f)
+            new NativeWeaponSpec("WP_L_4210", "Native Left Plasma Missile 4210", MechPartSlot.LeftBackWeapon, "a000_800000", 4200f),
+            new NativeWeaponSpec("WP_R_4210", "Native Right Plasma Missile 4210", MechPartSlot.RightBackWeapon, "a000_800000", 4200f),
+            new NativeWeaponSpec("WP_L_4250", "BML-G1/P07VTC-12", MechPartSlot.LeftBackWeapon, "a000_800000", 5010f),
+            new NativeWeaponSpec("WP_R_4290", "BML-G2/P03MLT-06", MechPartSlot.RightBackWeapon, "a000_800000", 3840f),
+            new NativeWeaponSpec("WP_R_4410", "Native Right Songbirds 4410", MechPartSlot.RightBackWeapon, "a000_800000", 5500f)
         };
         var result = new Dictionary<string, MechPartDefinition>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < specs.Length; i++)
@@ -1361,9 +1724,12 @@ public static class AC6SkinnedModularSampleBuilder
                 newVisualRigMode: MechVisualRigMode.MountedPrefab,
                 newEquipmentAnimations: actions,
                 newDefaultEquipmentActionId: SelectDefaultAction(actions, spec.PreferredActionId),
-                // Melee 040xxx clips are attack/deploy actions. They must be triggered together
-                // with the body action, not autoplayed while the mech is in its mounted rest pose.
-                shouldPlayDefaultEquipmentActionOnAssemble: actions.Count > 0 && !spec.IsMelee,
+                // Shoulder and melee clips are state transitions or attacks. Assembly samples a
+                // stable rest frame; input-driven code owns their action timelines.
+                shouldPlayDefaultEquipmentActionOnAssemble: actions.Count > 0
+                    && !spec.IsMelee
+                    && spec.Slot != MechPartSlot.LeftBackWeapon
+                    && spec.Slot != MechPartSlot.RightBackWeapon,
                 newLocalPosition: Vector3.zero,
                 // The corrected dummy exporter preserves FLVER Forward as local +Z. Frame
                 // sockets and weapon models are both authored toward -Z, so equipment needs
@@ -1549,12 +1915,16 @@ public static class AC6SkinnedModularSampleBuilder
             Assignment(MechPartSlot.Generator, internals[MechPartSlot.Generator]),
             Assignment(MechPartSlot.FireControlSystem, internals[MechPartSlot.FireControlSystem]),
             Assignment(MechPartSlot.Radar, internals[MechPartSlot.Radar]),
-            Assignment(MechPartSlot.LeftHandWeapon, weapons[leftHandWeaponKey ?? LeftHandWeaponForCode(armsCode)]),
+            Assignment(MechPartSlot.LeftHandWeapon, weapons[
+                key == "Uniform1010" ? "WP_L_1310" : (leftHandWeaponKey ?? LeftHandWeaponForCode(armsCode))]),
             // Every loadout carries a right-hand firearm so the palm-grip path (dmy_20,
             // WepAbsorpPos 100) is always exercised alongside the melee forearm path.
-            Assignment(MechPartSlot.RightHandWeapon, weapons["WP_R_1310"]),
-            Assignment(MechPartSlot.LeftBackWeapon, weapons["WP_L_4210"]),
-            Assignment(MechPartSlot.RightBackWeapon, weapons[RightBackWeaponForCode(coreCode)])
+            Assignment(MechPartSlot.RightHandWeapon, weapons[
+                key == "Uniform1010" ? "WP_R_1610" : "WP_R_1310"]),
+            Assignment(MechPartSlot.LeftBackWeapon, weapons[
+                key == "Uniform1010" ? "WP_L_4250" : "WP_L_4210"]),
+            Assignment(MechPartSlot.RightBackWeapon, weapons[
+                key == "Uniform1010" ? "WP_R_4290" : RightBackWeaponForCode(coreCode)])
         };
 
         var loadout = LoadOrCreateAsset<MechLoadoutDefinition>($"{LoadoutRoot}/AC6_Skinned_{key}.asset");

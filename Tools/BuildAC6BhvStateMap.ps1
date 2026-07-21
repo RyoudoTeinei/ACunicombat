@@ -2,6 +2,7 @@ param(
     [string]$Bhv = 'E:\UnityDev\Resources\AC6_ExtractedAssets\chr\AC - c0000\basenormal.bhv',
     [string]$DebugMetadata = 'Tools/BhvDebug/c0000/basenormal_dbg.json',
     [string]$TaeDump = 'Tools/LocalOut/c0000_tae_dump.json',
+    [string]$PhysicalHkxRoot = 'E:\UnityDev\Resources\AC6_ExtractedAssets\chr\AC - c0000',
     [string]$OutputJson = 'Tools/AssetManifests/c0000_bhv_state_map.json',
     [string]$OutputCsv = 'Tools/AssetManifests/c0000_bhv_state_map.csv'
 )
@@ -19,6 +20,7 @@ $project = Join-Path $repoRoot 'Tools/DotNet/AC6BhvParser/AC6BhvParser.csproj'
 $bhvPath = Resolve-RepoPath $Bhv
 $debugPath = Resolve-RepoPath $DebugMetadata
 $taeDumpPath = Resolve-RepoPath $TaeDump
+$physicalHkxRootPath = Resolve-RepoPath $PhysicalHkxRoot
 $jsonPath = Resolve-RepoPath $OutputJson
 $csvPath = Resolve-RepoPath $OutputCsv
 
@@ -26,6 +28,7 @@ if (-not (Test-Path -LiteralPath $dotnet)) { throw "Bundled .NET SDK not found: 
 if (-not (Test-Path -LiteralPath $bhvPath)) { throw "BHV not found: $bhvPath" }
 if (-not (Test-Path -LiteralPath $debugPath)) { throw "Debug metadata not found: $debugPath" }
 if (-not (Test-Path -LiteralPath $taeDumpPath)) { throw "TAE dump not found: $taeDumpPath" }
+if (-not (Test-Path -LiteralPath $physicalHkxRootPath)) { throw "Physical HKX root not found: $physicalHkxRootPath" }
 
 $env:DOTNET_CLI_HOME = 'E:\UnityDev\Tools\dotnet-cli-home'
 $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
@@ -34,6 +37,7 @@ $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
     --debug $debugPath `
     --tae $taeDumpPath `
     --tae-file-prefix 5000000 `
+    --hkx-root $physicalHkxRootPath `
     --json $jsonPath `
     --csv $csvPath
 if ($LASTEXITCODE -ne 0) {
@@ -64,7 +68,8 @@ Write-Host "Validated $($expectedMappings.Count) known official state-to-animati
 
 $physicalAliasChecks = @(
     @{ State = 177; Logical = 'a000_150100'; Physical = 'a000_050100' },
-    @{ State = 106; Logical = 'a000_022525'; Physical = 'a000_022524' }
+    @{ State = 106; Logical = 'a000_022525'; Physical = 'a000_022524' },
+    @{ State = 85; Logical = 'a000_122410'; Physical = 'a000_022710' }
 )
 foreach ($expected in $physicalAliasChecks) {
     $state = $map.states[[int]$expected.State]
@@ -75,3 +80,18 @@ foreach ($expected in $physicalAliasChecks) {
 }
 
 Write-Host "Validated $($physicalAliasChecks.Count) TAE logical-to-physical aliases."
+
+$directionalAirQbAliases = @(
+    @{ Logical = 'a000_122410'; Physical = 'a000_022710' },
+    @{ Logical = 'a000_122411'; Physical = 'a000_022711' },
+    @{ Logical = 'a000_122412'; Physical = 'a000_022712' },
+    @{ Logical = 'a000_122413'; Physical = 'a000_022713' }
+)
+foreach ($expected in $directionalAirQbAliases) {
+    $action = $map.actions | Where-Object actionId -eq $expected.Logical | Select-Object -First 1
+    if ($null -eq $action -or [string]$action.physicalActionId -ne [string]$expected.Physical) {
+        throw "Directional air-QB alias validation failed: $($expected.Logical) -> $($expected.Physical)."
+    }
+}
+
+Write-Host "Validated $($directionalAirQbAliases.Count) directional air-QB physical aliases."

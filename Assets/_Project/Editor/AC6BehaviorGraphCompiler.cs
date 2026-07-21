@@ -22,6 +22,9 @@ public static class AC6BehaviorGraphCompiler
     private const string OverridesPath = "Tools/AssetManifests/c0000_state_anim_overrides.json";
     private const string OutputAssetPath =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/AC6BehaviorGraph.asset";
+    private const string GeneratedActionsRoot =
+        "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Actions";
+    private static readonly string[] FrameTokens = { "HD", "BD", "AM", "LG" };
 
     [MenuItem("Tools/ACunicombat/AC6/Compile Behavior Graph")]
     public static void CompileMenu()
@@ -75,7 +78,7 @@ public static class AC6BehaviorGraphCompiler
             var actionId = overrides.TryGetValue(i, out var ov)
                 ? ov
                 : string.IsNullOrEmpty(src.hkxName) ? null : src.hkxName.Replace(".hkt", "");
-            var available = !string.IsNullOrEmpty(actionId);
+            var available = TryGetActionClipDuration(actionId, out var durationSeconds);
             if (!available)
             {
                 unavailable++;
@@ -162,6 +165,30 @@ public static class AC6BehaviorGraphCompiler
             $"-> {OutputAssetPath}";
         Debug.Log($"[AC6BehaviorGraph] {report}");
         return report;
+    }
+
+    private static bool TryGetActionClipDuration(string actionId, out float durationSeconds)
+    {
+        durationSeconds = 0f;
+        if (string.IsNullOrWhiteSpace(actionId))
+        {
+            return false;
+        }
+
+        for (var i = 0; i < FrameTokens.Length; i++)
+        {
+            var path = $"{GeneratedActionsRoot}/{actionId}/AC6_{actionId}_{FrameTokens[i]}.anim";
+            var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+            if (clip == null || clip.length <= 0f)
+            {
+                durationSeconds = 0f;
+                return false;
+            }
+
+            durationSeconds = Mathf.Max(durationSeconds, clip.length);
+        }
+
+        return true;
     }
 
     private static MechConditionKind ParseKind(string kind) =>

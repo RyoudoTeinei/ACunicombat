@@ -32,25 +32,11 @@ namespace ACunicombat.Mechs
             public float fireSeconds;
         }
 
-        [Tooltip("右手武器动作组（a2xx bank 030x2x/030x3x，判定表 §3）。")]
-        [SerializeField] private ArmActionSet rightArm = new ArmActionSet
-        {
-            raiseActionId = "a200_030020",
-            holdActionId = "a200_030022",
-            fireActionId = "a200_030030",
-            raiseSeconds = 0.5f,
-            fireSeconds = 0.4f,
-        };
+        [Tooltip("Right-hand action set. Bone-curve inspection proves 03002x/03003x drives the anatomical right arm.")]
+        [SerializeField] private ArmActionSet rightArm = CreateRightArmActionSet();
 
-        [Tooltip("左手武器动作组（030x4x/030x5x 镜像组，具体 ID 待目检确认）。")]
-        [SerializeField] private ArmActionSet leftArm = new ArmActionSet
-        {
-            raiseActionId = "a200_030040",
-            holdActionId = "a200_030042",
-            fireActionId = "a200_030050",
-            raiseSeconds = 0.5f,
-            fireSeconds = 0.4f,
-        };
+        [Tooltip("Left-hand action set. Bone-curve inspection proves 03004x/03005x drives the anatomical left arm.")]
+        [SerializeField] private ArmActionSet leftArm = CreateLeftArmActionSet();
 
         [Tooltip("无开火输入后收枪的超时（秒）。")]
         [SerializeField] private float lowerTimeoutSeconds = 1.5f;
@@ -67,8 +53,34 @@ namespace ACunicombat.Mechs
 
         public string CurrentActionId => player != null ? player.ActiveUpperBodyActionId : string.Empty;
 
+        public string RightFireActionId => rightArm.fireActionId;
+
+        public string LeftFireActionId => leftArm.fireActionId;
+
+        public bool HasVerifiedSideMapping =>
+            rightArm.raiseActionId == "a200_030020" &&
+            rightArm.holdActionId == "a200_030022" &&
+            rightArm.fireActionId == "a200_030030" &&
+            leftArm.raiseActionId == "a200_030040" &&
+            leftArm.holdActionId == "a200_030042" &&
+            leftArm.fireActionId == "a200_030050";
+
+        private void Awake()
+        {
+            // Serialized action sets in already-generated scenes may contain the old reversed mapping.
+            ApplyVerifiedSideMapping();
+        }
+
+        public void ApplyVerifiedSideMapping()
+        {
+            rightArm = CreateRightArmActionSet();
+            leftArm = CreateLeftArmActionSet();
+        }
+
         public void Configure(MechBodyActionPlayer actionPlayer)
         {
+            // Upgrade stale generated scenes whose serialized action sets predate the verified mapping.
+            ApplyVerifiedSideMapping();
             player = actionPlayer;
             phase = ArmPhase.Lowered;
         }
@@ -94,17 +106,17 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var wantFire = frame.FireLeftHeld || frame.FireRightHeld;
-            var fireEdge = frame.FireLeftEdge || frame.FireRightEdge;
+            var wantFire = frame.PrimaryFireHeld || frame.SecondaryFireHeld;
+            var fireEdge = frame.PrimaryFireEdge || frame.SecondaryFireEdge;
             if (wantFire)
             {
                 idleElapsed = 0f;
                 // 左右手独立入口：以本帧边沿侧优先，否则保持当前侧。
-                if (frame.FireRightEdge)
+                if (frame.SecondaryFireEdge)
                 {
                     activeSideIsRight = true;
                 }
-                else if (frame.FireLeftEdge)
+                else if (frame.PrimaryFireEdge)
                 {
                     activeSideIsRight = false;
                 }
@@ -173,6 +185,30 @@ namespace ACunicombat.Mechs
         {
             phase = next;
             phaseElapsed = 0f;
+        }
+
+        private static ArmActionSet CreateRightArmActionSet()
+        {
+            return new ArmActionSet
+            {
+                raiseActionId = "a200_030020",
+                holdActionId = "a200_030022",
+                fireActionId = "a200_030030",
+                raiseSeconds = 0.5f,
+                fireSeconds = 0.4f,
+            };
+        }
+
+        private static ArmActionSet CreateLeftArmActionSet()
+        {
+            return new ArmActionSet
+            {
+                raiseActionId = "a200_030040",
+                holdActionId = "a200_030042",
+                fireActionId = "a200_030050",
+                raiseSeconds = 0.5f,
+                fireSeconds = 0.4f,
+            };
         }
     }
 }

@@ -109,9 +109,15 @@ internal static class Program
         }
 
         DebugDocument debugDocument = ReadDebugDocument(options.DebugPath);
+        HashSet<string>? physicalActionIds = options.PhysicalHkxRoot is null
+            ? null
+            : Directory.EnumerateFiles(options.PhysicalHkxRoot, "*.hkx", SearchOption.AllDirectories)
+                .Select(TryExtractActionIdFromHkxPath)
+                .OfType<string>()
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
         Dictionary<uint, string> physicalActionIdsByTaeAnimationId = options.TaeDumpPath is null
             ? []
-            : ReadTaeActionMap(options.TaeDumpPath, options.TaeFilePrefix);
+            : ReadTaeActionMap(options.TaeDumpPath, options.TaeFilePrefix, physicalActionIds);
         bool stateCountMatches = debugDocument.AllStates.Count == stateCount;
         List<TransitionCountMismatch> transitionMismatches = [];
         List<ConditionCountMismatch> conditionMismatches = [];
@@ -386,7 +392,10 @@ internal static class Program
         return withoutAnnotations.Replace("\\", string.Empty, StringComparison.Ordinal).Trim();
     }
 
-    private static Dictionary<uint, string> ReadTaeActionMap(string path, string filePrefix)
+    private static Dictionary<uint, string> ReadTaeActionMap(
+        string path,
+        string filePrefix,
+        IReadOnlySet<string>? physicalActionIds)
     {
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8));
         if (!document.RootElement.TryGetProperty("taeFiles", out JsonElement taeFiles) ||
@@ -395,7 +404,8 @@ internal static class Program
             throw new InvalidDataException("TAE dump does not contain a taeFiles array.");
         }
 
-        Dictionary<uint, string> result = [];
+        Dictionary<uint, List<TaeAnimationReference>> referencesByTaeId = [];
+        Dictionary<uint, List<TaeAnimationReference>> referencesByNamedActionId = [];
         foreach (JsonElement taeFile in taeFiles.EnumerateArray())
         {
             string file = taeFile.GetProperty("file").GetString() ?? string.Empty;
@@ -420,18 +430,248 @@ internal static class Program
                     continue;
                 }
 
-                if (result.TryGetValue(animationId, out string? existing) &&
-                    !string.Equals(existing, physicalActionId, StringComparison.Ordinal))
+                uint? namedActionId = TryParseActionId(physicalActionId);
+                uint? sourceAnimationId = ReadOptionalAnimationId(animation, "importHkxSourceAnimId") ??
+                                          ReadOptionalAnimationId(animation, "importFromAnimId");
+                TaeAnimationReference reference = new(
+                    animationId,
+                    physicalActionId,
+                    namedActionId,
+                    sourceAnimationId,
+                    animation.TryGetProperty("importsHkx", out JsonElement importsHkx) &&
+                    importsHkx.ValueKind == JsonValueKind.True);
+                AddReference(referencesByTaeId, animationId, reference);
+                if (namedActionId is not null)
                 {
-                    throw new InvalidDataException(
-                        $"TAE animation {animationId} maps to both {existing} and {physicalActionId}.");
+                    AddReference(referencesByNamedActionId, namedActionId.Value, reference);
                 }
-
-                result[animationId] = physicalActionId;
             }
         }
 
+        Dictionary<uint, string> result = [];
+        Dictionary<uint, string> resolvedByTaeId = [];
+        foreach (uint taeAnimationId in referencesByTaeId.Keys)
+        {
+            result[taeAnimationId] = ResolvePhysicalActionId(
+                taeAnimationId,
+                referencesByTaeId,
+                resolvedByTaeId,
+                physicalActionIds,
+                []);
+        }
+
+        // BHV action records normally contain a TAE animation ID. A few AC6 entries instead
+        // reference the logical HKX name exposed by another TAE row (for example 122410).
+        // Use that logical name as a fallback key, but never replace an exact TAE-ID mapping.
+        foreach ((uint namedActionId, List<TaeAnimationReference> references) in referencesByNamedActionId)
+        {
+            if (result.ContainsKey(namedActionId))
+            {
+                continue;
+            }
+
+            string[] resolved = references
+                .Select(reference => ResolveReference(
+                    reference,
+                    referencesByTaeId,
+                    resolvedByTaeId,
+                    physicalActionIds,
+                    []))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (resolved.Length != 1)
+            {
+                throw new InvalidDataException(
+                    $"Logical TAE action {namedActionId} resolves to multiple physical actions: " +
+                    string.Join(", ", resolved));
+            }
+
+            result[namedActionId] = resolved[0];
+        }
+
         return result;
+    }
+
+    private static void AddReference(
+        Dictionary<uint, List<TaeAnimationReference>> target,
+        uint key,
+        TaeAnimationReference reference)
+    {
+        if (!target.TryGetValue(key, out List<TaeAnimationReference>? references))
+        {
+            references = [];
+            target.Add(key, references);
+        }
+
+        references.Add(reference);
+    }
+
+    private static string ResolvePhysicalActionId(
+        uint taeAnimationId,
+        IReadOnlyDictionary<uint, List<TaeAnimationReference>> referencesByTaeId,
+        Dictionary<uint, string> cache,
+        IReadOnlySet<string>? physicalActionIds,
+        HashSet<uint> activePath)
+    {
+        if (cache.TryGetValue(taeAnimationId, out string? cached))
+        {
+            return cached;
+        }
+
+        if (!activePath.Add(taeAnimationId))
+        {
+            throw new InvalidDataException($"TAE miniheader import cycle detected at animation {taeAnimationId}.");
+        }
+
+        if (!referencesByTaeId.TryGetValue(taeAnimationId, out List<TaeAnimationReference>? references))
+        {
+            throw new InvalidDataException($"TAE miniheader imports missing animation {taeAnimationId}.");
+        }
+
+        string[] resolved = references
+            .Select(reference => ResolveReference(
+                reference,
+                referencesByTaeId,
+                cache,
+                physicalActionIds,
+                activePath))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        activePath.Remove(taeAnimationId);
+        if (resolved.Length != 1)
+        {
+            throw new InvalidDataException(
+                $"TAE animation {taeAnimationId} resolves to multiple physical actions: " +
+                string.Join(", ", resolved));
+        }
+
+        cache[taeAnimationId] = resolved[0];
+        return resolved[0];
+    }
+
+    private static string ResolveReference(
+        TaeAnimationReference reference,
+        IReadOnlyDictionary<uint, List<TaeAnimationReference>> referencesByTaeId,
+        Dictionary<uint, string> cache,
+        IReadOnlySet<string>? physicalActionIds,
+        HashSet<uint> activePath)
+    {
+        // Miniheader source IDs are only a fallback for logical names that do not have
+        // their own HKX. Without an inventory we cannot distinguish an alias from a
+        // normal animation row, so preserve the named action instead of guessing.
+        bool canResolveAliases = physicalActionIds is not null;
+        bool namedHkxExists = physicalActionIds?.Contains(reference.NamedActionId) == true;
+        if (canResolveAliases &&
+            !namedHkxExists &&
+            reference.SourceAnimationId is uint sourceAnimationId &&
+            sourceAnimationId != reference.TaeAnimationId &&
+            referencesByTaeId.ContainsKey(sourceAnimationId))
+        {
+            string sourcePhysicalActionId = ResolvePhysicalActionId(
+                sourceAnimationId,
+                referencesByTaeId,
+                cache,
+                physicalActionIds,
+                activePath);
+
+            // AC6 uses one miniheader as the event/template source for a directional
+            // family. For example 123011/12/13 all import 123010, while their named
+            // actions are 122411/12/13 and their physical HKX files are 022711/12/13.
+            // Following the source literally collapses every direction to 022710.
+            // Preserve the final directional digit when both the logical source family
+            // and the resolved physical sibling family are present in the inventory.
+            string? directionalSibling = TryResolveDirectionalSibling(
+                reference,
+                sourceAnimationId,
+                sourcePhysicalActionId,
+                referencesByTaeId,
+                physicalActionIds);
+            return directionalSibling ?? sourcePhysicalActionId;
+        }
+
+        return reference.NamedActionId;
+    }
+
+    private static string? TryResolveDirectionalSibling(
+        TaeAnimationReference reference,
+        uint sourceAnimationId,
+        string sourcePhysicalActionId,
+        IReadOnlyDictionary<uint, List<TaeAnimationReference>> referencesByTaeId,
+        IReadOnlySet<string>? physicalActionIds)
+    {
+        if (physicalActionIds is null || reference.NamedActionNumericId is not uint namedId ||
+            !referencesByTaeId.TryGetValue(sourceAnimationId, out List<TaeAnimationReference>? sourceReferences))
+        {
+            return null;
+        }
+
+        uint[] sourceNamedIds = sourceReferences
+            .Select(item => item.NamedActionNumericId)
+            .OfType<uint>()
+            .Distinct()
+            .ToArray();
+        if (sourceNamedIds.Length != 1)
+        {
+            return null;
+        }
+
+        uint sourceNamedId = sourceNamedIds[0];
+        if (namedId / 10 != sourceNamedId / 10)
+        {
+            return null;
+        }
+
+        int directionOffset = checked((int)(namedId % 10) - (int)(sourceNamedId % 10));
+        if (directionOffset == 0 || Math.Abs(directionOffset) > 3)
+        {
+            return null;
+        }
+
+        uint? physicalId = TryParseActionId(sourcePhysicalActionId);
+        if (physicalId is null)
+        {
+            return null;
+        }
+
+        long candidateId = (long)physicalId.Value + directionOffset;
+        if (candidateId < 0 || candidateId > 999999)
+        {
+            return null;
+        }
+
+        string bank = sourcePhysicalActionId[..sourcePhysicalActionId.IndexOf('_')];
+        string candidate = $"{bank}_{candidateId:D6}";
+        return physicalActionIds.Contains(candidate) ? candidate : null;
+    }
+
+    private static uint? ReadOptionalAnimationId(JsonElement animation, string propertyName)
+    {
+        if (!animation.TryGetProperty(propertyName, out JsonElement value) ||
+            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        long raw = value.GetInt64();
+        return raw >= 0 && raw <= uint.MaxValue ? (uint)raw : null;
+    }
+
+    private static uint? TryParseActionId(string actionId)
+    {
+        Match match = Regex.Match(actionId, "^a\\d{3}_(\\d{6})$", RegexOptions.CultureInvariant);
+        return match.Success && uint.TryParse(match.Groups[1].Value, out uint parsed)
+            ? parsed
+            : null;
+    }
+
+    private static string? TryExtractActionIdFromHkxPath(string path)
+    {
+        string fileName = Path.GetFileNameWithoutExtension(path);
+        Match match = Regex.Match(
+            fileName,
+            "(?:^|_)(a\\d{3}_\\d{6})$",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private static DebugDocument ReadDebugDocument(string path)
@@ -549,6 +789,7 @@ internal static class Program
         public required string OutputCsv { get; init; }
         public string? TaeDumpPath { get; init; }
         public string TaeFilePrefix { get; init; } = "5000000";
+        public string? PhysicalHkxRoot { get; init; }
 
         public static Options Parse(string[] args)
         {
@@ -592,6 +833,7 @@ internal static class Program
                 TaeFilePrefix = values.TryGetValue("tae-file-prefix", out string? taeFilePrefix)
                     ? taeFilePrefix
                     : "5000000",
+                PhysicalHkxRoot = values.TryGetValue("hkx-root", out string? hkxRoot) ? hkxRoot : null,
             });
         }
 
@@ -612,13 +854,19 @@ internal static class Program
                 throw new FileNotFoundException("TAE dump JSON not found.", options.TaeDumpPath);
             }
 
+            if (options.PhysicalHkxRoot is not null && !Directory.Exists(options.PhysicalHkxRoot))
+            {
+                throw new DirectoryNotFoundException(
+                    $"Physical HKX root not found: {options.PhysicalHkxRoot}");
+            }
+
             return options;
         }
 
         private const string Usage =
             "Usage: AC6BhvParser --bhv <basenormal.bhv> --debug <basenormal_dbg.json> " +
             "--json <output.json> --csv <output.csv> [--tae <c0000_tae_dump.json>] " +
-            "[--tae-file-prefix <5000000>]";
+            "[--tae-file-prefix <5000000>] [--hkx-root <physical HKX directory>]";
     }
 
     private sealed class DebugDocument
@@ -637,6 +885,13 @@ internal static class Program
         public string NextStateName { get; init; } = string.Empty;
         public List<string> Conditions { get; init; } = [];
     }
+
+    private sealed record TaeAnimationReference(
+        uint TaeAnimationId,
+        string NamedActionId,
+        uint? NamedActionNumericId,
+        uint? SourceAnimationId,
+        bool ImportsHkx);
 
     private sealed record SourceInfo(
         string BhvFile,

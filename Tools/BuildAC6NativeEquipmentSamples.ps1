@@ -2,7 +2,8 @@ param(
     [string]$RawAssetsRoot = 'E:\UnityDev\Resources\AC6_ExtractedAssets',
     [string]$GameRoot = 'E:\SteamLibrary\steamapps\common\ARMORED CORE VI FIRES OF RUBICON\Game',
     [string]$TexConvPath = '',
-    [string]$OutputAssetRoot = 'Assets\_Project\LocalSamples\AC6SkinnedModular\Raw\NativeEquipment'
+    [string]$OutputAssetRoot = 'Assets\_Project\LocalSamples\AC6SkinnedModular\Raw\NativeEquipment',
+    [string[]]$Keys = @()
 )
 
 Set-StrictMode -Version Latest
@@ -61,17 +62,39 @@ $specs = @(
     [pscustomobject]@{ Key = 'WP_L_0010'; Binder = 'wp_l_0010.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_0010'; Flver = 'WP_L_0010.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_L_0230'; Binder = 'wp_l_0230.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_0230'; Flver = 'WP_L_0230.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_L_0250'; Binder = 'wp_l_0250.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_0250'; Flver = 'WP_L_0250.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_L_1310'; Binder = 'wp_l_1310.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_1310'; Flver = 'WP_L_1310.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_L_1410'; Binder = 'wp_l_1410.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_1410'; Flver = 'WP_L_1410.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_L_4210'; Binder = 'wp_l_4210.partsbnd.dcx'; TextureBinder = 'wp_4210.tpf.dcx'; RawDir = $null; Flver = 'WP_L_4210.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_1310'; Binder = 'wp_r_1310.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_1310'; Flver = 'WP_R_1310.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_R_1610'; Binder = 'wp_r_1610.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_1610'; Flver = 'WP_R_1610.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_4210'; Binder = 'wp_r_4210.partsbnd.dcx'; TextureBinder = 'wp_4210.tpf.dcx'; RawDir = $null; Flver = 'WP_R_4210.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_L_4250'; Binder = 'wp_l_4250.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4250'; Flver = 'WP_L_4250.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_R_4290'; Binder = 'wp_r_4290.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4290'; Flver = 'WP_R_4290.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_4410'; Binder = 'wp_r_4410.partsbnd.dcx'; TextureBinder = 'wp_4410.tpf.dcx'; RawDir = $null; Flver = 'WP_R_4410.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'BS_A_1010'; Binder = 'bs_a_1010.partsbnd.dcx'; TextureBinder = $null; RawDir = 'parts\bs_a_1010'; Flver = 'BS_A_1010.flver'; Kind = 'Booster' },
     [pscustomobject]@{ Key = 'BS_A_2010'; Binder = 'bs_a_2010.partsbnd.dcx'; TextureBinder = $null; RawDir = 'parts\bs_a_2010'; Flver = 'BS_A_2010.flver'; Kind = 'Booster' },
     [pscustomobject]@{ Key = 'BS_A_3010'; Binder = 'bs_a_3010.partsbnd.dcx'; TextureBinder = $null; RawDir = 'parts\bs_a_3010'; Flver = 'BS_A_3010.flver'; Kind = 'Booster' }
 )
 
-$manifest = @()
+if ($Keys.Count -gt 0) {
+    $requestedKeys = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($key in $Keys) {
+        [void]$requestedKeys.Add($key)
+    }
+    $specs = @($specs | Where-Object { $requestedKeys.Contains($_.Key) })
+    $missingKeys = @($Keys | Where-Object { $key = $_; -not ($specs | Where-Object { $_.Key -eq $key }) })
+    if ($missingKeys.Count -gt 0) {
+        throw "Unknown equipment key(s): $($missingKeys -join ', ')"
+    }
+}
+
+$manifestPath = Join-Path $assetOutput 'AC6NativeEquipmentManifest.json'
+$manifestByKey = @{}
+if ($Keys.Count -gt 0 -and (Test-Path -LiteralPath $manifestPath)) {
+    foreach ($entry in @(Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json)) {
+        $manifestByKey[$entry.key] = $entry
+    }
+}
 foreach ($spec in $specs) {
     Write-Host "`n=== $($spec.Key) ==="
     $binder = Join-Path (Join-Path $GameRoot 'parts') $spec.Binder
@@ -182,7 +205,7 @@ foreach ($spec in $specs) {
         $compendiumName = $compendium.Name
     }
     $animationNames = @($animations | ForEach-Object { $_.Name })
-    $manifest += [pscustomobject]@{
+    $manifestByKey[$spec.Key] = [pscustomobject]@{
         key = $spec.Key
         kind = $spec.Kind
         glb = [IO.Path]::GetFileName($outputGlb)
@@ -195,7 +218,7 @@ foreach ($spec in $specs) {
     }
 }
 
-$manifestPath = Join-Path $assetOutput 'AC6NativeEquipmentManifest.json'
+$manifest = @($manifestByKey.Values | Sort-Object key)
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 Write-Host "`nNative equipment pipeline complete: $assetOutput"
 Write-Host "Manifest: $manifestPath"

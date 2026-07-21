@@ -29,6 +29,12 @@ if (args.Length > 0 && args[0].Equals("--flver-types", StringComparison.OrdinalI
     return 0;
 }
 
+if (args.Length > 0 && args[0].Equals("--tae-types", StringComparison.OrdinalIgnoreCase))
+{
+    DumpMatchingTypes("SoulsFormats.dll", "TAE|Animation|AnimFile|MiniHeader");
+    return 0;
+}
+
 if (args.Length > 1 && args[0].Equals("--flver-summary", StringComparison.OrdinalIgnoreCase))
 {
     DumpFlverSummary(args[1]);
@@ -92,6 +98,12 @@ if (args.Length > 3 && args[0].Equals("--dump-tae", StringComparison.OrdinalIgno
 if (args.Length > 3 && args[0].Equals("--dump-param", StringComparison.OrdinalIgnoreCase))
 {
     DumpParam(args[1], args[2], args[3]);
+    return 0;
+}
+
+if (args.Length > 2 && args[0].Equals("--dump-param-file", StringComparison.OrdinalIgnoreCase))
+{
+    DumpParamFile(args[1], args[2]);
     return 0;
 }
 
@@ -716,6 +728,22 @@ static void DumpTae(string taePathOrDir, string templatePath, string outputPath)
         var animations = new List<object>();
         foreach (var anim in tae.Animations)
         {
+            var headerType = anim.MiniHeader.Type.ToString();
+            bool? importsHkx = null;
+            int? importHkxSourceAnimId = null;
+            int? importFromAnimId = null;
+            int? importUnknown = null;
+            if (anim.MiniHeader is SoulsFormats.TAE.Animation.AnimMiniHeader.Standard standardHeader)
+            {
+                importsHkx = standardHeader.ImportsHKX;
+                importHkxSourceAnimId = standardHeader.ImportHKXSourceAnimID;
+            }
+            else if (anim.MiniHeader is SoulsFormats.TAE.Animation.AnimMiniHeader.ImportOtherAnim importHeader)
+            {
+                importFromAnimId = importHeader.ImportFromAnimID;
+                importUnknown = importHeader.Unknown;
+            }
+
             var events = new List<object>();
             foreach (var ev in anim.Events)
             {
@@ -741,6 +769,11 @@ static void DumpTae(string taePathOrDir, string templatePath, string outputPath)
             {
                 id = anim.ID,
                 name = anim.AnimFileName,
+                headerType,
+                importsHkx,
+                importHkxSourceAnimId,
+                importFromAnimId,
+                importUnknown,
                 eventCount = anim.Events.Count,
                 events,
             });
@@ -786,6 +819,25 @@ static void DumpParam(string regulationPath, string paramName, string paramdefPa
     param.ApplyParamdef(def);
 
     Console.WriteLine($"# {paramName}: {param.Rows.Count} rows, {def.Fields.Count} fields");
+    foreach (var row in param.Rows)
+    {
+        var cells = row.Cells
+            .Where(c => c.Def.InternalType != "dummy8")
+            .Select(c => $"{c.Def.InternalName}={c.Value}");
+        Console.WriteLine($"row {row.ID}: {string.Join(" ", cells)}");
+    }
+}
+
+// Reads a PARAM that has already been extracted from gameparam.parambnd.dcx.
+// This avoids relying on a specific regulation.bin build when only raw game
+// parameters are available.
+static void DumpParamFile(string paramPath, string paramdefPath)
+{
+    var param = SoulsFormats.PARAM.Read(paramPath);
+    var def = SoulsFormats.PARAMDEF.XmlDeserialize(paramdefPath);
+    param.ApplyParamdef(def);
+
+    Console.WriteLine($"# {Path.GetFileNameWithoutExtension(paramPath)}: {param.Rows.Count} rows, {def.Fields.Count} fields");
     foreach (var row in param.Rows)
     {
         var cells = row.Cells

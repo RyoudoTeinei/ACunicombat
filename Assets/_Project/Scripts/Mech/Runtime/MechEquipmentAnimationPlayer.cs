@@ -23,13 +23,14 @@ namespace ACunicombat.Mechs
         private MechEquipmentAnimationDefinition activeAction;
         private double playbackTime;
         private bool isPlaying;
+        private bool sampleDirectly;
 
         public IReadOnlyList<MechEquipmentAnimationDefinition> Actions => actions;
         public string DefaultActionId => defaultActionId;
         public string ActiveActionId => activeAction == null ? string.Empty : activeAction.ActionId;
         public double PlaybackTime => playbackTime;
         public bool IsPlaying => isPlaying;
-        public bool IsGraphValid => graph.IsValid();
+        public bool IsGraphValid => graph.IsValid() || (sampleDirectly && activeAction?.Clip != null);
 
         public void Configure(
             IEnumerable<MechEquipmentAnimationDefinition> animationActions,
@@ -104,6 +105,32 @@ namespace ACunicombat.Mechs
             return isPlaying;
         }
 
+        public bool PlayActionPreservingPose(string actionId, bool restart = true)
+        {
+            if (!TryGetAction(actionId, out var action))
+            {
+                return false;
+            }
+
+            if (!restart && isPlaying && activeAction == action)
+            {
+                return true;
+            }
+
+            DestroyGraph();
+            activeAction = action;
+            playbackTime = 0d;
+            sampleDirectly = true;
+            isPlaying = true;
+            PrepareAnimator();
+
+            // AC6 equipment actions are sparse state transitions. Sampling only their keyed
+            // properties preserves the previous action's terminal pose for unkeyed doors,
+            // rails and brackets instead of restoring the imported GLB bind pose.
+            action.Clip.SampleAnimation(gameObject, 0f);
+            return true;
+        }
+
         public bool SampleActionAtTime(string actionId, float timeSeconds)
         {
             if (!TryGetAction(actionId, out var action))
@@ -117,6 +144,16 @@ namespace ACunicombat.Mechs
             PrepareAnimator();
             action.Clip.SampleAnimation(gameObject, (float)playbackTime);
             return true;
+        }
+
+        public bool SampleActionAtEnd(string actionId)
+        {
+            if (!TryGetAction(actionId, out var action) || action.Clip == null)
+            {
+                return false;
+            }
+
+            return SampleActionAtTime(actionId, action.Clip.length);
         }
 
         public void StopPlayback()
@@ -158,7 +195,7 @@ namespace ACunicombat.Mechs
 
         private void Update()
         {
-            if (!isPlaying || !graph.IsValid() || activeAction?.Clip == null)
+            if (!isPlaying || activeAction?.Clip == null)
             {
                 return;
             }
@@ -174,8 +211,21 @@ namespace ACunicombat.Mechs
                 playbackTime = NormalizeTime(playbackTime, activeAction);
             }
 
-            ApplyPlayableTime();
-            graph.Evaluate(0f);
+            if (sampleDirectly)
+            {
+                activeAction.Clip.SampleAnimation(gameObject, (float)playbackTime);
+                return;
+            }
+
+            if (graph.IsValid())
+            {
+                ApplyPlayableTime();
+                graph.Evaluate(0f);
+            }
+            else
+            {
+                isPlaying = false;
+            }
         }
 
         private void PrepareAnimator()
@@ -234,6 +284,7 @@ namespace ACunicombat.Mechs
 
             clipPlayable = default;
             isPlaying = false;
+            sampleDirectly = false;
         }
 
         private bool TryGetAction(string actionId, out MechEquipmentAnimationDefinition action)

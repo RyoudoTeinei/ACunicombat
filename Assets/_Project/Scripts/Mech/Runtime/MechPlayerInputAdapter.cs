@@ -19,10 +19,28 @@ namespace ACunicombat.Mechs
         public bool AssaultBoostEdge;
         /// <summary>Shift 按下边沿（QB 触发）。</summary>
         public bool QuickBoostEdge;
-        public bool FireLeftHeld;
-        public bool FireLeftEdge;
-        public bool FireRightHeld;
-        public bool FireRightEdge;
+        /// <summary>Ctrl 按住（水平反推制动并保持当前高度）。</summary>
+        public bool BrakeHeld;
+        /// <summary>持久主推进节流，[0,1]。它控制推力比例，不直接指定速度。</summary>
+        public float MainThrottle;
+        /// <summary>按住时临时解除作战速度包线；技术安全上限仍然生效。</summary>
+        public bool FlightEnvelopeOverrideHeld;
+        /// <summary>Primary fire is the left mouse button and commands the anatomical left hand.</summary>
+        public bool PrimaryFireHeld;
+        public bool PrimaryFireEdge;
+        /// <summary>Secondary fire is the right mouse button and commands the anatomical right hand.</summary>
+        public bool SecondaryFireHeld;
+        public bool SecondaryFireEdge;
+        /// <summary>Q commands the anatomical left shoulder weapon.</summary>
+        public bool LeftShoulderFireHeld;
+        public bool LeftShoulderFireEdge;
+        /// <summary>E commands the anatomical right shoulder weapon.</summary>
+        public bool RightShoulderFireHeld;
+        public bool RightShoulderFireEdge;
+        /// <summary>Digit 1 toggles vector thrust.</summary>
+        public bool VectorThrustToggleEdge;
+        /// <summary>Digit 2 toggles runtime thrust-force visualization.</summary>
+        public bool ThrustVisualizationToggleEdge;
     }
 
     /// <summary>
@@ -57,9 +75,14 @@ namespace ACunicombat.Mechs
         [SerializeField] private float doubleTapWindowSeconds = 0.3f;
         [Tooltip("长按 Space 判定为上昇開始ブースト的时长（秒）。")]
         [SerializeField] private float riseHoldBoostSeconds = 0.25f;
+        [Tooltip("鼠标滚轮每格改变的主推进节流比例。")]
+        [Range(0.01f, 0.25f)] [SerializeField] private float throttleWheelStep = 0.05f;
+        [Tooltip("按住 R/F 时每秒增加/降低的主推进节流比例。")]
+        [Range(0.1f, 2f)] [SerializeField] private float throttleKeyboardRate = 0.5f;
 
         private float lastSpaceDownTime = -10f;
         private float spaceHeldSince = -1f;
+        private float mainThrottle;
 
         public MechPlayerInputFrame Current { get; private set; }
 
@@ -85,7 +108,7 @@ namespace ACunicombat.Mechs
             if (spaceDown)
             {
                 frame.AssaultBoostEdge = Time.unscaledTime - lastSpaceDownTime <= doubleTapWindowSeconds;
-                lastSpaceDownTime = Time.unscaledTime;
+                lastSpaceDownTime = frame.AssaultBoostEdge ? -10f : Time.unscaledTime;
                 spaceHeldSince = Time.unscaledTime;
             }
 
@@ -95,15 +118,41 @@ namespace ACunicombat.Mechs
             }
 
             frame.QuickBoostEdge = keyboard.leftShiftKey.wasPressedThisFrame;
+            frame.BrakeHeld = keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed;
+            frame.FlightEnvelopeOverrideHeld = keyboard.leftAltKey.isPressed || keyboard.rightAltKey.isPressed;
+            frame.LeftShoulderFireHeld = keyboard.qKey.isPressed;
+            frame.LeftShoulderFireEdge = keyboard.qKey.wasPressedThisFrame;
+            frame.RightShoulderFireHeld = keyboard.eKey.isPressed;
+            frame.RightShoulderFireEdge = keyboard.eKey.wasPressedThisFrame;
+            frame.VectorThrustToggleEdge = keyboard.digit1Key.wasPressedThisFrame;
+            frame.ThrustVisualizationToggleEdge = keyboard.digit2Key.wasPressedThisFrame;
+
+            var throttleAxis = (keyboard.rKey.isPressed ? 1f : 0f)
+                               - (keyboard.fKey.isPressed ? 1f : 0f);
+            mainThrottle = Mathf.Clamp01(
+                mainThrottle + throttleAxis * throttleKeyboardRate * Time.unscaledDeltaTime);
+            if (keyboard.xKey.wasPressedThisFrame)
+            {
+                mainThrottle = 0f;
+            }
 
             if (mouse != null)
             {
+                var scrollY = mouse.scroll.ReadValue().y;
+                if (Mathf.Abs(scrollY) > Mathf.Epsilon)
+                {
+                    mainThrottle = Mathf.Clamp01(
+                        mainThrottle + Mathf.Sign(scrollY) * throttleWheelStep);
+                }
+
                 frame.MouseDelta = mouse.delta.ReadValue();
-                frame.FireLeftHeld = mouse.leftButton.isPressed;
-                frame.FireLeftEdge = mouse.leftButton.wasPressedThisFrame;
-                frame.FireRightHeld = mouse.rightButton.isPressed;
-                frame.FireRightEdge = mouse.rightButton.wasPressedThisFrame;
+                frame.PrimaryFireHeld = mouse.leftButton.isPressed;
+                frame.PrimaryFireEdge = mouse.leftButton.wasPressedThisFrame;
+                frame.SecondaryFireHeld = mouse.rightButton.isPressed;
+                frame.SecondaryFireEdge = mouse.rightButton.wasPressedThisFrame;
             }
+
+            frame.MainThrottle = mainThrottle;
 
             Current = frame;
             return frame;
@@ -152,7 +201,8 @@ namespace ACunicombat.Mechs
                 bits |= 1u << MechPadBits.FierceDash;
             }
 
-            if (frame.FireLeftHeld || frame.FireRightHeld)
+            if (frame.PrimaryFireHeld || frame.SecondaryFireHeld ||
+                frame.LeftShoulderFireHeld || frame.RightShoulderFireHeld)
             {
                 bits |= 1u << MechPadBits.AimPressed;
             }

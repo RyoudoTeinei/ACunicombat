@@ -13,6 +13,7 @@ Shader "ACunicombat/AC6/Parts Approx"
         _PaintAlbedoMap("AC Paint Albedo", 2D) = "gray" {}
         _PaintColor("Paint Tint", Color) = (0.62, 0.66, 0.68, 1)
         _PaintInfluence("Paint Influence", Range(0, 1)) = 0.18
+        _UseSourceAlbedo("Use Source Albedo", Range(0, 1)) = 0
         _ZoneMode("Use AC6 Zone Material", Range(0, 1)) = 0
         _ZoneMaskStrength("AC6 Zone Mask Strength", Range(0, 1)) = 1
         _Zone1Color("AC6 Zone 1", Color) = (0.42, 0.375, 0.32, 1)
@@ -47,7 +48,9 @@ Shader "ACunicombat/AC6/Parts Approx"
 
             Blend One Zero
             ZWrite On
-            Cull Back
+            // AC6 frame FLVER surfaces are exported as double-sided. Back-face culling
+            // removes valid armor panels and makes the assembled mech look translucent.
+            Cull Off
 
             HLSLPROGRAM
             #pragma target 3.5
@@ -85,6 +88,7 @@ Shader "ACunicombat/AC6/Parts Approx"
             half _BumpScale;
             half _EmissionStrength;
             half _PaintInfluence;
+            half _UseSourceAlbedo;
             half _ZoneMode;
             half _ZoneMaskStrength;
             half _AlbedoDetailStrength;
@@ -157,7 +161,8 @@ Shader "ACunicombat/AC6/Parts Approx"
 
             half3 BuildAc6Mask0(half maskRed)
             {
-                // Blender CM graph: 3m.R -> CONSTANT ColorRamp -> Mask_0 RGB.
+                // The imported mask is sRGB, matching the packed Blend image node. These
+                // thresholds are evaluated after the texture sampler converts it to linear.
                 half3 mask0 = half3(0, 0, 0);
                 if (maskRed >= 0.332h)
                 {
@@ -235,9 +240,16 @@ Shader "ACunicombat/AC6/Parts Approx"
                 half3 maskSample = SAMPLE_TEXTURE2D(_Mask3Map, sampler_Mask3Map, input.uv).rgb;
 
                 SurfaceData surfaceData = (SurfaceData)0;
-                surfaceData.albedo = _ZoneMode > 0.5h
-                    ? BuildAc6ZoneAlbedo(baseSample.rgb, maskSample, input.uv)
-                    : BuildStableArmorAlbedo(baseSample.rgb, maskSample, input.uv);
+                if (_UseSourceAlbedo > 0.5h)
+                {
+                    surfaceData.albedo = baseSample.rgb * _BaseColor.rgb;
+                }
+                else
+                {
+                    surfaceData.albedo = _ZoneMode > 0.5h
+                        ? BuildAc6ZoneAlbedo(baseSample.rgb, maskSample, input.uv)
+                        : BuildStableArmorAlbedo(baseSample.rgb, maskSample, input.uv);
+                }
                 surfaceData.alpha = 1.0h;
                 surfaceData.metallic = saturate(_Metallic + (maskSample.r - 0.5h) * _MaskMetallicInfluence);
                 surfaceData.smoothness = saturate(_Smoothness + ((1.0h - maskSample.g) - 0.5h) * _MaskSmoothnessInfluence);

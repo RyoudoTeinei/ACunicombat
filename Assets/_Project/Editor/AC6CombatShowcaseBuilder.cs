@@ -20,6 +20,8 @@ public static class AC6CombatShowcaseBuilder
         "Assets/_Project/LocalSamples/AC6MelanderCase/Raw/Gltf/Melander_1010_Rerun.glb";
     private const string ShowcaseActionRegistryPath =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Actions/AC6CombatShowcaseRegistry.asset";
+    private const string BehaviorGraphPath =
+        "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/AC6BehaviorGraph.asset";
     private const string GeneratedActionsRoot =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Actions";
     private const string BodyTimelinePath =
@@ -38,14 +40,15 @@ public static class AC6CombatShowcaseBuilder
     private static bool batchSawExhaustAxisPass;
     private static bool batchSawExhaustAxisFail;
     private static bool batchSawBodyActionGraph;
+    private static bool batchSawBehaviorGraph;
+    private static int batchBehaviorTransitions;
     private static readonly HashSet<string> BatchBodyActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> BatchUpperBodyActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> BatchPoseChecks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     private static readonly string[] RequiredBodyActions =
     {
-        "a000_000000", "a000_120200", "a000_028002", "a000_004242",
-        "a000_028003", "a000_004243"
+        "a000_000000", "a000_020200", "a000_004240"
     };
 
     private static readonly string[] RequiredUpperBodyActions =
@@ -123,9 +126,20 @@ public static class AC6CombatShowcaseBuilder
     {
         error = string.Empty;
         var actionBuildReport = AC6ActionLibraryBuilder.Build();
-        if (!BuildShowcaseActionRegistry(out var actionRegistry, out var showcaseRegistryError))
+        var behaviorBuildReport = AC6BehaviorGraphCompiler.Compile();
+        var behaviorGraph = AssetDatabase.LoadAssetAtPath<MechBehaviorGraphAsset>(BehaviorGraphPath);
+        if (behaviorGraph == null)
         {
-            error = $"{showcaseRegistryError} {actionBuildReport}";
+            error = $"Behavior graph was not generated. {behaviorBuildReport}";
+            return false;
+        }
+
+        if (!BuildShowcaseActionRegistry(
+                behaviorGraph,
+                out var actionRegistry,
+                out var showcaseRegistryError))
+        {
+            error = $"{showcaseRegistryError} {actionBuildReport} {behaviorBuildReport}";
             return false;
         }
         var missingActions = RequiredBodyActions.Concat(RequiredUpperBodyActions)
@@ -175,34 +189,35 @@ public static class AC6CombatShowcaseBuilder
         }
 
         var root = new GameObject("AC6_Combat_Showcase");
+        MechAssembler assembler;
         if (mech == null)
         {
             mech = new GameObject("Player_Melander_1010");
-            var assembler = mech.AddComponent<MechAssembler>();
-            assembler.Loadout = loadout;
-            assembler.EditorConfigureSynchronizedSkinnedParts(
-                bodyClip,
-                shouldAssembleOnAwake: false,
-                shouldCreatePlaceholders: false,
-                shouldLoop: true,
-                playbackSpeed: 1f);
-            assembler.Assemble();
+            assembler = mech.AddComponent<MechAssembler>();
+        }
+        else
+        {
+            assembler = mech.GetComponent<MechAssembler>();
+            if (assembler == null)
+            {
+                assembler = mech.AddComponent<MechAssembler>();
+            }
         }
 
         mech.name = "Player_Melander_1010";
         mech.transform.SetParent(root.transform, false);
         mech.transform.localPosition = Vector3.zero;
         mech.transform.localRotation = Quaternion.identity;
-        var existingAssembler = mech.GetComponent<MechAssembler>();
-        if (existingAssembler != null)
-        {
-            existingAssembler.EditorConfigureSynchronizedSkinnedParts(
-                bodyClip,
-                shouldAssembleOnAwake: false,
-                shouldCreatePlaceholders: false,
-                shouldLoop: true,
-                playbackSpeed: 1f);
-        }
+        // The validation scene contains a serialized assembly. Always rebuild it from the
+        // current loadout so generated player/showcase scenes never retain stale equipment.
+        assembler.Loadout = loadout;
+        assembler.EditorConfigureSynchronizedSkinnedParts(
+            bodyClip,
+            shouldAssembleOnAwake: false,
+            shouldCreatePlaceholders: false,
+            shouldLoop: true,
+            playbackSpeed: 1f);
+        assembler.Assemble();
 
         var target = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         target.name = "Moving_Target";
@@ -264,7 +279,6 @@ public static class AC6CombatShowcaseBuilder
             "a200_030020",
             "a200_030022",
             "a200_030030");
-
         EditorSceneManager.SaveScene(scene, ScenePath);
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -294,6 +308,8 @@ public static class AC6CombatShowcaseBuilder
         batchSawExhaustAxisPass = false;
         batchSawExhaustAxisFail = false;
         batchSawBodyActionGraph = false;
+        batchSawBehaviorGraph = false;
+        batchBehaviorTransitions = 0;
         BatchBodyActions.Clear();
         BatchUpperBodyActions.Clear();
         BatchPoseChecks.Clear();
@@ -358,6 +374,14 @@ public static class AC6CombatShowcaseBuilder
         {
             batchSawBodyActionGraph = true;
         }
+        if (condition.Contains("[AC6CombatShowcase] Behavior graph: PASS"))
+        {
+            batchSawBehaviorGraph = true;
+        }
+        if (condition.Contains("[AC6BehaviorGraph] State "))
+        {
+            batchBehaviorTransitions++;
+        }
         CaptureId(condition, "Body action PASS: ", BatchBodyActions);
         CaptureId(condition, "Upper-body action PASS: ", BatchUpperBodyActions);
         if (condition.Contains("Body pose check: PASS phase="))
@@ -385,6 +409,8 @@ public static class AC6CombatShowcaseBuilder
             batchSawExhaustAxisPass &&
             !batchSawExhaustAxisFail &&
             batchSawBodyActionGraph &&
+            batchSawBehaviorGraph &&
+            batchBehaviorTransitions >= 3 &&
             RequiredBodyActions.All(BatchBodyActions.Contains) &&
             RequiredUpperBodyActions.All(BatchUpperBodyActions.Contains) &&
             RequiredPosePhases.All(BatchPoseChecks.Contains);
@@ -394,6 +420,7 @@ public static class AC6CombatShowcaseBuilder
             $"materials={batchSawMaterialBindings} equipment={batchSawRequiredEquipment} " +
             $"exhaustAxis={(batchSawExhaustAxisPass && !batchSawExhaustAxisFail)} " +
             $"bodyGraph={batchSawBodyActionGraph} bodyActions={BatchBodyActions.Count}/{RequiredBodyActions.Length} " +
+            $"behaviorGraph={batchSawBehaviorGraph} transitions={batchBehaviorTransitions} " +
             $"upperActions={BatchUpperBodyActions.Count}/{RequiredUpperBodyActions.Length} " +
             $"poseChecks={BatchPoseChecks.Count}/{RequiredPosePhases.Length}");
         EditorApplication.isPlaying = false;
@@ -414,6 +441,7 @@ public static class AC6CombatShowcaseBuilder
     }
 
     private static bool BuildShowcaseActionRegistry(
+        MechBehaviorGraphAsset behaviorGraph,
         out MechActionRegistry registry,
         out string error)
     {
@@ -427,9 +455,53 @@ public static class AC6CombatShowcaseBuilder
         }
 
         registry.EditorActions.Clear();
+        var registeredActionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var stateIndex = 0; stateIndex < behaviorGraph.states.Length; stateIndex++)
+        {
+            ref readonly var state = ref behaviorGraph.states[stateIndex];
+            if (!state.animAvailable || string.IsNullOrWhiteSpace(state.actionId) ||
+                !registeredActionIds.Add(state.actionId))
+            {
+                continue;
+            }
+
+            var spec = new ShowcaseActionSpec(
+                state.actionId,
+                state.officialName,
+                MechBodyActionLayer.FullBody,
+                state.loop,
+                state.blendInSeconds,
+                0.1f);
+            var slotClips = LoadShowcaseClips(spec);
+            if (slotClips.Count != ShowcaseFrameSlots.Length)
+            {
+                error = $"Behavior graph clips are incomplete for {state.actionId}: " +
+                        $"{slotClips.Count}/{ShowcaseFrameSlots.Length}.";
+                return false;
+            }
+
+            registry.EditorActions.Add(new MechBodyActionDefinition
+            {
+                actionId = state.actionId,
+                displayNameZh = state.officialName,
+                categoryZh = "AC6 behavior graph",
+                reviewStatus = "BehaviorGraph",
+                layer = MechBodyActionLayer.FullBody,
+                loop = state.loop,
+                blendInSeconds = state.blendInSeconds,
+                blendOutSeconds = 0.1f,
+                slotClips = slotClips,
+            });
+        }
+
         for (var actionIndex = 0; actionIndex < ShowcaseActions.Length; actionIndex++)
         {
             var spec = ShowcaseActions[actionIndex];
+            if (!registeredActionIds.Add(spec.ActionId))
+            {
+                continue;
+            }
+
             var slotClips = LoadShowcaseClips(spec);
             if (slotClips.Count != ShowcaseFrameSlots.Length)
             {

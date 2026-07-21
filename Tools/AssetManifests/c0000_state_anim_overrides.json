@@ -1,40 +1,40 @@
 {
- "comment": "状态→动作 的别名/占位覆盖：BHV 引用的 TAE ID 无物理文件时，指定实际使用的动作。QB 224xx 系按别名推断落到 0042xx/1224xx（依据见 Docs/AC6动作衔接咨询回复 §2）。方向变体待目检后细化。",
- "entries": [
-  {
-   "stateIndex": 77,
-   "actionId": "a000_004240",
-   "noteZh": "QB：22400 别名推断"
-  },
-  {
-   "stateIndex": 78,
-   "actionId": "a000_004240",
-   "noteZh": "ロック時QB：方向变体待细化（004240-43）"
-  },
-  {
-   "stateIndex": 79,
-   "actionId": "a000_004240",
-   "noteZh": "BD中QB"
-  },
-  {
-   "stateIndex": 80,
-   "actionId": "a000_004240",
-   "noteZh": "ロック時BD中QB"
-  },
-  {
-   "stateIndex": 82,
-   "actionId": "a000_122410",
-   "noteZh": "空中QB：1224xx 物理文件存在（TAE 123010 系）"
-  },
-  {
-   "stateIndex": 28,
-   "actionId": "a000_022300",
-   "noteZh": "ジャンプ開始：22340 无物理，用 22300 系占位"
-  },
-  {
-   "stateIndex": 29,
-   "actionId": "a000_022300",
-   "noteZh": "ジャンプ加速"
-  }
- ]
+  "comment": "行为状态使用逻辑动作 ID。若逻辑 ID 没有同名 HKX，物理来源由 TAE miniheader 别名链和实际 HKX 清单解析，不在此文件手工改名。",
+  "entries": [
+    {
+      "stateIndex": 77,
+      "actionId": "a000_004240",
+      "noteZh": "地面 QB；旧资源使用 004240 占位，待社区行为图动作继续核验。"
+    },
+    {
+      "stateIndex": 78,
+      "actionId": "a000_004240",
+      "noteZh": "锁定状态地面 QB；方向变体待细化。"
+    },
+    {
+      "stateIndex": 79,
+      "actionId": "a000_004240",
+      "noteZh": "推进移动中的地面 QB。"
+    },
+    {
+      "stateIndex": 80,
+      "actionId": "a000_004240",
+      "noteZh": "锁定状态推进移动中的地面 QB。"
+    },
+    {
+      "stateIndex": 82,
+      "actionId": "a000_122410",
+      "noteZh": "空中 QB。逻辑动作 a000_122410 经 TAE 123010 -> 122710 -> 022710，物理来源为 a000_022710.hkx（a000_01 动画包）。"
+    },
+    {
+      "stateIndex": 28,
+      "actionId": "a000_022300",
+      "noteZh": "跳跃开始；当前用 022300 系动作占位。"
+    },
+    {
+      "stateIndex": 29,
+      "actionId": "a000_022300",
+      "noteZh": "跳跃加速；当前用 022300 系动作占位。"
+    }
+  ]
 }

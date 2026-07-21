@@ -1,0 +1,10 @@
+{
+  "source": "Game/param/gameparam/gameparam.parambnd.dcx/PlayerColoringPresetParam",
+  "rowId": 2,
+  "displayName": "AC6 Official Blue Preset (Row 2)",
+  "baseColor": "#0000FFFF",
+  "subColor": "#3C3C3CFF",
+  "supportColor": "#505050FF",
+  "optionalColor": "#A0A0A0FF",
+  "deviceColor": "#A0A0A0FF"
+}

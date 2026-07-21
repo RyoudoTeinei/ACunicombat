@@ -173,12 +173,20 @@ if (Test-Path -LiteralPath $labelsPath) {
 }
 
 $bhvRefsByAction = @{}
+$bhvPhysicalAliasesByAction = @{}
 $bhvAlignmentSafe = $false
 if (Test-Path -LiteralPath $bhvStateMapPath) {
     $bhvDocument = Get-Content -LiteralPath $bhvStateMapPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $bhvAlignmentSafe = [bool]$bhvDocument.alignment.isSafeToApplyOfficialNames
     if (-not $bhvAlignmentSafe) {
         throw 'BHV state map exists, but its debug metadata alignment is not safe. Rebuild it before generating the action catalog.'
+    }
+
+    foreach ($action in $bhvDocument.actions) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$action.actionId) -and
+            -not [string]::IsNullOrWhiteSpace([string]$action.physicalActionId)) {
+            $bhvPhysicalAliasesByAction[[string]$action.actionId] = [string]$action.physicalActionId
+        }
     }
 
     foreach ($state in $bhvDocument.states) {
@@ -191,10 +199,10 @@ if (Test-Path -LiteralPath $bhvStateMapPath) {
             } else {
                 $logicalActionId
             }
-            if (-not $bhvRefsByAction.ContainsKey($mappedActionId)) {
-                $bhvRefsByAction[$mappedActionId] = New-Object System.Collections.Generic.List[object]
+            if (-not $bhvRefsByAction.ContainsKey($logicalActionId)) {
+                $bhvRefsByAction[$logicalActionId] = New-Object System.Collections.Generic.List[object]
             }
-            $bhvRefsByAction[$mappedActionId].Add([pscustomobject][ordered]@{
+            $bhvRefsByAction[$logicalActionId].Add([pscustomobject][ordered]@{
                 stateIndex = [int]$state.index
                 officialStateName = [string]$state.officialStateName
                 slotName = [string]$slot.name
@@ -212,16 +220,32 @@ if (Test-Path -LiteralPath $bhvStateMapPath) {
 $allActionIds = @($rawByAction.Keys + $referencesByAction.Keys + $bhvRefsByAction.Keys | Sort-Object -Unique)
 $entries = New-Object System.Collections.Generic.List[object]
 foreach ($actionId in $allActionIds) {
-    $rawFile = if ($rawByAction.ContainsKey($actionId)) { $rawByAction[$actionId] } else { $null }
+    $bhvRefs = if ($bhvRefsByAction.ContainsKey($actionId)) {
+        @($bhvRefsByAction[$actionId] | Sort-Object stateIndex, slotName -Unique)
+    } else { @() }
+    $physicalAliases = @($bhvRefs | ForEach-Object physicalActionId |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+    if ($bhvPhysicalAliasesByAction.ContainsKey($actionId)) {
+        $physicalAliases = @($physicalAliases + [string]$bhvPhysicalAliasesByAction[$actionId] |
+            Sort-Object -Unique)
+    }
+    if ($physicalAliases.Count -gt 1) {
+        throw "Logical action $actionId resolves to multiple physical HKX files: $($physicalAliases -join ', ')"
+    }
+    $physicalActionId = if ($rawByAction.ContainsKey($actionId)) {
+        $actionId
+    } elseif ($physicalAliases.Count -eq 1) {
+        [string]$physicalAliases[0]
+    } else {
+        $actionId
+    }
+    $rawFile = if ($rawByAction.ContainsKey($physicalActionId)) { $rawByAction[$physicalActionId] } else { $null }
     $references = if ($referencesByAction.ContainsKey($actionId)) {
         @($referencesByAction[$actionId] | Sort-Object taeFile, taeActionId)
     } else { @() }
     $eventTypes = @($references | ForEach-Object { $_.eventTypes } | Sort-Object -Unique)
     $classification = Get-Classification $actionId $eventTypes
     $override = if ($overridesByAction.ContainsKey($actionId)) { $overridesByAction[$actionId] } else { $null }
-    $bhvRefs = if ($bhvRefsByAction.ContainsKey($actionId)) {
-        @($bhvRefsByAction[$actionId] | Sort-Object stateIndex, slotName -Unique)
-    } else { @() }
     $bhvPrimaryRefs = @($bhvRefs | Where-Object primary)
     $bhvPrimaryNames = @($bhvPrimaryRefs | ForEach-Object officialStateName | Sort-Object -Unique)
 
@@ -300,6 +324,7 @@ foreach ($actionId in $allActionIds) {
     }
     $entry = [pscustomobject][ordered]@{
         actionId = $actionId
+        physicalActionId = $physicalActionId
         hkxFile = if ($sourceAvailable) { $rawFile.Name } else { '' }
         bank = $classification.bank
         displayNameZh = $displayNameZh

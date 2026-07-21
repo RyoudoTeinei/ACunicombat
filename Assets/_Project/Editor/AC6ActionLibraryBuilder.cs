@@ -644,15 +644,13 @@ public static class AC6ActionLibraryBuilder
         }
     }
 
-    // The pose exporter and AC6PartToGltf keep Havok/glTF's right-handed coordinate system.
-    // glTFast reflects X while importing nodes into Unity's left-handed space, so clip samples
-    // must use the identical conversion before they are compared with or applied to imported
-    // part transforms. Keeping raw HKX values here makes almost every rest delta non-identity
-    // and produces the familiar lying/scattered animation failure.
+    // AC6PartToGltf now performs the source X reflection before writing glTF. glTFast reflects it
+    // back while importing, so imported transforms and raw HKX samples share the same Unity-space
+    // values here. Applying the old second reflection mirrored anatomy and animation deltas.
     private static Quaternion ToQuaternion(PoseQuaternion q) =>
-        new Quaternion(q.X, -q.Y, -q.Z, q.W);
+        new Quaternion(q.X, q.Y, q.Z, q.W);
 
-    private static Vector3 ToVector(PoseVector v) => new Vector3(-v.X, v.Y, v.Z);
+    private static Vector3 ToVector(PoseVector v) => new Vector3(v.X, v.Y, v.Z);
 
     // ---- manifest / pose JSON DTOs (schemas owned by the ps1 driver and AC6HkxPoseExporter) ----
 

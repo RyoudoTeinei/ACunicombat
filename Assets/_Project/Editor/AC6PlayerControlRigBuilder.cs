@@ -36,11 +36,29 @@ public static class AC6PlayerControlRigBuilder
 
         var input = EnsureComponent<MechPlayerInputAdapter>(root);
         var motion = EnsureComponent<MechFlightMotionController>(root);
+        var thrustVisualizer = EnsureComponent<MechThrustVisualizer>(root);
+        var trajectoryPredictor = EnsureComponent<MechTrajectoryPredictor>(root);
         var runner = EnsureComponent<MechBehaviorGraphRunner>(root);
         var weapon = EnsureComponent<MechWeaponArmLayer>(root);
         var rig = EnsureComponent<MechPlayerRig>(root);
 
+        weapon.ApplyVerifiedSideMapping();
+        EditorUtility.SetDirty(weapon);
+
+        // Native AC6 GLBs use -Z as visible forward. This offset is visual only;
+        // MechFlightMotionController keeps it out of logical movement/camera yaw.
+        motion.ConfigureModelForwardYawOffset(180f);
+        motion.ConfigurePropulsionForceModel(true, true, 35f);
+        motion.ConfigureFlightEnvelope(250f, 2000f, 40f);
+        motion.ConfigureQuickBoost(90f, 0.28f);
+        motion.ConfigureGravity(0.2f);
+        thrustVisualizer.Configure(motion);
+        trajectoryPredictor.Configure(motion);
         runner.Configure(graph, player);
+        EditorUtility.SetDirty(motion);
+        EditorUtility.SetDirty(thrustVisualizer);
+        EditorUtility.SetDirty(trajectoryPredictor);
+        EditorUtility.SetDirty(runner);
 
         var camGo = GameObject.Find("AC6PlayerCamera");
         if (camGo == null)
@@ -49,15 +67,19 @@ public static class AC6PlayerControlRigBuilder
         }
 
         var cam = camGo.GetComponent<MechThirdPersonCamera>();
+        camGo.tag = "MainCamera";
         cam.Configure(root.transform, motion);
+        cam.ConfigureFraming(20f, 6f, 8f);
 
         var so = new SerializedObject(rig);
         so.FindProperty("input").objectReferenceValue = input;
         so.FindProperty("motion").objectReferenceValue = motion;
+        so.FindProperty("thrustVisualizer").objectReferenceValue = thrustVisualizer;
         so.FindProperty("cam").objectReferenceValue = cam;
         so.FindProperty("graphRunner").objectReferenceValue = runner;
         so.FindProperty("actionPlayer").objectReferenceValue = player;
         so.FindProperty("weaponLayer").objectReferenceValue = weapon;
+        so.FindProperty("showFlightInstruments").boolValue = true;
         so.ApplyModifiedPropertiesWithoutUndo();
 
         EditorUtility.SetDirty(root);

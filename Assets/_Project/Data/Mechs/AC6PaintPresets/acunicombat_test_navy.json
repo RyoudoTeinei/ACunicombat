@@ -1,0 +1,19 @@
+{
+  "source": "ACunicombat test palette; paint semantics informed by PlayerColoringPresetParam row 2",
+  "rowId": -1,
+  "displayName": "ACunicombat Test Navy",
+  "baseColor": "#245CA8FF",
+  "subColor": "#252C36FF",
+  "supportColor": "#587DAAFF",
+  "optionalColor": "#162F52FF",
+  "deviceColor": "#6B7785FF",
+  "zoneColors": [
+    "#245CA8FF",
+    "#252C36FF",
+    "#587DAAFF",
+    "#162F52FF",
+    "#6B7785FF",
+    "#303944FF",
+    "#0A0E14FF"
+  ]
+}

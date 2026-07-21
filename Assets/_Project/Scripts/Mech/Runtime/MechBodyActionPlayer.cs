@@ -67,6 +67,23 @@ namespace ACunicombat.Mechs
         public int UpperBodyMaskMatchedBoneCount => upperBodyMaskMatchedBoneCount;
         public int UpperBodyMaskActivePathCount => upperBodyMaskActivePathCount;
 
+        public bool IsFullBodyActionFinished(string actionId)
+        {
+            var layer = layers[(int)MechBodyActionLayer.FullBody];
+            if (layer.Active == null || layer.Active.actionId != actionId)
+            {
+                return true;
+            }
+
+            if (layer.Active.loop)
+            {
+                return false;
+            }
+
+            var clipLength = LongestActiveClipLength((int)MechBodyActionLayer.FullBody);
+            return clipLength > 0f && clock - layer.ActiveStartTime >= clipLength;
+        }
+
         public void Configure(
             MechActionRegistry actionRegistry,
             IEnumerable<MechBodyActionPart> bodyParts,
@@ -444,7 +461,25 @@ namespace ACunicombat.Mechs
         private void EvaluateGraph()
         {
             graph.Evaluate(0f);
+            StabilizeLoopingRootPositions();
             SynchronizeSharedBones();
+        }
+
+        private void StabilizeLoopingRootPositions()
+        {
+            // applyRootMotion only prevents Animator from moving the component GameObject; it
+            // does not suppress translation curves authored on the skeleton's Root bone. The
+            // movement controller owns world-space locomotion, so looping body actions must stay
+            // in place or the rendered mech drifts relative to its logical transform and camera.
+            if (layers[(int)MechBodyActionLayer.FullBody].Active?.loop != true)
+            {
+                return;
+            }
+
+            for (var i = 0; i < parts.Count; i++)
+            {
+                parts[i].RestoreSkeletonRootPosition();
+            }
         }
 
         private void BuildGraph()
@@ -764,11 +799,18 @@ namespace ACunicombat.Mechs
         {
             private readonly AnimationMixerPlayable[] slotMixers = new AnimationMixerPlayable[LayerCount];
             private readonly AnimationClipPlayable[,] slotPlayables = new AnimationClipPlayable[LayerCount, SlotCount];
+            private readonly Transform skeletonRoot;
+            private readonly Vector3 skeletonRootRestPosition;
 
             public PartState(MechBodyActionPart source, Animator animator)
             {
                 Source = source;
                 Animator = animator;
+                skeletonRoot = FindSkeletonRoot(source.PartRoot);
+                if (skeletonRoot != null)
+                {
+                    skeletonRootRestPosition = skeletonRoot.localPosition;
+                }
             }
 
             public MechBodyActionPart Source { get; }
@@ -820,6 +862,40 @@ namespace ACunicombat.Mechs
                         slotPlayables[layerIndex, slot] = default;
                     }
                 }
+            }
+
+            public void RestoreSkeletonRootPosition()
+            {
+                if (skeletonRoot != null)
+                {
+                    skeletonRoot.localPosition = skeletonRootRestPosition;
+                }
+            }
+
+            private static Transform FindSkeletonRoot(GameObject partRoot)
+            {
+                if (partRoot == null)
+                {
+                    return null;
+                }
+
+                var direct = partRoot.transform.Find("Master/Root");
+                if (direct != null)
+                {
+                    return direct;
+                }
+
+                var transforms = partRoot.GetComponentsInChildren<Transform>(true);
+                for (var i = 0; i < transforms.Length; i++)
+                {
+                    if (transforms[i].name == "Root" && transforms[i].parent != null &&
+                        transforms[i].parent.name == "Master")
+                    {
+                        return transforms[i];
+                    }
+                }
+
+                return null;
             }
         }
 

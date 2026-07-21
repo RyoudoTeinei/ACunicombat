@@ -25,6 +25,7 @@ namespace ACunicombat.Mechs
         private int currentState = -1;
         private float stateElapsed;
         private bool animFinished;
+        private bool actionPlaybackSuppressed;
         private int[] animFinishedAtoms = Array.Empty<int>();
 
         private readonly (int from, int to, float time)[] history = new (int, int, float)[HistoryCapacity];
@@ -42,10 +43,30 @@ namespace ACunicombat.Mechs
         /// <summary>(fromState, toState)。demo/测试断言状态序列用。</summary>
         public event Action<int, int> StateChanged;
 
+        /// <summary>
+        /// Keeps evaluating and recording behavior states while a controller-owned transient
+        /// action temporarily owns the full-body layer. Releasing the override immediately
+        /// restores the current state's normal action.
+        /// </summary>
+        public void SetActionPlaybackSuppressed(bool suppressed, bool replayCurrentAction = true)
+        {
+            if (actionPlaybackSuppressed == suppressed)
+            {
+                return;
+            }
+
+            actionPlaybackSuppressed = suppressed;
+            if (!suppressed && replayCurrentAction)
+            {
+                PlayCurrentStateAction();
+            }
+        }
+
         public void Configure(MechBehaviorGraphAsset graphAsset, MechBodyActionPlayer player)
         {
             graph = graphAsset;
             actionPlayer = player;
+            actionPlaybackSuppressed = false;
             Reset();
         }
 
@@ -67,6 +88,49 @@ namespace ACunicombat.Mechs
             {
                 player.PlayFullBody(state.actionId);
             }
+        }
+
+        /// <summary>
+        /// 玩家/AI 可以请求一个已编译且有动作的官方状态。常规衔接仍由转换图裁决；
+        /// 该入口只用于一帧输入边沿和物理模式已经明确、但条件目录尚未完全映射的情况。
+        /// </summary>
+        public bool TryEnterState(int stateIndex)
+        {
+            if (graph == null || stateIndex < 0 || stateIndex >= graph.states.Length)
+            {
+                return false;
+            }
+
+            ref readonly var state = ref graph.states[stateIndex];
+            if (!state.animAvailable || string.IsNullOrEmpty(state.actionId))
+            {
+                return false;
+            }
+
+            if (currentState == stateIndex)
+            {
+                return true;
+            }
+
+            EnterState(stateIndex, instant: false);
+            return true;
+        }
+
+        /// <summary>
+        /// Enters an official state using a verified physical action alias. This is needed for
+        /// states such as air QB whose same-name HKX is absent from the extracted asset set.
+        /// </summary>
+        public bool TryEnterStateWithActionOverride(int stateIndex, string actionId)
+        {
+            if (graph == null || actionPlayer == null || stateIndex < 0 ||
+                stateIndex >= graph.states.Length || string.IsNullOrWhiteSpace(actionId) ||
+                !actionPlayer.HasAction(actionId))
+            {
+                return false;
+            }
+
+            EnterState(stateIndex, instant: false, actionId);
+            return true;
         }
 
         public void Reset()
@@ -127,6 +191,26 @@ namespace ACunicombat.Mechs
             }
         }
 
+        /// <summary>
+        /// Evaluates and records graph transitions without letting those transitions replace the
+        /// currently rendered full-body action. A controller can use this while a physical mode
+        /// (for example airborne flight) owns the visible locomotion clip, then explicitly enter
+        /// the verified state after graph evaluation.
+        /// </summary>
+        public void TickStateOnly(in MechGraphContext ctx, float deltaTime)
+        {
+            var wasSuppressed = actionPlaybackSuppressed;
+            actionPlaybackSuppressed = true;
+            try
+            {
+                Tick(in ctx, deltaTime);
+            }
+            finally
+            {
+                actionPlaybackSuppressed = wasSuppressed;
+            }
+        }
+
         private int FindFirstSatisfied(Span<ulong> mask)
         {
             ref readonly var state = ref graph.states[currentState];
@@ -164,7 +248,7 @@ namespace ACunicombat.Mechs
             return true;
         }
 
-        private void EnterState(int stateIndex, bool instant)
+        private void EnterState(int stateIndex, bool instant, string actionOverrideId = null)
         {
             var from = currentState;
             currentState = stateIndex;
@@ -175,15 +259,34 @@ namespace ACunicombat.Mechs
             historyCount++;
 
             ref readonly var state = ref graph.states[stateIndex];
-            if (actionPlayer != null && state.animAvailable && !string.IsNullOrEmpty(state.actionId)
-                && actionPlayer.HasAction(state.actionId))
+            var actionId = !string.IsNullOrWhiteSpace(actionOverrideId)
+                ? actionOverrideId
+                : state.actionId;
+            var canPlayStateAction = !actionPlaybackSuppressed && state.animAvailable;
+            if (actionPlayer != null && !string.IsNullOrWhiteSpace(actionId) &&
+                (actionOverrideId != null || canPlayStateAction) && actionPlayer.HasAction(actionId))
             {
-                actionPlayer.PlayFullBody(state.actionId);
+                actionPlayer.PlayFullBody(actionId);
             }
 
             if (!instant)
             {
                 StateChanged?.Invoke(from, stateIndex);
+            }
+        }
+
+        private void PlayCurrentStateAction()
+        {
+            if (graph == null || actionPlayer == null || currentState < 0)
+            {
+                return;
+            }
+
+            ref readonly var state = ref graph.states[currentState];
+            if (state.animAvailable && !string.IsNullOrWhiteSpace(state.actionId) &&
+                actionPlayer.HasAction(state.actionId))
+            {
+                actionPlayer.PlayFullBody(state.actionId);
             }
         }
 
@@ -202,11 +305,13 @@ namespace ACunicombat.Mechs
 
             // 无 clip 时长信息时的保守近似：非循环状态以动作播放器不再报告该动作为准；
             // TODO(IR v2)：编译期把 clip 时长写入 State，改为 stateElapsed >= duration。
-            if (actionPlayer == null || !state.animAvailable
-                || actionPlayer.ActiveFullBodyActionId != state.actionId)
+            if (actionPlayer == null || !state.animAvailable)
             {
                 animFinished = stateElapsed > 0.1f;
+                return;
             }
+
+            animFinished = actionPlayer.IsFullBodyActionFinished(state.actionId);
         }
 
         /// <summary>最近 count 条转换（新→旧），验证/调试用。</summary>

@@ -42,7 +42,7 @@
     "transitionCount": 8673,
     "actionsWithAnimationId": 292,
     "actionsWithoutAnimationId": 1,
-    "actionsResolvedToPhysicalHkx": 147,
+    "actionsResolvedToPhysicalHkx": 151,
     "statesWithPrimaryAnimation": 179
   },
   "actions": [
@@ -309,7 +309,7 @@
       "animationId": 20230,
       "animationIdSourceOffset": 32,
       "actionId": "a000_020230",
-      "physicalActionId": "a000_020230",
+      "physicalActionId": "a000_020210",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000064F0000FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -318,7 +318,7 @@
       "animationId": 20220,
       "animationIdSourceOffset": 32,
       "actionId": "a000_020220",
-      "physicalActionId": "a000_020220",
+      "physicalActionId": "a000_020210",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000FC4E0000FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -327,7 +327,7 @@
       "animationId": 20221,
       "animationIdSourceOffset": 32,
       "actionId": "a000_020221",
-      "physicalActionId": "a000_020221",
+      "physicalActionId": "a000_020211",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000FD4E0000FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -336,7 +336,7 @@
       "animationId": 20222,
       "animationIdSourceOffset": 32,
       "actionId": "a000_020222",
-      "physicalActionId": "a000_020222",
+      "physicalActionId": "a000_020212",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000FE4E0000FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -345,7 +345,7 @@
       "animationId": 20223,
       "animationIdSourceOffset": 32,
       "actionId": "a000_020223",
-      "physicalActionId": "a000_020223",
+      "physicalActionId": "a000_020213",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000FF4E0000FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -394,7 +394,7 @@
       "animationId": 22220,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022220",
-      "physicalActionId": "a000_022220",
+      "physicalActionId": "a000_022210",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000CC560000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -403,7 +403,7 @@
       "animationId": 22222,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022222",
-      "physicalActionId": "a000_022222",
+      "physicalActionId": "a000_022212",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000CE560000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -412,7 +412,7 @@
       "animationId": 22223,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022223",
-      "physicalActionId": "a000_022223",
+      "physicalActionId": "a000_022213",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000CF560000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -421,7 +421,7 @@
       "animationId": 22230,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022230",
-      "physicalActionId": "a000_022230",
+      "physicalActionId": "a000_022210",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000D6560000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -430,7 +430,7 @@
       "animationId": 22231,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022231",
-      "physicalActionId": "a000_022231",
+      "physicalActionId": "a000_022211",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000D7560000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -439,7 +439,7 @@
       "animationId": 22232,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022232",
-      "physicalActionId": "a000_022232",
+      "physicalActionId": "a000_022212",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000D8560000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -448,7 +448,7 @@
       "animationId": 22233,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022233",
-      "physicalActionId": "a000_022233",
+      "physicalActionId": "a000_022213",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000D9560000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -619,7 +619,7 @@
       "animationId": 22504,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022504",
-      "physicalActionId": "a000_022504",
+      "physicalActionId": "a000_022514",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000E8570000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -628,7 +628,7 @@
       "animationId": 22505,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022505",
-      "physicalActionId": "a000_022505",
+      "physicalActionId": "a000_022515",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000E9570000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -777,7 +777,7 @@
       "animationId": 22522,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022522",
-      "physicalActionId": "a000_022522",
+      "physicalActionId": "a000_022512",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000FA570000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -786,7 +786,7 @@
       "animationId": 22523,
       "animationIdSourceOffset": 32,
       "actionId": "a000_022523",
-      "physicalActionId": "a000_022523",
+      "physicalActionId": "a000_022513",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000FB570000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1022,7 +1022,7 @@
       "animationId": 25001,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025001",
-      "physicalActionId": "a000_025001",
+      "physicalActionId": "a000_025000",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000A9610000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1049,7 +1049,7 @@
       "animationId": 25010,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025010",
-      "physicalActionId": "a000_025010",
+      "physicalActionId": "a000_025000",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000B2610000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1058,7 +1058,7 @@
       "animationId": 25011,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025011",
-      "physicalActionId": "a000_025011",
+      "physicalActionId": "a000_025000",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000B3610000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1067,7 +1067,7 @@
       "animationId": 25012,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025012",
-      "physicalActionId": "a000_025012",
+      "physicalActionId": "a000_025002",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000B4610000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1076,7 +1076,7 @@
       "animationId": 25013,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025013",
-      "physicalActionId": "a000_025013",
+      "physicalActionId": "a000_025003",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000B5610000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1094,7 +1094,7 @@
       "animationId": 25101,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025101",
-      "physicalActionId": "a000_025101",
+      "physicalActionId": "a000_025100",
       "rawHex": "CDCC4C3E00000000000080BF000080BF000000000000000000000000000000000D620000FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1103,7 +1103,7 @@
       "animationId": 25102,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025102",
-      "physicalActionId": "a000_025102",
+      "physicalActionId": "a000_025100",
       "rawHex": "CDCC4C3E00000000000080BF000080BF000000000000000000000000000000000E620000FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1112,7 +1112,7 @@
       "animationId": 25103,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025103",
-      "physicalActionId": "a000_025103",
+      "physicalActionId": "a000_025100",
       "rawHex": "CDCC4C3E00000000000080BF000080BF000000000000000000000000000000000F620000FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1130,7 +1130,7 @@
       "animationId": 25201,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025201",
-      "physicalActionId": "a000_025201",
+      "physicalActionId": "a000_025200",
       "rawHex": "CDCC4C3E00000000000080BF000080BF0000000000000000000000000000000071620000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1139,7 +1139,7 @@
       "animationId": 25202,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025202",
-      "physicalActionId": "a000_025202",
+      "physicalActionId": "a000_025200",
       "rawHex": "CDCC4C3E00000000000080BF000080BF0000000000000000000000000000000072620000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1148,7 +1148,7 @@
       "animationId": 25203,
       "animationIdSourceOffset": 32,
       "actionId": "a000_025203",
-      "physicalActionId": "a000_025203",
+      "physicalActionId": "a000_025200",
       "rawHex": "CDCC4C3E00000000000080BF000080BF0000000000000000000000000000000073620000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1804,6 +1804,7 @@
       "animationId": 122410,
       "animationIdSourceOffset": 32,
       "actionId": "a000_122410",
+      "physicalActionId": "a000_022710",
       "rawHex": "CDCC4C3E00000001000080BF000080BF000000000000000000000000000000002ADE0100FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1812,6 +1813,7 @@
       "animationId": 122411,
       "animationIdSourceOffset": 32,
       "actionId": "a000_122411",
+      "physicalActionId": "a000_022711",
       "rawHex": "CDCC4C3E00000000000080BF000080BF000000000000000000000000000000002BDE0100FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1820,6 +1822,7 @@
       "animationId": 122412,
       "animationIdSourceOffset": 32,
       "actionId": "a000_122412",
+      "physicalActionId": "a000_022712",
       "rawHex": "CDCC4C3E00000000000080BF000080BF000000000000000000000000000000002CDE0100FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -1828,6 +1831,7 @@
       "animationId": 122413,
       "animationIdSourceOffset": 32,
       "actionId": "a000_122413",
+      "physicalActionId": "a000_022713",
       "rawHex": "CDCC4C3E00000000000080BF000080BF000000000000000000000000000000002DDE0100FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2029,7 +2033,7 @@
       "animationId": 5500,
       "animationIdSourceOffset": 32,
       "actionId": "a000_005500",
-      "physicalActionId": "a000_005500",
+      "physicalActionId": "a000_005502",
       "rawHex": "CDCC4C3E00000000000080BF000080BF000000000000000000000000000000007C150000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2074,7 +2078,7 @@
       "animationId": 5301,
       "animationIdSourceOffset": 32,
       "actionId": "a000_005301",
-      "physicalActionId": "a000_005301",
+      "physicalActionId": "a000_100002",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000B51400000900000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2083,7 +2087,7 @@
       "animationId": 5302,
       "animationIdSourceOffset": 32,
       "actionId": "a000_005302",
-      "physicalActionId": "a000_005302",
+      "physicalActionId": "a000_022800",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000B61400000900000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2092,7 +2096,7 @@
       "animationId": 5303,
       "animationIdSourceOffset": 32,
       "actionId": "a000_005303",
-      "physicalActionId": "a000_005303",
+      "physicalActionId": "a000_025200",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000B71400000900000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2110,7 +2114,7 @@
       "animationId": 5311,
       "animationIdSourceOffset": 32,
       "actionId": "a000_005311",
-      "physicalActionId": "a000_005311",
+      "physicalActionId": "a000_100002",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000BF1400000900000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2119,7 +2123,7 @@
       "animationId": 5312,
       "animationIdSourceOffset": 32,
       "actionId": "a000_005312",
-      "physicalActionId": "a000_005312",
+      "physicalActionId": "a000_022800",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000C01400000900000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2128,7 +2132,7 @@
       "animationId": 5313,
       "animationIdSourceOffset": 32,
       "actionId": "a000_005313",
-      "physicalActionId": "a000_005313",
+      "physicalActionId": "a000_025200",
       "rawHex": "000080BF00000000000080BF000080BF00000000000000000000000000000000C11400000900000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2208,7 +2212,7 @@
       "animationId": 6200,
       "animationIdSourceOffset": 32,
       "actionId": "a000_006200",
-      "physicalActionId": "a000_006200",
+      "physicalActionId": "a000_000091",
       "rawHex": "000080BF00000000000080BF000080BF0000000000000000000000000000000038180000FFFF000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2217,7 +2221,7 @@
       "animationId": 6200,
       "animationIdSourceOffset": 32,
       "actionId": "a000_006200",
-      "physicalActionId": "a000_006200",
+      "physicalActionId": "a000_000091",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000381800000300000000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2310,7 +2314,7 @@
       "animationId": 128000,
       "animationIdSourceOffset": 32,
       "actionId": "a000_128000",
-      "physicalActionId": "a000_128000",
+      "physicalActionId": "a000_028000",
       "rawHex": "CDCC4C3E00000000000080BF000080BF0000000000000000000000000000000000F40100FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2319,7 +2323,7 @@
       "animationId": 128001,
       "animationIdSourceOffset": 32,
       "actionId": "a000_128001",
-      "physicalActionId": "a000_128001",
+      "physicalActionId": "a000_028001",
       "rawHex": "CDCC4C3E00000000000080BF000080BF0000000000000000000000000000000001F40100FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2328,7 +2332,7 @@
       "animationId": 128002,
       "animationIdSourceOffset": 32,
       "actionId": "a000_128002",
-      "physicalActionId": "a000_128002",
+      "physicalActionId": "a000_028002",
       "rawHex": "CDCC4C3E00000000000080BF000080BF0000000000000000000000000000000002F40100FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2337,7 +2341,7 @@
       "animationId": 128003,
       "animationIdSourceOffset": 32,
       "actionId": "a000_128003",
-      "physicalActionId": "a000_128003",
+      "physicalActionId": "a000_028003",
       "rawHex": "CDCC4C3E00000000000080BF000080BF0000000000000000000000000000000003F40100FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     },
     {
@@ -2531,7 +2535,7 @@
       "animationId": 80901,
       "animationIdSourceOffset": 32,
       "actionId": "a000_080901",
-      "physicalActionId": "a000_080901",
+      "physicalActionId": "a000_080001",
       "rawHex": "CDCC4C3E00000000000080BF000080BF00000000000000000000000000000000053C0100FFFF010000000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     }
   ],
@@ -2583,7 +2587,7 @@
           "recordOffset": 88,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         }
       ],
       "transitions": [
@@ -3242,7 +3246,7 @@
           "recordOffset": 88,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         }
       ],
       "transitions": [
@@ -3987,7 +3991,7 @@
           "recordOffset": 88,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         }
       ],
       "transitions": [
@@ -17368,14 +17372,14 @@
       "primaryActionIndex": 40,
       "primaryAnimationId": 22220,
       "primaryActionId": "a000_022220",
-      "primaryPhysicalActionId": "a000_022220",
+      "primaryPhysicalActionId": "a000_022210",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 40,
           "animationId": 22220,
-          "physicalActionId": "a000_022220"
+          "physicalActionId": "a000_022210"
         },
         {
           "name": "Slot_20",
@@ -18193,14 +18197,14 @@
       "primaryActionIndex": 41,
       "primaryAnimationId": 22222,
       "primaryActionId": "a000_022222",
-      "primaryPhysicalActionId": "a000_022222",
+      "primaryPhysicalActionId": "a000_022212",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 41,
           "animationId": 22222,
-          "physicalActionId": "a000_022222"
+          "physicalActionId": "a000_022212"
         },
         {
           "name": "Slot_20",
@@ -19018,14 +19022,14 @@
       "primaryActionIndex": 42,
       "primaryAnimationId": 22223,
       "primaryActionId": "a000_022223",
-      "primaryPhysicalActionId": "a000_022223",
+      "primaryPhysicalActionId": "a000_022213",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 42,
           "animationId": 22223,
-          "physicalActionId": "a000_022223"
+          "physicalActionId": "a000_022213"
         },
         {
           "name": "Slot_20",
@@ -20660,14 +20664,14 @@
       "primaryActionIndex": 40,
       "primaryAnimationId": 22220,
       "primaryActionId": "a000_022220",
-      "primaryPhysicalActionId": "a000_022220",
+      "primaryPhysicalActionId": "a000_022210",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 40,
           "animationId": 22220,
-          "physicalActionId": "a000_022220"
+          "physicalActionId": "a000_022210"
         },
         {
           "name": "Slot_20",
@@ -21498,14 +21502,14 @@
       "primaryActionIndex": 41,
       "primaryAnimationId": 22222,
       "primaryActionId": "a000_022222",
-      "primaryPhysicalActionId": "a000_022222",
+      "primaryPhysicalActionId": "a000_022212",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 41,
           "animationId": 22222,
-          "physicalActionId": "a000_022222"
+          "physicalActionId": "a000_022212"
         },
         {
           "name": "Slot_20",
@@ -22336,14 +22340,14 @@
       "primaryActionIndex": 42,
       "primaryAnimationId": 22223,
       "primaryActionId": "a000_022223",
-      "primaryPhysicalActionId": "a000_022223",
+      "primaryPhysicalActionId": "a000_022213",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 42,
           "animationId": 22223,
-          "physicalActionId": "a000_022223"
+          "physicalActionId": "a000_022213"
         },
         {
           "name": "Slot_20",
@@ -24024,28 +24028,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -29679,28 +29683,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -32914,28 +32918,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -34062,28 +34066,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -51322,7 +51326,7 @@
           "recordOffset": 32,
           "actionIndex": 121,
           "animationId": 25101,
-          "physicalActionId": "a000_025101"
+          "physicalActionId": "a000_025100"
         },
         {
           "name": "Slot_26",
@@ -52009,28 +52013,28 @@
       "primaryActionIndex": 116,
       "primaryAnimationId": 25010,
       "primaryActionId": "a000_025010",
-      "primaryPhysicalActionId": "a000_025010",
+      "primaryPhysicalActionId": "a000_025000",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 116,
           "animationId": 25010,
-          "physicalActionId": "a000_025010"
+          "physicalActionId": "a000_025000"
         },
         {
           "name": "Slot_20",
           "recordOffset": 32,
           "actionIndex": 121,
           "animationId": 25101,
-          "physicalActionId": "a000_025101"
+          "physicalActionId": "a000_025100"
         },
         {
           "name": "Slot_26",
           "recordOffset": 38,
           "actionIndex": 116,
           "animationId": 25010,
-          "physicalActionId": "a000_025010"
+          "physicalActionId": "a000_025000"
         },
         {
           "name": "Directional_0",
@@ -52724,7 +52728,7 @@
           "recordOffset": 32,
           "actionIndex": 121,
           "animationId": 25101,
-          "physicalActionId": "a000_025101"
+          "physicalActionId": "a000_025100"
         },
         {
           "name": "Slot_26",
@@ -53356,7 +53360,7 @@
           "recordOffset": 32,
           "actionIndex": 125,
           "animationId": 25201,
-          "physicalActionId": "a000_025201"
+          "physicalActionId": "a000_025200"
         },
         {
           "name": "Slot_26",
@@ -54099,7 +54103,7 @@
           "recordOffset": 32,
           "actionIndex": 113,
           "animationId": 25001,
-          "physicalActionId": "a000_025001"
+          "physicalActionId": "a000_025000"
         },
         {
           "name": "Slot_26",
@@ -54786,28 +54790,28 @@
       "primaryActionIndex": 116,
       "primaryAnimationId": 25010,
       "primaryActionId": "a000_025010",
-      "primaryPhysicalActionId": "a000_025010",
+      "primaryPhysicalActionId": "a000_025000",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 116,
           "animationId": 25010,
-          "physicalActionId": "a000_025010"
+          "physicalActionId": "a000_025000"
         },
         {
           "name": "Slot_20",
           "recordOffset": 32,
           "actionIndex": 117,
           "animationId": 25011,
-          "physicalActionId": "a000_025011"
+          "physicalActionId": "a000_025000"
         },
         {
           "name": "Slot_26",
           "recordOffset": 38,
           "actionIndex": 116,
           "animationId": 25010,
-          "physicalActionId": "a000_025010"
+          "physicalActionId": "a000_025000"
         },
         {
           "name": "Directional_0",
@@ -55501,7 +55505,7 @@
           "recordOffset": 32,
           "actionIndex": 121,
           "animationId": 25101,
-          "physicalActionId": "a000_025101"
+          "physicalActionId": "a000_025100"
         },
         {
           "name": "Slot_26",
@@ -56133,7 +56137,7 @@
           "recordOffset": 32,
           "actionIndex": 125,
           "animationId": 25201,
-          "physicalActionId": "a000_025201"
+          "physicalActionId": "a000_025200"
         },
         {
           "name": "Slot_26",
@@ -56874,7 +56878,7 @@
           "recordOffset": 32,
           "actionIndex": 121,
           "animationId": 25101,
-          "physicalActionId": "a000_025101"
+          "physicalActionId": "a000_025100"
         },
         {
           "name": "Slot_26",
@@ -63603,24 +63607,28 @@
       "primaryActionIndex": 207,
       "primaryAnimationId": 122410,
       "primaryActionId": "a000_122410",
+      "primaryPhysicalActionId": "a000_022710",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 207,
-          "animationId": 122410
+          "animationId": 122410,
+          "physicalActionId": "a000_022710"
         },
         {
           "name": "Slot_20",
           "recordOffset": 32,
           "actionIndex": 208,
-          "animationId": 122411
+          "animationId": 122411,
+          "physicalActionId": "a000_022711"
         },
         {
           "name": "Slot_26",
           "recordOffset": 38,
           "actionIndex": 207,
-          "animationId": 122410
+          "animationId": 122410,
+          "physicalActionId": "a000_022710"
         },
         {
           "name": "Directional_0",
@@ -64928,12 +64936,14 @@
       "primaryActionIndex": 208,
       "primaryAnimationId": 122411,
       "primaryActionId": "a000_122411",
+      "primaryPhysicalActionId": "a000_022711",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 208,
-          "animationId": 122411
+          "animationId": 122411,
+          "physicalActionId": "a000_022711"
         },
         {
           "name": "Slot_20",
@@ -93351,14 +93361,14 @@
       "primaryActionIndex": 85,
       "primaryAnimationId": 22522,
       "primaryActionId": "a000_022522",
-      "primaryPhysicalActionId": "a000_022522",
+      "primaryPhysicalActionId": "a000_022512",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 85,
           "animationId": 22522,
-          "physicalActionId": "a000_022522"
+          "physicalActionId": "a000_022512"
         },
         {
           "name": "Slot_20",
@@ -94206,14 +94216,14 @@
       "primaryActionIndex": 86,
       "primaryAnimationId": 22523,
       "primaryActionId": "a000_022523",
-      "primaryPhysicalActionId": "a000_022523",
+      "primaryPhysicalActionId": "a000_022513",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 86,
           "animationId": 22523,
-          "physicalActionId": "a000_022523"
+          "physicalActionId": "a000_022513"
         },
         {
           "name": "Slot_20",
@@ -96767,14 +96777,14 @@
       "primaryActionIndex": 85,
       "primaryAnimationId": 22522,
       "primaryActionId": "a000_022522",
-      "primaryPhysicalActionId": "a000_022522",
+      "primaryPhysicalActionId": "a000_022512",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 85,
           "animationId": 22522,
-          "physicalActionId": "a000_022522"
+          "physicalActionId": "a000_022512"
         },
         {
           "name": "Slot_20",
@@ -97635,14 +97645,14 @@
       "primaryActionIndex": 86,
       "primaryAnimationId": 22523,
       "primaryActionId": "a000_022523",
-      "primaryPhysicalActionId": "a000_022523",
+      "primaryPhysicalActionId": "a000_022513",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 86,
           "animationId": 22523,
-          "physicalActionId": "a000_022523"
+          "physicalActionId": "a000_022513"
         },
         {
           "name": "Slot_20",
@@ -100257,28 +100267,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -101528,28 +101538,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -102799,28 +102809,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -104038,28 +104048,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -105277,28 +105287,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -106514,28 +106524,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -107751,28 +107761,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -109022,28 +109032,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -110293,28 +110303,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -111532,28 +111542,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -112771,28 +112781,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -114008,28 +114018,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -119259,7 +119269,7 @@
           "recordOffset": 88,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         }
       ],
       "transitions": [
@@ -126150,28 +126160,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -127352,28 +127362,28 @@
           "recordOffset": 50,
           "actionIndex": 266,
           "animationId": 128000,
-          "physicalActionId": "a000_128000"
+          "physicalActionId": "a000_028000"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 267,
           "animationId": 128001,
-          "physicalActionId": "a000_128001"
+          "physicalActionId": "a000_028001"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 268,
           "animationId": 128002,
-          "physicalActionId": "a000_128002"
+          "physicalActionId": "a000_028002"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 269,
           "animationId": 128003,
-          "physicalActionId": "a000_128003"
+          "physicalActionId": "a000_028003"
         },
         {
           "name": "Slot_58",
@@ -140141,14 +140151,14 @@
       "primaryActionIndex": 234,
       "primaryAnimationId": 5500,
       "primaryActionId": "a000_005500",
-      "primaryPhysicalActionId": "a000_005500",
+      "primaryPhysicalActionId": "a000_005502",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 234,
           "animationId": 5500,
-          "physicalActionId": "a000_005500"
+          "physicalActionId": "a000_005502"
         },
         {
           "name": "Slot_20",
@@ -141588,28 +141598,28 @@
           "recordOffset": 50,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Slot_58",
@@ -141646,28 +141656,28 @@
           "recordOffset": 50,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Slot_58",
@@ -141704,28 +141714,28 @@
           "recordOffset": 50,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Slot_58",
@@ -141762,28 +141772,28 @@
           "recordOffset": 50,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_1",
           "recordOffset": 52,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_2",
           "recordOffset": 54,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Directional_3",
           "recordOffset": 56,
           "actionIndex": 254,
           "animationId": 6200,
-          "physicalActionId": "a000_006200"
+          "physicalActionId": "a000_000091"
         },
         {
           "name": "Slot_58",
@@ -143546,14 +143556,14 @@
       "primaryActionIndex": 292,
       "primaryAnimationId": 80901,
       "primaryActionId": "a000_080901",
-      "primaryPhysicalActionId": "a000_080901",
+      "primaryPhysicalActionId": "a000_080001",
       "actionSlots": [
         {
           "name": "Primary",
           "recordOffset": 16,
           "actionIndex": 292,
           "animationId": 80901,
-          "physicalActionId": "a000_080901"
+          "physicalActionId": "a000_080001"
         },
         {
           "name": "Slot_20",
