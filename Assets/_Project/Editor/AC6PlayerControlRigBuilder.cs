@@ -70,6 +70,7 @@ public static class AC6PlayerControlRigBuilder
         camGo.tag = "MainCamera";
         cam.Configure(root.transform, motion);
         cam.ConfigureFraming(20f, 6f, 8f);
+        cam.ConfigureHighSpeedFraming(8f, 0.26f, 0.18f, 0.45f);
 
         var so = new SerializedObject(rig);
         so.FindProperty("input").objectReferenceValue = input;

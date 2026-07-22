@@ -23,6 +23,8 @@ public static class AC6SkinnedModularSampleBuilder
     private const string ColorMaskRoot = GeneratedRoot + "/ColorMasks";
     private const string ActivePaintPresetPath =
         "Assets/_Project/Data/Mechs/AC6PaintPresets/acunicombat_test_navy.json";
+    private const string MaterialCatalogPath =
+        "Assets/_Project/Data/Mechs/AC6Materials/ac6_frame_material_catalog.json";
     private const string ReportRoot = "Assets/_Project/LocalSamples/AC6SkinnedModular/Reports";
     private const string ValidationScenePath = SceneRoot + "/AC6SkinnedModularValidation.unity";
     private const string AnimationSourcePath =
@@ -180,6 +182,11 @@ public static class AC6SkinnedModularSampleBuilder
             return false;
         }
 
+        if (!TryLoadMaterialCatalog(MaterialCatalogPath, out var materialCatalog, out error))
+        {
+            return false;
+        }
+
         AssetDatabase.ImportAsset(AnimationSourcePath, ImportAssetOptions.ForceUpdate);
         var animationClip = AssetDatabase.LoadAllAssetsAtPath(AnimationSourcePath)
             .OfType<AnimationClip>()
@@ -217,7 +224,12 @@ public static class AC6SkinnedModularSampleBuilder
                 var id = $"AC6_SKIN_{slot.Token}_M_{code}";
                 var assetPath = $"{PartRoot}/{id}.asset";
                 var part = LoadOrCreateAsset<MechPartDefinition>(assetPath);
-                var materialOverrides = BuildPaintMaterialOverrides(model, slot.Token, code, paintPreset);
+                var materialOverrides = BuildPaintMaterialOverrides(
+                    model,
+                    slot.Token,
+                    code,
+                    paintPreset,
+                    materialCatalog);
                 part.EditorConfigure(
                     id,
                     $"AC6 {SetDisplayName(code)} {slot.DisplayName}",
@@ -244,7 +256,7 @@ public static class AC6SkinnedModularSampleBuilder
 
         var internals = BuildInternalParts();
         var boosters = BuildBoosterParts(missing);
-        var weapons = LoadWeaponParts(missing);
+        var weapons = LoadWeaponParts(missing, paintPreset, materialCatalog);
         if (missing.Count > 0)
         {
             error = "The following equipment assets are missing:\n" + string.Join("\n", missing);
@@ -295,7 +307,8 @@ public static class AC6SkinnedModularSampleBuilder
         GameObject model,
         string slotToken,
         string code,
-        PaintPresetRecord preset)
+        PaintPresetRecord preset,
+        MaterialCatalogRecord catalog)
     {
         var modelPath = AssetDatabase.GetAssetPath(model);
         var embeddedAssets = AssetDatabase.LoadAllAssetsAtPath(modelPath);
@@ -346,13 +359,14 @@ public static class AC6SkinnedModularSampleBuilder
             }
 
             material.name = source.name;
+            var profile = ResolveMaterialProfile(catalog, source, slotToken, code);
             ConfigurePaintMaterial(
                 material,
                 source,
                 embeddedTextures,
                 mask,
                 preset,
-                IsPaintSurface(source));
+                profile);
             EditorUtility.SetDirty(material);
             overrides.Add(material);
         }
@@ -361,6 +375,88 @@ public static class AC6SkinnedModularSampleBuilder
             $"[AC6Paint] Built {overrides.Count}/{sourceMaterials.Length} opaque material overrides " +
             $"for {slotToken}_M_{code}.");
         return overrides.ToArray();
+    }
+
+    private static Material[] BuildWeaponMaterialOverrides(
+        GameObject model,
+        string weaponCode,
+        PaintPresetRecord preset,
+        MaterialCatalogRecord catalog)
+    {
+        var modelPath = AssetDatabase.GetAssetPath(model);
+        var embeddedAssets = AssetDatabase.LoadAllAssetsAtPath(modelPath);
+        var sourceMaterials = embeddedAssets.OfType<Material>().ToArray();
+        var embeddedTextures = embeddedAssets.OfType<Texture2D>().ToArray();
+        if (sourceMaterials.Length == 0)
+        {
+            Debug.LogWarning($"[AC6Paint] No weapon material was found in {modelPath}.");
+            return Array.Empty<Material>();
+        }
+
+        var shader = Shader.Find("ACunicombat/AC6/Parts Approx");
+        if (shader == null)
+        {
+            Debug.LogError("[AC6Paint] Shader ACunicombat/AC6/Parts Approx was not found.");
+            return Array.Empty<Material>();
+        }
+
+        var overrides = new List<Material>();
+        for (var i = 0; i < sourceMaterials.Length; i++)
+        {
+            var source = sourceMaterials[i];
+            var safeName = Regex.Replace(source.name, @"[^A-Za-z0-9_-]+", "_");
+            var materialPath = $"{MaterialRoot}/WP_{weaponCode}_{safeName}.mat";
+            var material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+            if (material == null)
+            {
+                material = new Material(shader);
+                AssetDatabase.CreateAsset(material, materialPath);
+            }
+            else
+            {
+                material.shader = shader;
+            }
+
+            material.name = source.name;
+            var profile = ResolveMaterialProfile(catalog, source, "WP", weaponCode);
+            var mask = LoadCatalogMask(profile?.mask3Map);
+            ConfigurePaintMaterial(
+                material,
+                source,
+                embeddedTextures,
+                mask,
+                preset,
+                profile,
+                ResolveWeaponTint(preset, source, profile));
+            EditorUtility.SetDirty(material);
+            overrides.Add(material);
+        }
+
+        Debug.Log(
+            $"[AC6Paint] Built {overrides.Count}/{sourceMaterials.Length} weapon material overrides " +
+            $"for WP_{weaponCode}.");
+        return overrides.ToArray();
+    }
+
+    private static Texture2D LoadCatalogMask(string catalogPath)
+    {
+        if (string.IsNullOrWhiteSpace(catalogPath))
+        {
+            return null;
+        }
+
+        var maskName = Path.GetFileNameWithoutExtension(catalogPath);
+        var maskPath = $"{ColorMaskRoot}/{maskName}.png";
+        ConfigureMaskImporter(maskPath);
+        var mask = AssetDatabase.LoadAssetAtPath<Texture2D>(maskPath);
+        if (mask == null)
+        {
+            Debug.LogWarning(
+                $"[AC6Paint] Catalog zone mask is missing: {maskPath}. " +
+                "Run Tools/ImportAC6FrameColorMasks.ps1, then rebuild the sample assets.");
+        }
+
+        return mask;
     }
 
     private static bool IsPaintSurface(Material material)
@@ -407,39 +503,56 @@ public static class AC6SkinnedModularSampleBuilder
         IReadOnlyList<Texture2D> embeddedTextures,
         Texture2D mask,
         PaintPresetRecord preset,
-        bool isPaintSurface)
+        MaterialProfileRecord profile,
+        Color? unmaskedPaintTint = null)
     {
-        var baseMap = FindTexture(source, "_BaseColorTexture", "_BaseMap", "_MainTex");
+        var isPaintSurface = profile != null
+            ? string.Equals(profile.surfaceClass, "PaintedArmor", StringComparison.Ordinal)
+            : IsPaintSurface(source);
+        var isEmissionSurface = profile != null
+            ? string.Equals(profile.surfaceClass, "Emissive", StringComparison.Ordinal)
+            : IsEmissionSurface(source);
+        var baseMap = FindTexture(source, "_BaseColorTexture", "_BaseMap", "_MainTex")
+            ?? FindEmbeddedTextureByCatalogPath(embeddedTextures, profile?.albedoMap);
         if (baseMap == null && !IsMarkingSurface(source))
         {
             baseMap = FindEmbeddedTexture(embeddedTextures, "_a");
         }
 
         var normalMap = FindTexture(source, "_NormalTexture", "_BumpMap", "_NormalMap")
+            ?? FindEmbeddedTextureByCatalogPath(embeddedTextures, profile?.normalMap)
             ?? FindEmbeddedTexture(embeddedTextures, "_n");
         var emissionMap = FindTexture(source, "_EmissiveTexture", "_EmissionMap")
+            ?? FindEmbeddedTextureByCatalogPath(embeddedTextures, profile?.emissionMap)
             ?? FindEmbeddedTexture(embeddedTextures, "_em");
 
         destination.SetTexture("_BaseMap", baseMap);
         destination.SetTexture("_BumpMap", normalMap);
         destination.SetTexture("_Mask3Map", mask);
         destination.SetTexture("_EmissionMap", emissionMap);
-        destination.SetColor("_BaseColor", Color.white);
-        destination.SetFloat("_UseSourceAlbedo", isPaintSurface ? 0f : 1f);
-        destination.SetFloat("_ZoneMode", isPaintSurface && mask != null ? 1f : 0f);
-        destination.SetFloat("_ZoneMaskStrength", isPaintSurface && mask != null ? 1f : 0f);
+        var hasZoneMask = isPaintSurface && mask != null;
+        destination.SetColor(
+            "_BaseColor",
+            isPaintSurface && !hasZoneMask
+                ? unmaskedPaintTint ?? ParseHtmlColor(preset.baseColor, Color.white)
+                : Color.white);
+        destination.SetFloat("_UseSourceAlbedo", hasZoneMask ? 0f : 1f);
+        destination.SetFloat("_ZoneMode", hasZoneMask ? 1f : 0f);
+        destination.SetFloat("_ZoneMaskStrength", hasZoneMask ? 1f : 0f);
         var zoneColors = ResolveZoneColors(preset);
         for (var zoneIndex = 0; zoneIndex < zoneColors.Length; zoneIndex++)
         {
             destination.SetColor($"_Zone{zoneIndex + 1}Color", zoneColors[zoneIndex]);
         }
-        destination.SetFloat("_AlbedoDetailStrength", 0.24f);
-        destination.SetFloat("_Metallic", 0.48f);
-        destination.SetFloat("_Smoothness", 0.38f);
+        destination.SetFloat("_AlbedoDetailStrength", isPaintSurface ? 0.18f : 0.32f);
+        destination.SetFloat("_Metallic", profile != null ? profile.recommendedMetallic : 0.12f);
+        destination.SetFloat("_Smoothness", profile != null ? profile.recommendedSmoothness : 0.3f);
         destination.SetFloat("_BumpScale", 0.8f);
-        destination.SetFloat("_OcclusionStrength", 0.12f);
-        destination.SetFloat("_MaskMetallicInfluence", 0.08f);
-        destination.SetFloat("_MaskSmoothnessInfluence", 0.1f);
+        // MATBIN declares _3m as Mask3Map: a material/paint-zone selector. It is not
+        // Unity's metallic-smoothness-AO packed texture, so it must not drive PBR channels.
+        destination.SetFloat("_OcclusionStrength", 0f);
+        destination.SetFloat("_MaskMetallicInfluence", 0f);
+        destination.SetFloat("_MaskSmoothnessInfluence", 0f);
         destination.SetFloat("_PaintInfluence", 0f);
         destination.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
         destination.SetOverrideTag("RenderType", "Opaque");
@@ -453,7 +566,7 @@ public static class AC6SkinnedModularSampleBuilder
             destination.DisableKeyword("_NORMALMAP");
         }
 
-        if (emissionMap != null && IsEmissionSurface(source))
+        if (emissionMap != null && isEmissionSurface)
         {
             destination.SetColor("_EmissionColor", Color.white);
             destination.SetFloat("_EmissionStrength", 2f);
@@ -465,6 +578,141 @@ public static class AC6SkinnedModularSampleBuilder
             destination.SetFloat("_EmissionStrength", 0f);
             destination.DisableKeyword("_EMISSION");
         }
+    }
+
+    private static Color ResolveWeaponTint(
+        PaintPresetRecord preset,
+        Material source,
+        MaterialProfileRecord profile)
+    {
+        if (profile != null && string.Equals(profile.surfaceClass, "Emissive", StringComparison.Ordinal))
+        {
+            return Color.white;
+        }
+
+        var name = source != null ? source.name ?? string.Empty : string.Empty;
+        if (name.IndexOf("Mag", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            name.IndexOf("_02", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            name.IndexOf("Material #", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return ParseHtmlColor(preset.supportColor, Color.gray);
+        }
+
+        return ParseHtmlColor(preset.baseColor, Color.white);
+    }
+
+    private static bool TryLoadMaterialCatalog(
+        string assetPath,
+        out MaterialCatalogRecord catalog,
+        out string error)
+    {
+        catalog = null;
+        error = string.Empty;
+        var text = AssetDatabase.LoadAssetAtPath<TextAsset>(assetPath);
+        if (text == null)
+        {
+            error =
+                $"AC6 MATBIN material catalog was not found:\n{assetPath}\n\n" +
+                "Run Tools/ExportAC6MaterialCatalog.ps1, then refresh Unity.";
+            return false;
+        }
+
+        catalog = JsonUtility.FromJson<MaterialCatalogRecord>(text.text);
+        if (catalog == null || catalog.materials == null || catalog.materials.Length == 0)
+        {
+            error = $"AC6 MATBIN material catalog is invalid or empty:\n{assetPath}";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static MaterialProfileRecord ResolveMaterialProfile(
+        MaterialCatalogRecord catalog,
+        Material source,
+        string slotToken,
+        string code)
+    {
+        if (catalog == null || catalog.materials == null || source == null)
+        {
+            return null;
+        }
+
+        var sourceName = source.name ?? string.Empty;
+        var isMarking = IsMarkingSurface(source);
+        var isEmission = IsEmissionSurface(source);
+        var desiredClass = isMarking
+            ? "Opaque"
+            : isEmission
+                ? "Emissive"
+                : "PaintedArmor";
+
+        var partToken = $"{slotToken}_M_{code}";
+        if (isMarking)
+        {
+            partToken = "Prats_Marking";
+        }
+
+        var candidates = catalog.materials
+            .Where(candidate =>
+                candidate != null &&
+                !string.IsNullOrWhiteSpace(candidate.sourcePath) &&
+                candidate.sourcePath.IndexOf(partToken, StringComparison.OrdinalIgnoreCase) >= 0)
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return null;
+        }
+
+        var normalizedSourceName = Regex.Replace(sourceName, @"[^A-Za-z0-9_]+", string.Empty);
+        var exactCandidate = candidates.FirstOrDefault(candidate =>
+        {
+            var candidateName = Path.GetFileNameWithoutExtension(candidate.sourcePath) ?? string.Empty;
+            candidateName = candidateName.Replace("P[", string.Empty).Replace("]", string.Empty);
+            var normalizedCandidateName = Regex.Replace(candidateName, @"[^A-Za-z0-9_]+", string.Empty);
+            return !string.IsNullOrEmpty(normalizedCandidateName) &&
+                   normalizedSourceName.IndexOf(normalizedCandidateName, StringComparison.OrdinalIgnoreCase) >= 0;
+        });
+        if (exactCandidate != null)
+        {
+            return exactCandidate;
+        }
+
+        if (slotToken.Equals("AM", StringComparison.OrdinalIgnoreCase))
+        {
+            var sideToken = sourceName.IndexOf("#30#", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            sourceName.IndexOf("Left", StringComparison.OrdinalIgnoreCase) >= 0
+                ? "_left"
+                : sourceName.IndexOf("#40#", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                  sourceName.IndexOf("Right", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? "_right"
+                    : string.Empty;
+            if (!string.IsNullOrEmpty(sideToken))
+            {
+                var sideCandidate = candidates.FirstOrDefault(candidate =>
+                    candidate.sourcePath.IndexOf(sideToken, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    string.Equals(candidate.surfaceClass, desiredClass, StringComparison.Ordinal));
+                if (sideCandidate != null)
+                {
+                    return sideCandidate;
+                }
+            }
+        }
+
+        if (sourceName.IndexOf("Limiter", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            sourceName.IndexOf("Lmiter", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            var limiter = candidates.FirstOrDefault(candidate =>
+                candidate.sourcePath.IndexOf("Limiter", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (limiter != null)
+            {
+                return limiter;
+            }
+        }
+
+        return candidates.FirstOrDefault(candidate =>
+                   string.Equals(candidate.surfaceClass, desiredClass, StringComparison.Ordinal))
+               ?? candidates[0];
     }
 
     private static bool IsMarkingSurface(Material material)
@@ -506,6 +754,29 @@ public static class AC6SkinnedModularSampleBuilder
         {
             var texture = textures[i];
             if (texture != null && texture.name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return texture;
+            }
+        }
+
+        return null;
+    }
+
+    private static Texture2D FindEmbeddedTextureByCatalogPath(
+        IReadOnlyList<Texture2D> textures,
+        string catalogPath)
+    {
+        if (textures == null || string.IsNullOrWhiteSpace(catalogPath))
+        {
+            return null;
+        }
+
+        var expectedName = Path.GetFileNameWithoutExtension(catalogPath);
+        for (var i = 0; i < textures.Count; i++)
+        {
+            var texture = textures[i];
+            if (texture != null &&
+                string.Equals(texture.name, expectedName, StringComparison.OrdinalIgnoreCase))
             {
                 return texture;
             }
@@ -576,6 +847,35 @@ public static class AC6SkinnedModularSampleBuilder
         public string optionalColor;
         public string deviceColor;
         public string[] zoneColors;
+    }
+
+    [Serializable]
+    private sealed class MaterialCatalogRecord
+    {
+        public int schemaVersion;
+        public string sourceArchive;
+        public MaterialProfileRecord[] materials;
+    }
+
+    [Serializable]
+    private sealed class MaterialProfileRecord
+    {
+        public string sourcePath;
+        public string shaderPath;
+        public string surfaceClass;
+        public int blendMode;
+        public bool disableDepthWrite;
+        public bool cullNone;
+        public bool paintDecal;
+        public bool emissive;
+        public string albedoMap;
+        public string normalMap;
+        public string mask3Map;
+        public string metallicMap;
+        public string emissionMap;
+        public string mask3Role;
+        public float recommendedMetallic;
+        public float recommendedSmoothness;
     }
 
     private static void BuildValidationSceneAndRunChecks(BuildResult result, ValidationReport report, bool batchMode)
@@ -1669,7 +1969,10 @@ public static class AC6SkinnedModularSampleBuilder
         return result;
     }
 
-    private static Dictionary<string, MechPartDefinition> LoadWeaponParts(ICollection<string> missing)
+    private static Dictionary<string, MechPartDefinition> LoadWeaponParts(
+        ICollection<string> missing,
+        PaintPresetRecord paintPreset,
+        MaterialCatalogRecord materialCatalog)
     {
         var specs = new[]
         {
@@ -1705,6 +2008,12 @@ public static class AC6SkinnedModularSampleBuilder
 
             var id = "AC6_NATIVE_" + spec.Key;
             var part = LoadOrCreateAsset<MechPartDefinition>($"{PartRoot}/{id}.asset");
+            var weaponCode = spec.Key.Substring(spec.Key.LastIndexOf('_') + 1);
+            var materialOverrides = BuildWeaponMaterialOverrides(
+                model,
+                weaponCode,
+                paintPreset,
+                materialCatalog);
             part.EditorConfigure(
                 id,
                 spec.DisplayName,
@@ -1721,6 +2030,7 @@ public static class AC6SkinnedModularSampleBuilder
                 spec.IsMelee
                     ? new[] { "weapon", "ac6-native", "melee", spec.Key.ToLowerInvariant() }
                     : new[] { "weapon", "ac6-native", spec.Key.ToLowerInvariant() },
+                materialOverrides,
                 newVisualRigMode: MechVisualRigMode.MountedPrefab,
                 newEquipmentAnimations: actions,
                 newDefaultEquipmentActionId: SelectDefaultAction(actions, spec.PreferredActionId),

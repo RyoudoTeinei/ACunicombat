@@ -336,6 +336,7 @@ public static class AC6PlayableSceneBuilder
         // the rendered mech by 180 degrees; logical yaw remains camera/movement yaw.
         motion.ConfigureModelForwardYawOffset(180f);
         motion.ConfigurePropulsionForceModel(true, true, 35f);
+        motion.ConfigureTranslationThrusterAssist(0.35f, 48f, 36f, 52f, 48f);
         motion.ConfigureFlightEnvelope(250f, 2000f, 40f);
         motion.ConfigureQuickBoost(90f, 0.28f);
         motion.ConfigureGravity(0.2f);
@@ -364,6 +365,7 @@ public static class AC6PlayableSceneBuilder
         camGo.tag = "MainCamera";
         cam.Configure(mech.transform, motion);
         cam.ConfigureFraming(20f, 6f, 8f);
+        cam.ConfigureHighSpeedFraming(8f, 0.26f, 0.18f, 0.45f);
         EditorUtility.SetDirty(cam);
 
         DisableShowcaseLabels(mech);

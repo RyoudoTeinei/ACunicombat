@@ -40,4 +40,34 @@ foreach ($code in $codes) {
     }
 }
 
-Write-Output "Imported $count AC6 frame color masks to $outputRoot"
+$materialCatalogPath = Join-Path $projectRoot 'Assets\_Project\Data\Mechs\AC6Materials\ac6_frame_material_catalog.json'
+if (Test-Path -LiteralPath $materialCatalogPath) {
+    $catalog = Get-Content -LiteralPath $materialCatalogPath -Raw | ConvertFrom-Json
+    $weaponMasks = @($catalog.materials |
+        Where-Object { $_.sourcePath -match 'WP_\d{4}' -and -not [string]::IsNullOrWhiteSpace($_.mask3Map) } |
+        ForEach-Object { [string]$_.mask3Map } |
+        Sort-Object -Unique)
+
+    foreach ($maskPath in $weaponMasks) {
+        if ($maskPath -notmatch 'WP_(?:E_)?(?<code>\d{4})') {
+            Write-Warning "Cannot infer weapon code from mask path: $maskPath"
+            continue
+        }
+
+        $code = $Matches.code
+        $stem = [IO.Path]::GetFileNameWithoutExtension($maskPath)
+        $source = Join-Path $RawAssetsRoot ("wp\wp_{0}\{1}.dds" -f $code, $stem)
+        if (-not (Test-Path -LiteralPath $source)) {
+            Write-Warning "AC6 weapon zone mask is missing: $source"
+            continue
+        }
+
+        & $TexConvPath -nologo -y -m 1 -ft png -o $outputRoot $source
+        if ($LASTEXITCODE -ne 0) {
+            throw "texconv failed for $source (exit $LASTEXITCODE)"
+        }
+        $count++
+    }
+}
+
+Write-Output "Imported $count AC6 frame and weapon color masks to $outputRoot"

@@ -14,6 +14,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechFlightMotionController motion;
         [SerializeField] [Range(16, 192)] private int sampleCount = 128;
         [SerializeField] private float predictionSeconds = 12f;
+        [SerializeField] private float minimumDisplayDistance = 30f;
         [SerializeField] private float maximumDisplayDistance = 3000f;
         [SerializeField] private float minimumReferenceSpeed = 8f;
         [SerializeField] private float originHeight = 4f;
@@ -23,6 +24,7 @@ namespace ACunicombat.Mechs
 
         private LineRenderer line;
         private Material runtimeMaterial;
+        private readonly Vector3[] visiblePoints = new Vector3[192];
 
         public void Configure(MechFlightMotionController controller)
         {
@@ -70,8 +72,9 @@ namespace ACunicombat.Mechs
             var travelledDistance = 0f;
             var previousDisplayPosition = predictedPosition + displayOffset;
 
-            line.positionCount = sampleCount;
-            line.SetPosition(0, previousDisplayPosition);
+            var visiblePointCount = 0;
+            var startDistance = Mathf.Max(0f, minimumDisplayDistance);
+            var endDistance = Mathf.Max(startDistance, maximumDisplayDistance);
             for (var i = 1; i < sampleCount; i++)
             {
                 predictedVelocity += (controlAcceleration + gravity) * stepSeconds;
@@ -95,27 +98,52 @@ namespace ACunicombat.Mechs
                 predictedPosition += predictedVelocity * stepSeconds;
                 var displayPosition = predictedPosition + displayOffset;
                 var segmentDistance = Vector3.Distance(previousDisplayPosition, displayPosition);
-                if (travelledDistance + segmentDistance >= maximumDisplayDistance)
+                var nextTravelledDistance = travelledDistance + segmentDistance;
+
+                if (visiblePointCount == 0 && nextTravelledDistance >= startDistance)
+                {
+                    var startPoint = segmentDistance > Mathf.Epsilon
+                        ? Vector3.Lerp(
+                            previousDisplayPosition,
+                            displayPosition,
+                            Mathf.Clamp01((startDistance - travelledDistance) / segmentDistance))
+                        : displayPosition;
+                    visiblePoints[visiblePointCount++] = startPoint;
+                }
+
+                if (nextTravelledDistance >= endDistance)
                 {
                     var remainingDistance = Mathf.Max(
-                        0f, maximumDisplayDistance - travelledDistance);
+                        0f, endDistance - travelledDistance);
                     var cappedPosition = segmentDistance > Mathf.Epsilon
                         ? Vector3.Lerp(
                             previousDisplayPosition,
                             displayPosition,
                             remainingDistance / segmentDistance)
                         : previousDisplayPosition;
-                    for (var tail = i; tail < sampleCount; tail++)
+                    if (visiblePointCount > 0 &&
+                        Vector3.SqrMagnitude(
+                            visiblePoints[visiblePointCount - 1] - cappedPosition) > 0.0001f)
                     {
-                        line.SetPosition(tail, cappedPosition);
+                        visiblePoints[visiblePointCount++] = cappedPosition;
                     }
 
                     break;
                 }
 
-                travelledDistance += segmentDistance;
-                line.SetPosition(i, displayPosition);
+                if (visiblePointCount > 0 && visiblePointCount < visiblePoints.Length)
+                {
+                    visiblePoints[visiblePointCount++] = displayPosition;
+                }
+
+                travelledDistance = nextTravelledDistance;
                 previousDisplayPosition = displayPosition;
+            }
+
+            line.positionCount = visiblePointCount;
+            for (var i = 0; i < visiblePointCount; i++)
+            {
+                line.SetPosition(i, visiblePoints[i]);
             }
         }
 

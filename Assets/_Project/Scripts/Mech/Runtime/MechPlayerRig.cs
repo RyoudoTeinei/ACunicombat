@@ -673,7 +673,8 @@ namespace ACunicombat.Mechs
                               $"腿部上推: {motion.CurrentLegLiftForceNewtons.magnitude / 1000f:F0} kN " +
                               $"{motion.CurrentLegLiftForceNewtons.normalized}");
                 sb.AppendLine($"矢量推力: {(motion.VectorThrustEnabled ? "开启" : "关闭")}  " +
-                              $"推力显示[2]: {(thrustVisualizer != null && thrustVisualizer.Visible ? "开启" : "关闭")}");
+                              $"推力显示[2]: {(thrustVisualizer != null && thrustVisualizer.Visible ? "开启" : "关闭")}  " +
+                              $"惯性锁定[F]: {(motion.InertialThrustLockActive ? "开启" : "关闭")}");
             }
 
             sb.AppendLine($"Input: {lastFrame.MoveLocal}  Position: {transform.position}");
@@ -700,7 +701,7 @@ namespace ACunicombat.Mechs
 
             EnsureInstrumentStyles();
             const float width = 270f;
-            const float height = 298f;
+            const float height = 328f;
             var x = Mathf.Max(10f, Screen.width - width - 18f);
             var panel = new Rect(x, 18f, width, height);
             GUI.Box(panel, GUIContent.none);
@@ -727,7 +728,9 @@ namespace ACunicombat.Mechs
             GUI.Label(new Rect(x + 14f, 214f, 110f, 20f), "THRUST VIEW [2]", instrumentCaptionStyle);
             GUI.Label(new Rect(x + 124f, 210f, 132f, 32f),
                 thrustVisualizer != null && thrustVisualizer.Visible ? "VISIBLE" : "HIDDEN", instrumentValueStyle);
-
+            GUI.Label(new Rect(x + 14f, 244f, 110f, 20f), "THRUST LOCK [F]", instrumentCaptionStyle);
+            GUI.Label(new Rect(x + 124f, 240f, 132f, 32f),
+                motion.InertialThrustLockActive ? "LOCKED" : "BODY", instrumentValueStyle);
             var status = "FLIGHT CONTROL NOMINAL";
             var statusColor = new Color(0.55f, 0.82f, 0.9f);
             if (motion.Braking)
@@ -747,7 +750,7 @@ namespace ACunicombat.Mechs
             }
 
             instrumentStatusStyle.normal.textColor = statusColor;
-            GUI.Label(new Rect(x + 14f, 254f, width - 28f, 30f), status, instrumentStatusStyle);
+            GUI.Label(new Rect(x + 14f, 284f, width - 28f, 30f), status, instrumentStatusStyle);
         }
 
         private void EnsureInstrumentStyles()

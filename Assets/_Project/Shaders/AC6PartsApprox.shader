@@ -26,9 +26,9 @@ Shader "ACunicombat/AC6/Parts Approx"
         _AlbedoDetailStrength("Albedo Detail Strength", Range(0, 1)) = 0.22
         _Metallic("Base Metallic", Range(0, 1)) = 0.38
         _Smoothness("Base Smoothness", Range(0, 1)) = 0.38
-        _OcclusionStrength("Mask Occlusion", Range(0, 1)) = 0.45
-        _MaskMetallicInfluence("Mask Metallic Influence", Range(0, 1)) = 0.35
-        _MaskSmoothnessInfluence("Mask Smoothness Influence", Range(0, 1)) = 0.45
+        [HideInInspector] _OcclusionStrength("Legacy Mask Occlusion", Range(0, 1)) = 0
+        [HideInInspector] _MaskMetallicInfluence("Legacy Mask Metallic Influence", Range(0, 1)) = 0
+        [HideInInspector] _MaskSmoothnessInfluence("Legacy Mask Smoothness Influence", Range(0, 1)) = 0
         _Cutoff("Alpha Cutoff", Range(0, 1)) = 0.5
     }
 
@@ -251,9 +251,11 @@ Shader "ACunicombat/AC6/Parts Approx"
                         : BuildStableArmorAlbedo(baseSample.rgb, maskSample, input.uv);
                 }
                 surfaceData.alpha = 1.0h;
-                surfaceData.metallic = saturate(_Metallic + (maskSample.r - 0.5h) * _MaskMetallicInfluence);
-                surfaceData.smoothness = saturate(_Smoothness + ((1.0h - maskSample.g) - 0.5h) * _MaskSmoothnessInfluence);
-                surfaceData.occlusion = lerp(1.0h, maskSample.b, _OcclusionStrength);
+                // MATBIN names this texture Mask3Map and routes it through the AC6
+                // color-material graph. It is not a metallic/smoothness/AO packing.
+                surfaceData.metallic = saturate(_Metallic);
+                surfaceData.smoothness = saturate(_Smoothness);
+                surfaceData.occlusion = 1.0h;
                 surfaceData.normalTS = SampleNormal(input.uv, TEXTURE2D_ARGS(_BumpMap, sampler_BumpMap), _BumpScale);
                 #if defined(_EMISSION)
                     half3 emissionSample = SAMPLE_TEXTURE2D(_EmissionMap, sampler_EmissionMap, input.uv).rgb;

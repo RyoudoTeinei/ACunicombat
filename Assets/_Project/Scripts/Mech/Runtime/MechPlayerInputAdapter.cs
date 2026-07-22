@@ -13,18 +13,22 @@ namespace ACunicombat.Mechs
         public Vector2 MouseDelta;
         /// <summary>Space 按住（上升推力）。</summary>
         public bool RiseHeld;
+        /// <summary>Ctrl 按住（主动降低高度）。</summary>
+        public bool DescendHeld;
         /// <summary>Space 按下边沿。</summary>
         public bool RiseEdge;
         /// <summary>双击 Space 边沿（AB 触发，按键边沿 + 双击时间窗判定）。</summary>
         public bool AssaultBoostEdge;
         /// <summary>Shift 按下边沿（QB 触发）。</summary>
         public bool QuickBoostEdge;
-        /// <summary>Ctrl 按住（水平反推制动并保持当前高度）。</summary>
+        /// <summary>X 按住（水平反推制动并保持当前高度）。</summary>
         public bool BrakeHeld;
         /// <summary>持久主推进节流，[0,1]。它控制推力比例，不直接指定速度。</summary>
         public float MainThrottle;
         /// <summary>按住时临时解除作战速度包线；技术安全上限仍然生效。</summary>
         public bool FlightEnvelopeOverrideHeld;
+        /// <summary>按住 F 时冻结当前水平推力参考；机体仍可随鼠标转向。</summary>
+        public bool InertialThrustLockHeld;
         /// <summary>Primary fire is the left mouse button and commands the anatomical left hand.</summary>
         public bool PrimaryFireHeld;
         public bool PrimaryFireEdge;
@@ -77,7 +81,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private float riseHoldBoostSeconds = 0.25f;
         [Tooltip("鼠标滚轮每格改变的主推进节流比例。")]
         [Range(0.01f, 0.25f)] [SerializeField] private float throttleWheelStep = 0.05f;
-        [Tooltip("按住 R/F 时每秒增加/降低的主推进节流比例。")]
+        [Tooltip("按住 R/C 时每秒增加/降低的主推进节流比例。")]
         [Range(0.1f, 2f)] [SerializeField] private float throttleKeyboardRate = 0.5f;
 
         private float lastSpaceDownTime = -10f;
@@ -118,8 +122,10 @@ namespace ACunicombat.Mechs
             }
 
             frame.QuickBoostEdge = keyboard.leftShiftKey.wasPressedThisFrame;
-            frame.BrakeHeld = keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed;
+            frame.DescendHeld = keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed;
+            frame.BrakeHeld = keyboard.xKey.isPressed;
             frame.FlightEnvelopeOverrideHeld = keyboard.leftAltKey.isPressed || keyboard.rightAltKey.isPressed;
+            frame.InertialThrustLockHeld = keyboard.fKey.isPressed;
             frame.LeftShoulderFireHeld = keyboard.qKey.isPressed;
             frame.LeftShoulderFireEdge = keyboard.qKey.wasPressedThisFrame;
             frame.RightShoulderFireHeld = keyboard.eKey.isPressed;
@@ -128,13 +134,9 @@ namespace ACunicombat.Mechs
             frame.ThrustVisualizationToggleEdge = keyboard.digit2Key.wasPressedThisFrame;
 
             var throttleAxis = (keyboard.rKey.isPressed ? 1f : 0f)
-                               - (keyboard.fKey.isPressed ? 1f : 0f);
+                               - (keyboard.cKey.isPressed ? 1f : 0f);
             mainThrottle = Mathf.Clamp01(
                 mainThrottle + throttleAxis * throttleKeyboardRate * Time.unscaledDeltaTime);
-            if (keyboard.xKey.wasPressedThisFrame)
-            {
-                mainThrottle = 0f;
-            }
 
             if (mouse != null)
             {
@@ -170,7 +172,7 @@ namespace ACunicombat.Mechs
                 // 空中的方向输入即飞行推进；地面即地上ブースト（AC6 默认 boost 移动）。
                 bits |= airborne ? 1u << MechPadBits.FlightBoost : 1u << MechPadBits.GroundBoost;
             }
-            else
+            else if (!frame.RiseHeld && !frame.DescendHeld)
             {
                 bits |= 1u << MechPadBits.NoInput;
             }
@@ -188,6 +190,11 @@ namespace ACunicombat.Mechs
                 {
                     bits |= 1u << MechPadBits.RiseStartBoost;
                 }
+            }
+
+            if (frame.DescendHeld)
+            {
+                bits |= 1u << MechPadBits.MoveDown;
             }
 
             if (frame.QuickBoostEdge)
