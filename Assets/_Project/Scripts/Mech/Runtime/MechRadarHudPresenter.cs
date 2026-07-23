@@ -46,6 +46,7 @@ namespace ACunicombat.Mechs
         private GUIStyle statusStyle;
         private GUIStyle titleStyle;
         private GUIStyle microStyle;
+        private GUIStyle pitchStyle;
         private static readonly Color HudGreen = new Color(0.3f, 1f, 0.5f, 1f);
         private static readonly Color HudDimGreen = new Color(0.18f, 0.78f, 0.36f, 0.76f);
         private static readonly Color HudBrightGreen = new Color(0.55f, 1f, 0.7f, 1f);
@@ -578,7 +579,7 @@ namespace ACunicombat.Mechs
                               Mathf.Tan(verticalFovRadians * 0.5f);
 
             const float tickGap = 10f;
-            const float referenceLength = 34f;
+            const float referenceLength = 44f;
             DrawMirroredPitchTick(
                 center,
                 radius,
@@ -607,7 +608,7 @@ namespace ACunicombat.Mechs
 
                 var major = pitchDegrees % 10 == 0;
                 var zero = pitchDegrees == 0;
-                var tickLength = zero ? 34f : major ? 25f : 14f;
+                var tickLength = zero ? 44f : major ? 34f : 22f;
                 var color = zero
                     ? HudBrightGreen
                     : major
@@ -627,7 +628,7 @@ namespace ACunicombat.Mechs
                     tickGap,
                     tickLength,
                     color,
-                    major ? 1.5f : 1f,
+                    major ? 1.7f : 1.2f,
                     label);
             }
         }
@@ -657,17 +658,17 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            microStyle.normal.textColor = color;
-            microStyle.alignment = TextAnchor.MiddleRight;
+            pitchStyle.normal.textColor = color;
+            pitchStyle.alignment = TextAnchor.MiddleRight;
             GUI.Label(
-                new Rect(leftEnd.x - 42f, y - 9f, 36f, 18f),
+                new Rect(leftEnd.x - 56f, y - 11f, 48f, 22f),
                 label,
-                microStyle);
-            microStyle.alignment = TextAnchor.MiddleLeft;
+                pitchStyle);
+            pitchStyle.alignment = TextAnchor.MiddleLeft;
             GUI.Label(
-                new Rect(rightEnd.x + 6f, y - 9f, 36f, 18f),
+                new Rect(rightEnd.x + 8f, y - 11f, 48f, 22f),
                 label,
-                microStyle);
+                pitchStyle);
         }
 
         private void DrawWorldTrackMarkers()
@@ -1155,6 +1156,13 @@ namespace ACunicombat.Mechs
                 fontSize = 11,
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.UpperLeft,
+                wordWrap = false,
+            };
+            pitchStyle ??= new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 15,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleLeft,
                 wordWrap = false,
             };
         }
