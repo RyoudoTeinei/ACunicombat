@@ -13,11 +13,11 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class MechRadarHudPresenter : MonoBehaviour
     {
-        private const float TacticalPlotWidth = 252f;
-        private const float TacticalPlotHeight = 252f;
-        private const float RadarStatusWidth = 306f;
-        private const float RadarStatusHeight = 292f;
-        private const float TrackMarkerSize = 48f;
+        private const float TacticalPlotWidth = 410f;
+        private const float TacticalPlotHeight = 390f;
+        private const float RadarStatusWidth = 486f;
+        private const float RadarStatusHeight = 410f;
+        private const float TrackMarkerSize = 54f;
         private const int CircleSegments = 144;
         private const int OperationRingTextureSize = 1024;
 
@@ -34,6 +34,7 @@ namespace ACunicombat.Mechs
         private readonly RadarEchoSnapshot[] echoes =
             new RadarEchoSnapshot[MechRadarController.MaximumPublicEchoes];
         private int trackCount;
+        private int displayTrackCount;
         private int echoCount;
         private RadarStatusSnapshot radarStatus;
         private MechThirdPersonCamera aimController;
@@ -41,13 +42,18 @@ namespace ACunicombat.Mechs
         private GUIStyle smallStyle;
         private GUIStyle compactStyle;
         private GUIStyle statusStyle;
+        private GUIStyle titleStyle;
+        private GUIStyle microStyle;
         private static readonly Color HudGreen = new Color(0.3f, 1f, 0.5f, 1f);
         private static readonly Color HudDimGreen = new Color(0.18f, 0.78f, 0.36f, 0.76f);
         private static readonly Color HudBrightGreen = new Color(0.55f, 1f, 0.7f, 1f);
+        private static readonly Color HudCyan = new Color(0.12f, 0.88f, 0.94f, 0.96f);
+        private static readonly Color HudWhite = new Color(0.82f, 0.92f, 0.86f, 0.95f);
         private static readonly Color HudRed = new Color(1f, 0.18f, 0.12f, 1f);
         private static readonly Color HudAmber = new Color(1f, 0.72f, 0.18f, 0.95f);
-        private static readonly Color HudPanel = new Color(0.015f, 0.055f, 0.035f, 0.76f);
-        private static readonly Color HudFanFill = new Color(0.04f, 0.25f, 0.12f, 0.28f);
+        private static readonly Color HudPanel = new Color(0.008f, 0.025f, 0.022f, 0.88f);
+        private static readonly Color HudPanelGrid = new Color(0.08f, 0.34f, 0.19f, 0.24f);
+        private static readonly Color HudFanFill = new Color(0.04f, 0.25f, 0.12f, 0.36f);
 
         public bool IsTrackOperationMode => radar != null && radar.TrackOperationMode;
 
@@ -118,6 +124,7 @@ namespace ACunicombat.Mechs
                 GetAimViewportPoint(),
                 Time.unscaledDeltaTime);
             trackCount = radar.CopyTracks(tracks);
+            displayTrackCount = CountDisplayTracks();
             echoCount = radar.CopyEchoes(echoes);
             radarStatus = radar.GetStatusSnapshot();
         }
@@ -148,26 +155,63 @@ namespace ACunicombat.Mechs
         {
             var plot = new Rect(18f, 18f, TacticalPlotWidth, TacticalPlotHeight);
             DrawFilledRect(plot, HudPanel);
-            DrawCornerFrame(plot, HudDimGreen, 18f, 1.5f, false);
+            DrawPanelGrid(plot, 20f);
+            DrawCornerFrame(plot, HudGreen, 22f, 1.8f, false);
+            DrawLine(
+                new Vector2(plot.x + 12f, plot.y + 34f),
+                new Vector2(plot.xMax - 12f, plot.y + 34f),
+                HudDimGreen,
+                1f);
 
-            var center = new Vector2(plot.center.x, plot.center.y + 3f);
-            var radius = Mathf.Min(plot.width, plot.height) * 0.39f;
-            DrawCircle(center, radius, HudGreen, 1.7f, false);
-            DrawCircle(center, radius * 0.66f, HudDimGreen, 1f, false);
-            DrawCircle(center, radius * 0.33f, HudDimGreen, 1f, false);
-            DrawLine(center + Vector2.left * radius, center + Vector2.right * radius, HudDimGreen, 1f);
-            DrawLine(center + Vector2.up * radius, center + Vector2.down * radius, HudDimGreen, 1f);
+            titleStyle.normal.textColor = HudBrightGreen;
+            GUI.Label(
+                new Rect(plot.x + 14f, plot.y + 7f, 250f, 24f),
+                "TACTICAL SITUATION / HDG-UP",
+                titleStyle);
+            microStyle.alignment = TextAnchor.UpperRight;
+            microStyle.normal.textColor = HudWhite;
+            GUI.Label(
+                new Rect(plot.xMax - 150f, plot.y + 9f, 136f, 22f),
+                $"FUSED {displayTrackCount:00}  RAW {trackCount:00}",
+                microStyle);
 
-            // Heading-up ownship symbol. The tactical plot is a fused 360-degree track picture.
-            DrawLine(center + new Vector2(0f, -9f), center + new Vector2(-6f, 4f), HudBrightGreen, 2f);
-            DrawLine(center + new Vector2(0f, -9f), center + new Vector2(6f, 4f), HudBrightGreen, 2f);
-            DrawLine(center + new Vector2(-6f, 4f), center + new Vector2(6f, 4f), HudBrightGreen, 2f);
+            var mapArea = new Rect(plot.x + 14f, plot.y + 42f, 286f, 330f);
+            var center = new Vector2(mapArea.center.x, mapArea.center.y + 2f);
+            var radius = 137f;
+            DrawCircle(center, radius, HudCyan, 2f, false);
+            DrawCircle(center, radius * 0.75f, HudDimGreen, 1f, false);
+            DrawCircle(center, radius * 0.5f, HudDimGreen, 1f, false);
+            DrawCircle(center, radius * 0.25f, HudDimGreen, 1f, false);
+            DrawLine(center + Vector2.left * radius, center + Vector2.right * radius, HudPanelGrid, 1f);
+            DrawLine(center + Vector2.up * radius, center + Vector2.down * radius, HudPanelGrid, 1f);
+            DrawLine(
+                center + new Vector2(-radius * 0.71f, -radius * 0.71f),
+                center + new Vector2(radius * 0.71f, radius * 0.71f),
+                HudPanelGrid,
+                1f);
+            DrawLine(
+                center + new Vector2(radius * 0.71f, -radius * 0.71f),
+                center + new Vector2(-radius * 0.71f, radius * 0.71f),
+                HudPanelGrid,
+                1f);
 
-            var range = Mathf.Max(1f, radarStatus.RangeMeters);
+            microStyle.alignment = TextAnchor.MiddleCenter;
+            microStyle.normal.textColor = HudDimGreen;
+            GUI.Label(new Rect(center.x - 18f, center.y - radius - 18f, 36f, 16f), "000", microStyle);
+            GUI.Label(new Rect(center.x + radius + 2f, center.y - 8f, 38f, 16f), "+90", microStyle);
+            GUI.Label(new Rect(center.x - radius + 2f, center.y - 8f, 38f, 16f), "-90", microStyle);
+            GUI.Label(new Rect(center.x - 18f, center.y + radius + 1f, 36f, 16f), "180", microStyle);
+
+            // Heading-up ownship symbol.
+            DrawLine(center + new Vector2(0f, -12f), center + new Vector2(-8f, 6f), HudBrightGreen, 2.4f);
+            DrawLine(center + new Vector2(0f, -12f), center + new Vector2(8f, 6f), HudBrightGreen, 2.4f);
+            DrawLine(center + new Vector2(-8f, 6f), center + new Vector2(8f, 6f), HudBrightGreen, 2.4f);
+
+            var range = GetTacticalDisplayRange();
             for (var i = 0; i < trackCount; i++)
             {
                 var track = tracks[i];
-                if (track.Lifecycle == TrackLifecycle.Dropped)
+                if (track.Lifecycle == TrackLifecycle.Dropped || !ShouldDisplayTrack(i))
                 {
                     continue;
                 }
@@ -186,17 +230,19 @@ namespace ACunicombat.Mechs
                 var alpha = GetLifecycleAlpha(track);
                 var color = track.TrackId.Equals(radar.SttTrackId)
                     ? new Color(HudRed.r, HudRed.g, HudRed.b, alpha)
-                    : new Color(HudGreen.r, HudGreen.g, HudGreen.b, alpha);
+                    : track.TrackId.Equals(radar.CandidateTrackId)
+                        ? new Color(HudAmber.r, HudAmber.g, HudAmber.b, alpha)
+                        : new Color(HudCyan.r, HudCyan.g, HudCyan.b, alpha);
                 var dashed = track.Lifecycle == TrackLifecycle.Coasting ||
                              track.Lifecycle == TrackLifecycle.Degraded;
-                DrawTrackSymbol(point, 4.5f, color, dashed, track.Affiliation);
+                DrawTrackSymbol(point, 6f, color, dashed, track.Affiliation);
 
                 var velocityLocal = transform.InverseTransformDirection(ToVector3(track.Velocity));
                 var velocity2D = new Vector2(velocityLocal.x, -velocityLocal.z);
                 if (velocity2D.sqrMagnitude > 0.01f)
                 {
-                    var vectorLength = Mathf.Clamp(velocity2D.magnitude * 0.025f, 4f, 16f);
-                    DrawLine(point, point + velocity2D.normalized * vectorLength, color, 1f);
+                    var vectorLength = Mathf.Clamp(velocity2D.magnitude * 0.04f, 8f, 30f);
+                    DrawLine(point, point + velocity2D.normalized * vectorLength, color, 1.4f);
                 }
 
                 if (Mathf.Abs(relativeLocal.y) > 10f)
@@ -204,23 +250,53 @@ namespace ACunicombat.Mechs
                     DrawAltitudeCue(point + new Vector2(8f, 0f), relativeLocal.y > 0f, color);
                 }
 
-                smallStyle.alignment = TextAnchor.UpperLeft;
+                microStyle.alignment = TextAnchor.UpperLeft;
+                microStyle.normal.textColor = color;
+                var rangeKilometers = horizontal.magnitude / 1000f;
+                var altitudeDelta = relativeLocal.y;
+                var labelOffset = point.x > center.x
+                    ? new Vector2(9f, -12f)
+                    : new Vector2(-76f, -12f);
                 smallStyle.normal.textColor = color;
+                var trackLabelRect = ClampToRect(
+                    new Rect(point.x + labelOffset.x, point.y + labelOffset.y, 70f, 34f),
+                    plot,
+                    5f);
                 GUI.Label(
-                    new Rect(point.x + 7f, point.y - 10f, 50f, 20f),
-                    SourceLabel(track.SourceMask),
-                    smallStyle);
+                    trackLabelRect,
+                    $"{TrackLabel(track.TrackId)} {SourceLabel(track.SourceMask)}\n" +
+                    $"{rangeKilometers:0.0}K {altitudeDelta:+0;-0;0}",
+                    microStyle);
             }
 
-            compactStyle.normal.textColor = HudGreen;
+            var ownshipSpeed = math.length(radarStatus.OwnshipVelocity);
+            var heading = Mathf.Repeat(transform.eulerAngles.y, 360f);
+            var dataX = plot.x + 310f;
+            compactStyle.normal.textColor = HudWhite;
             GUI.Label(
-                new Rect(plot.x + 10f, plot.y + 7f, plot.width - 20f, 20f),
-                $"TACTICAL  {radarStatus.TrackCount:00} TRACKS",
+                new Rect(dataX, plot.y + 52f, 88f, 170f),
+                "OWNSHIP\n" +
+                $"HDG {heading:000}\n" +
+                $"VEL {ownshipSpeed:0}\n\n" +
+                "PICTURE\n" +
+                $"TRK {displayTrackCount:00}\n" +
+                $"RAW {trackCount:00}\n" +
+                $"SRC {PictureSourceLabel()}",
                 compactStyle);
+            microStyle.alignment = TextAnchor.UpperLeft;
+            microStyle.normal.textColor = HudDimGreen;
             GUI.Label(
-                new Rect(plot.x + 10f, plot.yMax - 24f, plot.width - 20f, 20f),
-                $"RANGE {radarStatus.RangeMeters / 1000f:0} KM  HDG-UP",
-                compactStyle);
+                new Rect(dataX, plot.y + 238f, 88f, 100f),
+                "DISPLAY\n" +
+                $"SCALE {FormatRange(range)}\n" +
+                $"RADAR {radarStatus.RangeMeters / 1000f:0}K\n" +
+                "ORIENT HDG",
+                microStyle);
+            DrawLine(
+                new Vector2(dataX - 8f, plot.y + 44f),
+                new Vector2(dataX - 8f, plot.yMax - 14f),
+                HudPanelGrid,
+                1f);
         }
 
         private void DrawRadarStatus()
@@ -231,9 +307,28 @@ namespace ACunicombat.Mechs
                 RadarStatusWidth,
                 RadarStatusHeight);
             DrawFilledRect(rect, HudPanel);
-            DrawCornerFrame(rect, HudDimGreen, 16f, 1.4f, false);
-            var fanApex = new Vector2(rect.center.x, rect.y + 157f);
-            var fanRadius = 105f;
+            DrawPanelGrid(rect, 20f);
+            DrawCornerFrame(rect, HudGreen, 22f, 1.8f, false);
+            DrawLine(
+                new Vector2(rect.x + 12f, rect.y + 36f),
+                new Vector2(rect.xMax - 12f, rect.y + 36f),
+                HudDimGreen,
+                1f);
+
+            titleStyle.normal.textColor = HudBrightGreen;
+            GUI.Label(
+                new Rect(rect.x + 14f, rect.y + 7f, 290f, 25f),
+                $"{ModeLabel(radarStatus.Mode)} / FORWARD ACQUISITION",
+                titleStyle);
+            microStyle.alignment = TextAnchor.UpperRight;
+            microStyle.normal.textColor = HudWhite;
+            GUI.Label(
+                new Rect(rect.xMax - 170f, rect.y + 10f, 156f, 20f),
+                $"RNG {radarStatus.RangeMeters / 1000f:0} KM",
+                microStyle);
+
+            var fanApex = new Vector2(rect.x + 176f, rect.y + 292f);
+            var fanRadius = 190f;
             var halfAngle = Mathf.Clamp(radarStatus.ScanAzimuthDegrees * 0.5f, 20f, 80f);
             for (var angle = -halfAngle; angle <= halfAngle; angle += 2f)
             {
@@ -241,22 +336,23 @@ namespace ACunicombat.Mechs
                     fanApex,
                     fanApex + RadarDirection(angle) * fanRadius,
                     HudFanFill,
-                    5f);
+                    7f);
             }
 
             DrawLine(
                 fanApex,
                 fanApex + RadarDirection(-halfAngle) * fanRadius,
                 HudGreen,
-                1.7f);
+                2f);
             DrawLine(
                 fanApex,
                 fanApex + RadarDirection(halfAngle) * fanRadius,
                 HudGreen,
-                1.7f);
-            DrawFanArc(fanApex, fanRadius, -halfAngle, halfAngle, HudGreen, 1.7f);
-            DrawFanArc(fanApex, fanRadius * 0.66f, -halfAngle, halfAngle, HudDimGreen, 1f);
-            DrawFanArc(fanApex, fanRadius * 0.33f, -halfAngle, halfAngle, HudDimGreen, 1f);
+                2f);
+            DrawFanArc(fanApex, fanRadius, -halfAngle, halfAngle, HudGreen, 2f);
+            DrawFanArc(fanApex, fanRadius * 0.75f, -halfAngle, halfAngle, HudDimGreen, 1f);
+            DrawFanArc(fanApex, fanRadius * 0.5f, -halfAngle, halfAngle, HudDimGreen, 1f);
+            DrawFanArc(fanApex, fanRadius * 0.25f, -halfAngle, halfAngle, HudDimGreen, 1f);
             DrawLine(fanApex, fanApex + RadarDirection(0f) * fanRadius, HudDimGreen, 1f);
             DrawLine(
                 fanApex,
@@ -270,11 +366,28 @@ namespace ACunicombat.Mechs
                 1f);
 
             var beamAngle = Mathf.Clamp(radarStatus.BeamAzimuthDegrees, -halfAngle, halfAngle);
+            var beamHalfWidth = Mathf.Max(1f, radarStatus.BeamWidthDegrees * 0.5f);
+            var beamFill = new Color(
+                HudBrightGreen.r,
+                HudBrightGreen.g,
+                HudBrightGreen.b,
+                0.28f);
+            for (var angle = beamAngle - beamHalfWidth;
+                 angle <= beamAngle + beamHalfWidth;
+                 angle += 1f)
+            {
+                DrawLine(
+                    fanApex,
+                    fanApex + RadarDirection(Mathf.Clamp(angle, -halfAngle, halfAngle)) * fanRadius,
+                    beamFill,
+                    4f);
+            }
+
             DrawLine(
                 fanApex,
                 fanApex + RadarDirection(beamAngle) * fanRadius,
                 HudBrightGreen,
-                2.2f);
+                2.6f);
             DrawRadarFanTracks(fanApex, fanRadius, halfAngle);
 
             var flags = radarStatus.Flags == RadarStatusFlags.None
@@ -283,23 +396,92 @@ namespace ACunicombat.Mechs
             var sttText = radarStatus.SttTrackId.IsValid
                 ? TrackLabel(radarStatus.SttTrackId)
                 : "--";
-            compactStyle.normal.textColor = HudGreen;
+
+            microStyle.alignment = TextAnchor.MiddleCenter;
+            microStyle.normal.textColor = HudWhite;
             GUI.Label(
-                new Rect(rect.x + 12f, rect.y + 7f, rect.width - 24f, 22f),
-                $"{ModeLabel(radarStatus.Mode)}  " +
-                $"AZ {radarStatus.ScanAzimuthDegrees:0} x EL {radarStatus.ScanElevationDegrees:0}  " +
-                $"{radarStatus.RangeMeters / 1000f:0} KM",
-                compactStyle);
+                new Rect(fanApex.x - 54f, fanApex.y + 3f, 108f, 18f),
+                $"{-halfAngle:0}  AZ  +{halfAngle:0}",
+                microStyle);
+            microStyle.alignment = TextAnchor.MiddleLeft;
+            microStyle.normal.textColor = HudDimGreen;
+            GUI.Label(
+                new Rect(rect.x + 15f, rect.y + 91f, 42f, 18f),
+                "100%",
+                microStyle);
+            GUI.Label(
+                new Rect(rect.x + 50f, rect.y + 142f, 42f, 18f),
+                "75",
+                microStyle);
+            GUI.Label(
+                new Rect(rect.x + 87f, rect.y + 193f, 42f, 18f),
+                "50",
+                microStyle);
+            GUI.Label(
+                new Rect(rect.x + 125f, rect.y + 241f, 42f, 18f),
+                "25",
+                microStyle);
+
+            var elevationX = rect.x + 337f;
+            var elevationTop = rect.y + 60f;
+            var elevationBottom = rect.y + 281f;
+            DrawLine(
+                new Vector2(elevationX, elevationTop),
+                new Vector2(elevationX, elevationBottom),
+                HudDimGreen,
+                1.3f);
+            for (var tick = 0; tick <= 6; tick++)
+            {
+                var y = Mathf.Lerp(elevationTop, elevationBottom, tick / 6f);
+                DrawLine(
+                    new Vector2(elevationX - 5f, y),
+                    new Vector2(elevationX + 5f, y),
+                    HudDimGreen,
+                    1f);
+            }
+
+            var elevationHalf = Mathf.Max(1f, radarStatus.ScanElevationDegrees * 0.5f);
+            var elevationNormalized = Mathf.InverseLerp(
+                elevationHalf,
+                -elevationHalf,
+                Mathf.Clamp(radarStatus.BeamElevationDegrees, -elevationHalf, elevationHalf));
+            var elevationY = Mathf.Lerp(elevationTop, elevationBottom, elevationNormalized);
+            DrawLine(
+                new Vector2(elevationX - 10f, elevationY),
+                new Vector2(elevationX + 10f, elevationY),
+                HudBrightGreen,
+                2.5f);
 
             statusStyle.normal.textColor = HudGreen;
             GUI.Label(
-                new Rect(rect.x + 12f, rect.y + 174f, rect.width - 24f, 108f),
-                $"TRACKS {radarStatus.TrackCount}/{radarStatus.TrackCapacity}\n" +
-                $"REFRESH {radarStatus.RefreshRateHz:0.0} HZ  LOAD {radarStatus.DwellLoad * 100f:0}%\n" +
-                $"GUIDANCE {radarStatus.GuidanceChannelsUsed}/{radarStatus.GuidanceChannelCapacity}\n" +
-                $"STT {sttText}  DEFER {radarStatus.DeferredDwellCount}\n" +
-                $"STATUS {flags}",
+                new Rect(rect.x + 354f, rect.y + 52f, 120f, 235f),
+                $"SCAN\n" +
+                $"AZ {radarStatus.ScanAzimuthDegrees:0}\n" +
+                $"EL {radarStatus.ScanElevationDegrees:0}\n" +
+                $"BEAM {radarStatus.BeamWidthDegrees:0}\n" +
+                $"GRID {radarStatus.SearchColumnCount}x{radarStatus.SearchRowCount}\n\n" +
+                $"CURSOR\n" +
+                $"AZ {radarStatus.BeamAzimuthDegrees:+0;-0;0}\n" +
+                $"EL {radarStatus.BeamElevationDegrees:+0;-0;0}\n" +
+                $"FRAME {radarStatus.SearchFrameProgress * 100f:0}%\n\n" +
+                $"TRACK {displayTrackCount}/{radarStatus.TrackCapacity}\n" +
+                $"STT {sttText}",
                 statusStyle);
+
+            DrawLine(
+                new Vector2(rect.x + 14f, rect.y + 324f),
+                new Vector2(rect.xMax - 14f, rect.y + 324f),
+                HudDimGreen,
+                1f);
+            compactStyle.normal.textColor = HudWhite;
+            GUI.Label(
+                new Rect(rect.x + 16f, rect.y + 334f, 455f, 58f),
+                $"SCAN {radarStatus.RefreshRateHz:0.0}HZ   " +
+                $"REVISIT {radarStatus.TargetRefreshRateHz:0.0}HZ   " +
+                $"LOAD {radarStatus.DwellLoad * 100f:0}%\n" +
+                $"GUIDANCE {radarStatus.GuidanceChannelsUsed}/{radarStatus.GuidanceChannelCapacity}   " +
+                $"DEFER {radarStatus.DeferredDwellCount}   STATUS {flags}",
+                compactStyle);
         }
 
         private void DrawRadarFanTracks(Vector2 apex, float radius, float halfAngle)
@@ -308,7 +490,7 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < trackCount; i++)
             {
                 var track = tracks[i];
-                if (track.Lifecycle == TrackLifecycle.Dropped)
+                if (track.Lifecycle == TrackLifecycle.Dropped || !ShouldDisplayTrack(i))
                 {
                     continue;
                 }
@@ -332,14 +514,24 @@ namespace ACunicombat.Mechs
                 var alpha = GetLifecycleAlpha(track);
                 var color = track.TrackId.Equals(radar.SttTrackId)
                     ? new Color(HudRed.r, HudRed.g, HudRed.b, alpha)
-                    : new Color(HudGreen.r, HudGreen.g, HudGreen.b, alpha);
+                    : track.TrackId.Equals(radar.CandidateTrackId)
+                        ? new Color(HudAmber.r, HudAmber.g, HudAmber.b, alpha)
+                        : new Color(HudCyan.r, HudCyan.g, HudCyan.b, alpha);
                 DrawTrackSymbol(
                     point,
-                    4.5f,
+                    6f,
                     color,
                     track.Lifecycle == TrackLifecycle.Coasting ||
                     track.Lifecycle == TrackLifecycle.Degraded,
                     track.Affiliation);
+
+                microStyle.alignment = TextAnchor.UpperLeft;
+                microStyle.normal.textColor = color;
+                GUI.Label(
+                    new Rect(point.x + 8f, point.y - 14f, 88f, 34f),
+                    $"{TrackLabel(track.TrackId)}\n" +
+                    $"{horizontal.magnitude / 1000f:0.0} KM",
+                    microStyle);
             }
         }
 
@@ -403,7 +595,7 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < trackCount; i++)
             {
                 var track = tracks[i];
-                if (track.Lifecycle == TrackLifecycle.Dropped)
+                if (track.Lifecycle == TrackLifecycle.Dropped || !ShouldDisplayTrack(i))
                 {
                     continue;
                 }
@@ -427,7 +619,9 @@ namespace ACunicombat.Mechs
 
                 var color = isStt
                     ? new Color(HudRed.r, HudRed.g, HudRed.b, alpha)
-                    : new Color(HudGreen.r, HudGreen.g, HudGreen.b, alpha);
+                    : isCandidate
+                        ? new Color(HudAmber.r, HudAmber.g, HudAmber.b, alpha)
+                        : new Color(HudGreen.r, HudGreen.g, HudGreen.b, alpha);
                 var dashed = track.Lifecycle == TrackLifecycle.Coasting ||
                              track.Lifecycle == TrackLifecycle.Degraded;
                 var size = isCandidate || isStt ? TrackMarkerSize + 12f : TrackMarkerSize;
@@ -439,15 +633,6 @@ namespace ACunicombat.Mechs
                         isTentative ? 7f : 10f,
                         isStt ? 2.8f : 1.7f,
                         dashed);
-                    if (isCandidate)
-                    {
-                        DrawCornerFrame(
-                            new Rect(center.x - size * 0.5f - 5f, center.y - size * 0.5f - 5f, size + 10f, size + 10f),
-                            HudBrightGreen,
-                            8f,
-                            1.4f,
-                            false);
-                    }
                 }
 
                 var relative = position - transform.position;
@@ -463,13 +648,15 @@ namespace ACunicombat.Mechs
                     : "UNK";
                 smallStyle.alignment = TextAnchor.UpperLeft;
                 smallStyle.normal.textColor = color;
-                var labelRect = new Rect(center.x + size * 0.5f + 6f, center.y - 22f, 202f, 60f);
+                var labelRect = ClampToScreen(
+                    new Rect(center.x + size * 0.5f + 8f, center.y - 25f, 214f, 64f),
+                    8f);
                 DrawFilledRect(labelRect, new Color(HudPanel.r, HudPanel.g, HudPanel.b, 0.64f));
                 GUI.Label(
                     labelRect,
-                    $"{TrackLabel(track.TrackId)} {lifecycle} {classification}\n" +
-                    $"{relative.magnitude:0}m  VC {closing:+0;-0;0}  DY {relative.y:+0;-0;0}\n" +
-                    $"Q {track.Confidence:0.00}  SRC {source}",
+                    $"{TrackLabel(track.TrackId)}  {lifecycle}  {classification}\n" +
+                    $"R {relative.magnitude / 1000f:0.00}KM   VC {closing:+0;-0;0}\n" +
+                    $"DY {relative.y:+0;-0;0}   Q {track.Confidence:0.00}   {source}",
                     smallStyle);
             }
         }
@@ -524,6 +711,129 @@ namespace ACunicombat.Mechs
 
             return false;
         }
+
+        private int CountDisplayTracks()
+        {
+            var count = 0;
+            for (var i = 0; i < trackCount; i++)
+            {
+                if (ShouldDisplayTrack(i))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private bool ShouldDisplayTrack(int index)
+        {
+            if ((uint)index >= (uint)trackCount ||
+                tracks[index].Lifecycle == TrackLifecycle.Dropped)
+            {
+                return false;
+            }
+
+            var track = tracks[index];
+            var position = radar.PredictTrackPosition(track);
+            var range = Vector3.Distance(transform.position, position);
+            var mergeDistance = Mathf.Max(30f, range * 0.004f);
+            var mergeDistanceSquared = mergeDistance * mergeDistance;
+            var velocity = ToVector3(track.Velocity);
+            var score = DisplayTrackScore(track);
+
+            for (var otherIndex = 0; otherIndex < trackCount; otherIndex++)
+            {
+                if (otherIndex == index ||
+                    tracks[otherIndex].Lifecycle == TrackLifecycle.Dropped)
+                {
+                    continue;
+                }
+
+                var other = tracks[otherIndex];
+                var otherPosition = radar.PredictTrackPosition(other);
+                if ((otherPosition - position).sqrMagnitude > mergeDistanceSquared ||
+                    (ToVector3(other.Velocity) - velocity).sqrMagnitude > 6_400f)
+                {
+                    continue;
+                }
+
+                var otherScore = DisplayTrackScore(other);
+                if (otherScore > score ||
+                    (Mathf.Approximately(otherScore, score) && otherIndex < index))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private float DisplayTrackScore(in TrackSnapshot track)
+        {
+            var score = track.Lifecycle switch
+            {
+                TrackLifecycle.Confirmed => 400f,
+                TrackLifecycle.Coasting => 300f,
+                TrackLifecycle.Degraded => 200f,
+                TrackLifecycle.Tentative => 100f,
+                _ => 0f,
+            };
+
+            if (track.TrackId.Equals(radar.SttTrackId))
+            {
+                score += 10_000f;
+            }
+            else if (track.TrackId.Equals(radar.CandidateTrackId))
+            {
+                score += 5_000f;
+            }
+
+            return score + track.Confidence * 100f + (float)(track.LastUpdateTime * 0.001);
+        }
+
+        private float GetTacticalDisplayRange()
+        {
+            var farthest = 0f;
+            for (var i = 0; i < trackCount; i++)
+            {
+                if (!ShouldDisplayTrack(i))
+                {
+                    continue;
+                }
+
+                var relative = radar.PredictTrackPosition(tracks[i]) - transform.position;
+                var horizontalRange = new Vector2(relative.x, relative.z).magnitude;
+                farthest = Mathf.Max(farthest, horizontalRange);
+            }
+
+            var required = farthest * 1.25f;
+            if (required <= 2_000f) return 2_000f;
+            if (required <= 5_000f) return 5_000f;
+            if (required <= 10_000f) return 10_000f;
+            if (required <= 25_000f) return 25_000f;
+            if (required <= 50_000f) return 50_000f;
+            return Mathf.Max(100_000f, radarStatus.RangeMeters);
+        }
+
+        private string PictureSourceLabel()
+        {
+            var sources = TrackSourceMask.None;
+            for (var i = 0; i < trackCount; i++)
+            {
+                if (ShouldDisplayTrack(i))
+                {
+                    sources |= tracks[i].SourceMask;
+                }
+            }
+
+            return SourceLabel(sources);
+        }
+
+        private static string FormatRange(float rangeMeters) =>
+            rangeMeters < 10_000f
+                ? $"{rangeMeters / 1000f:0.0}K"
+                : $"{rangeMeters / 1000f:0}K";
 
         private void DrawLegacyReticle()
         {
@@ -646,7 +956,7 @@ namespace ACunicombat.Mechs
         {
             smallStyle ??= new GUIStyle(GUI.skin.label)
             {
-                fontSize = 13,
+                fontSize = 14,
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.UpperLeft,
                 wordWrap = false,
@@ -654,16 +964,70 @@ namespace ACunicombat.Mechs
             };
             compactStyle ??= new GUIStyle(GUI.skin.label)
             {
-                fontSize = 13,
+                fontSize = 15,
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.UpperLeft,
             };
             statusStyle ??= new GUIStyle(GUI.skin.label)
             {
-                fontSize = 13,
+                fontSize = 14,
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.UpperLeft,
             };
+            titleStyle ??= new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 16,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.UpperLeft,
+            };
+            microStyle ??= new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 11,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.UpperLeft,
+                wordWrap = false,
+            };
+        }
+
+        private static Rect ClampToScreen(Rect rect, float margin)
+        {
+            rect.x = Mathf.Clamp(rect.x, margin, Mathf.Max(margin, Screen.width - rect.width - margin));
+            rect.y = Mathf.Clamp(rect.y, margin, Mathf.Max(margin, Screen.height - rect.height - margin));
+            return rect;
+        }
+
+        private static Rect ClampToRect(Rect rect, Rect bounds, float margin)
+        {
+            rect.x = Mathf.Clamp(
+                rect.x,
+                bounds.xMin + margin,
+                Mathf.Max(bounds.xMin + margin, bounds.xMax - rect.width - margin));
+            rect.y = Mathf.Clamp(
+                rect.y,
+                bounds.yMin + margin,
+                Mathf.Max(bounds.yMin + margin, bounds.yMax - rect.height - margin));
+            return rect;
+        }
+
+        private static void DrawPanelGrid(Rect rect, float spacing)
+        {
+            for (var x = rect.x + spacing; x < rect.xMax; x += spacing)
+            {
+                DrawLine(
+                    new Vector2(x, rect.y),
+                    new Vector2(x, rect.yMax),
+                    HudPanelGrid,
+                    0.7f);
+            }
+
+            for (var y = rect.y + spacing; y < rect.yMax; y += spacing)
+            {
+                DrawLine(
+                    new Vector2(rect.x, y),
+                    new Vector2(rect.xMax, y),
+                    HudPanelGrid,
+                    0.7f);
+            }
         }
 
         private static Vector2 RadarDirection(float angleDegrees)

@@ -207,9 +207,18 @@ namespace ACunicombat.Mechs
                 ScanElevationDegrees = SearchElevationDegrees,
                 BeamAzimuthDegrees = beamAzimuthDegrees,
                 BeamElevationDegrees = beamElevationDegrees,
+                BeamWidthDegrees = SearchBeamWidthDegrees,
+                SearchFrameProgress = searchPattern.FrameProgress,
+                SearchColumnCount = searchPattern.ColumnCount,
+                SearchRowCount = searchPattern.RowCount,
                 TrackCount = count,
                 TrackCapacity = driver != null ? driver.TrackCapacity : MaximumPublicTracks,
                 RefreshRateHz = GetSearchFrameRate(hasStt),
+                TargetRefreshRateHz = hasStt
+                    ? 1f / Mathf.Max(SttIntervalSeconds, (float)SimulationDriver.SensorStepSeconds)
+                    : hasTwsTrack
+                        ? 1f / TwsRevisitIntervalSeconds
+                        : GetSearchFrameRate(false),
                 DwellLoad = Mathf.Clamp01((scheduledDwells + (hasStt ? 5f : 6f)) / 16f),
                 DeferredDwellCount = driver != null ? driver.DeferredDwellCount : 0,
                 GuidanceChannelsUsed = usedChannels,

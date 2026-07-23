@@ -40,9 +40,14 @@ namespace ACunicombat.Sensing.Contracts
         public float ScanElevationDegrees;
         public float BeamAzimuthDegrees;
         public float BeamElevationDegrees;
+        public float BeamWidthDegrees;
+        public float SearchFrameProgress;
+        public int SearchColumnCount;
+        public int SearchRowCount;
         public int TrackCount;
         public int TrackCapacity;
         public float RefreshRateHz;
+        public float TargetRefreshRateHz;
         public float DwellLoad;
         public long DeferredDwellCount;
         public int GuidanceChannelsUsed;
