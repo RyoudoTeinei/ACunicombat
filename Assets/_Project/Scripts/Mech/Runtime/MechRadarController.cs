@@ -38,6 +38,7 @@ namespace ACunicombat.Mechs
         private const float RadarRangeMeters = 100_000f;
         private const float DesignationBaseSeconds = 0.3f;
         private const float DesignationGimbalDegrees = 48f;
+        private const float DesignationCaptureBoxPixels = 54f;
 
         private struct GuidanceChannel
         {
@@ -282,10 +283,15 @@ namespace ACunicombat.Mechs
             var count = CopyTracks(trackScratch);
             var bestId = default(TrackId);
             var bestScore = float.MaxValue;
+            var ray = viewCamera.ViewportPointToRay(
+                new Vector3(reticleViewport.x, reticleViewport.y, 0f));
+            var captureHalfSize = DesignationCaptureBoxPixels * 0.5f;
+            var pixelWidth = Mathf.Max(1f, viewCamera.pixelWidth);
+            var pixelHeight = Mathf.Max(1f, viewCamera.pixelHeight);
             for (var i = 0; i < count; i++)
             {
                 var track = trackScratch[i];
-                if (!IsFireControlUsable(track.Lifecycle))
+                if (track.Lifecycle != TrackLifecycle.Confirmed)
                 {
                     continue;
                 }
@@ -297,22 +303,20 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                var ray = viewCamera.ViewportPointToRay(
-                    new Vector3(reticleViewport.x, reticleViewport.y, 0f));
                 if (Vector3.Angle(ray.direction, position - ray.origin) > DesignationGimbalDegrees)
                 {
                     continue;
                 }
 
-                var dx = viewport.x - reticleViewport.x;
-                var dy = viewport.y - reticleViewport.y;
-                var screenDistance = Mathf.Sqrt(dx * dx + dy * dy);
-                var relative = ToVector3(track.Velocity) - playerVelocity;
-                var lineOfSight = (position - transform.position).normalized;
-                var closingSpeed = Mathf.Max(0f, -Vector3.Dot(relative, lineOfSight));
-                var threatBias = Mathf.Clamp01(closingSpeed / 500f) * 0.025f;
-                var qualityBias = track.Confidence * 0.035f;
-                var score = screenDistance - threatBias - qualityBias;
+                var dxPixels = (viewport.x - reticleViewport.x) * pixelWidth;
+                var dyPixels = (viewport.y - reticleViewport.y) * pixelHeight;
+                if (Mathf.Abs(dxPixels) > captureHalfSize ||
+                    Mathf.Abs(dyPixels) > captureHalfSize)
+                {
+                    continue;
+                }
+
+                var score = dxPixels * dxPixels + dyPixels * dyPixels;
                 if (score < bestScore)
                 {
                     bestScore = score;
@@ -320,11 +324,11 @@ namespace ACunicombat.Mechs
                 }
             }
 
-            // Roughly the inner 12% of screen height is the designation capture area.
-            if (!bestId.IsValid || bestScore > 0.12f)
+            // The reticle center must remain inside the same 54 px box drawn around a normal track.
+            if (!bestId.IsValid)
             {
                 candidateTrackId = default;
-                designationProgress = Mathf.Max(0f, designationProgress - deltaTime * 2f);
+                designationProgress = 0f;
                 return;
             }
 

@@ -114,7 +114,6 @@ namespace ACunicombat.Mechs
         [SerializeField] private float minimumYawInertiaKgM2 = 25000f;
 
         [Header("接地")]
-        [SerializeField] private float groundY;
         [SerializeField] private float groundedEpsilon = 0.05f;
         [Tooltip("向下探测测试场地和可站立碰撞面的最大距离。")]
         [SerializeField] private float groundProbeDistance = 512f;
@@ -154,6 +153,7 @@ namespace ACunicombat.Mechs
         private float brakingAltitude;
         private float sampledGroundY;
         private Vector3 sampledGroundNormal = Vector3.up;
+        private bool hasSampledGround;
         private bool isGrounded;
         private Rigidbody massBody;
         private MechRuntimeState runtimeState;
@@ -241,7 +241,9 @@ namespace ACunicombat.Mechs
             get
             {
                 RefreshGroundHeight(transform.position);
-                return Mathf.Max(0f, transform.position.y - sampledGroundY);
+                return hasSampledGround
+                    ? Mathf.Max(0f, transform.position.y - sampledGroundY)
+                    : 0f;
             }
         }
 
@@ -272,9 +274,9 @@ namespace ACunicombat.Mechs
             runtimeState = GetComponent<MechRuntimeState>();
             yawDegrees = Mathf.Repeat(transform.eulerAngles.y - modelForwardYawOffset, 360f);
             commandedYawDegrees = yawDegrees;
-            sampledGroundY = groundY;
             RefreshGroundHeight(transform.position);
-            isGrounded = transform.position.y <= sampledGroundY + groundedEpsilon;
+            isGrounded = hasSampledGround &&
+                         transform.position.y <= sampledGroundY + groundedEpsilon;
         }
 
         private void Start()
@@ -547,7 +549,9 @@ namespace ACunicombat.Mechs
             if (frame.BrakeHeld && !braking)
             {
                 RefreshGroundHeight(transform.position);
-                brakingAltitude = Mathf.Max(transform.position.y, sampledGroundY);
+                brakingAltitude = hasSampledGround
+                    ? Mathf.Max(transform.position.y, sampledGroundY)
+                    : transform.position.y;
             }
 
             braking = frame.BrakeHeld;
@@ -809,15 +813,22 @@ namespace ACunicombat.Mechs
                 velocity.y = 0f;
             }
 
-            var surfaceY = SampleGroundHeight(position, out var surfaceNormal);
+            var hasGround = TrySampleGroundHeight(
+                position,
+                out var surfaceY,
+                out var surfaceNormal);
             if (braking)
             {
-                isGrounded = position.y <= surfaceY + groundedEpsilon;
+                isGrounded = hasGround &&
+                             position.y <= surfaceY + groundedEpsilon;
             }
             else if (grounded && !frame.RiseHeld)
             {
-                var surfaceDelta = surfaceY - previousPosition.y;
-                if (surfaceDelta >= -maximumGroundSnapDown &&
+                var surfaceDelta = hasGround
+                    ? surfaceY - previousPosition.y
+                    : float.NegativeInfinity;
+                if (hasGround &&
+                    surfaceDelta >= -maximumGroundSnapDown &&
                     surfaceDelta <= maximumGroundSnapUp)
                 {
                     // Follow a nearby surface, and preserve its tangent as real velocity.
@@ -834,7 +845,11 @@ namespace ACunicombat.Mechs
                     isGrounded = false;
                 }
             }
-            else if (!braking && !frame.RiseHeld && velocity.y <= 0f && position.y <= surfaceY)
+            else if (hasGround &&
+                     !braking &&
+                     !frame.RiseHeld &&
+                     velocity.y <= 0f &&
+                     position.y <= surfaceY)
             {
                 position.y = surfaceY;
                 velocity.y = 0f;
@@ -845,7 +860,8 @@ namespace ACunicombat.Mechs
                 isGrounded = false;
             }
 
-            sampledGroundY = surfaceY;
+            hasSampledGround = hasGround;
+            sampledGroundY = hasGround ? surfaceY : float.NegativeInfinity;
             sampledGroundNormal = surfaceNormal;
 
             transform.SetPositionAndRotation(
@@ -1902,15 +1918,20 @@ namespace ACunicombat.Mechs
 
         private void RefreshGroundHeight(Vector3 position)
         {
-            sampledGroundY = SampleGroundHeight(position, out sampledGroundNormal);
+            hasSampledGround = TrySampleGroundHeight(
+                position,
+                out sampledGroundY,
+                out sampledGroundNormal);
+            if (!hasSampledGround)
+            {
+                sampledGroundY = float.NegativeInfinity;
+            }
         }
 
-        private float SampleGroundHeight(Vector3 position)
-        {
-            return SampleGroundHeight(position, out _);
-        }
-
-        private float SampleGroundHeight(Vector3 position, out Vector3 surfaceNormal)
+        private bool TrySampleGroundHeight(
+            Vector3 position,
+            out float surfaceY,
+            out Vector3 surfaceNormal)
         {
             var origin = position + Vector3.up * 12f;
             var hitCount = Physics.RaycastNonAlloc(
@@ -1921,7 +1942,8 @@ namespace ACunicombat.Mechs
                 Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.Ignore);
 
-            var highest = groundY;
+            var foundGround = false;
+            surfaceY = float.NegativeInfinity;
             surfaceNormal = Vector3.up;
             for (var i = 0; i < hitCount; i++)
             {
@@ -1937,14 +1959,15 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                if (hit.point.y > highest)
+                if (!foundGround || hit.point.y > surfaceY)
                 {
-                    highest = hit.point.y;
+                    foundGround = true;
+                    surfaceY = hit.point.y;
                     surfaceNormal = hit.normal;
                 }
             }
 
-            return highest;
+            return foundGround;
         }
 
         /// <summary>启动固定方向的 QB 高加速度窗口，与 QB 动作状态同步触发。</summary>

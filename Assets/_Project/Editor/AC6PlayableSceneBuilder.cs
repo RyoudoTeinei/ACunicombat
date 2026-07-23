@@ -75,6 +75,23 @@ public static class AC6PlayableSceneBuilder
         EditorUtility.DisplayDialog("AC6 Playable Scene", report, "OK");
     }
 
+    [MenuItem("Tools/ACunicombat/AC6/Rebuild Player Environment")]
+    public static void RebuildPlayerEnvironmentMenu()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
+        {
+            Debug.LogWarning(
+                "[AC6PlayableScene] Stop Play Mode before rebuilding the player environment.");
+            return;
+        }
+
+        BuildPlayerEnvironment();
+        EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+        EditorSceneManager.SaveOpenScenes();
+        Selection.activeGameObject = GameObject.Find("AC6PlayerEnvironment");
+        Debug.Log("[AC6PlayableScene] Player environment rebuilt with landing pad only.");
+    }
+
     // Also services one-shot rebuild requests created while the editor is open.
     [InitializeOnLoadMethod]
     private static void RunRequestedBuildAfterReload()
@@ -663,65 +680,21 @@ public static class AC6PlayableSceneBuilder
         }
 
         Directory.CreateDirectory(GeneratedMaterialsRoot);
-        var floorMaterial = GetOrCreateEnvironmentMaterial(
-            $"{GeneratedMaterialsRoot}/AC6PlayerFloor.mat",
-            new Color(0.12f, 0.14f, 0.16f, 1f), 0.72f, 0.28f);
         var padMaterial = GetOrCreateEnvironmentMaterial(
             $"{GeneratedMaterialsRoot}/AC6PlayerLandingPad.mat",
             new Color(0.075f, 0.085f, 0.095f, 1f), 0.82f, 0.22f);
-        var seamMaterial = GetOrCreateEnvironmentMaterial(
-            $"{GeneratedMaterialsRoot}/AC6PlayerFloorSeams.mat",
-            new Color(0.025f, 0.03f, 0.035f, 1f), 0.45f, 0.12f);
         var markingMaterial = GetOrCreateEnvironmentMaterial(
             $"{GeneratedMaterialsRoot}/AC6PlayerFloorMarkings.mat",
             new Color(0.72f, 0.48f, 0.075f, 1f), 0.35f, 0.25f);
 
         var root = new GameObject(rootName);
         CreateEnvironmentBlock(
-            root.transform, "Structural Floor", new Vector3(0f, -0.4f, 180f),
-            new Vector3(640f, 0.8f, 720f), floorMaterial, true);
-        CreateEnvironmentBlock(
-            root.transform, "Landing Pad", new Vector3(0f, 0.0125f, 0f),
-            new Vector3(34f, 0.025f, 34f), padMaterial, false);
-
-        // Thin recessed-looking strips establish panel scale without introducing collider steps.
-        for (var x = -320; x <= 320; x += 20)
-        {
-            CreateEnvironmentBlock(
-                root.transform, "Panel Seam X", new Vector3(x, 0.031f, 180f),
-                new Vector3(0.045f, 0.012f, 720f), seamMaterial, false);
-        }
-
-        for (var z = -180; z <= 540; z += 20)
-        {
-            CreateEnvironmentBlock(
-                root.transform, "Panel Seam Z", new Vector3(0f, 0.031f, z),
-                new Vector3(640f, 0.012f, 0.045f), seamMaterial, false);
-        }
-
-        // Two restrained service-lane lines make heading and translation readable in play mode.
-        foreach (var x in new[] { -18f, 18f })
-        {
-            CreateEnvironmentBlock(
-                root.transform, "Service Lane Marking", new Vector3(x, 0.043f, 180f),
-                new Vector3(0.22f, 0.014f, 700f), markingMaterial, false);
-        }
+            root.transform, "Landing Pad", new Vector3(0f, -0.4f, 0f),
+            new Vector3(34f, 0.8f, 34f), padMaterial, true);
 
         CreateEnvironmentBlock(
-            root.transform, "Landing Pad Centerline", new Vector3(0f, 0.05f, 0f),
+            root.transform, "Landing Pad Centerline", new Vector3(0f, 0.012f, 0f),
             new Vector3(0.18f, 0.014f, 30f), markingMaterial, false);
-
-        // Two complete up/plateau/down courses give the transform-driven controller real
-        // traversable gradients. Their colliders are sampled by MechFlightMotionController.
-        CreateRampCourse(root.transform, "Gentle", -105f, 95f, 100f, 8f,
-            60f, 52f, floorMaterial, markingMaterial);
-        CreateRampCourse(root.transform, "Medium", 105f, 115f, 82f, 12f,
-            60f, 44f, floorMaterial, markingMaterial);
-
-        // A broad cross-slope is useful for testing lateral translation without adding art.
-        CreateEnvironmentRamp(
-            root.transform, "Cross Slope", new Vector3(0f, 5.45f, 390f),
-            new Vector3(120f, 1f, 70f), new Vector3(-9f, 0f, 0f), floorMaterial);
 
         ConfigureDeepSpaceEnvironment();
     }
