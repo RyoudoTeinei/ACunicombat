@@ -36,6 +36,7 @@ namespace ACunicombat.Mechs
         private int trackCount;
         private int displayTrackCount;
         private int echoCount;
+        private float radarDisplayRangeMeters = 20_000f;
         private RadarStatusSnapshot radarStatus;
         private MechThirdPersonCamera aimController;
         private Texture2D operationRingTexture;
@@ -306,6 +307,8 @@ namespace ACunicombat.Mechs
                 Screen.height - RadarStatusHeight - 18f,
                 RadarStatusWidth,
                 RadarStatusHeight);
+            var halfAngle = Mathf.Clamp(radarStatus.ScanAzimuthDegrees * 0.5f, 20f, 80f);
+            var displayRange = GetRadarDisplayRange(halfAngle);
             DrawFilledRect(rect, HudPanel);
             DrawPanelGrid(rect, 20f);
             DrawCornerFrame(rect, HudGreen, 22f, 1.8f, false);
@@ -324,12 +327,11 @@ namespace ACunicombat.Mechs
             microStyle.normal.textColor = HudWhite;
             GUI.Label(
                 new Rect(rect.xMax - 170f, rect.y + 10f, 156f, 20f),
-                $"RNG {radarStatus.RangeMeters / 1000f:0} KM",
+                $"SCALE {FormatRange(displayRange)} / MAX {FormatRange(radarStatus.RangeMeters)}",
                 microStyle);
 
             var fanApex = new Vector2(rect.x + 176f, rect.y + 292f);
             var fanRadius = 190f;
-            var halfAngle = Mathf.Clamp(radarStatus.ScanAzimuthDegrees * 0.5f, 20f, 80f);
             for (var angle = -halfAngle; angle <= halfAngle; angle += 2f)
             {
                 DrawLine(
@@ -388,7 +390,7 @@ namespace ACunicombat.Mechs
                 fanApex + RadarDirection(beamAngle) * fanRadius,
                 HudBrightGreen,
                 2.6f);
-            DrawRadarFanTracks(fanApex, fanRadius, halfAngle);
+            DrawRadarFanTracks(fanApex, fanRadius, halfAngle, displayRange);
 
             var flags = radarStatus.Flags == RadarStatusFlags.None
                 ? "NOMINAL"
@@ -407,19 +409,19 @@ namespace ACunicombat.Mechs
             microStyle.normal.textColor = HudDimGreen;
             GUI.Label(
                 new Rect(rect.x + 15f, rect.y + 91f, 42f, 18f),
-                "100%",
+                FormatRange(displayRange),
                 microStyle);
             GUI.Label(
                 new Rect(rect.x + 50f, rect.y + 142f, 42f, 18f),
-                "75",
+                FormatRange(displayRange * 0.75f),
                 microStyle);
             GUI.Label(
                 new Rect(rect.x + 87f, rect.y + 193f, 42f, 18f),
-                "50",
+                FormatRange(displayRange * 0.5f),
                 microStyle);
             GUI.Label(
                 new Rect(rect.x + 125f, rect.y + 241f, 42f, 18f),
-                "25",
+                FormatRange(displayRange * 0.25f),
                 microStyle);
 
             var elevationX = rect.x + 337f;
@@ -484,9 +486,13 @@ namespace ACunicombat.Mechs
                 compactStyle);
         }
 
-        private void DrawRadarFanTracks(Vector2 apex, float radius, float halfAngle)
+        private void DrawRadarFanTracks(
+            Vector2 apex,
+            float radius,
+            float halfAngle,
+            float displayRange)
         {
-            var range = Mathf.Max(1f, radarStatus.RangeMeters);
+            var range = Mathf.Max(1f, displayRange);
             for (var i = 0; i < trackCount; i++)
             {
                 var track = tracks[i];
@@ -814,6 +820,67 @@ namespace ACunicombat.Mechs
             if (required <= 25_000f) return 25_000f;
             if (required <= 50_000f) return 50_000f;
             return Mathf.Max(100_000f, radarStatus.RangeMeters);
+        }
+
+        private float GetRadarDisplayRange(float halfAngle)
+        {
+            var farthest = 0f;
+            for (var i = 0; i < trackCount; i++)
+            {
+                if (!ShouldDisplayTrack(i))
+                {
+                    continue;
+                }
+
+                var relative = ToVector3(tracks[i].Position) - transform.position;
+                var local = ToHeadingLocal(relative);
+                var horizontal = new Vector2(local.x, local.z);
+                if (horizontal.sqrMagnitude < 0.0001f || horizontal.y <= 0f)
+                {
+                    continue;
+                }
+
+                var azimuth = Mathf.Atan2(horizontal.x, horizontal.y) * Mathf.Rad2Deg;
+                if (Mathf.Abs(azimuth) <= halfAngle)
+                {
+                    farthest = Mathf.Max(farthest, horizontal.magnitude);
+                }
+            }
+
+            var maximumRange = Mathf.Max(5_000f, radarStatus.RangeMeters);
+            radarDisplayRangeMeters = Mathf.Clamp(
+                radarDisplayRangeMeters,
+                5_000f,
+                maximumRange);
+            if (farthest <= 0f)
+            {
+                return radarDisplayRangeMeters;
+            }
+
+            var requiredRange = farthest * 1.25f;
+            var selectedRange = SelectRadarDisplayRange(requiredRange, maximumRange);
+            if (selectedRange > radarDisplayRangeMeters &&
+                requiredRange > radarDisplayRangeMeters * 0.88f)
+            {
+                radarDisplayRangeMeters = selectedRange;
+            }
+            else if (selectedRange < radarDisplayRangeMeters &&
+                     requiredRange < radarDisplayRangeMeters * 0.4f)
+            {
+                radarDisplayRangeMeters = selectedRange;
+            }
+
+            return radarDisplayRangeMeters;
+        }
+
+        private static float SelectRadarDisplayRange(float requiredRange, float maximumRange)
+        {
+            if (requiredRange <= 5_000f) return 5_000f;
+            if (requiredRange <= 10_000f) return Mathf.Min(10_000f, maximumRange);
+            if (requiredRange <= 20_000f) return Mathf.Min(20_000f, maximumRange);
+            if (requiredRange <= 40_000f) return Mathf.Min(40_000f, maximumRange);
+            if (requiredRange <= 80_000f) return Mathf.Min(80_000f, maximumRange);
+            return maximumRange;
         }
 
         private Vector3 ToHeadingLocal(Vector3 worldVector)
