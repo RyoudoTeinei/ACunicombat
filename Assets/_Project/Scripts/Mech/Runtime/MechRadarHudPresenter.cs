@@ -217,7 +217,7 @@ namespace ACunicombat.Mechs
                 }
 
                 var relativeWorld = ToVector3(track.Position) - transform.position;
-                var relativeLocal = transform.InverseTransformDirection(relativeWorld);
+                var relativeLocal = ToHeadingLocal(relativeWorld);
                 var horizontal = new Vector2(relativeLocal.x, relativeLocal.z);
                 if (horizontal.sqrMagnitude < 0.0001f)
                 {
@@ -237,7 +237,7 @@ namespace ACunicombat.Mechs
                              track.Lifecycle == TrackLifecycle.Degraded;
                 DrawTrackSymbol(point, 6f, color, dashed, track.Affiliation);
 
-                var velocityLocal = transform.InverseTransformDirection(ToVector3(track.Velocity));
+                var velocityLocal = ToHeadingLocal(ToVector3(track.Velocity));
                 var velocity2D = new Vector2(velocityLocal.x, -velocityLocal.z);
                 if (velocity2D.sqrMagnitude > 0.01f)
                 {
@@ -270,7 +270,7 @@ namespace ACunicombat.Mechs
             }
 
             var ownshipSpeed = math.length(radarStatus.OwnshipVelocity);
-            var heading = Mathf.Repeat(transform.eulerAngles.y, 360f);
+            var heading = GetHeadingDegrees();
             var dataX = plot.x + 310f;
             compactStyle.normal.textColor = HudWhite;
             GUI.Label(
@@ -496,7 +496,7 @@ namespace ACunicombat.Mechs
                 }
 
                 var relativeWorld = ToVector3(track.Position) - transform.position;
-                var relativeLocal = transform.InverseTransformDirection(relativeWorld);
+                var relativeLocal = ToHeadingLocal(relativeWorld);
                 var horizontal = new Vector2(relativeLocal.x, relativeLocal.z);
                 if (horizontal.sqrMagnitude < 0.0001f || horizontal.y <= 0f)
                 {
@@ -814,6 +814,37 @@ namespace ACunicombat.Mechs
             if (required <= 25_000f) return 25_000f;
             if (required <= 50_000f) return 50_000f;
             return Mathf.Max(100_000f, radarStatus.RangeMeters);
+        }
+
+        private Vector3 ToHeadingLocal(Vector3 worldVector)
+        {
+            var forward = GetHeadingForward();
+            var right = Vector3.Cross(Vector3.up, forward).normalized;
+            return new Vector3(
+                Vector3.Dot(worldVector, right),
+                Vector3.Dot(worldVector, Vector3.up),
+                Vector3.Dot(worldVector, forward));
+        }
+
+        private Vector3 GetHeadingForward()
+        {
+            var forward = aimController != null
+                ? aimController.AimRotation * Vector3.forward
+                : viewCamera != null
+                    ? viewCamera.transform.forward
+                    : transform.forward;
+            forward.y = 0f;
+            return forward.sqrMagnitude > 0.001f
+                ? forward.normalized
+                : Vector3.forward;
+        }
+
+        private float GetHeadingDegrees()
+        {
+            var forward = GetHeadingForward();
+            return Mathf.Repeat(
+                Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg,
+                360f);
         }
 
         private string PictureSourceLabel()

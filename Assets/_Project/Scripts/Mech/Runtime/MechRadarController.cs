@@ -875,7 +875,15 @@ namespace ACunicombat.Mechs
 
         private void UpdateBeamAngles(Vector3 worldDirection)
         {
-            var local = transform.InverseTransformDirection(worldDirection.normalized);
+            var direction = worldDirection.normalized;
+            var local = searchFrameForward.sqrMagnitude > 0.5f
+                ? new Vector3(
+                    Vector3.Dot(direction, searchFrameRight),
+                    Vector3.Dot(direction, searchFrameUp),
+                    Vector3.Dot(direction, searchFrameForward))
+                : (aimingCamera != null
+                    ? aimingCamera.transform.InverseTransformDirection(direction)
+                    : transform.InverseTransformDirection(direction));
             beamAzimuthDegrees = Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
             beamElevationDegrees = Mathf.Asin(Mathf.Clamp(local.y, -1f, 1f)) * Mathf.Rad2Deg;
         }
