@@ -212,6 +212,7 @@ namespace ACunicombat.Mechs
                 MechThrusterRole.Reverse => Vector3.down * roleLaneOffset,
                 MechThrusterRole.ShoulderLift => Vector3.forward * roleLaneOffset,
                 MechThrusterRole.LegLift => Vector3.back * roleLaneOffset,
+                MechThrusterRole.Descent => Vector3.up * roleLaneOffset + Vector3.back * roleLaneOffset,
                 MechThrusterRole.ShoulderRcs => Vector3.up * roleLaneOffset + Vector3.forward * roleLaneOffset,
                 MechThrusterRole.LegRcs => Vector3.down * roleLaneOffset + Vector3.back * roleLaneOffset,
                 _ => Vector3.zero,

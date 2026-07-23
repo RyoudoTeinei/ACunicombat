@@ -101,7 +101,133 @@ namespace ACunicombat.Tracking
         /// </summary>
         public static void UpdatePosition(ref FilterState s, double3 z, in Matrix6 r3x3)
         {
-            throw new NotImplementedException("阶段 1 实现点：Joseph 形式 3D 位置更新（设计文档 14.1）。");
+            var innovation = z - s.Position;
+
+            Span<double> covariance = stackalloc double[9];
+            for (var i = 0; i < 3; i++)
+            {
+                for (var j = 0; j < 3; j++)
+                {
+                    covariance[i * 3 + j] = s.P[i, j] + r3x3[i, j];
+                }
+
+                covariance[i * 3 + i] += 1e-9;
+            }
+
+            Span<double> inverse = stackalloc double[9];
+            if (!TryInvertSymmetric3(covariance, inverse))
+            {
+                return;
+            }
+
+            Span<double> gain = stackalloc double[18];
+            for (var i = 0; i < 6; i++)
+            {
+                for (var j = 0; j < 3; j++)
+                {
+                    var sum = 0.0;
+                    for (var k = 0; k < 3; k++)
+                    {
+                        sum += s.P[i, k] * inverse[k * 3 + j];
+                    }
+
+                    gain[i * 3 + j] = sum;
+                }
+            }
+
+            Span<double> correction = stackalloc double[6];
+            for (var i = 0; i < 6; i++)
+            {
+                correction[i] = gain[i * 3] * innovation.x
+                    + gain[i * 3 + 1] * innovation.y
+                    + gain[i * 3 + 2] * innovation.z;
+            }
+
+            s.Position += new double3(correction[0], correction[1], correction[2]);
+            s.Velocity += new double3(correction[3], correction[4], correction[5]);
+
+            var previous = s.P;
+            Matrix6 a = default;
+            for (var i = 0; i < 6; i++)
+            {
+                for (var j = 0; j < 6; j++)
+                {
+                    a[i, j] = (i == j ? 1.0 : 0.0) - (j < 3 ? gain[i * 3 + j] : 0.0);
+                }
+            }
+
+            Matrix6 ap = default;
+            for (var i = 0; i < 6; i++)
+            {
+                for (var j = 0; j < 6; j++)
+                {
+                    var sum = 0.0;
+                    for (var k = 0; k < 6; k++)
+                    {
+                        sum += a[i, k] * previous[k, j];
+                    }
+
+                    ap[i, j] = sum;
+                }
+            }
+
+            Matrix6 next = default;
+            for (var i = 0; i < 6; i++)
+            {
+                for (var j = 0; j < 6; j++)
+                {
+                    var value = 0.0;
+                    for (var k = 0; k < 6; k++)
+                    {
+                        value += ap[i, k] * a[j, k];
+                    }
+
+                    for (var row = 0; row < 3; row++)
+                    {
+                        for (var col = 0; col < 3; col++)
+                        {
+                            value += gain[i * 3 + row] * r3x3[row, col] * gain[j * 3 + col];
+                        }
+                    }
+
+                    next[i, j] = value;
+                }
+            }
+
+            s.P = next;
+            Symmetrize(ref s.P);
+            AssertDiagonal(in s.P);
+        }
+
+        private static bool TryInvertSymmetric3(ReadOnlySpan<double> m, Span<double> inverse)
+        {
+            var a = m[0];
+            var b = m[1];
+            var c = m[2];
+            var d = m[4];
+            var e = m[5];
+            var f = m[8];
+
+            var cofactor00 = d * f - e * e;
+            var cofactor01 = c * e - b * f;
+            var cofactor02 = b * e - c * d;
+            var cofactor11 = a * f - c * c;
+            var cofactor12 = b * c - a * e;
+            var cofactor22 = a * d - b * b;
+            var determinant = a * cofactor00 + b * cofactor01 + c * cofactor02;
+            if (double.IsNaN(determinant) || double.IsInfinity(determinant) || Math.Abs(determinant) < 1e-18)
+            {
+                return false;
+            }
+
+            var scale = 1.0 / determinant;
+            inverse[0] = cofactor00 * scale;
+            inverse[1] = inverse[3] = cofactor01 * scale;
+            inverse[2] = inverse[6] = cofactor02 * scale;
+            inverse[4] = cofactor11 * scale;
+            inverse[5] = inverse[7] = cofactor12 * scale;
+            inverse[8] = cofactor22 * scale;
+            return true;
         }
 
         /// <summary>

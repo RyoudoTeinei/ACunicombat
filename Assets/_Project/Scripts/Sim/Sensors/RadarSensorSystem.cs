@@ -1,49 +1,39 @@
 using System;
 using ACunicombat.Sensing.Contracts;
+using ACunicombat.Simulation.Core;
+using ACunicombat.Simulation.Kinematics;
 using ACunicombat.Simulation.World;
 using Unity.Collections;
+using Unity.Mathematics;
 
 namespace ACunicombat.Sensors
 {
     /// <summary>
-    /// 雷达传感器系统（设计文档 10.1 单驻留流程 + 19.1 Job 管线）的编排骨架。
-    /// 本类型是唯一可读 World 真值的消费层；产出只有 Contracts 结构体。
-    ///
-    /// 每传感器 Tick（19.1 次序，逐步实现）：
-    ///   1. Complete 上一批 JobHandle（存于 pendingJobs，不在 Schedule 后立即 Complete）
-    ///   2. 检测点交付融合层（DetectionRing 由 Driver 转交 Tracking）
-    ///   3. world.SwapSnapshots + grid.Rebuild
-    ///   4. scheduler.ConsumeDue 按优先级+预算收集到期驻留（主线程）
-    ///   5. 候选筛选 Job：grid.QueryBeamBroadphase → 距离筛 → 波束点积筛
-    ///   6. 解析遮挡 Job（AnalyticOcclusion）∥ 气泡内 RaycastCommand 批次
-    ///   7. 回波/SNR/判决/测量生成 Job（RadarMath；消费 EW 预先写入的 JamContribution/
-    ///      SyntheticDetection 缓冲——Job 内禁止托管委托，无回调路径）
-    ///   8. ResolutionMerge.MergeInPlace
-    ///   9. 检测点入环形缓冲，EmissionEvent 登记
-    ///
-    /// TODO(阶段 1)：5–7 的 IJob 实现与 JobHandle 链。数学核（RadarMath、
-    /// ResolutionMerge、AnalyticOcclusion）已完成并具备单测，Job 只做搬运与并行化。
+    /// Produces sensor measurements from world truth. Measurements never contain a truth entity id.
+    /// The current implementation is deterministic and allocation-free after construction; its loops
+    /// are intentionally kept on the main thread until the vertical slice has sufficient profiling data.
     /// </summary>
     public sealed class RadarSensorSystem : IDisposable
     {
         public const int DetectionRingCapacity = 4096;
         public const int CandidateCapacity = 2048;
-
-        /// <summary>每传感器 Tick 的驻留预算（4.2：超预算低优先级顺延，不伪造刷新）。</summary>
         public const int DwellBudgetPerTick = 16;
 
         private readonly SimWorld world;
         private readonly SpatialHashGrid grid;
         private readonly DwellScheduler scheduler;
-
         private NativeList<Measurement> detectionRing;
         private NativeList<EmissionEvent> emissionRing;
         private NativeArray<Measurement> dwellScratch;
         private NativeList<Dwell> dueDwells;
-
-        /// <summary>EW 在自身更新阶段写入、本系统只读的注入缓冲（5 节规则红线）。</summary>
         private NativeList<JamContribution> jamInbox;
         private NativeList<SyntheticDetection> syntheticInbox;
+        private NativeList<int> candidateScratch;
+
+        private readonly RadarSensorProfile[] sensorProfiles = new RadarSensorProfile[64];
+        private readonly bool[] sensorRegistered = new bool[64];
+        private readonly RadarTargetProfile[] targetProfiles = new RadarTargetProfile[SimWorld.MaxEntities];
+        private readonly bool[] targetRegistered = new bool[SimWorld.MaxEntities];
 
         public uint SessionSeed;
 
@@ -58,20 +48,53 @@ namespace ACunicombat.Sensors
             dueDwells = new NativeList<Dwell>(64, Allocator.Persistent);
             jamInbox = new NativeList<JamContribution>(256, Allocator.Persistent);
             syntheticInbox = new NativeList<SyntheticDetection>(256, Allocator.Persistent);
+            candidateScratch = new NativeList<int>(CandidateCapacity, Allocator.Persistent);
         }
 
-        /// <summary>EW 系统获取写入口（Driver 装配时注入，运行期只有 EW 写）。</summary>
         public NativeList<JamContribution> JamInboxForEw => jamInbox;
-
         public NativeList<SyntheticDetection> SyntheticInboxForEw => syntheticInbox;
-
-        /// <summary>本 Tick 产出的检测点（融合层消费后 Clear）。</summary>
         public NativeList<Measurement> Detections => detectionRing;
-
         public NativeList<EmissionEvent> Emissions => emissionRing;
+
+        public void RegisterSensor(in RadarSensorProfile profile)
+        {
+            var index = profile.SensorId.Value.Index;
+            if (!profile.SensorId.IsValid || (uint)index >= sensorProfiles.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(profile), "SensorId is invalid or exceeds radar capacity.");
+            }
+
+            sensorProfiles[index] = profile;
+            sensorRegistered[index] = true;
+        }
+
+        public void RegisterTarget(in RadarTargetProfile profile)
+        {
+            var index = profile.EntityId.Value.Index;
+            if (!profile.EntityId.IsValid || (uint)index >= targetProfiles.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(profile), "Target entity is invalid or exceeds radar capacity.");
+            }
+
+            targetProfiles[index] = profile;
+            targetRegistered[index] = true;
+        }
+
+        public void UnregisterTarget(SimEntityId entityId)
+        {
+            var index = entityId.Value.Index;
+            if ((uint)index < targetRegistered.Length)
+            {
+                targetRegistered[index] = false;
+            }
+        }
+
+        public void ScheduleDwell(in Dwell dwell) => scheduler.Schedule(dwell);
 
         public void Tick(double simTime)
         {
+            detectionRing.Clear();
+            emissionRing.Clear();
             world.SwapSnapshots(simTime);
             grid.Rebuild(world.ReadSnapshot, world.AliveMask, world.EntityCapacityInUse);
 
@@ -81,18 +104,194 @@ namespace ACunicombat.Sensors
             {
                 ProcessDwell(dueDwells[i]);
             }
+
+            jamInbox.Clear();
+            syntheticInbox.Clear();
         }
 
         private void ProcessDwell(in Dwell dwell)
         {
-            // TODO(阶段 1)：候选筛选/遮挡/回波三个 Job 的调度与 JobHandle 链（19.1 步骤 5–7）。
-            // 单驻留数学路径（主线程参考实现，Job 化前用于 EditMode 验收）：
-            //   grid.QueryBeamBroadphase → 点积筛 → AnalyticOcclusion →
-            //   RadarMath.ReceivedPowerDb/SnrDb(+jamInbox 汇总) → RollDetection(种子=21 节哈希链)
-            //   → 误差模型出 Measurement → syntheticInbox 中匹配本驻留的合成点追加
-            //   → ResolutionMerge.MergeInPlace(dwellScratch, n, capability, res)
-            //   → detectionRing.AddRange + emissionRing 登记
-            throw new NotImplementedException("阶段 1 垂直切片实现点——见类注释与设计文档 10.1/19.1。");
+            var sensorIndex = dwell.SensorId.Value.Index;
+            if ((uint)sensorIndex >= sensorProfiles.Length || !sensorRegistered[sensorIndex])
+            {
+                return;
+            }
+
+            var profile = sensorProfiles[sensorIndex];
+            if (!profile.SensorId.Equals(dwell.SensorId)
+                || !TryGetSnapshot(profile.OwnerEntityId, out var sensorState))
+            {
+                return;
+            }
+
+            var beamDirection = math.normalizesafe(dwell.BeamDirection, new float3(0f, 0f, 1f));
+            var beamWidth = dwell.BeamWidthRadians > 0f
+                ? dwell.BeamWidthRadians
+                : profile.DwellConfig.BeamWidthRadians;
+            emissionRing.Add(new EmissionEvent
+            {
+                EmitterId = profile.EmitterId,
+                StartTime = world.SnapshotTime,
+                EndTime = world.SnapshotTime + Math.Max(0.0, dwell.DwellTimeSeconds),
+                Origin = sensorState.PositionWorld,
+                Direction = beamDirection,
+                BeamWidth = beamWidth,
+                FrequencyBand = profile.FrequencyBand,
+                WaveformId = profile.WaveformId,
+                EmissionType = EmissionType.RadarDwell,
+                MainlobePowerDb = profile.MainlobePowerDb,
+                SidelobeLevelDb = profile.SidelobeLevelDb,
+            });
+
+            var jamPowerDb = AggregateJamPower(profile.SensorId, profile.FrequencyBand);
+            var halfBeamCos = math.cos(beamWidth * 0.5f);
+            var count = 0;
+            candidateScratch.Clear();
+            grid.QueryBeamBroadphase(sensorState.PositionWorld, beamDirection, profile.MaxRangeMeters, candidateScratch);
+            for (var i = 0; i < candidateScratch.Length && count < dwellScratch.Length; i++)
+            {
+                var targetIndex = candidateScratch[i];
+                if ((uint)targetIndex >= targetProfiles.Length || !targetRegistered[targetIndex])
+                {
+                    continue;
+                }
+
+                var targetProfile = targetProfiles[targetIndex];
+                var currentEntityId = world.GetEntityIdAt(targetIndex);
+                if (!currentEntityId.Equals(targetProfile.EntityId)
+                    || currentEntityId.Equals(profile.OwnerEntityId)
+                    || !TryGetSnapshot(currentEntityId, out var targetState))
+                {
+                    continue;
+                }
+
+                var relativePosition = targetState.PositionWorld - sensorState.PositionWorld;
+                var range = math.length(relativePosition);
+                if (range < 1.0 || range > profile.MaxRangeMeters)
+                {
+                    continue;
+                }
+
+                var trueDirection = (float3)(relativePosition / range);
+                if (math.dot(beamDirection, trueDirection) < halfBeamCos)
+                {
+                    continue;
+                }
+
+                var rcsDbsm = 10f * math.log10(math.max(targetProfile.RadarCrossSectionSquareMeters, 1e-6f));
+                var receivedPowerDb = RadarMath.ReceivedPowerDb(profile.DwellConfig, rcsDbsm, range);
+                var snrDb = RadarMath.SnrDb(
+                    receivedPowerDb,
+                    profile.DwellConfig.NoisePowerDb,
+                    profile.ClutterPowerDb,
+                    jamPowerDb);
+                var probability = RadarMath.DetectionProbability(profile.DwellConfig, snrDb);
+                var seed = SimHash.Chain(
+                    SessionSeed,
+                    profile.SensorId.Packed,
+                    (uint)dwell.Sequence,
+                    currentEntityId.Packed);
+                if (!RadarMath.RollDetection(probability, seed))
+                {
+                    continue;
+                }
+
+                var rng = new SimRng(SimHash.Combine(seed, 0xA17E39B1u));
+                var snrLinear = RadarMath.LinearFromDb(snrDb);
+                var sigmaRange = RadarMath.SigmaRange(profile.DwellConfig, snrLinear);
+                var sigmaAngle = RadarMath.SigmaAngle(profile.DwellConfig, snrLinear);
+                var sigmaVelocity = RadarMath.SigmaVelocity(profile.DwellConfig, snrLinear);
+                BuildPerpendicularBasis(trueDirection, out var tangentA, out var tangentB);
+                var noisyDirection = math.normalizesafe(
+                    trueDirection
+                    + tangentA * (rng.NextGaussian() * sigmaAngle)
+                    + tangentB * (rng.NextGaussian() * sigmaAngle),
+                    trueDirection);
+                var relativeVelocity = targetState.VelocityWorld - sensorState.VelocityWorld;
+                var radialVelocity = (float)math.dot(relativeVelocity, (double3)trueDirection);
+                var losRate = (float3)(math.cross(relativePosition, relativeVelocity) / (range * range));
+
+                dwellScratch[count++] = new Measurement
+                {
+                    SensorId = profile.SensorId,
+                    Timestamp = world.SnapshotTime,
+                    Range = (profile.Capability & SensorCapability.Range) != 0
+                        ? (float)range + rng.NextGaussian() * sigmaRange
+                        : float.NaN,
+                    Direction = noisyDirection,
+                    RadialVelocity = (profile.Capability & SensorCapability.Doppler) != 0
+                        ? radialVelocity + rng.NextGaussian() * sigmaVelocity
+                        : float.NaN,
+                    LosRate = (profile.Capability & SensorCapability.LosRate) != 0
+                        ? losRate
+                        : new float3(float.NaN),
+                    RangeVar = sigmaRange * sigmaRange,
+                    AngleVar = sigmaAngle * sigmaAngle,
+                    VelocityVar = sigmaVelocity * sigmaVelocity,
+                    LosRateVar = sigmaAngle * sigmaAngle
+                        / math.max(dwell.DwellTimeSeconds * dwell.DwellTimeSeconds, 1e-4f),
+                    SnrDb = snrDb,
+                    Flags = jamPowerDb > profile.DwellConfig.NoisePowerDb
+                        ? MeasurementFlags.Jammed
+                        : MeasurementFlags.None,
+                };
+            }
+
+            for (var i = 0; i < syntheticInbox.Length && count < dwellScratch.Length; i++)
+            {
+                var synthetic = syntheticInbox[i];
+                if (synthetic.VictimSensorId.Equals(profile.SensorId) && synthetic.DwellSequence == dwell.Sequence)
+                {
+                    dwellScratch[count++] = synthetic.Measurement;
+                }
+            }
+
+            var mergedCount = ResolutionMerge.MergeInPlace(
+                dwellScratch,
+                count,
+                profile.Capability,
+                profile.Resolutions);
+            var writable = math.min(mergedCount, DetectionRingCapacity - detectionRing.Length);
+            for (var i = 0; i < writable; i++)
+            {
+                detectionRing.Add(dwellScratch[i]);
+            }
+        }
+
+        private bool TryGetSnapshot(SimEntityId entityId, out KinematicState state)
+        {
+            if (!world.IsAlive(entityId))
+            {
+                state = default;
+                return false;
+            }
+
+            state = world.ReadSnapshot[entityId.Value.Index];
+            return true;
+        }
+
+        private float AggregateJamPower(SensorId sensorId, ushort frequencyBand)
+        {
+            var linear = 0f;
+            for (var i = 0; i < jamInbox.Length; i++)
+            {
+                var jam = jamInbox[i];
+                if (jam.VictimSensorId.Equals(sensorId) && jam.FrequencyBand == frequencyBand)
+                {
+                    linear += RadarMath.LinearFromDb(jam.PowerDb);
+                }
+            }
+
+            return linear > 0f ? RadarMath.DbFromLinear(linear) : -300f;
+        }
+
+        private static void BuildPerpendicularBasis(float3 direction, out float3 tangentA, out float3 tangentB)
+        {
+            var reference = math.abs(direction.y) < 0.9f
+                ? new float3(0f, 1f, 0f)
+                : new float3(1f, 0f, 0f);
+            tangentA = math.normalizesafe(math.cross(direction, reference), new float3(1f, 0f, 0f));
+            tangentB = math.normalizesafe(math.cross(direction, tangentA), new float3(0f, 1f, 0f));
         }
 
         public void Dispose()
@@ -103,6 +302,7 @@ namespace ACunicombat.Sensors
             dueDwells.Dispose();
             jamInbox.Dispose();
             syntheticInbox.Dispose();
+            candidateScratch.Dispose();
         }
     }
 }

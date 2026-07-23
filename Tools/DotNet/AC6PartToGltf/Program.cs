@@ -645,9 +645,19 @@ static class GltfBuilder
                 // and multi-material weapons number their sheets _01/_02 by material order.
                 if (albedo == null && normal == null && emissive == null)
                 {
-                    var stripped = System.Text.RegularExpressions.Regex.Replace(part.Name, "^WP_[LRE]_", "WP_");
+                    // Binder extraction prefixes SFX resources with their archive ordinal
+                    // (for example 200009_s88060.flver), while the matching texture remains
+                    // s88060_a.dds. Normalize that transport-only prefix before applying the
+                    // regular AC6 part/weapon texture naming fallbacks.
+                    var normalized = System.Text.RegularExpressions.Regex.Replace(part.Name, @"^\d+_", "");
+                    var stripped = System.Text.RegularExpressions.Regex.Replace(normalized, "^WP_[LRE]_", "WP_");
                     var matOrdinal = $"_{part.Flver.Materials.IndexOf(mat) + 1:00}";
-                    var stem = new[] { part.Name + "_01", part.Name, stripped + matOrdinal, stripped + "_01", stripped }
+                    var stem = new[]
+                        {
+                            normalized + matOrdinal, normalized + "_01", normalized,
+                            stripped + matOrdinal, stripped + "_01", stripped,
+                            part.Name + "_01", part.Name
+                        }
                         .FirstOrDefault(s => TexExists(part, options, s + "_a")) ?? part.Name + "_01";
                     var mtd = mat.MTD ?? "";
                     if (mtd.Contains("Marking", StringComparison.OrdinalIgnoreCase))

@@ -76,8 +76,8 @@ public static class AC6PlayerFlightPrototypeBuilder
         camera.transform.position = new Vector3(0f, 5.2f, -17f);
         camera.transform.rotation = Quaternion.identity;
         camera.fieldOfView = 62f;
-        camera.nearClipPlane = 0.08f;
-        camera.farClipPlane = 1200f;
+        camera.nearClipPlane = 0.5f;
+        camera.farClipPlane = 100000f;
 
         var player = root.AddComponent<AC6PlayerMechController>();
         player.Configure(mech, camera, registry);

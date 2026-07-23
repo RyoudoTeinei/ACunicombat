@@ -648,7 +648,11 @@ namespace ACunicombat.Mechs
             DrawFlightInstruments();
             GUI.depth = previousDepth;
 
-            if (!showDebugOverlay || graphRunner == null)
+            // The radar presenter owns the upper-left HUD region. Keep the flight instruments,
+            // but suppress the legacy diagnostic text when the integrated radar HUD is active.
+            if (GetComponent<MechRadarHudPresenter>() != null ||
+                !showDebugOverlay ||
+                graphRunner == null)
             {
                 return;
             }
@@ -672,6 +676,8 @@ namespace ACunicombat.Mechs
                               $"{motion.CurrentShoulderLiftForceNewtons.normalized}  " +
                               $"腿部上推: {motion.CurrentLegLiftForceNewtons.magnitude / 1000f:F0} kN " +
                               $"{motion.CurrentLegLiftForceNewtons.normalized}");
+                sb.AppendLine($"向下配平: {motion.CurrentDescentForceNewtons.magnitude / 1000f:F0} kN " +
+                              $"{motion.CurrentDescentForceNewtons.normalized}");
                 sb.AppendLine($"矢量推力: {(motion.VectorThrustEnabled ? "开启" : "关闭")}  " +
                               $"推力显示[2]: {(thrustVisualizer != null && thrustVisualizer.Visible ? "开启" : "关闭")}  " +
                               $"惯性锁定[F]: {(motion.InertialThrustLockActive ? "开启" : "关闭")}");

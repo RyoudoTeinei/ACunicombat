@@ -103,6 +103,7 @@ namespace ACunicombat.Mechs
         private bool rangedHoldPlayed;
         private bool rangedFirePlayed;
         private bool rangedLayerCleared;
+        private bool integratedRadarHudPresent;
         private readonly HashSet<string> playedBodyActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> playedUpperBodyActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly List<PoseProbe> poseProbes = new List<PoseProbe>();
@@ -178,6 +179,9 @@ namespace ACunicombat.Mechs
             BuildBoosterExhausts();
             ValidateExhaustAxes();
             CountMaterialBindings();
+            integratedRadarHudPresent =
+                mech.GetComponent<MechRadarHudPresenter>() != null ||
+                GetComponentInChildren<MechRadarHudPresenter>(true) != null;
             Debug.Log(
                 $"[AC6CombatShowcase] Bindings: boosters={boosterPlayers.Count}, " +
                 $"missilePods={missilePlayers.Count}, rightHand={(rightHandWeaponPlayer != null ? 1 : 0)}, " +
@@ -1056,6 +1060,11 @@ namespace ACunicombat.Mechs
 
         private void OnGUI()
         {
+            if (integratedRadarHudPresent)
+            {
+                return;
+            }
+
             var style = new GUIStyle(GUI.skin.box)
             {
                 alignment = TextAnchor.UpperLeft,

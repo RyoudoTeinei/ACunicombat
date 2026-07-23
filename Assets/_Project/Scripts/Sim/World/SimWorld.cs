@@ -91,6 +91,52 @@ namespace ACunicombat.Simulation.World
                    && generations[index] == id.Value.Generation;
         }
 
+        public bool TrySetState(SimEntityId id, in KinematicState state)
+        {
+            if (!IsAlive(id))
+            {
+                return false;
+            }
+
+            var buffer = WriteBuffer;
+            buffer[id.Value.Index] = state;
+            return true;
+        }
+
+        public bool TryGetWriteState(SimEntityId id, out KinematicState state)
+        {
+            if (!IsAlive(id))
+            {
+                state = default;
+                return false;
+            }
+
+            state = WriteBuffer[id.Value.Index];
+            return true;
+        }
+
+        public bool TryGetReadState(SimEntityId id, out KinematicState state)
+        {
+            if (!IsAlive(id))
+            {
+                state = default;
+                return false;
+            }
+
+            state = ReadSnapshot[id.Value.Index];
+            return true;
+        }
+
+        public SimEntityId GetEntityIdAt(int index)
+        {
+            if ((uint)index >= MaxEntities || !alive[index])
+            {
+                return default;
+            }
+
+            return new SimEntityId(new Handle(index, generations[index]));
+        }
+
         /// <summary>传感器 Tick 开始时调用（主线程，所有 Job 已 Complete）。</summary>
         public void SwapSnapshots(double simTime)
         {

@@ -26,7 +26,7 @@ namespace ACunicombat.Mechs
         [Tooltip("上升喷口合力。当前零件表没有独立垂直推力字段，因此暂用显式参数。")]
         [SerializeField] private float verticalThrustKn = 1500f;
         [Tooltip("主动下降可调用的垂直机动推力，相对于上升喷口合力的比例。")]
-        [Range(0f, 1f)] [SerializeField] private float descentThrustFraction = 0.45f;
+        [Range(0f, 1f)] [SerializeField] private float descentThrustFraction = 0.3f;
         [Tooltip("垂直推力中由肩部上推喷口承担的比例；其余由双腿/脚部喷口承担。")]
         [Range(0f, 1f)] [SerializeField] private float shoulderLiftFraction = 0.4f;
         [Tooltip("开启矢量推力时，肩部上推喷口相对世界向上允许的最大偏转角。")]
@@ -130,6 +130,7 @@ namespace ACunicombat.Mechs
         private float yawDegrees;
         private float commandedYawDegrees;
         private float yawAngularVelocityRadians;
+        private float yawTurnInput;
         private float yawMomentOfInertiaKgM2;
         private float attitudeWidthMeters = 1f;
         private float attitudeDepthMeters = 1f;
@@ -161,6 +162,7 @@ namespace ACunicombat.Mechs
         private Vector3 currentControlAcceleration;
         private Vector3 currentShoulderLiftForceNewtons;
         private Vector3 currentLegLiftForceNewtons;
+        private Vector3 currentDescentForceNewtons;
         private Vector3 currentQuickBoostForceNewtons;
         private Vector3 fixedControlCenterLocal;
         private float quickBoostForceNewtons;
@@ -204,6 +206,9 @@ namespace ACunicombat.Mechs
 
         /// <summary>脚部向下排气产生的本帧世界空间上推力；方向由腿部机动姿态决定。</summary>
         public Vector3 CurrentLegLiftForceNewtons => currentLegLiftForceNewtons;
+
+        /// <summary>Upper-body descent/RCS nozzles' downward force for active descent or lift balancing.</summary>
+        public Vector3 CurrentDescentForceNewtons => currentDescentForceNewtons;
 
         public Vector3 CurrentQuickBoostForceNewtons => currentQuickBoostForceNewtons;
 
@@ -351,6 +356,10 @@ namespace ACunicombat.Mechs
                 "leg", MechThrusterRole.LegLift,
                 legCenter, logicalRight, legHalfWidth, previousHealth);
             AddProvisionalPair(
+                "descent", MechThrusterRole.Descent,
+                shoulderCenter + Vector3.up * (coreBounds.extents.y * 0.2f),
+                logicalRight, coreHalfWidth * 0.7f, previousHealth);
+            AddProvisionalPair(
                 "rcs.shoulder", MechThrusterRole.ShoulderRcs,
                 shoulderCenter, logicalRight, coreHalfWidth, previousHealth);
             AddProvisionalPair(
@@ -401,6 +410,11 @@ namespace ACunicombat.Mechs
         public void SetAimPitch(float pitchDegrees)
         {
             aimPitchDegrees = Mathf.Clamp(pitchDegrees, -89f, 89f);
+        }
+
+        public void SetYawTurnInput(float normalizedInput)
+        {
+            yawTurnInput = Mathf.Clamp(normalizedInput, -1f, 1f);
         }
 
         public void TriggerAssaultBoost()
@@ -497,16 +511,34 @@ namespace ACunicombat.Mechs
             currentControlAcceleration = Vector3.zero;
             currentShoulderLiftForceNewtons = Vector3.zero;
             currentLegLiftForceNewtons = Vector3.zero;
+            currentDescentForceNewtons = Vector3.zero;
             currentQuickBoostForceNewtons = Vector3.zero;
 
             // 鼠标只改变目标 Yaw。实际 Yaw 由肩/腿 RCS 力偶和核心动量轮积分得到；Roll 恒 0。
-            // Keep yaw as a direct, roll-free control while the physical RCS model is deferred.
-            // This restores the original mouse response and prevents angular inertia overshoot.
+            // Cursor displacement commands a bounded yaw rate. This preserves roll-free
+            // handling while preventing instantaneous turns from raw mouse deltas.
+            var desiredYawRateDegrees =
+                yawTurnInput * Mathf.Max(0f, maximumYawRateDegrees);
+            var yawResponse = 1f - Mathf.Exp(
+                -Mathf.Max(0f, deltaTime) /
+                Mathf.Max(0.01f, yawResponseTimeSeconds));
+            var currentYawRateDegrees =
+                yawAngularVelocityRadians * Mathf.Rad2Deg;
+            currentYawRateDegrees = Mathf.Lerp(
+                currentYawRateDegrees,
+                desiredYawRateDegrees,
+                yawResponse);
+            if (Mathf.Abs(desiredYawRateDegrees) < 0.01f &&
+                Mathf.Abs(currentYawRateDegrees) < 0.01f)
+            {
+                currentYawRateDegrees = 0f;
+            }
+
             yawDegrees = Mathf.Repeat(
-                yawDegrees + frame.MouseDelta.x * yawSensitivity,
+                yawDegrees + currentYawRateDegrees * Mathf.Max(0f, deltaTime),
                 360f);
             commandedYawDegrees = yawDegrees;
-            yawAngularVelocityRadians = 0f;
+            yawAngularVelocityRadians = currentYawRateDegrees * Mathf.Deg2Rad;
             currentYawTorqueNewtonMeters = 0f;
             currentShoulderRcsTorqueNewtonMeters = 0f;
             currentLegRcsTorqueNewtonMeters = 0f;
@@ -614,7 +646,8 @@ namespace ACunicombat.Mechs
                 grounded,
                 quickBoostApplying,
                 out var requestedShoulderLiftForce,
-                out var requestedLegLiftForce);
+                out var requestedLegLiftForce,
+                out var requestedDescentForce);
             var shoulderCapacity = verticalThrustKn * 1000f
                                    * Mathf.Clamp01(shoulderLiftFraction)
                                    * (1f + liftCompensationReserve);
@@ -631,7 +664,16 @@ namespace ACunicombat.Mechs
                 requestedLegLiftForce,
                 legCapacity,
                 true);
-            propulsionForce += currentShoulderLiftForceNewtons + currentLegLiftForceNewtons;
+            var descentCapacity = verticalThrustKn * 1000f
+                                  * Mathf.Clamp01(descentThrustFraction);
+            currentDescentForceNewtons = AllocateThrusterForce(
+                MechThrusterRole.Descent,
+                requestedDescentForce,
+                descentCapacity,
+                true);
+            propulsionForce += currentShoulderLiftForceNewtons
+                               + currentLegLiftForceNewtons
+                               + currentDescentForceNewtons;
 
             var hasPropulsionCommand = propulsionForce.sqrMagnitude > 0.0001f;
             flightEnvelopeOverrideActive = frame.FlightEnvelopeOverrideHeld
@@ -645,6 +687,7 @@ namespace ACunicombat.Mechs
                     propulsionForce, flightEnvelopeOverrideActive);
                 currentShoulderLiftForceNewtons = SumThrusterForce(MechThrusterRole.ShoulderLift);
                 currentLegLiftForceNewtons = SumThrusterForce(MechThrusterRole.LegLift);
+                currentDescentForceNewtons = SumThrusterForce(MechThrusterRole.Descent);
                 var propulsionAcceleration = propulsionForce / currentMassKg;
                 currentControlForceNewtons = propulsionForce;
                 currentControlAcceleration = propulsionAcceleration;
@@ -1596,10 +1639,12 @@ namespace ACunicombat.Mechs
             bool grounded,
             bool quickBoostApplying,
             out Vector3 shoulderForce,
-            out Vector3 legForce)
+            out Vector3 legForce,
+            out Vector3 descentForce)
         {
             shoulderForce = Vector3.zero;
             legForce = Vector3.zero;
+            descentForce = Vector3.zero;
 
             var totalLiftNewtons = Mathf.Max(0f, verticalThrustKn) * 1000f;
             if (totalLiftNewtons <= Mathf.Epsilon)
@@ -1615,9 +1660,7 @@ namespace ACunicombat.Mechs
                 var descentNewtons = totalLiftNewtons
                                      * Mathf.Clamp01(descentThrustFraction)
                                      * -verticalInput;
-                var descentShoulderFraction = Mathf.Clamp01(shoulderLiftFraction);
-                shoulderForce = Vector3.down * (descentNewtons * descentShoulderFraction);
-                legForce = Vector3.down * (descentNewtons * (1f - descentShoulderFraction));
+                descentForce = Vector3.down * descentNewtons;
                 return;
             }
 
@@ -1650,6 +1693,15 @@ namespace ACunicombat.Mechs
                 liftCommand = Mathf.Max(
                     liftCommand,
                     translationCommandMagnitude * Mathf.Clamp01(translationLiftAssistFraction));
+
+                // Horizontal coordination may use vectored lift nozzles, but it must not create
+                // an uncommanded climb. Limit the upward group to what the descent group can trim.
+                var gravitySupportNewtons = currentMassKg * gravityAcceleration;
+                var descentCapacityNewtons = totalLiftNewtons
+                                             * Mathf.Clamp01(descentThrustFraction);
+                var balancedLiftLimit = (gravitySupportNewtons + descentCapacityNewtons)
+                                        / totalLiftNewtons;
+                liftCommand = Mathf.Min(liftCommand, Mathf.Clamp01(balancedLiftLimit));
             }
 
             if (liftCommand <= Mathf.Epsilon)
@@ -1709,6 +1761,19 @@ namespace ACunicombat.Mechs
                 legDirection,
                 legBaseMagnitude * liftCompensationReserve,
                 verticalDeficit);
+
+            // With no explicit climb command, automatically cancel surplus upward force. Gravity
+            // remains external, so retaining mass*g of net upward force gives neutral altitude.
+            if (!grounded && verticalInput <= Mathf.Epsilon)
+            {
+                var gravitySupportNewtons = currentMassKg * gravityAcceleration;
+                var upwardForceNewtons = Mathf.Max(0f, shoulderForce.y + legForce.y);
+                var trimNewtons = Mathf.Clamp(
+                    upwardForceNewtons - gravitySupportNewtons,
+                    0f,
+                    totalLiftNewtons * Mathf.Clamp01(descentThrustFraction));
+                descentForce = Vector3.down * trimNewtons;
+            }
         }
 
         private Vector3 ResolveHorizontalManeuverIntent(

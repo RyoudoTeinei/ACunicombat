@@ -12,6 +12,13 @@ namespace ACunicombat.Sensing.Contracts
         Dropped = 4,
     }
 
+    public enum TrackAffiliation : byte
+    {
+        Unknown = 0,
+        Friendly = 1,
+        Hostile = 2,
+    }
+
     [Flags]
     public enum TrackSourceMask : uint
     {
@@ -37,6 +44,7 @@ namespace ACunicombat.Sensing.Contracts
         public float Confidence;
         public float Classification;
         public float IdentityConfidence;
+        public TrackAffiliation Affiliation;
         public double LastUpdateTime;
         public double LastPredictTime;
         public int CoastCount;
@@ -55,6 +63,24 @@ namespace ACunicombat.Sensing.Contracts
             }
 
             return 6 * i - i * (i - 1) / 2 + (j - i);
+        }
+
+        public double GetCovariance(int i, int j)
+        {
+            var index = CovarianceIndex(i, j);
+            fixed (double* values = CovarianceUpperTriangular)
+            {
+                return values[index];
+            }
+        }
+
+        public void SetCovariance(int i, int j, double value)
+        {
+            var index = CovarianceIndex(i, j);
+            fixed (double* values = CovarianceUpperTriangular)
+            {
+                values[index] = value;
+            }
         }
     }
 }

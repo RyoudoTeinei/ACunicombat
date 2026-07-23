@@ -11,6 +11,7 @@ namespace ACunicombat.Mechs
         StrafeNegative = 21,
         ShoulderLift = 30,
         LegLift = 40,
+        Descent = 45,
         ShoulderRcs = 50,
         LegRcs = 60,
     }

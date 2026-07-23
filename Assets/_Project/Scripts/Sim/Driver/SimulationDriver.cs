@@ -1,21 +1,24 @@
-using ACunicombat.Simulation.Core;
-using ACunicombat.Simulation.World;
+using ACunicombat.Sensing.Contracts;
 using ACunicombat.Sensors;
+using ACunicombat.Simulation.Core;
+using ACunicombat.Simulation.Kinematics;
+using ACunicombat.Simulation.World;
+using ACunicombat.Tracking;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace ACunicombat.Simulation.Driver
 {
     /// <summary>
-    /// 场景级仿真驱动（设计文档 4.1）：唯一的 MonoBehaviour 入口，装配各程序集的运行时
-    /// 缓冲（依赖注入在此完成——asmdef 引用图是防火墙，数据流由本类接线）。
-    /// FixedUpdate 累加真实时间，while 消费整步；补算超限记性能告警，不静默降频。
+    /// Scene-level owner of simulation clocks, world snapshots, radar detections and local tracks.
+    /// Runtime consumers register state here but can only read fire-control-safe TrackSnapshot values.
     /// </summary>
     [DefaultExecutionOrder(-1000)]
     public sealed class SimulationDriver : MonoBehaviour
     {
-        public const double MotionStepSeconds = 0.01;   // 100 Hz：积分、热量/能源结算
-        public const double SensorStepSeconds = 0.04;   // 25 Hz：驻留消费、检测生成
-        public const double FusionStepSeconds = 0.04;   // 25 Hz：关联、滤波、数据链（滞后时钟见 15.2）
+        public const double MotionStepSeconds = 0.01;
+        public const double SensorStepSeconds = 0.04;
+        public const double FusionStepSeconds = 0.04;
 
         [SerializeField] private int maxMotionCatchUpTicks = 8;
         [SerializeField] private int maxSensorCatchUpTicks = 2;
@@ -24,52 +27,103 @@ namespace ACunicombat.Simulation.Driver
         private FixedTickClock motionClock;
         private FixedTickClock sensorClock;
         private FixedTickClock fusionClock;
-
         private SimWorld world;
         private SpatialHashGrid grid;
         private DwellScheduler dwellScheduler;
         private RadarSensorSystem radar;
+        private RadarTrackManager trackManager;
+        private SimEntityId trackOriginEntity;
 
         public double SimTimeSeconds => motionClock.SimTimeSeconds;
-
         public long MotionOverrunTicks => motionClock.OverrunTicks;
+        public int DetectionCount => radar?.Detections.Length ?? 0;
+        public int TrackCount => trackManager?.Count ?? 0;
+        public int TrackCapacity => RadarTrackManager.MaxTracks;
+        public int ScheduledDwellCount => dwellScheduler?.Count ?? 0;
+        public long DeferredDwellCount => dwellScheduler?.DeferredCount ?? 0;
 
         private void Awake()
         {
             motionClock = new FixedTickClock(MotionStepSeconds, maxMotionCatchUpTicks);
             sensorClock = new FixedTickClock(SensorStepSeconds, maxSensorCatchUpTicks);
             fusionClock = new FixedTickClock(FusionStepSeconds, maxSensorCatchUpTicks);
-
             world = new SimWorld();
             grid = new SpatialHashGrid(SimWorld.MaxEntities * 2);
             dwellScheduler = new DwellScheduler(512);
             radar = new RadarSensorSystem(world, grid, dwellScheduler) { SessionSeed = sessionSeed };
+            trackManager = new RadarTrackManager();
+        }
+
+        public SimEntityId RegisterEntity(in KinematicState initial) => world.Register(initial);
+
+        public void UnregisterEntity(SimEntityId entityId) => world.Unregister(entityId);
+
+        public bool SetEntityState(SimEntityId entityId, in KinematicState state) =>
+            world.TrySetState(entityId, state);
+
+        public void RegisterRadarSensor(in RadarSensorProfile profile)
+        {
+            radar.RegisterSensor(profile);
+            trackOriginEntity = profile.OwnerEntityId;
+        }
+
+        public void RegisterRadarTarget(in RadarTargetProfile profile) => radar.RegisterTarget(profile);
+
+        public void UnregisterRadarTarget(SimEntityId entityId) => radar.UnregisterTarget(entityId);
+
+        public void ScheduleRadarDwell(in Dwell dwell) => radar.ScheduleDwell(dwell);
+
+        public bool TryGetTrack(TrackId trackId, out TrackSnapshot snapshot) =>
+            trackManager.TryGetTrack(trackId, out snapshot);
+
+        public bool TryGetBestTrack(out TrackSnapshot snapshot) =>
+            trackManager.TryGetBestTrack(out snapshot);
+
+        public int CopyTracks(TrackSnapshot[] destination) =>
+            trackManager?.CopyTracks(destination) ?? 0;
+
+        public int CopyDetections(Measurement[] destination)
+        {
+            if (destination == null || radar == null)
+            {
+                return 0;
+            }
+
+            var count = math.min(destination.Length, radar.Detections.Length);
+            for (var i = 0; i < count; i++)
+            {
+                destination[i] = radar.Detections[i];
+            }
+
+            return count;
         }
 
         private void FixedUpdate()
         {
             var dt = Time.fixedDeltaTime;
-
             var motionTicks = motionClock.Advance(dt);
-            for (var i = 0; i < motionTicks; i++)
-            {
-                // TODO(阶段 0)：推进系统提交合力/合扭矩 → SimKinematicsIntegrator.Step
-                // 逐实体写入 world.WriteBuffer；热量/能源结算（18 节契约）。
-            }
 
             var sensorTicks = sensorClock.Advance(dt);
             for (var i = 0; i < sensorTicks; i++)
             {
-                // TODO(阶段 4)：EW 系统先写入注入缓冲（EW 写 → Sensors 读，无回调）。
-                // radar.Tick(motionClock.SimTimeSeconds);  // 阶段 1 垂直切片启用
+                radar.Tick(sensorClock.SimTimeSeconds);
+                var sensorPosition = double3.zero;
+                var sensorVelocity = double3.zero;
+                if (trackOriginEntity.IsValid
+                    && world.TryGetReadState(trackOriginEntity, out var sensorState))
+                {
+                    sensorPosition = sensorState.PositionWorld;
+                    sensorVelocity = sensorState.VelocityWorld;
+                }
+
+                trackManager.Process(
+                    radar.Detections,
+                    sensorPosition,
+                    sensorVelocity,
+                    sensorClock.SimTimeSeconds);
             }
 
-            var fusionTicks = fusionClock.Advance(dt);
-            for (var i = 0; i < fusionTicks; i++)
-            {
-                // TODO(阶段 1)：radar.Detections → OOSM 滞后堆（15.2）→ 关联（14.4）→ CMKF。
-            }
-
+            fusionClock.Advance(dt);
             if (motionClock.OverrunTicks > 0 && motionTicks == maxMotionCatchUpTicks)
             {
                 Debug.LogWarning($"[SimDriver] motion tick overrun total={motionClock.OverrunTicks}");

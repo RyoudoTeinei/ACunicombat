@@ -6,6 +6,7 @@ using ACunicombat.Mechs;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 /// <summary>
@@ -33,6 +34,10 @@ public static class AC6PlayableSceneBuilder
     private const string ActionClipSchemaVersion = "2-fromsoft-axis-normalized";
     private const string GeneratedMaterialsRoot =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Materials";
+    private const string DeepSpaceSkyboxMaterialPath =
+        GeneratedMaterialsRoot + "/AC6SparseDeepSpaceSkybox.mat";
+    private const string DeepSpaceSkyTexturePath =
+        GeneratedMaterialsRoot + "/AC6SparseDeepSpacePanorama.png";
     private const string PoseRoot = "Tools/LocalOut/actions";
 
     private static readonly (MechPartSlot Slot, string Token)[] FrameSlots =
@@ -70,6 +75,7 @@ public static class AC6PlayableSceneBuilder
         EditorUtility.DisplayDialog("AC6 Playable Scene", report, "OK");
     }
 
+    // Also services one-shot rebuild requests created while the editor is open.
     [InitializeOnLoadMethod]
     private static void RunRequestedBuildAfterReload()
     {
@@ -364,13 +370,32 @@ public static class AC6PlayableSceneBuilder
         var cam = camGo.GetComponent<MechThirdPersonCamera>();
         camGo.tag = "MainCamera";
         cam.Configure(mech.transform, motion);
-        cam.ConfigureFraming(20f, 6f, 8f);
+        cam.ConfigureViewDistance(0.5f, 100000f);
+        cam.ConfigureFraming(20f, 7.5f, 8f);
         cam.ConfigureHighSpeedFraming(8f, 0.26f, 0.18f, 0.45f);
         EditorUtility.SetDirty(cam);
 
         DisableShowcaseLabels(mech);
         BuildPlayerEnvironment();
+        var combatTarget = BuildCombatTestTarget();
         BuildNavigationReference();
+
+        var testWeaponSystem = Ensure<MechTestWeaponSystem>(mech);
+        testWeaponSystem.Configure(
+            input,
+            mech.GetComponent<MechRuntimeState>(),
+            camGo.GetComponent<Camera>(),
+            combatTarget,
+            AC6FxrEffectFactory.BuildLibrary());
+        testWeaponSystem.ConfigureAimViewport(new Vector2(0.5f, 0.56f));
+        EditorUtility.SetDirty(testWeaponSystem);
+        var radarHud = Ensure<MechRadarHudPresenter>(mech);
+        radarHud.Configure(
+            camGo.GetComponent<Camera>(),
+            testWeaponSystem.RadarController,
+            new Vector2(0.5f, 0.56f));
+        EditorUtility.SetDirty(radarHud);
+        log.Add("combat target: PASS (rifle, cannon, left/right guided missile test path)");
 
         var rigSo = new SerializedObject(rig);
         rigSo.FindProperty("input").objectReferenceValue = input;
@@ -697,6 +722,294 @@ public static class AC6PlayableSceneBuilder
         CreateEnvironmentRamp(
             root.transform, "Cross Slope", new Vector3(0f, 5.45f, 390f),
             new Vector3(120f, 1f, 70f), new Vector3(-9f, 0f, 0f), floorMaterial);
+
+        ConfigureDeepSpaceEnvironment();
+    }
+
+    private static void ConfigureDeepSpaceEnvironment()
+    {
+        var skyboxShader = Shader.Find("Skybox/Panoramic");
+        if (skyboxShader == null)
+        {
+            Debug.LogWarning("[AC6PlayableScene] Unity panoramic skybox shader is unavailable.");
+            return;
+        }
+
+        var panorama = GetOrCreateDeepSpacePanorama();
+        if (panorama == null)
+        {
+            Debug.LogWarning("[AC6PlayableScene] Failed to generate the deep-space panorama.");
+            return;
+        }
+
+        var skybox = AssetDatabase.LoadAssetAtPath<Material>(DeepSpaceSkyboxMaterialPath);
+        if (skybox == null)
+        {
+            skybox = new Material(skyboxShader);
+            AssetDatabase.CreateAsset(skybox, DeepSpaceSkyboxMaterialPath);
+        }
+
+        skybox.shader = skyboxShader;
+        skybox.SetTexture("_MainTex", panorama);
+        if (skybox.HasProperty("_Tint"))
+        {
+            skybox.SetColor("_Tint", Color.white);
+        }
+
+        if (skybox.HasProperty("_Exposure"))
+        {
+            skybox.SetFloat("_Exposure", 1.12f);
+        }
+
+        if (skybox.HasProperty("_Rotation"))
+        {
+            skybox.SetFloat("_Rotation", 18f);
+        }
+
+        if (skybox.HasProperty("_Mapping"))
+        {
+            skybox.SetFloat("_Mapping", 1f);
+        }
+
+        if (skybox.HasProperty("_ImageType"))
+        {
+            skybox.SetFloat("_ImageType", 0f);
+        }
+
+        if (skybox.HasProperty("_MirrorOnBack"))
+        {
+            skybox.SetFloat("_MirrorOnBack", 0f);
+        }
+
+        if (skybox.GetTexture("_MainTex") != panorama)
+        {
+            Debug.LogError("[AC6PlayableScene] Deep-space panorama was not bound to the skybox material.");
+            return;
+        }
+        EditorUtility.SetDirty(skybox);
+
+        RenderSettings.skybox = skybox;
+        RenderSettings.fog = false;
+        RenderSettings.ambientMode = AmbientMode.Trilight;
+        RenderSettings.ambientSkyColor = new Color(0.035f, 0.045f, 0.065f, 1f);
+        RenderSettings.ambientEquatorColor = new Color(0.012f, 0.016f, 0.024f, 1f);
+        RenderSettings.ambientGroundColor = new Color(0.004f, 0.005f, 0.008f, 1f);
+        RenderSettings.ambientIntensity = 0.42f;
+        RenderSettings.reflectionIntensity = 0.32f;
+
+        var playerCamera = GameObject.Find("AC6PlayerCamera");
+        var camera = playerCamera != null ? playerCamera.GetComponent<Camera>() : null;
+        if (camera != null)
+        {
+            camera.clearFlags = CameraClearFlags.Skybox;
+            camera.backgroundColor = Color.black;
+            EditorUtility.SetDirty(camera);
+        }
+
+        var keyLightObject = GameObject.Find("Key Light");
+        var keyLight = keyLightObject != null ? keyLightObject.GetComponent<Light>() : null;
+        if (keyLight != null)
+        {
+            keyLight.type = LightType.Directional;
+            keyLight.color = new Color(1f, 0.965f, 0.9f, 1f);
+            keyLight.intensity = 2.35f;
+            keyLight.shadows = LightShadows.Soft;
+            keyLight.transform.rotation = Quaternion.Euler(31f, -32f, 0f);
+            RenderSettings.sun = keyLight;
+            EditorUtility.SetDirty(keyLight);
+        }
+
+        var rimLightObject = GameObject.Find("Rim Light");
+        var rimLight = rimLightObject != null ? rimLightObject.GetComponent<Light>() : null;
+        if (rimLight != null)
+        {
+            rimLight.color = new Color(0.48f, 0.62f, 0.85f, 1f);
+            rimLight.intensity = Mathf.Min(rimLight.intensity, 5f);
+            EditorUtility.SetDirty(rimLight);
+        }
+    }
+
+    private static Texture2D GetOrCreateDeepSpacePanorama()
+    {
+        var panorama = AssetDatabase.LoadAssetAtPath<Texture2D>(DeepSpaceSkyTexturePath);
+        if (panorama != null)
+        {
+            return panorama;
+        }
+
+        const int width = 4096;
+        const int height = 2048;
+        var pixels = new Color32[width * height];
+        for (var y = 0; y < height; y++)
+        {
+            var latitude = Mathf.Abs((y / (height - 1f)) * 2f - 1f);
+            var blue = (byte)Mathf.RoundToInt(Mathf.Lerp(5f, 8f, latitude * 0.35f));
+            var background = new Color32(1, 2, blue, 255);
+            var rowStart = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                pixels[rowStart + x] = background;
+            }
+        }
+
+        var random = new System.Random(0xAC6006);
+        const int starCount = 2100;
+        for (var starIndex = 0; starIndex < starCount; starIndex++)
+        {
+            var longitude = random.NextDouble();
+            var latitude = Math.Asin(random.NextDouble() * 2.0 - 1.0) / Math.PI + 0.5;
+            var centerX = Mathf.Clamp((int)(longitude * width), 0, width - 1);
+            var centerY = Mathf.Clamp((int)(latitude * height), 0, height - 1);
+
+            var tier = random.NextDouble();
+            var radius = tier > 0.985 ? 2 : tier > 0.88 ? 1 : 0;
+            var brightness = tier > 0.985
+                ? random.Next(205, 256)
+                : tier > 0.88
+                    ? random.Next(125, 205)
+                    : random.Next(58, 126);
+            var temperature = random.NextDouble();
+            var red = temperature < 0.18 ? brightness : Mathf.RoundToInt(brightness * 0.82f);
+            var green = Mathf.RoundToInt(brightness * (temperature > 0.82 ? 0.82f : 0.9f));
+            var blue = temperature > 0.82 ? brightness : Mathf.RoundToInt(brightness * 0.92f);
+
+            for (var offsetY = -radius; offsetY <= radius; offsetY++)
+            {
+                var y = centerY + offsetY;
+                if (y < 0 || y >= height)
+                {
+                    continue;
+                }
+
+                for (var offsetX = -radius; offsetX <= radius; offsetX++)
+                {
+                    var x = (centerX + offsetX + width) % width;
+                    var distance = Mathf.Sqrt(offsetX * offsetX + offsetY * offsetY);
+                    var falloff = radius == 0 ? 1f : Mathf.Clamp01(1.2f - distance / (radius + 0.35f));
+                    if (falloff <= 0f)
+                    {
+                        continue;
+                    }
+
+                    var index = y * width + x;
+                    var existing = pixels[index];
+                    pixels[index] = new Color32(
+                        (byte)Mathf.Max(existing.r, Mathf.RoundToInt(red * falloff)),
+                        (byte)Mathf.Max(existing.g, Mathf.RoundToInt(green * falloff)),
+                        (byte)Mathf.Max(existing.b, Mathf.RoundToInt(blue * falloff)),
+                        255);
+                }
+            }
+        }
+
+        var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        texture.SetPixels32(pixels);
+        texture.Apply(false, false);
+
+        var absolutePath = Path.Combine(
+            Directory.GetParent(Application.dataPath)?.FullName ?? string.Empty,
+            DeepSpaceSkyTexturePath);
+        File.WriteAllBytes(absolutePath, texture.EncodeToPNG());
+        UnityEngine.Object.DestroyImmediate(texture);
+
+        AssetDatabase.ImportAsset(DeepSpaceSkyTexturePath, ImportAssetOptions.ForceSynchronousImport);
+        if (AssetImporter.GetAtPath(DeepSpaceSkyTexturePath) is TextureImporter importer)
+        {
+            importer.textureType = TextureImporterType.Default;
+            importer.sRGBTexture = true;
+            importer.mipmapEnabled = true;
+            importer.wrapMode = TextureWrapMode.Repeat;
+            importer.filterMode = FilterMode.Bilinear;
+            importer.textureCompression = TextureImporterCompression.CompressedHQ;
+            importer.maxTextureSize = width;
+            importer.SaveAndReimport();
+        }
+
+        return AssetDatabase.LoadAssetAtPath<Texture2D>(DeepSpaceSkyTexturePath);
+    }
+
+    private static CombatTestTarget BuildCombatTestTarget()
+    {
+        const string targetName = "AC6CombatTestTarget";
+        const string airborneTargetName = "AC6AirborneCombatTestTarget";
+        foreach (var staleName in new[] { targetName, airborneTargetName, "Moving_Target" })
+        {
+            var stale = GameObject.Find(staleName);
+            if (stale != null)
+            {
+                UnityEngine.Object.DestroyImmediate(stale);
+            }
+        }
+
+        Directory.CreateDirectory(GeneratedMaterialsRoot);
+        var armorMaterial = GetOrCreateEnvironmentMaterial(
+            $"{GeneratedMaterialsRoot}/CombatTargetArmor.mat",
+            new Color(0.16f, 0.19f, 0.22f, 1f), 0.78f, 0.32f);
+        var warningMaterial = GetOrCreateEnvironmentMaterial(
+            $"{GeneratedMaterialsRoot}/CombatTargetWarning.mat",
+            new Color(0.72f, 0.12f, 0.035f, 1f), 0.58f, 0.38f);
+        var sensorMaterial = GetOrCreateEnvironmentMaterial(
+            $"{GeneratedMaterialsRoot}/CombatTargetSensor.mat",
+            new Color(0.04f, 0.62f, 0.72f, 1f), 0.24f, 0.7f);
+
+        var root = new GameObject(targetName);
+        root.transform.position = new Vector3(0f, 11f, 150f);
+
+        CreateTargetPrimitive(root.transform, "Armored Hull", PrimitiveType.Sphere,
+            Vector3.zero, Vector3.zero, new Vector3(7.5f, 5f, 4.5f), armorMaterial);
+        CreateTargetPrimitive(root.transform, "Upper Armor", PrimitiveType.Cube,
+            new Vector3(0f, 1.8f, 0f), Vector3.zero, new Vector3(6.8f, 1.4f, 4.8f), armorMaterial);
+        CreateTargetPrimitive(root.transform, "Left Equipment Pod", PrimitiveType.Cube,
+            new Vector3(-5.3f, 0.4f, 0f), new Vector3(0f, 0f, 8f), new Vector3(3f, 3.8f, 3.4f), armorMaterial);
+        CreateTargetPrimitive(root.transform, "Right Equipment Pod", PrimitiveType.Cube,
+            new Vector3(5.3f, 0.4f, 0f), new Vector3(0f, 0f, -8f), new Vector3(3f, 3.8f, 3.4f), armorMaterial);
+        CreateTargetPrimitive(root.transform, "Left Warning Panel", PrimitiveType.Cube,
+            new Vector3(-2.4f, 0f, -2.3f), Vector3.zero, new Vector3(1.3f, 1.8f, 0.18f), warningMaterial);
+        CreateTargetPrimitive(root.transform, "Right Warning Panel", PrimitiveType.Cube,
+            new Vector3(2.4f, 0f, -2.3f), Vector3.zero, new Vector3(1.3f, 1.8f, 0.18f), warningMaterial);
+        CreateTargetPrimitive(root.transform, "Sensor", PrimitiveType.Sphere,
+            new Vector3(0f, 0.4f, -2.65f), Vector3.zero, Vector3.one * 1.1f, sensorMaterial);
+
+        var aimPoint = new GameObject("TargetAimPoint").transform;
+        aimPoint.SetParent(root.transform, false);
+        aimPoint.localPosition = new Vector3(0f, 0.4f, 0f);
+
+        var target = root.AddComponent<CombatTestTarget>();
+        target.Configure(aimPoint, 2400f, true, 12f, 3.5f);
+        EditorUtility.SetDirty(target);
+
+        var airborneRoot = UnityEngine.Object.Instantiate(root);
+        airborneRoot.name = airborneTargetName;
+        airborneRoot.transform.position = new Vector3(0f, 120f, 150f);
+        var airborneTarget = airborneRoot.GetComponent<CombatTestTarget>();
+        var airborneAimPoint = airborneRoot.transform.Find("TargetAimPoint");
+        airborneTarget.SetTargetId("SIM-TGT-AIR-01");
+        airborneTarget.ConfigureLinearFlight(
+            airborneAimPoint,
+            2400f,
+            Vector3.right,
+            100f);
+        EditorUtility.SetDirty(airborneTarget);
+        return airborneTarget;
+    }
+
+    private static GameObject CreateTargetPrimitive(
+        Transform parent,
+        string name,
+        PrimitiveType primitiveType,
+        Vector3 localPosition,
+        Vector3 localEulerAngles,
+        Vector3 localScale,
+        Material material)
+    {
+        var part = GameObject.CreatePrimitive(primitiveType);
+        part.name = name;
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPosition;
+        part.transform.localRotation = Quaternion.Euler(localEulerAngles);
+        part.transform.localScale = localScale;
+        part.GetComponent<MeshRenderer>().sharedMaterial = material;
+        return part;
     }
 
     private static void CreateRampCourse(

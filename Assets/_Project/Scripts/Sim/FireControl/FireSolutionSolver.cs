@@ -1,4 +1,3 @@
-using System;
 using ACunicombat.Sensing.Contracts;
 using Unity.Mathematics;
 
@@ -13,34 +12,28 @@ namespace ACunicombat.FireControl
         LifecycleBelowConfirmed = 4,
     }
 
-    /// <summary>火控输出契约（设计文档 16）。</summary>
     public struct FireSolution
     {
         public double3 InterceptPoint;
         public double InterceptTime;
-        /// <summary>由 P 在拦截几何上的投影推得的预测命中概率。</summary>
         public float Quality;
         public bool WeaponReleaseAuthorized;
         public double3 MidcourseAimPoint;
         public double SeekerActivationTime;
-        /// <summary>末段搜索篮：协方差投影椭球半轴（米）。</summary>
         public float3 SearchBasketSemiAxes;
         public FireSolutionFailure Failure;
     }
 
     /// <summary>
-    /// 火控解算（设计文档 16）：只读 TrackSnapshot，asmdef 上无法触及 World。
-    /// 机炮散布属于武器系统，火控误差属于航迹协方差，两者不混。
-    /// 允许低质量发射：解算照给，搜索篮巨大，导弹末段找不到目标是自然结果。
+    /// Track-only fire-control solver. It never reads simulation truth or scene target transforms.
     /// </summary>
     public static class FireSolutionSolver
     {
-        /// <summary>
-        /// 拦截点迭代（16）：t* 使 |目标预测(t*) − 弹道(t*)| 最小，2~3 次收敛。
-        /// 首版常速度目标 + 常速度弹丸：t ← |目标(t) − 射手| / 弹速，迭代 3 次。
-        /// </summary>
         public static FireSolution Solve(
-            in TrackSnapshot track, double3 shooterPosition, double projectileSpeed, double requestTime)
+            in TrackSnapshot track,
+            double3 shooterPosition,
+            double projectileSpeed,
+            double requestTime)
         {
             var solution = default(FireSolution);
             if (track.Lifecycle < TrackLifecycle.Confirmed)
@@ -49,11 +42,25 @@ namespace ACunicombat.FireControl
                 return solution;
             }
 
+            var trackAge = requestTime - track.LastUpdateTime;
+            if (trackAge < 0.0 || trackAge > 3.0)
+            {
+                solution.Failure = FireSolutionFailure.TrackTooOld;
+                return solution;
+            }
+
+            if (projectileSpeed <= 1.0)
+            {
+                solution.Failure = FireSolutionFailure.OutOfWeaponEnvelope;
+                return solution;
+            }
+
             var timeOfFlight = 0.0;
             for (var i = 0; i < 3; i++)
             {
-                var predicted = track.Position + track.Velocity * (requestTime - track.LastUpdateTime + timeOfFlight);
-                timeOfFlight = math.length(predicted - shooterPosition) / math.max(projectileSpeed, 1.0);
+                var predictionAge = trackAge + timeOfFlight;
+                var predicted = track.Position + track.Velocity * predictionAge;
+                timeOfFlight = math.length(predicted - shooterPosition) / projectileSpeed;
             }
 
             solution.InterceptTime = requestTime + timeOfFlight;
@@ -61,11 +68,38 @@ namespace ACunicombat.FireControl
                 + track.Velocity * (solution.InterceptTime - track.LastUpdateTime);
             solution.MidcourseAimPoint = solution.InterceptPoint;
 
-            // TODO(阶段 1)：解算质量 = P 前推到拦截时刻后在拦截几何上的投影 → 命中概率；
-            // 质量门限 + lifecycle 共同给出 WeaponReleaseAuthorized；
-            // 搜索篮 = 前推协方差的位置块特征值开方（椭球半轴）；
-            // 超出武器包线判定（射程/离轴角）。
-            throw new NotImplementedException("阶段 1 实现点：解算质量/开火许可/搜索篮（设计文档 16）。");
+            var propagationSeconds = math.max(0.0, solution.InterceptTime - track.LastPredictTime);
+            var largestSigma = 0.0;
+            for (var axis = 0; axis < 3; axis++)
+            {
+                var positionVariance = track.GetCovariance(axis, axis);
+                var crossVariance = track.GetCovariance(axis, axis + 3);
+                var velocityVariance = track.GetCovariance(axis + 3, axis + 3);
+                var propagatedVariance = math.max(
+                    0.0,
+                    positionVariance
+                    + 2.0 * propagationSeconds * crossVariance
+                    + propagationSeconds * propagationSeconds * velocityVariance);
+                var sigma = math.sqrt(propagatedVariance);
+                solution.SearchBasketSemiAxes[axis] = (float)(3.0 * sigma);
+                largestSigma = math.max(largestSigma, sigma);
+            }
+
+            if (largestSigma > 5_000.0)
+            {
+                solution.Failure = FireSolutionFailure.CovarianceTooLarge;
+                return solution;
+            }
+
+            var freshness = math.saturate(1f - (float)(trackAge / 3.0));
+            var uncertainty = math.saturate(1f - (float)(largestSigma / 5_000.0));
+            solution.Quality = math.saturate(track.Confidence * freshness * uncertainty);
+            solution.SeekerActivationTime = math.max(requestTime, solution.InterceptTime - 2.0);
+            solution.WeaponReleaseAuthorized = solution.Quality >= 0.15f;
+            solution.Failure = solution.WeaponReleaseAuthorized
+                ? FireSolutionFailure.None
+                : FireSolutionFailure.CovarianceTooLarge;
+            return solution;
         }
     }
 }

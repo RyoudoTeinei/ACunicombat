@@ -12,7 +12,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private Transform followTarget;
         [SerializeField] private MechFlightMotionController motion;
         [SerializeField] private float distance = 20f;
-        [SerializeField] private float focusHeight = 6f;
+        [SerializeField] private float focusHeight = 7.5f;
         [SerializeField] private float pitchSensitivity = 0.12f;
         [SerializeField] private float minPitch = -60f;
         [SerializeField] private float maxPitch = 70f;
@@ -24,6 +24,15 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0.001f)] private float velocityLookbackSeconds = 0.075f;
         [SerializeField, Min(0f)] private float maxSpeedFovIncrease = 7f;
         [SerializeField, Min(1f)] private float fullSpeedFovAt = 350f;
+        [Header("Mouse aim cursor")]
+        [SerializeField] private Vector2 aimViewportCenter = new Vector2(0.5f, 0.56f);
+        [SerializeField] private Vector2 aimCursorHalfExtent = new Vector2(0.30f, 0.25f);
+        [SerializeField, Min(0.01f)] private float aimCursorSensitivity = 1f;
+        [SerializeField, Range(0f, 0.5f)] private float aimDeadZone = 0.06f;
+        [SerializeField, Min(1f)] private float pitchTurnRateDegrees = 60f;
+        [Header("Space-scale rendering")]
+        [SerializeField, Min(0.01f)] private float nearClipDistance = 0.5f;
+        [SerializeField, Min(1000f)] private float farClipDistance = 100000f;
 
         private float pitchDegrees = 8f;
         private Vector3 localLag;
@@ -32,8 +41,18 @@ namespace ACunicombat.Mechs
         private float baseFieldOfView;
         private float fieldOfViewVelocity;
         private bool fieldOfViewInitialized;
+        private Vector2 aimViewportPoint;
+        private bool aimCursorInitialized;
 
         public float PitchDegrees => pitchDegrees;
+        public Vector2 AimViewportPoint
+        {
+            get
+            {
+                EnsureAimCursorInitialized();
+                return aimViewportPoint;
+            }
+        }
 
         public Quaternion AimRotation => ComputeRotation();
 
@@ -41,7 +60,15 @@ namespace ACunicombat.Mechs
         {
             followTarget = target;
             motion = motionController;
+            ApplyClipPlanes();
             SnapBehindTarget();
+        }
+
+        public void ConfigureViewDistance(float nearDistance, float farDistance)
+        {
+            nearClipDistance = Mathf.Max(0.01f, nearDistance);
+            farClipDistance = Mathf.Max(nearClipDistance + 1f, farDistance);
+            ApplyClipPlanes();
         }
 
         public void ConfigureFraming(float followDistance, float targetFocusHeight, float initialPitchDegrees)
@@ -67,6 +94,8 @@ namespace ACunicombat.Mechs
         /// <summary>启动即位于机体后方、朝向机体前方（验收 6.1）。</summary>
         public void SnapBehindTarget()
         {
+            aimViewportPoint = aimViewportCenter;
+            aimCursorInitialized = true;
             if (followTarget == null || motion == null)
             {
                 return;
@@ -90,8 +119,62 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            EnsureAimCursorInitialized();
+            var screenSize = new Vector2(
+                Mathf.Max(1f, Screen.width),
+                Mathf.Max(1f, Screen.height));
+            var viewportDelta = new Vector2(
+                frame.MouseDelta.x / screenSize.x,
+                frame.MouseDelta.y / screenSize.y);
+            aimViewportPoint += viewportDelta * aimCursorSensitivity;
+
+            var extents = new Vector2(
+                Mathf.Max(0.01f, aimCursorHalfExtent.x),
+                Mathf.Max(0.01f, aimCursorHalfExtent.y));
+            var normalizedOffset = aimViewportPoint - aimViewportCenter;
+            normalizedOffset = new Vector2(
+                normalizedOffset.x / extents.x,
+                normalizedOffset.y / extents.y);
+            if (normalizedOffset.sqrMagnitude > 1f)
+            {
+                normalizedOffset.Normalize();
+            }
+
+            aimViewportPoint =
+                aimViewportCenter + Vector2.Scale(normalizedOffset, extents);
+            motion.SetYawTurnInput(
+                ApplyDeadZone(normalizedOffset.x, aimDeadZone));
+
+            var pitchInput =
+                ApplyDeadZone(normalizedOffset.y, aimDeadZone);
             pitchDegrees = Mathf.Clamp(
-                pitchDegrees - frame.MouseDelta.y * pitchSensitivity, minPitch, maxPitch);
+                pitchDegrees -
+                pitchInput * pitchTurnRateDegrees * Time.unscaledDeltaTime,
+                minPitch,
+                maxPitch);
+        }
+
+        private void EnsureAimCursorInitialized()
+        {
+            if (aimCursorInitialized)
+            {
+                return;
+            }
+
+            aimViewportPoint = aimViewportCenter;
+            aimCursorInitialized = true;
+        }
+
+        private static float ApplyDeadZone(float value, float deadZone)
+        {
+            var magnitude = Mathf.Abs(value);
+            if (magnitude <= deadZone)
+            {
+                return 0f;
+            }
+
+            return Mathf.Sign(value) *
+                   Mathf.InverseLerp(deadZone, 1f, magnitude);
         }
 
         public void Follow(float deltaTime)
@@ -198,8 +281,27 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            ApplyClipPlanes();
             baseFieldOfView = controlledCamera.fieldOfView;
             fieldOfViewInitialized = true;
+        }
+
+        private void ApplyClipPlanes()
+        {
+            if (controlledCamera == null)
+            {
+                controlledCamera = GetComponent<Camera>();
+            }
+
+            if (controlledCamera == null)
+            {
+                return;
+            }
+
+            controlledCamera.nearClipPlane = Mathf.Max(0.01f, nearClipDistance);
+            controlledCamera.farClipPlane = Mathf.Max(
+                controlledCamera.nearClipPlane + 1f,
+                farClipDistance);
         }
 
         private static float SoftLimit(float value, float limit)
