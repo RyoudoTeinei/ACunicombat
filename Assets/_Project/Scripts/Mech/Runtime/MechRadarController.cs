@@ -37,8 +37,9 @@ namespace ACunicombat.Mechs
         private const float SttBeamWidthDegrees = 6f;
         private const float RadarRangeMeters = 100_000f;
         private const float DesignationBaseSeconds = 0.3f;
-        private const float DesignationGimbalDegrees = 48f;
         private const float DesignationCaptureBoxPixels = 54f;
+        private const float SttAzimuthLimitDegrees = SearchAzimuthDegrees * 0.5f;
+        private const float SttElevationLimitDegrees = SearchElevationDegrees * 0.5f;
 
         private struct GuidanceChannel
         {
@@ -48,6 +49,7 @@ namespace ACunicombat.Mechs
 
         private SimulationDriver driver;
         private Camera aimingCamera;
+        private MechFlightMotionController flightMotion;
         private CombatTestTarget configuredTarget;
         private SimEntityId playerEntity;
         private readonly CombatTestTarget[] sceneTargets = new CombatTestTarget[MaximumSceneTargets];
@@ -271,7 +273,7 @@ namespace ACunicombat.Mechs
         }
 
         /// <summary>
-        /// Updates the player designation cursor. Only confirmed/coasting public tracks participate.
+        /// Updates the player designation cursor. Only confirmed public tracks participate.
         /// </summary>
         public void UpdateDesignation(Camera viewCamera, Vector2 reticleViewport, float deltaTime)
         {
@@ -283,8 +285,6 @@ namespace ACunicombat.Mechs
             var count = CopyTracks(trackScratch);
             var bestId = default(TrackId);
             var bestScore = float.MaxValue;
-            var ray = viewCamera.ViewportPointToRay(
-                new Vector3(reticleViewport.x, reticleViewport.y, 0f));
             var captureHalfSize = DesignationCaptureBoxPixels * 0.5f;
             var pixelWidth = Mathf.Max(1f, viewCamera.pixelWidth);
             var pixelHeight = Mathf.Max(1f, viewCamera.pixelHeight);
@@ -303,7 +303,7 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                if (Vector3.Angle(ray.direction, position - ray.origin) > DesignationGimbalDegrees)
+                if (!IsWithinBodyRadarFrame(position - transform.position))
                 {
                     continue;
                 }
@@ -553,6 +553,7 @@ namespace ACunicombat.Mechs
         private void Awake()
         {
             if (aimingCamera == null) aimingCamera = Camera.main;
+            flightMotion = GetComponent<MechFlightMotionController>();
         }
 
         private void FixedUpdate()
@@ -608,8 +609,10 @@ namespace ACunicombat.Mechs
 
             var sttPosition = PredictTrackPosition(sttTrack);
             var direction = (sttPosition - transform.position).normalized;
-            if (direction.sqrMagnitude < 0.5f)
+            if (direction.sqrMagnitude < 0.5f ||
+                !IsWithinBodyRadarFrame(direction))
             {
+                BreakSingleTargetTrack();
                 return;
             }
 
@@ -752,10 +755,47 @@ namespace ACunicombat.Mechs
 
             if (!TryGetTrack(sttTrackId, out var track) ||
                 track.Lifecycle == TrackLifecycle.Dropped ||
-                SimTimeSeconds - track.LastUpdateTime > 3.0)
+                SimTimeSeconds - track.LastUpdateTime > 3.0 ||
+                !IsWithinBodyRadarFrame(
+                    PredictTrackPosition(track) - transform.position))
             {
                 BreakSingleTargetTrack();
             }
+        }
+
+        private bool IsWithinBodyRadarFrame(Vector3 worldDirection)
+        {
+            if (worldDirection.sqrMagnitude < 0.0001f)
+            {
+                return false;
+            }
+
+            if (flightMotion == null)
+            {
+                flightMotion = GetComponent<MechFlightMotionController>();
+            }
+
+            var frameRotation = flightMotion != null
+                ? flightMotion.LogicalRotation
+                : transform.rotation;
+            var localDirection =
+                Quaternion.Inverse(frameRotation) * worldDirection.normalized;
+            if (localDirection.z <= 0f)
+            {
+                return false;
+            }
+
+            var azimuth = Mathf.Atan2(
+                localDirection.x,
+                localDirection.z) * Mathf.Rad2Deg;
+            var horizontalLength = Mathf.Sqrt(
+                localDirection.x * localDirection.x +
+                localDirection.z * localDirection.z);
+            var elevation = Mathf.Atan2(
+                localDirection.y,
+                horizontalLength) * Mathf.Rad2Deg;
+            return Mathf.Abs(azimuth) <= SttAzimuthLimitDegrees &&
+                   Mathf.Abs(elevation) <= SttElevationLimitDegrees;
         }
 
         private void EnsureInitialized()
