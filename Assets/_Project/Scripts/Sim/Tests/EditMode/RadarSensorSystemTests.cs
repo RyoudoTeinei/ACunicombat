@@ -43,6 +43,7 @@ namespace ACunicombat.Tests.EditMode
             radar.Tick(0.04);
 
             Assert.That(radar.Emissions.Length, Is.EqualTo(1));
+            Assert.That(radar.Emissions[0].MaxRangeMeters, Is.EqualTo(5_000.0));
             Assert.That(radar.Detections.Length, Is.EqualTo(1));
             var measurement = radar.Detections[0];
             Assert.That(measurement.SensorId, Is.EqualTo(sensorId));

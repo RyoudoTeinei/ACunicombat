@@ -136,6 +136,7 @@ namespace ACunicombat.Sensors
                 Origin = sensorState.PositionWorld,
                 Direction = beamDirection,
                 BeamWidth = beamWidth,
+                MaxRangeMeters = profile.MaxRangeMeters,
                 FrequencyBand = profile.FrequencyBand,
                 WaveformId = profile.WaveformId,
                 EmissionType = EmissionType.RadarDwell,

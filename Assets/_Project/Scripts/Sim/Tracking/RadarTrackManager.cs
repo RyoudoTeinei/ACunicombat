@@ -13,10 +13,6 @@ namespace ACunicombat.Tracking
     {
         public const int MaxTracks = 32;
 
-        // Process runs at the fusion tick rate, not at a guaranteed observation opportunity
-        // for every target. Count at most one miss per observation window so normal radar
-        // revisit gaps do not turn one moving target into a trail of coasting tracks.
-        private const double MissObservationIntervalSeconds = 0.25;
         private const double AssociationGateSquared = 25.0;
         private const double InitialVelocitySigmaMetersPerSecond = 300.0;
 
@@ -27,7 +23,6 @@ namespace ACunicombat.Tracking
             public FilterState Filter;
             public TrackLifecycleMachine Lifecycle;
             public double LastUpdateTime;
-            public double LastMissEvaluationTime;
             public TrackSourceMask SourceMask;
             public float Confidence;
             public float InterferenceScore;
@@ -35,6 +30,7 @@ namespace ACunicombat.Tracking
 
         private readonly TrackSlot[] slots = new TrackSlot[MaxTracks];
         private readonly bool[] associated = new bool[MaxTracks];
+        private readonly bool[] observed = new bool[MaxTracks];
         private readonly byte[] generations = new byte[MaxTracks];
         private int activeCount;
 
@@ -62,9 +58,43 @@ namespace ACunicombat.Tracking
             double3 sensorVelocity,
             double simTime)
         {
+            ProcessInternal(
+                measurements,
+                default,
+                false,
+                sensorPosition,
+                sensorVelocity,
+                simTime);
+        }
+
+        public void Process(
+            NativeList<Measurement> measurements,
+            NativeList<EmissionEvent> observationDwells,
+            double3 sensorPosition,
+            double3 sensorVelocity,
+            double simTime)
+        {
+            ProcessInternal(
+                measurements,
+                observationDwells,
+                true,
+                sensorPosition,
+                sensorVelocity,
+                simTime);
+        }
+
+        private void ProcessInternal(
+            NativeList<Measurement> measurements,
+            NativeList<EmissionEvent> observationDwells,
+            bool hasObservationDwells,
+            double3 sensorPosition,
+            double3 sensorVelocity,
+            double simTime)
+        {
             for (var i = 0; i < slots.Length; i++)
             {
                 associated[i] = false;
+                observed[i] = false;
                 if (!slots[i].Active)
                 {
                     continue;
@@ -78,6 +108,11 @@ namespace ACunicombat.Tracking
                 }
 
                 slots[i] = slot;
+            }
+
+            if (hasObservationDwells)
+            {
+                MarkObservationOpportunities(observationDwells);
             }
 
             for (var i = 0; i < measurements.Length; i++)
@@ -125,7 +160,6 @@ namespace ACunicombat.Tracking
                 }
 
                 slot.LastUpdateTime = measurement.Timestamp;
-                slot.LastMissEvaluationTime = measurement.Timestamp;
                 slot.SourceMask |= TrackSourceMask.Radar;
                 slot.InterferenceScore = (measurement.Flags & MeasurementFlags.Jammed) != 0 ? 1f : 0f;
                 if (firstAssociationThisTick)
@@ -148,13 +182,9 @@ namespace ACunicombat.Tracking
                 var slot = slots[i];
                 if (!associated[i])
                 {
-                    var missReferenceTime = math.max(
-                        slot.LastUpdateTime,
-                        slot.LastMissEvaluationTime);
-                    if (simTime - missReferenceTime >= MissObservationIntervalSeconds)
+                    if (observed[i])
                     {
                         slot.Lifecycle.OnMiss();
-                        slot.LastMissEvaluationTime = simTime;
                         slot.Confidence *= 0.85f;
                     }
 
@@ -177,6 +207,47 @@ namespace ACunicombat.Tracking
                 else
                 {
                     slots[i] = slot;
+                }
+            }
+        }
+
+        private void MarkObservationOpportunities(NativeList<EmissionEvent> observationDwells)
+        {
+            if (!observationDwells.IsCreated)
+            {
+                return;
+            }
+
+            for (var dwellIndex = 0; dwellIndex < observationDwells.Length; dwellIndex++)
+            {
+                var dwell = observationDwells[dwellIndex];
+                if (dwell.EmissionType != EmissionType.RadarDwell ||
+                    dwell.BeamWidth <= 0f)
+                {
+                    continue;
+                }
+
+                var beamDirection = math.normalizesafe(
+                    (double3)dwell.Direction,
+                    new double3(0.0, 0.0, 1.0));
+                var halfBeamCos = math.cos(dwell.BeamWidth * 0.5);
+                for (var trackIndex = 0; trackIndex < slots.Length; trackIndex++)
+                {
+                    if (!slots[trackIndex].Active || observed[trackIndex])
+                    {
+                        continue;
+                    }
+
+                    var relative = slots[trackIndex].Filter.Position - dwell.Origin;
+                    var range = math.length(relative);
+                    if (range < 1.0 ||
+                        (dwell.MaxRangeMeters > 0.0 && range > dwell.MaxRangeMeters))
+                    {
+                        continue;
+                    }
+
+                    observed[trackIndex] =
+                        math.dot(relative / range, beamDirection) >= halfBeamCos;
                 }
             }
         }
@@ -312,7 +383,6 @@ namespace ACunicombat.Tracking
                     },
                     Lifecycle = lifecycle,
                     LastUpdateTime = timestamp,
-                    LastMissEvaluationTime = timestamp,
                     SourceMask = TrackSourceMask.Radar,
                     Confidence = 0.2f,
                 };

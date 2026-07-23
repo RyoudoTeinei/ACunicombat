@@ -100,6 +100,65 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void DwellPointingElsewhere_DoesNotCountAsTrackMiss()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(4, Allocator.Temp);
+            using var dwells = new NativeList<EmissionEvent>(4, Allocator.Temp);
+
+            for (var i = 1; i <= 3; i++)
+            {
+                var time = i * 0.04;
+                measurements.Clear();
+                measurements.Add(MeasurementAt(time));
+                manager.Process(measurements, double3.zero, time);
+            }
+
+            for (var i = 4; i <= 12; i++)
+            {
+                var time = i * 0.04;
+                measurements.Clear();
+                dwells.Clear();
+                dwells.Add(RadarDwell(new float3(1f, 0f, 0f), 10f, time));
+                manager.Process(measurements, dwells, double3.zero, double3.zero, time);
+            }
+
+            Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+            Assert.That(track.Lifecycle, Is.EqualTo(TrackLifecycle.Confirmed));
+            Assert.That(track.CoastCount, Is.Zero);
+        }
+
+        [Test]
+        public void CoveredTrackWithoutDetection_CountsOneMissPerFusionTick()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(4, Allocator.Temp);
+            using var dwells = new NativeList<EmissionEvent>(4, Allocator.Temp);
+
+            for (var i = 1; i <= 3; i++)
+            {
+                var time = i * 0.04;
+                measurements.Clear();
+                measurements.Add(MeasurementAt(time));
+                manager.Process(measurements, double3.zero, time);
+            }
+
+            for (var i = 4; i <= 6; i++)
+            {
+                var time = i * 0.04;
+                measurements.Clear();
+                dwells.Clear();
+                dwells.Add(RadarDwell(new float3(0f, 0f, 1f), 10f, time));
+                dwells.Add(RadarDwell(new float3(0f, 0f, 1f), 10f, time));
+                manager.Process(measurements, dwells, double3.zero, double3.zero, time);
+            }
+
+            Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+            Assert.That(track.Lifecycle, Is.EqualTo(TrackLifecycle.Coasting));
+            Assert.That(track.CoastCount, Is.EqualTo(3));
+        }
+
+        [Test]
         public void SingleTargetAtOneHundredMetersPerSecond_DoesNotSplitIntoCoastTrail()
         {
             var manager = new RadarTrackManager();
@@ -235,6 +294,24 @@ namespace ACunicombat.Tests.EditMode
                 LosRateVar = 1e-6f,
                 SnrDb = 20f,
                 Flags = MeasurementFlags.None,
+            };
+        }
+
+        private static EmissionEvent RadarDwell(
+            float3 direction,
+            float beamWidthDegrees,
+            double timestamp)
+        {
+            return new EmissionEvent
+            {
+                EmitterId = new EmitterId(new Handle(0, 1)),
+                StartTime = timestamp,
+                EndTime = timestamp + 0.01,
+                Origin = double3.zero,
+                Direction = direction,
+                BeamWidth = math.radians(beamWidthDegrees),
+                MaxRangeMeters = 100_000.0,
+                EmissionType = EmissionType.RadarDwell,
             };
         }
     }

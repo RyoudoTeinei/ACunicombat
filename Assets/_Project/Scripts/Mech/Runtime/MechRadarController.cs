@@ -24,9 +24,16 @@ namespace ACunicombat.Mechs
         private const int MaximumSceneTargets = 16;
         private const int GuidanceChannelCapacity = 2;
         private const float SearchIntervalSeconds = 0.04f;
-        private const float SttSearchIntervalSeconds = 0.12f;
         private const float SttIntervalSeconds = 0.035f;
-        private const float SearchBeamWidthDegrees = 100f;
+        private const float SearchAzimuthDegrees = 100f;
+        private const float SearchElevationDegrees = 60f;
+        private const float SearchBeamWidthDegrees = 12f;
+        private const float SearchBeamSpacingDegrees = 9f;
+        private const int SearchDwellsPerTick = 4;
+        private const int SttSearchDwellsPerTick = 2;
+        private const int TwsRevisitsPerTick = 2;
+        private const float TwsRevisitIntervalSeconds = 0.24f;
+        private const float TwsBeamWidthDegrees = 8f;
         private const float SttBeamWidthDegrees = 6f;
         private const float RadarRangeMeters = 100_000f;
         private const float DesignationBaseSeconds = 0.3f;
@@ -52,6 +59,14 @@ namespace ACunicombat.Mechs
         private readonly Measurement[] measurementScratch = new Measurement[MaximumPublicEchoes];
         private readonly GuidanceChannel[] guidanceChannels =
             new GuidanceChannel[GuidanceChannelCapacity];
+        private readonly double[] nextTwsRevisitTimes =
+            new double[MaximumPublicTracks];
+        private readonly uint[] twsRevisitTrackKeys =
+            new uint[MaximumPublicTracks];
+        private readonly RasterScanPattern searchPattern = new RasterScanPattern(
+            SearchAzimuthDegrees,
+            SearchElevationDegrees,
+            SearchBeamSpacingDegrees);
 
         private Vector3 previousPlayerPosition;
         private Vector3 playerVelocity;
@@ -65,6 +80,9 @@ namespace ACunicombat.Mechs
         private bool trackOperationMode;
         private float beamAzimuthDegrees;
         private float beamElevationDegrees;
+        private Vector3 searchFrameForward;
+        private Vector3 searchFrameRight;
+        private Vector3 searchFrameUp;
 
         public double SimTimeSeconds => driver != null ? driver.SimTimeSeconds : Time.timeAsDouble;
         public int DetectionCount => driver != null ? driver.DetectionCount : 0;
@@ -185,14 +203,14 @@ namespace ACunicombat.Mechs
                         ? RadarOperatingMode.TrackWhileScan
                         : RadarOperatingMode.Search,
                 RangeMeters = RadarRangeMeters,
-                ScanAzimuthDegrees = SearchBeamWidthDegrees,
-                ScanElevationDegrees = SearchBeamWidthDegrees * 0.62f,
+                ScanAzimuthDegrees = SearchAzimuthDegrees,
+                ScanElevationDegrees = SearchElevationDegrees,
                 BeamAzimuthDegrees = beamAzimuthDegrees,
                 BeamElevationDegrees = beamElevationDegrees,
                 TrackCount = count,
                 TrackCapacity = driver != null ? driver.TrackCapacity : MaximumPublicTracks,
-                RefreshRateHz = hasStt ? 1f / SttSearchIntervalSeconds : 1f / SearchIntervalSeconds,
-                DwellLoad = Mathf.Clamp01((scheduledDwells + (hasStt ? 3f : 1f)) / 10f),
+                RefreshRateHz = GetSearchFrameRate(hasStt),
+                DwellLoad = Mathf.Clamp01((scheduledDwells + (hasStt ? 5f : 6f)) / 16f),
                 DeferredDwellCount = driver != null ? driver.DeferredDwellCount : 0,
                 GuidanceChannelsUsed = usedChannels,
                 GuidanceChannelCapacity = GuidanceChannelCapacity,
@@ -557,23 +575,17 @@ namespace ACunicombat.Mechs
         {
             var now = driver.SimTimeSeconds;
             var aimRay = GetAimRay();
-            UpdateBeamAngles(aimRay.direction);
             var hasStt = HasStt;
-            var searchInterval = hasStt ? SttSearchIntervalSeconds : SearchIntervalSeconds;
             if (now + 1e-6 >= nextSearchDwellTime)
             {
-                driver.ScheduleRadarDwell(new Dwell
-                {
-                    SensorId = sensorId,
-                    DueTime = now,
-                    DwellTimeSeconds = hasStt ? 0.012f : 0.02f,
-                    BeamDirection = aimRay.direction,
-                    BeamWidthRadians = SearchBeamWidthDegrees * Mathf.Deg2Rad,
-                    Priority = hasStt ? DwellPriority.WideSearch : DwellPriority.TrackWhileScan,
-                    Sequence = ++dwellSequence,
-                });
-                nextSearchDwellTime = now + searchInterval;
+                ScheduleSearchBatch(
+                    now,
+                    aimRay,
+                    hasStt ? SttSearchDwellsPerTick : SearchDwellsPerTick);
+                nextSearchDwellTime = now + SearchIntervalSeconds;
             }
+
+            ScheduleTwsRevisits(now, hasStt);
 
             if (!hasStt || now + 1e-6 < nextSttDwellTime ||
                 !TryGetTrack(sttTrackId, out var sttTrack))
@@ -599,7 +611,123 @@ namespace ACunicombat.Mechs
                 Sequence = ++dwellSequence,
             });
             nextSttDwellTime = now + SttIntervalSeconds;
-            UpdateBeamAngles(direction);
+        }
+
+        private void ScheduleSearchBatch(double now, Ray aimRay, int dwellCount)
+        {
+            for (var i = 0; i < dwellCount; i++)
+            {
+                if (searchPattern.IsFrameStart)
+                {
+                    CaptureSearchFrame(aimRay);
+                }
+
+                var cell = searchPattern.Next();
+                var direction = SearchDirection(cell.x, cell.y);
+                driver.ScheduleRadarDwell(new Dwell
+                {
+                    SensorId = sensorId,
+                    DueTime = now,
+                    DwellTimeSeconds = 0.008f,
+                    BeamDirection = direction,
+                    BeamWidthRadians = SearchBeamWidthDegrees * Mathf.Deg2Rad,
+                    Priority = DwellPriority.WideSearch,
+                    Sequence = ++dwellSequence,
+                });
+                UpdateBeamAngles(direction);
+            }
+        }
+
+        private void ScheduleTwsRevisits(double now, bool hasStt)
+        {
+            var count = CopyTracks(trackScratch);
+            var scheduled = 0;
+            for (var i = 0; i < count && scheduled < TwsRevisitsPerTick; i++)
+            {
+                var track = trackScratch[i];
+                if (track.Lifecycle == TrackLifecycle.Dropped ||
+                    track.TrackId.Equals(sttTrackId))
+                {
+                    continue;
+                }
+
+                var slot = track.TrackId.Value.Index;
+                if ((uint)slot >= nextTwsRevisitTimes.Length)
+                {
+                    continue;
+                }
+
+                if (twsRevisitTrackKeys[slot] != track.TrackId.Packed)
+                {
+                    twsRevisitTrackKeys[slot] = track.TrackId.Packed;
+                    nextTwsRevisitTimes[slot] = now;
+                }
+
+                if (now + 1e-6 < nextTwsRevisitTimes[slot])
+                {
+                    continue;
+                }
+
+                var predictedPosition = PredictTrackPosition(track);
+                var direction = (predictedPosition - transform.position).normalized;
+                if (direction.sqrMagnitude < 0.5f)
+                {
+                    continue;
+                }
+
+                driver.ScheduleRadarDwell(new Dwell
+                {
+                    SensorId = sensorId,
+                    DueTime = now,
+                    DwellTimeSeconds = track.Lifecycle == TrackLifecycle.Tentative
+                        ? 0.012f
+                        : 0.016f,
+                    BeamDirection = direction,
+                    BeamWidthRadians = TwsBeamWidthDegrees * Mathf.Deg2Rad,
+                    Priority = track.Lifecycle == TrackLifecycle.Tentative
+                        ? DwellPriority.AlertConfirm
+                        : DwellPriority.TrackWhileScan,
+                    Sequence = ++dwellSequence,
+                });
+                nextTwsRevisitTimes[slot] = now +
+                    (hasStt ? TwsRevisitIntervalSeconds * 1.5f : TwsRevisitIntervalSeconds);
+                scheduled++;
+            }
+        }
+
+        private void CaptureSearchFrame(Ray aimRay)
+        {
+            searchFrameForward = aimRay.direction.normalized;
+            var referenceUp = aimingCamera != null
+                ? aimingCamera.transform.up
+                : transform.up;
+            searchFrameRight = Vector3.Cross(referenceUp, searchFrameForward).normalized;
+            if (searchFrameRight.sqrMagnitude < 0.5f)
+            {
+                searchFrameRight = transform.right;
+            }
+
+            searchFrameUp = Vector3.Cross(searchFrameForward, searchFrameRight).normalized;
+        }
+
+        private Vector3 SearchDirection(float azimuthDegrees, float elevationDegrees)
+        {
+            var horizontal = Mathf.Tan(azimuthDegrees * Mathf.Deg2Rad);
+            var vertical = Mathf.Tan(elevationDegrees * Mathf.Deg2Rad);
+            return (
+                searchFrameForward +
+                searchFrameRight * horizontal +
+                searchFrameUp * vertical).normalized;
+        }
+
+        private float GetSearchFrameRate(bool hasStt)
+        {
+            var dwellsPerTick = hasStt
+                ? SttSearchDwellsPerTick
+                : SearchDwellsPerTick;
+            var frameSeconds =
+                searchPattern.CellCount * SearchIntervalSeconds / dwellsPerTick;
+            return frameSeconds > 0f ? 1f / frameSeconds : 0f;
         }
 
         private void ValidateSttTrack()

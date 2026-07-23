@@ -27,6 +27,7 @@ namespace ACunicombat.Sensing.Contracts
         public float3 Direction;
         /// <summary>弧度，主瓣全宽。</summary>
         public float BeamWidth;
+        public double MaxRangeMeters;
         public ushort FrequencyBand;
         public ushort WaveformId;
         public EmissionType EmissionType;

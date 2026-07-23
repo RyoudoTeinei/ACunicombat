@@ -118,6 +118,7 @@ namespace ACunicombat.Simulation.Driver
 
                 trackManager.Process(
                     radar.Detections,
+                    radar.Emissions,
                     sensorPosition,
                     sensorVelocity,
                     sensorClock.SimTimeSeconds);
