@@ -19,7 +19,8 @@ namespace ACunicombat.Mechs
         private const float RadarStatusHeight = 440f;
         private const float TrackMarkerSize = 54f;
         private const int CircleSegments = 144;
-        private const int OperationRingTextureSize = 1024;
+        private const int OperationRingTextureSize = 2048;
+        private const float OperationRingTextureRadiusFraction = 0.46f;
 
         [SerializeField] private MechRadarController radar;
         [SerializeField] private Camera viewCamera;
@@ -505,21 +506,26 @@ namespace ACunicombat.Mechs
             var center = GetReticleGuiPosition();
             var ringCenter = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
             var diameter = Mathf.Clamp(Screen.height * 0.75f, 320f, Screen.height * 0.8f);
-            DrawSmoothTrackOperationRing(ringCenter, diameter * 0.5f);
+            var ringRadius = diameter * 0.5f;
+            DrawSmoothTrackOperationRing(ringCenter, ringRadius);
             for (var i = 0; i < 4; i++)
             {
                 var angle = i * Mathf.PI * 0.5f;
                 var direction = new Vector2(Mathf.Sin(angle), -Mathf.Cos(angle));
+                var tickLength = Mathf.Abs(direction.x) > 0.5f ? 30f : 18f;
+                const float tickGap = 10f;
+                var tickStart = ringCenter + direction * (ringRadius + tickGap);
+                var tickEnd = tickStart + direction * tickLength;
                 DrawLine(
-                    ringCenter + direction * (diameter * 0.5f - 9f),
-                    ringCenter + direction * (diameter * 0.5f + 9f),
+                    tickStart,
+                    tickEnd,
                     new Color(0f, 0.08f, 0.025f, 0.8f),
-                    4f);
+                    4.2f);
                 DrawLine(
-                    ringCenter + direction * (diameter * 0.5f - 7f),
-                    ringCenter + direction * (diameter * 0.5f + 7f),
+                    tickStart,
+                    tickEnd,
                     HudBrightGreen,
-                    2f);
+                    2.1f);
             }
 
             var snappedCenter = center;
@@ -1179,9 +1185,15 @@ namespace ACunicombat.Mechs
         private void DrawSmoothTrackOperationRing(Vector2 center, float radius)
         {
             EnsureOperationRingTexture();
-            var size = radius * 2f;
+            var textureHalfExtent =
+                radius / (OperationRingTextureRadiusFraction * 2f);
+            var size = textureHalfExtent * 2f;
             GUI.DrawTexture(
-                new Rect(center.x - radius, center.y - radius, size, size),
+                new Rect(
+                    center.x - textureHalfExtent,
+                    center.y - textureHalfExtent,
+                    size,
+                    size),
                 operationRingTexture,
                 ScaleMode.StretchToFill,
                 true);
@@ -1194,11 +1206,12 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            const int dashCount = 28;
-            const float visibleDashFraction = 0.68f;
-            const float ringRadius = OperationRingTextureSize * 0.46f;
-            const float coreHalfWidth = 1.45f;
-            const float haloHalfWidth = 3.8f;
+            const int dashCount = 32;
+            const float visibleDashFraction = 0.62f;
+            const float ringRadius =
+                OperationRingTextureSize * OperationRingTextureRadiusFraction;
+            const float coreHalfWidth = 2.2f;
+            const float haloHalfWidth = 5.2f;
             var pixels = new Color32[
                 OperationRingTextureSize * OperationRingTextureSize];
             var center = (OperationRingTextureSize - 1) * 0.5f;
