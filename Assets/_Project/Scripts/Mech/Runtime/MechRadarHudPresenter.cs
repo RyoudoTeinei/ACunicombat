@@ -1232,8 +1232,10 @@ namespace ACunicombat.Mechs
                     var angle01 = Mathf.Repeat(
                         Mathf.Atan2(dx, -dy) / (Mathf.PI * 2f),
                         1f);
-                    if (Mathf.Repeat(angle01 * dashCount, 1f) >
-                        visibleDashFraction)
+                    var centeredDashPhase =
+                        Mathf.Repeat(angle01 * dashCount + 0.5f, 1f) - 0.5f;
+                    if (Mathf.Abs(centeredDashPhase) >
+                        visibleDashFraction * 0.5f)
                     {
                         continue;
                     }
