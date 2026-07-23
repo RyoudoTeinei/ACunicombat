@@ -1,3 +1,4 @@
+using ACunicombat.Sensing.Contracts;
 using UnityEngine;
 
 namespace ACunicombat.Mechs
@@ -24,6 +25,16 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0.001f)] private float velocityLookbackSeconds = 0.075f;
         [SerializeField, Min(0f)] private float maxSpeedFovIncrease = 7f;
         [SerializeField, Min(1f)] private float fullSpeedFovAt = 350f;
+        [Header("Combat composition")]
+        [SerializeField, Min(0f)] private float baseCameraHeightOffset = 3.6f;
+        [SerializeField, Min(0f)] private float baseDistanceOffset = 3f;
+        [SerializeField, Min(0f)] private float sttShoulderOffset = 4.5f;
+        [SerializeField, Min(0f)] private float sttOcclusionPullback = 2.5f;
+        [SerializeField, Min(0.01f)] private float compositionResponse = 5f;
+        [SerializeField, Min(0f)] private float shoulderHoldSeconds = 0.7f;
+        [SerializeField, Range(0f, 0.2f)] private float occlusionViewportPadding = 0.025f;
+        [SerializeField, Min(0.02f)] private float rendererBoundsRefreshSeconds = 0.12f;
+        [SerializeField] private Vector3 fallbackOwnshipBoundsSize = new Vector3(14f, 18f, 10f);
         [Header("Mouse aim cursor")]
         [SerializeField] private Vector2 aimViewportCenter = new Vector2(0.5f, 0.56f);
         [SerializeField] private Vector2 aimCursorHalfExtent = new Vector2(0.30f, 0.25f);
@@ -43,6 +54,17 @@ namespace ACunicombat.Mechs
         private bool fieldOfViewInitialized;
         private Vector2 aimViewportPoint;
         private bool aimCursorInitialized;
+        private MechRadarController radar;
+        private Renderer[] followRenderers = new Renderer[0];
+        private Bounds ownshipWorldBounds;
+        private bool hasOwnshipWorldBounds;
+        private float nextBoundsRefreshTime;
+        private Vector3 compositionLocalOffset;
+        private Vector3 compositionLocalOffsetVelocity;
+        private TrackId compositionTrackId;
+        private float shoulderSign = 1f;
+        private float shoulderDecisionLockedUntil;
+        private float shoulderAvoidanceUntil;
 
         public float PitchDegrees => pitchDegrees;
         public Vector2 AimViewportPoint
@@ -60,6 +82,7 @@ namespace ACunicombat.Mechs
         {
             followTarget = target;
             motion = motionController;
+            ResolveCombatReferences();
             ApplyClipPlanes();
             SnapBehindTarget();
         }
@@ -103,8 +126,16 @@ namespace ACunicombat.Mechs
 
             localLag = Vector3.zero;
             localLagVelocity = Vector3.zero;
+            compositionLocalOffset = BaseCompositionOffset();
+            compositionLocalOffsetVelocity = Vector3.zero;
+            compositionTrackId = default;
+            shoulderDecisionLockedUntil = 0f;
+            shoulderAvoidanceUntil = 0f;
             fieldOfViewVelocity = 0f;
-            transform.SetPositionAndRotation(ComputePosition(), ComputeRotation());
+            var rotation = ComputeRotation();
+            transform.SetPositionAndRotation(
+                ComputePosition(rotation) + rotation * compositionLocalOffset,
+                rotation);
             InitializeFieldOfView();
             if (controlledCamera != null)
             {
@@ -188,7 +219,11 @@ namespace ACunicombat.Mechs
             var desiredPosition = ComputePosition(rotation);
             var targetLag = ComputeTargetLocalLag(rotation);
             SmoothLocalLag(targetLag, deltaTime);
-            transform.SetPositionAndRotation(desiredPosition + rotation * localLag, rotation);
+            var targetComposition = ComputeTargetCompositionOffset();
+            SmoothCompositionOffset(targetComposition, deltaTime);
+            transform.SetPositionAndRotation(
+                desiredPosition + rotation * (localLag + compositionLocalOffset),
+                rotation);
             UpdateFieldOfView(deltaTime);
         }
 
@@ -221,6 +256,242 @@ namespace ACunicombat.Mechs
                 SoftLimit(requestedLag.y, distance * maxVerticalLagRatio),
                 SoftLimit(requestedLag.z, distance * maxDepthLagRatio));
         }
+
+        private Vector3 ComputeTargetCompositionOffset()
+        {
+            ResolveCombatReferences();
+            var targetOffset = BaseCompositionOffset();
+            if (radar == null ||
+                !radar.SttTrackId.IsValid ||
+                !radar.TryGetTrack(radar.SttTrackId, out var track))
+            {
+                compositionTrackId = default;
+                shoulderAvoidanceUntil = 0f;
+                return targetOffset;
+            }
+
+            var sttTrackId = track.TrackId;
+            if (!sttTrackId.Equals(compositionTrackId))
+            {
+                compositionTrackId = sttTrackId;
+                shoulderDecisionLockedUntil = 0f;
+                shoulderAvoidanceUntil = 0f;
+            }
+
+            var targetPosition = radar.PredictTrackPosition(track);
+            var now = Time.unscaledTime;
+            if (IsTargetOccludedByOwnship(targetPosition, out var targetViewport, out var ownshipRect))
+            {
+                if (now >= shoulderDecisionLockedUntil)
+                {
+                    var horizontalDelta = targetViewport.x - ownshipRect.center.x;
+                    if (Mathf.Abs(horizontalDelta) >= 0.02f)
+                    {
+                        shoulderSign = Mathf.Sign(horizontalDelta);
+                    }
+                    else if (Mathf.Abs(compositionLocalOffset.x) >= 0.1f)
+                    {
+                        shoulderSign = Mathf.Sign(compositionLocalOffset.x);
+                    }
+
+                    shoulderDecisionLockedUntil = now + shoulderHoldSeconds;
+                }
+
+                shoulderAvoidanceUntil = now + shoulderHoldSeconds;
+            }
+
+            if (now < shoulderAvoidanceUntil)
+            {
+                targetOffset.x = shoulderSign * sttShoulderOffset;
+                targetOffset.z -= sttOcclusionPullback;
+            }
+
+            return targetOffset;
+        }
+
+        private Vector3 BaseCompositionOffset() =>
+            new Vector3(0f, baseCameraHeightOffset, -baseDistanceOffset);
+
+        private void SmoothCompositionOffset(Vector3 targetOffset, float deltaTime)
+        {
+            var smoothTime = 1f / Mathf.Max(0.01f, compositionResponse);
+            compositionLocalOffset.x = Mathf.SmoothDamp(
+                compositionLocalOffset.x,
+                targetOffset.x,
+                ref compositionLocalOffsetVelocity.x,
+                smoothTime,
+                Mathf.Infinity,
+                deltaTime);
+            compositionLocalOffset.y = Mathf.SmoothDamp(
+                compositionLocalOffset.y,
+                targetOffset.y,
+                ref compositionLocalOffsetVelocity.y,
+                smoothTime * 1.2f,
+                Mathf.Infinity,
+                deltaTime);
+            compositionLocalOffset.z = Mathf.SmoothDamp(
+                compositionLocalOffset.z,
+                targetOffset.z,
+                ref compositionLocalOffsetVelocity.z,
+                smoothTime * 1.4f,
+                Mathf.Infinity,
+                deltaTime);
+        }
+
+        private bool IsTargetOccludedByOwnship(
+            Vector3 targetPosition,
+            out Vector3 targetViewport,
+            out Rect ownshipRect)
+        {
+            targetViewport = default;
+            ownshipRect = default;
+            InitializeFieldOfView();
+            RefreshOwnshipBounds();
+            if (controlledCamera == null || !hasOwnshipWorldBounds)
+            {
+                return false;
+            }
+
+            targetViewport = controlledCamera.WorldToViewportPoint(targetPosition);
+            var ownshipCenterViewport =
+                controlledCamera.WorldToViewportPoint(ownshipWorldBounds.center);
+            if (targetViewport.z <= 0f ||
+                ownshipCenterViewport.z <= 0f ||
+                targetViewport.z <= ownshipCenterViewport.z ||
+                !TryProjectBoundsToViewport(ownshipWorldBounds, out ownshipRect))
+            {
+                return false;
+            }
+
+            ownshipRect.xMin -= occlusionViewportPadding;
+            ownshipRect.xMax += occlusionViewportPadding;
+            ownshipRect.yMin -= occlusionViewportPadding;
+            ownshipRect.yMax += occlusionViewportPadding;
+            return ownshipRect.Contains(new Vector2(targetViewport.x, targetViewport.y));
+        }
+
+        private bool TryProjectBoundsToViewport(Bounds bounds, out Rect viewportRect)
+        {
+            viewportRect = default;
+            var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+            var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+            var projectedCorners = 0;
+            for (var x = -1; x <= 1; x += 2)
+            {
+                for (var y = -1; y <= 1; y += 2)
+                {
+                    for (var z = -1; z <= 1; z += 2)
+                    {
+                        var corner = bounds.center + Vector3.Scale(
+                            bounds.extents,
+                            new Vector3(x, y, z));
+                        var viewport = controlledCamera.WorldToViewportPoint(corner);
+                        if (viewport.z <= 0f)
+                        {
+                            continue;
+                        }
+
+                        min = Vector2.Min(min, viewport);
+                        max = Vector2.Max(max, viewport);
+                        projectedCorners++;
+                    }
+                }
+            }
+
+            if (projectedCorners == 0)
+            {
+                return false;
+            }
+
+            viewportRect = Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+            return true;
+        }
+
+        private void ResolveCombatReferences()
+        {
+            if (followTarget == null)
+            {
+                return;
+            }
+
+            if (radar == null)
+            {
+                radar = followTarget.GetComponent<MechRadarController>();
+            }
+
+            if (followRenderers.Length == 0)
+            {
+                followRenderers = followTarget.GetComponentsInChildren<Renderer>(true);
+                nextBoundsRefreshTime = 0f;
+            }
+        }
+
+        private void RefreshOwnshipBounds()
+        {
+            if (Time.unscaledTime < nextBoundsRefreshTime)
+            {
+                return;
+            }
+
+            nextBoundsRefreshTime =
+                Time.unscaledTime + Mathf.Max(0.02f, rendererBoundsRefreshSeconds);
+            hasOwnshipWorldBounds = false;
+            var maximumRendererRadius = Mathf.Max(12f, distance * 2f);
+            var maximumCenterDistance = Mathf.Max(12f, distance * 1.5f);
+            for (var i = 0; i < followRenderers.Length; i++)
+            {
+                var renderer = followRenderers[i];
+                if (renderer == null ||
+                    !renderer.enabled ||
+                    !renderer.gameObject.activeInHierarchy ||
+                    renderer is ParticleSystemRenderer ||
+                    renderer is TrailRenderer ||
+                    renderer is LineRenderer)
+                {
+                    continue;
+                }
+
+                var rendererBounds = renderer.bounds;
+                if (!IsFinite(rendererBounds.center) ||
+                    !IsFinite(rendererBounds.extents) ||
+                    rendererBounds.extents.magnitude > maximumRendererRadius ||
+                    Vector3.Distance(rendererBounds.center, followTarget.position) >
+                    maximumCenterDistance)
+                {
+                    continue;
+                }
+
+                if (!hasOwnshipWorldBounds)
+                {
+                    ownshipWorldBounds = rendererBounds;
+                    hasOwnshipWorldBounds = true;
+                }
+                else
+                {
+                    ownshipWorldBounds.Encapsulate(rendererBounds);
+                }
+            }
+
+            if (!hasOwnshipWorldBounds)
+            {
+                var fallbackSize = new Vector3(
+                    Mathf.Max(1f, fallbackOwnshipBoundsSize.x),
+                    Mathf.Max(1f, fallbackOwnshipBoundsSize.y),
+                    Mathf.Max(1f, fallbackOwnshipBoundsSize.z));
+                ownshipWorldBounds = new Bounds(
+                    followTarget.position + Vector3.up * (fallbackSize.y * 0.5f),
+                    fallbackSize);
+                hasOwnshipWorldBounds = true;
+            }
+        }
+
+        private static bool IsFinite(Vector3 value) =>
+            !float.IsNaN(value.x) &&
+            !float.IsNaN(value.y) &&
+            !float.IsNaN(value.z) &&
+            !float.IsInfinity(value.x) &&
+            !float.IsInfinity(value.y) &&
+            !float.IsInfinity(value.z);
 
         private void SmoothLocalLag(Vector3 targetLag, float deltaTime)
         {
