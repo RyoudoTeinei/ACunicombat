@@ -1,3 +1,4 @@
+using System.Reflection;
 using ACunicombat.Mechs;
 using NUnit.Framework;
 using UnityEngine;
@@ -86,6 +87,31 @@ namespace ACunicombat.Editor.Tests
             Assert.That(
                 Quaternion.Angle(viewRotation, expectedRotation),
                 Is.LessThan(0.01f));
+        }
+
+        [Test]
+        public void AirbornePitchEnvelope_RemainsUnlimited()
+        {
+            Assert.That(
+                motion.ConstrainPitchForCurrentMode(120f),
+                Is.EqualTo(120f).Within(0.001f));
+        }
+
+        [Test]
+        public void GroundedPitchEnvelope_PreventsPointingIntoSurface()
+        {
+            var groundedField = typeof(MechFlightMotionController).GetField(
+                "isGrounded",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(groundedField, Is.Not.Null);
+            groundedField.SetValue(motion, true);
+
+            Assert.That(
+                motion.ConstrainPitchForCurrentMode(25f),
+                Is.Zero.Within(0.001f));
+            Assert.That(
+                motion.ConstrainPitchForCurrentMode(-120f),
+                Is.EqualTo(-85f).Within(0.001f));
         }
     }
 }

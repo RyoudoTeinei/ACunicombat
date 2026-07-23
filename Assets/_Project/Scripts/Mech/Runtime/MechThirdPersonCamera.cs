@@ -81,6 +81,10 @@ namespace ACunicombat.Mechs
         {
             followTarget = target;
             motion = motionController;
+            if (motion != null)
+            {
+                pitchDegrees = motion.ConstrainPitchForCurrentMode(pitchDegrees);
+            }
             observedReferenceFrameVersion =
                 motion != null ? motion.ReferenceFrameVersion : 0u;
             ResolveCombatReferences();
@@ -99,7 +103,9 @@ namespace ACunicombat.Mechs
         {
             distance = Mathf.Max(1f, followDistance);
             focusHeight = Mathf.Max(0f, targetFocusHeight);
-            pitchDegrees = Mathf.DeltaAngle(0f, initialPitchDegrees);
+            pitchDegrees = motion != null
+                ? motion.ConstrainPitchForCurrentMode(initialPitchDegrees)
+                : Mathf.DeltaAngle(0f, initialPitchDegrees);
             SnapBehindTarget();
         }
 
@@ -194,8 +200,7 @@ namespace ACunicombat.Mechs
 
             var pitchInput =
                 ApplyDeadZone(normalizedOffset.y, aimDeadZone);
-            pitchDegrees = Mathf.DeltaAngle(
-                0f,
+            pitchDegrees = motion.ConstrainPitchForCurrentMode(
                 pitchDegrees -
                 pitchInput * pitchTurnRateDegrees * Time.unscaledDeltaTime);
         }

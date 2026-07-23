@@ -125,6 +125,10 @@ namespace ACunicombat.Mechs
         [SerializeField] private float maximumGroundSnapDown = 0.45f;
         [Tooltip("接地移动时单帧允许爬上的最大高度，防止射线把机体吸到高处平台。")]
         [SerializeField] private float maximumGroundSnapUp = 1.5f;
+        [Tooltip("接地滑行时允许的最大仰角，防止保持接地状态绕过天顶。")]
+        [Range(0f, 89f)] [SerializeField] private float maximumGroundedClimbPitchDegrees = 85f;
+        [Tooltip("接地滑行时允许的最大俯角。0 表示机体前向不能指入地面。")]
+        [Range(0f, 30f)] [SerializeField] private float maximumGroundedDivePitchDegrees;
         [Tooltip("非接地时的重力加速度。设为 0 可切换为纯深空惯性。")]
         [SerializeField] private float gravityAcceleration = 9.81f;
 
@@ -445,7 +449,21 @@ namespace ACunicombat.Mechs
 
         public void SetAimPitch(float pitchDegrees)
         {
-            aimPitchDegrees = Mathf.DeltaAngle(0f, pitchDegrees);
+            aimPitchDegrees = ConstrainPitchForCurrentMode(pitchDegrees);
+        }
+
+        public float ConstrainPitchForCurrentMode(float requestedPitchDegrees)
+        {
+            var normalizedPitch = Mathf.DeltaAngle(0f, requestedPitchDegrees);
+            if (!isGrounded)
+            {
+                return normalizedPitch;
+            }
+
+            return Mathf.Clamp(
+                normalizedPitch,
+                -Mathf.Clamp(maximumGroundedClimbPitchDegrees, 0f, 89f),
+                Mathf.Clamp(maximumGroundedDivePitchDegrees, 0f, 30f));
         }
 
         public Quaternion ResolveReferenceViewRotation(float viewPitchDegrees) =>
@@ -652,6 +670,17 @@ namespace ACunicombat.Mechs
                 360f);
             commandedYawDegrees = yawDegrees;
             yawAngularVelocityRadians = currentYawRateDegrees * Mathf.Deg2Rad;
+
+            aimPitchDegrees = ConstrainPitchForCurrentMode(aimPitchDegrees);
+            if (isGrounded)
+            {
+                var constrainedPitch = ConstrainPitchForCurrentMode(pitchDegrees);
+                if (!Mathf.Approximately(constrainedPitch, pitchDegrees))
+                {
+                    pitchDegrees = constrainedPitch;
+                    pitchAngularVelocityRadians = 0f;
+                }
+            }
 
             var pitchErrorDegrees = Mathf.DeltaAngle(pitchDegrees, aimPitchDegrees);
             var desiredPitchRateDegrees = Mathf.Clamp(
