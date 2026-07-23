@@ -126,6 +126,69 @@ namespace ACunicombat.Mechs
         public int CopyTracks(TrackSnapshot[] destination) =>
             driver != null ? driver.CopyTracks(destination) : 0;
 
+        public bool TryGetTrackAtViewport(
+            Camera viewCamera,
+            Vector2 viewportPoint,
+            out TrackSnapshot selectedTrack)
+        {
+            selectedTrack = default;
+            if (viewCamera == null)
+            {
+                return false;
+            }
+
+            var count = CopyTracks(trackScratch);
+            var captureHalfSize = DesignationCaptureBoxPixels * 0.5f;
+            var pixelWidth = Mathf.Max(1f, viewCamera.pixelWidth);
+            var pixelHeight = Mathf.Max(1f, viewCamera.pixelHeight);
+            var bestScore = float.MaxValue;
+            var found = false;
+            for (var i = 0; i < count; i++)
+            {
+                var track = trackScratch[i];
+                var selectedByFireControl =
+                    track.TrackId.Equals(sttTrackId) ||
+                    track.TrackId.Equals(candidateTrackId);
+                var visibleNormalTrack =
+                    track.Confidence >= 0.35f &&
+                    (track.Lifecycle == TrackLifecycle.Confirmed ||
+                     (track.Lifecycle == TrackLifecycle.Coasting &&
+                      track.CoastCount <= 4));
+                if ((!selectedByFireControl && !visibleNormalTrack) ||
+                    !IsFireControlUsable(track.Lifecycle))
+                {
+                    continue;
+                }
+
+                var viewport = viewCamera.WorldToViewportPoint(
+                    PredictTrackPosition(track));
+                if (viewport.z <= 0f)
+                {
+                    continue;
+                }
+
+                var dxPixels = (viewport.x - viewportPoint.x) * pixelWidth;
+                var dyPixels = (viewport.y - viewportPoint.y) * pixelHeight;
+                if (Mathf.Abs(dxPixels) > captureHalfSize ||
+                    Mathf.Abs(dyPixels) > captureHalfSize)
+                {
+                    continue;
+                }
+
+                var score = dxPixels * dxPixels + dyPixels * dyPixels;
+                if (score >= bestScore)
+                {
+                    continue;
+                }
+
+                bestScore = score;
+                selectedTrack = track;
+                found = true;
+            }
+
+            return found;
+        }
+
         public int CopyEchoes(RadarEchoSnapshot[] destination)
         {
             if (destination == null || driver == null)

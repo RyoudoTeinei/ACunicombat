@@ -35,6 +35,8 @@ namespace ACunicombat.Mechs
         /// <summary>Secondary fire is the right mouse button and commands the anatomical right hand.</summary>
         public bool SecondaryFireHeld;
         public bool SecondaryFireEdge;
+        /// <summary>Middle mouse requests a navigation reference-plane reset.</summary>
+        public bool ReferencePlaneResetEdge;
         /// <summary>Q commands the anatomical left shoulder weapon.</summary>
         public bool LeftShoulderFireHeld;
         public bool LeftShoulderFireEdge;
@@ -152,6 +154,7 @@ namespace ACunicombat.Mechs
                 frame.PrimaryFireEdge = mouse.leftButton.wasPressedThisFrame;
                 frame.SecondaryFireHeld = mouse.rightButton.isPressed;
                 frame.SecondaryFireEdge = mouse.rightButton.wasPressedThisFrame;
+                frame.ReferencePlaneResetEdge = mouse.middleButton.wasPressedThisFrame;
             }
 
             frame.MainThrottle = mainThrottle;

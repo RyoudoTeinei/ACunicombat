@@ -65,6 +65,7 @@ namespace ACunicombat.Mechs
         private float shoulderSign = 1f;
         private float shoulderDecisionLockedUntil;
         private float shoulderAvoidanceUntil;
+        private uint observedReferenceFrameVersion;
 
         public float PitchDegrees => pitchDegrees;
         public Vector2 AimViewportPoint
@@ -82,6 +83,8 @@ namespace ACunicombat.Mechs
         {
             followTarget = target;
             motion = motionController;
+            observedReferenceFrameVersion =
+                motion != null ? motion.ReferenceFrameVersion : 0u;
             ResolveCombatReferences();
             ApplyClipPlanes();
             SnapBehindTarget();
@@ -141,6 +144,21 @@ namespace ACunicombat.Mechs
             {
                 controlledCamera.fieldOfView = baseFieldOfView;
             }
+        }
+
+        public void ResetToReferenceHorizon()
+        {
+            pitchDegrees = 0f;
+            aimViewportPoint = aimViewportCenter;
+            aimCursorInitialized = true;
+            if (motion == null)
+            {
+                return;
+            }
+
+            motion.SetAimPitch(0f);
+            motion.SetYawTurnInput(0f);
+            observedReferenceFrameVersion = motion.ReferenceFrameVersion;
         }
 
         public void UpdateLook(in MechPlayerInputFrame frame)
@@ -215,6 +233,11 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            if (observedReferenceFrameVersion != motion.ReferenceFrameVersion)
+            {
+                ResetToReferenceHorizon();
+            }
+
             var rotation = ComputeRotation();
             var desiredPosition = ComputePosition(rotation);
             var targetLag = ComputeTargetLocalLag(rotation);
@@ -234,13 +257,13 @@ namespace ACunicombat.Mechs
         }
 
         private Quaternion ComputeRotation() =>
-            Quaternion.Euler(pitchDegrees, motion.LogicalYawDegrees, 0f); // Roll remains zero.
+            motion.ResolveReferenceViewRotation(pitchDegrees);
 
         private Vector3 ComputePosition() => ComputePosition(ComputeRotation());
 
         private Vector3 ComputePosition(Quaternion rotation)
         {
-            var focusPoint = followTarget.position + Vector3.up * focusHeight;
+            var focusPoint = followTarget.position + motion.ReferenceUp * focusHeight;
             return focusPoint - rotation * Vector3.forward * distance;
         }
 
@@ -479,7 +502,9 @@ namespace ACunicombat.Mechs
                     Mathf.Max(1f, fallbackOwnshipBoundsSize.y),
                     Mathf.Max(1f, fallbackOwnshipBoundsSize.z));
                 ownshipWorldBounds = new Bounds(
-                    followTarget.position + Vector3.up * (fallbackSize.y * 0.5f),
+                    followTarget.position +
+                    (motion != null ? motion.ReferenceUp : Vector3.up) *
+                    (fallbackSize.y * 0.5f),
                     fallbackSize);
                 hasOwnshipWorldBounds = true;
             }

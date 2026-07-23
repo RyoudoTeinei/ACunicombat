@@ -40,6 +40,7 @@ namespace ACunicombat.Mechs
         private float radarDisplayRangeMeters = 20_000f;
         private RadarStatusSnapshot radarStatus;
         private MechThirdPersonCamera aimController;
+        private MechFlightMotionController motion;
         private Texture2D operationRingTexture;
         private GUIStyle smallStyle;
         private GUIStyle compactStyle;
@@ -70,6 +71,9 @@ namespace ACunicombat.Mechs
                 ? viewCamera.GetComponent<MechThirdPersonCamera>()
                 : null;
             radar = newRadar;
+            motion = radar != null
+                ? radar.GetComponent<MechFlightMotionController>()
+                : null;
             aimViewportPoint = new Vector2(
                 Mathf.Clamp(newAimViewportPoint.x, 0.05f, 0.95f),
                 Mathf.Clamp(newAimViewportPoint.y, 0.05f, 0.95f));
@@ -78,6 +82,9 @@ namespace ACunicombat.Mechs
         private void Awake()
         {
             if (radar == null) radar = GetComponent<MechRadarController>();
+            motion = radar != null
+                ? radar.GetComponent<MechFlightMotionController>()
+                : GetComponent<MechFlightMotionController>();
             if (viewCamera == null) viewCamera = Camera.main;
             if (viewCamera != null)
             {
@@ -571,8 +578,12 @@ namespace ACunicombat.Mechs
         private void DrawSightElevationLadder(Vector2 center, float radius)
         {
             var cameraForward = viewCamera.transform.forward.normalized;
+            var referenceUp = GetReferenceUp();
             var sightElevationDegrees = Mathf.Asin(
-                Mathf.Clamp(cameraForward.y, -1f, 1f)) * Mathf.Rad2Deg;
+                Mathf.Clamp(
+                    Vector3.Dot(cameraForward, referenceUp),
+                    -1f,
+                    1f)) * Mathf.Rad2Deg;
             var verticalFovRadians =
                 Mathf.Clamp(viewCamera.fieldOfView, 1f, 179f) * Mathf.Deg2Rad;
             var focalPixels = Screen.height * 0.5f /
@@ -980,26 +991,33 @@ namespace ACunicombat.Mechs
 
         private Vector3 ToHeadingLocal(Vector3 worldVector)
         {
+            var up = GetReferenceUp();
             var forward = GetHeadingForward();
-            var right = Vector3.Cross(Vector3.up, forward).normalized;
+            var right = Vector3.Cross(up, forward).normalized;
             return new Vector3(
                 Vector3.Dot(worldVector, right),
-                Vector3.Dot(worldVector, Vector3.up),
+                Vector3.Dot(worldVector, up),
                 Vector3.Dot(worldVector, forward));
         }
 
         private Vector3 GetHeadingForward()
         {
+            var up = GetReferenceUp();
             var forward = aimController != null
                 ? aimController.AimRotation * Vector3.forward
                 : viewCamera != null
                     ? viewCamera.transform.forward
                     : transform.forward;
-            forward.y = 0f;
+            forward = Vector3.ProjectOnPlane(forward, up);
             return forward.sqrMagnitude > 0.001f
                 ? forward.normalized
-                : Vector3.forward;
+                : motion != null
+                    ? motion.ReferenceRotation * Vector3.forward
+                    : Vector3.forward;
         }
+
+        private Vector3 GetReferenceUp() =>
+            motion != null ? motion.ReferenceUp : Vector3.up;
 
         private static string FormatRange(float rangeMeters) =>
             rangeMeters < 10_000f

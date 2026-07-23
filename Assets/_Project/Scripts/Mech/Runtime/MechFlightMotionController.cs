@@ -104,6 +104,8 @@ namespace ACunicombat.Mechs
         [SerializeField] private float momentumWheelTorqueKnM = 120f;
         [Tooltip("飞控允许的最大偏航角速度。")]
         [SerializeField] private float maximumYawRateDegrees = 180f;
+        [Tooltip("飞控允许的最大俯仰角速度。")]
+        [SerializeField] private float maximumPitchRateDegrees = 120f;
         [Tooltip("偏航闭环达到目标的响应时间。越短越接近直接鼠标转向。")]
         [Range(0.06f, 0.5f)] [SerializeField] private float yawResponseTimeSeconds = 0.16f;
         [Tooltip("偏航闭环阻尼比。大于 1 可抑制重型机体越过目标后反复摆动。")]
@@ -129,6 +131,8 @@ namespace ACunicombat.Mechs
         private float yawDegrees;
         private float commandedYawDegrees;
         private float yawAngularVelocityRadians;
+        private float pitchDegrees;
+        private float pitchAngularVelocityRadians;
         private float yawTurnInput;
         private float yawMomentOfInertiaKgM2;
         private float attitudeWidthMeters = 1f;
@@ -140,6 +144,8 @@ namespace ACunicombat.Mechs
         private float currentLegRcsTorqueNewtonMeters;
         private float currentMomentumWheelTorqueNewtonMeters;
         private float aimPitchDegrees;
+        private Quaternion referenceRotation = Quaternion.identity;
+        private uint referenceFrameVersion;
         private Vector3 velocity;
         private float quickBoostRemaining;
         private Vector3 quickBoostDirection;
@@ -150,8 +156,8 @@ namespace ACunicombat.Mechs
         private bool flightEnvelopeOverrideActive;
         private bool inertialThrustLockActive;
         private Vector3 inertialThrustLockForward = Vector3.forward;
-        private float brakingAltitude;
-        private float sampledGroundY;
+        private Vector3 brakingPlaneAnchor;
+        private Vector3 sampledGroundPoint;
         private Vector3 sampledGroundNormal = Vector3.up;
         private bool hasSampledGround;
         private bool isGrounded;
@@ -173,6 +179,8 @@ namespace ACunicombat.Mechs
 
         public float LogicalYawDegrees => yawDegrees;
 
+        public float LogicalPitchDegrees => pitchDegrees;
+
         public float CommandedYawDegrees => commandedYawDegrees;
 
         public float YawRateDegreesPerSecond => yawAngularVelocityRadians * Mathf.Rad2Deg;
@@ -187,7 +195,9 @@ namespace ACunicombat.Mechs
 
         public Vector3 Velocity => velocity;
 
-        public float HorizontalSpeed => new Vector2(velocity.x, velocity.z).magnitude;
+        public float HorizontalSpeed => Vector3.ProjectOnPlane(
+            velocity,
+            ReferenceUp).magnitude;
 
         public float MainThrottle => mainThrottle;
 
@@ -242,7 +252,11 @@ namespace ACunicombat.Mechs
             {
                 RefreshGroundHeight(transform.position);
                 return hasSampledGround
-                    ? Mathf.Max(0f, transform.position.y - sampledGroundY)
+                    ? Mathf.Max(
+                        0f,
+                        Vector3.Dot(
+                            transform.position - sampledGroundPoint,
+                            ReferenceUp))
                     : 0f;
             }
         }
@@ -263,8 +277,18 @@ namespace ACunicombat.Mechs
             set => SetAssaultBoostActive(value);
         }
 
-        /// <summary>逻辑朝向（无滚转）。模型轴修正只应用到可见根节点，不污染移动与镜头朝向。</summary>
-        public Quaternion LogicalRotation => Quaternion.Euler(0f, LogicalYawDegrees, 0f);
+        /// <summary>动态导航参考平面。它不旋转 Unity 世界，只定义飞控的水平面与上方向。</summary>
+        public Quaternion ReferenceRotation => referenceRotation;
+
+        public Vector3 ReferenceUp => referenceRotation * Vector3.up;
+
+        public uint ReferenceFrameVersion => referenceFrameVersion;
+
+        /// <summary>完整三维逻辑朝向，无滚转；模型轴修正只应用到可见根节点。</summary>
+        public Quaternion LogicalRotation =>
+            referenceRotation *
+            Quaternion.AngleAxis(yawDegrees, Vector3.up) *
+            Quaternion.AngleAxis(pitchDegrees, Vector3.right);
 
         public float ModelForwardYawOffset => modelForwardYawOffset;
 
@@ -274,9 +298,17 @@ namespace ACunicombat.Mechs
             runtimeState = GetComponent<MechRuntimeState>();
             yawDegrees = Mathf.Repeat(transform.eulerAngles.y - modelForwardYawOffset, 360f);
             commandedYawDegrees = yawDegrees;
+            pitchDegrees = 0f;
+            aimPitchDegrees = 0f;
             RefreshGroundHeight(transform.position);
             isGrounded = hasSampledGround &&
-                         transform.position.y <= sampledGroundY + groundedEpsilon;
+                         Vector3.Dot(
+                             transform.position - sampledGroundPoint,
+                             ReferenceUp) <= groundedEpsilon;
+            if (isGrounded)
+            {
+                ResetReferencePlaneToGround(sampledGroundNormal);
+            }
         }
 
         private void Start()
@@ -406,12 +438,94 @@ namespace ACunicombat.Mechs
             yawDegrees = 0f;
             commandedYawDegrees = yawDegrees;
             yawAngularVelocityRadians = 0f;
+            pitchDegrees = 0f;
+            pitchAngularVelocityRadians = 0f;
             ApplyVisualRotation();
         }
 
         public void SetAimPitch(float pitchDegrees)
         {
             aimPitchDegrees = Mathf.Clamp(pitchDegrees, -89f, 89f);
+        }
+
+        public Quaternion ResolveReferenceViewRotation(float viewPitchDegrees) =>
+            referenceRotation *
+            Quaternion.AngleAxis(yawDegrees, Vector3.up) *
+            Quaternion.AngleAxis(
+                Mathf.Clamp(viewPitchDegrees, -89f, 89f),
+                Vector3.right);
+
+        public void ResetReferencePlaneToRotation(Quaternion levelRotation)
+        {
+            var forward = levelRotation * Vector3.forward;
+            var up = levelRotation * Vector3.up;
+            SetReferencePlane(forward, up);
+        }
+
+        public void ResetReferencePlaneToward(Vector3 worldTargetPosition)
+        {
+            var direction = worldTargetPosition - transform.position;
+            if (direction.sqrMagnitude <= 0.0001f)
+            {
+                return;
+            }
+
+            direction.Normalize();
+            var up = Vector3.ProjectOnPlane(ReferenceUp, direction);
+            if (up.sqrMagnitude <= 0.0001f)
+            {
+                up = Vector3.ProjectOnPlane(LogicalRotation * Vector3.up, direction);
+            }
+            if (up.sqrMagnitude <= 0.0001f)
+            {
+                up = Vector3.Cross(direction, LogicalRotation * Vector3.right);
+            }
+
+            SetReferencePlane(direction, up);
+        }
+
+        private void ResetReferencePlaneToGround(Vector3 groundNormal)
+        {
+            var up = groundNormal.sqrMagnitude > 0.0001f
+                ? groundNormal.normalized
+                : Vector3.up;
+            var forward = Vector3.ProjectOnPlane(
+                LogicalRotation * Vector3.forward,
+                up);
+            if (forward.sqrMagnitude <= 0.0001f)
+            {
+                forward = Vector3.ProjectOnPlane(ReferenceRotation * Vector3.forward, up);
+            }
+
+            SetReferencePlane(forward, up);
+        }
+
+        private void SetReferencePlane(Vector3 forward, Vector3 up)
+        {
+            if (up.sqrMagnitude <= 0.0001f)
+            {
+                up = Vector3.up;
+            }
+            up.Normalize();
+            forward = Vector3.ProjectOnPlane(forward, up);
+            if (forward.sqrMagnitude <= 0.0001f)
+            {
+                forward = Vector3.ProjectOnPlane(Vector3.forward, up);
+            }
+            if (forward.sqrMagnitude <= 0.0001f)
+            {
+                forward = Vector3.Cross(Vector3.right, up);
+            }
+
+            referenceRotation = Quaternion.LookRotation(forward.normalized, up);
+            yawDegrees = 0f;
+            commandedYawDegrees = 0f;
+            yawAngularVelocityRadians = 0f;
+            pitchDegrees = 0f;
+            aimPitchDegrees = 0f;
+            pitchAngularVelocityRadians = 0f;
+            referenceFrameVersion++;
+            ApplyVisualRotation();
         }
 
         public void SetYawTurnInput(float normalizedInput)
@@ -516,9 +630,8 @@ namespace ACunicombat.Mechs
             currentDescentForceNewtons = Vector3.zero;
             currentQuickBoostForceNewtons = Vector3.zero;
 
-            // 鼠标只改变目标 Yaw。实际 Yaw 由肩/腿 RCS 力偶和核心动量轮积分得到；Roll 恒 0。
-            // Cursor displacement commands a bounded yaw rate. This preserves roll-free
-            // handling while preventing instantaneous turns from raw mouse deltas.
+            // Cursor displacement commands bounded yaw and pitch rates in the active reference
+            // frame. Roll remains zero relative to that frame.
             var desiredYawRateDegrees =
                 yawTurnInput * Mathf.Max(0f, maximumYawRateDegrees);
             var yawResponse = 1f - Mathf.Exp(
@@ -541,6 +654,34 @@ namespace ACunicombat.Mechs
                 360f);
             commandedYawDegrees = yawDegrees;
             yawAngularVelocityRadians = currentYawRateDegrees * Mathf.Deg2Rad;
+
+            var pitchErrorDegrees = Mathf.DeltaAngle(pitchDegrees, aimPitchDegrees);
+            var desiredPitchRateDegrees = Mathf.Clamp(
+                pitchErrorDegrees / Mathf.Max(0.06f, yawResponseTimeSeconds),
+                -Mathf.Max(0f, maximumPitchRateDegrees),
+                Mathf.Max(0f, maximumPitchRateDegrees));
+            var currentPitchRateDegrees =
+                pitchAngularVelocityRadians * Mathf.Rad2Deg;
+            currentPitchRateDegrees = Mathf.Lerp(
+                currentPitchRateDegrees,
+                desiredPitchRateDegrees,
+                yawResponse);
+            var pitchStepDegrees =
+                currentPitchRateDegrees * Mathf.Max(0f, deltaTime);
+            if (Mathf.Abs(pitchStepDegrees) >= Mathf.Abs(pitchErrorDegrees))
+            {
+                pitchDegrees = aimPitchDegrees;
+                currentPitchRateDegrees = 0f;
+            }
+            else
+            {
+                pitchDegrees = Mathf.Clamp(
+                    pitchDegrees + pitchStepDegrees,
+                    -89f,
+                    89f);
+            }
+            pitchAngularVelocityRadians =
+                currentPitchRateDegrees * Mathf.Deg2Rad;
             currentYawTorqueNewtonMeters = 0f;
             currentShoulderRcsTorqueNewtonMeters = 0f;
             currentLegRcsTorqueNewtonMeters = 0f;
@@ -548,10 +689,7 @@ namespace ACunicombat.Mechs
 
             if (frame.BrakeHeld && !braking)
             {
-                RefreshGroundHeight(transform.position);
-                brakingAltitude = hasSampledGround
-                    ? Mathf.Max(transform.position.y, sampledGroundY)
-                    : transform.position.y;
+                brakingPlaneAnchor = transform.position;
             }
 
             braking = frame.BrakeHeld;
@@ -570,17 +708,21 @@ namespace ACunicombat.Mechs
             }
 
             var grounded = isGrounded;
-            var yawBasis = LogicalRotation;
-            var right = yawBasis * Vector3.right;
-            var bodyForward = yawBasis * Vector3.forward;
-            var mainThrustDirection = ResolveMainThrustDirection(yawBasis, grounded);
+            var attitudeBasis = LogicalRotation;
+            var right = attitudeBasis * Vector3.right;
+            var bodyForward = attitudeBasis * Vector3.forward;
+            var mainThrustDirection = ResolveMainThrustDirection(attitudeBasis, grounded);
             UpdateInertialThrustLock(in frame, bodyForward);
             var controlForward = inertialThrustLockActive
                 ? inertialThrustLockForward
                 : bodyForward;
             var controlRight = inertialThrustLockActive
-                ? Vector3.Cross(Vector3.up, controlForward).normalized
+                ? Vector3.Cross(ReferenceUp, controlForward).normalized
                 : right;
+            if (controlRight.sqrMagnitude <= 0.0001f)
+            {
+                controlRight = right;
+            }
             mainThrottle = Mathf.Clamp01(frame.MainThrottle);
 
             // 节流是持久的前向推力命令。W/S 在该命令上临时加减，A/D 仍是侧向推进。
@@ -600,7 +742,7 @@ namespace ACunicombat.Mechs
                     : forwardCommand * reverseThrustNewtons);
                 propulsionForce += AllocateDirectionPreservingForce(
                     lockedRequest,
-                    yawBasis,
+                    attitudeBasis,
                     mainThrustNewtons,
                     lateralThrustNewtons,
                     reverseThrustNewtons);
@@ -643,7 +785,7 @@ namespace ACunicombat.Mechs
             var quickBoostApplying = quickBoostStep > 0f;
             ResolveLiftThrusterForces(
                 in frame,
-                yawBasis,
+                attitudeBasis,
                 mainThrustDirection,
                 controlRight,
                 controlForward,
@@ -716,7 +858,7 @@ namespace ACunicombat.Mechs
                                                    * (currentMassKg / deltaTime);
                         var assistForce = AllocateDirectionalReserveForce(
                             requestedAssistForce,
-                            yawBasis);
+                            attitudeBasis);
                         velocity += assistForce / currentMassKg * deltaTime;
                         currentControlForceNewtons += assistForce;
                         currentControlAcceleration = currentControlForceNewtons / currentMassKg;
@@ -728,47 +870,49 @@ namespace ACunicombat.Mechs
             {
                 currentQuickBoostForceNewtons = AllocateDirectionalReserveForce(
                     quickBoostDirection * quickBoostForceNewtons,
-                    yawBasis);
+                    attitudeBasis);
                 velocity += currentQuickBoostForceNewtons
                             / currentMassKg * quickBoostStep;
             }
 
             if (!braking && !grounded)
             {
-                velocity.y -= gravityAcceleration * deltaTime;
+                velocity -= ReferenceUp * (gravityAcceleration * deltaTime);
             }
 
             if (braking)
             {
-                var horizontal = new Vector3(velocity.x, 0f, velocity.z);
-                var brakingDirection = horizontal.sqrMagnitude > 0.0001f
-                    ? -horizontal.normalized
+                var planarVelocity = Vector3.ProjectOnPlane(
+                    velocity,
+                    ReferenceUp);
+                var brakingDirection = planarVelocity.sqrMagnitude > 0.0001f
+                    ? -planarVelocity.normalized
                     : Vector3.zero;
                 var brakingForceCapacity = ResolveDirectionalForceCapacity(
                     brakingDirection,
-                    yawBasis,
+                    attitudeBasis,
                     mainThrustNewtons,
                     lateralThrustNewtons,
                     reverseThrustNewtons);
                 var horizontalBrakingForce = AllocateDirectionalReserveForce(
                     brakingDirection * brakingForceCapacity * activeBrakingThrustMultiplier,
-                    yawBasis);
+                    attitudeBasis);
                 var allocatedLiftForce = currentShoulderLiftForceNewtons
                                          + currentLegLiftForceNewtons;
                 var totalBrakingForce = horizontalBrakingForce + allocatedLiftForce;
                 var brakingAcceleration = Mathf.Max(
                     0f,
                     Vector3.Dot(totalBrakingForce, brakingDirection) / currentMassKg);
-                horizontal = Vector3.MoveTowards(
-                    horizontal,
+                planarVelocity = Vector3.MoveTowards(
+                    planarVelocity,
                     Vector3.zero,
                     brakingAcceleration * deltaTime);
-                if (horizontal.magnitude <= groundStopSpeed)
+                if (planarVelocity.magnitude <= groundStopSpeed)
                 {
-                    horizontal = Vector3.zero;
+                    planarVelocity = Vector3.zero;
                 }
 
-                velocity = new Vector3(horizontal.x, 0f, horizontal.z);
+                velocity = planarVelocity;
                 currentControlForceNewtons = totalBrakingForce;
                 currentControlAcceleration = currentControlForceNewtons / currentMassKg;
             }
@@ -777,16 +921,18 @@ namespace ACunicombat.Mechs
             if (!braking && grounded && !hasPropulsionCommand &&
                 !AssaultBoostActive && !quickBoostApplying)
             {
-                var horizontal = new Vector3(velocity.x, 0f, velocity.z);
-                horizontal = Vector3.MoveTowards(
-                    horizontal, Vector3.zero, groundBrakingAcceleration * deltaTime);
-                if (horizontal.magnitude <= groundStopSpeed)
+                var groundNormal = sampledGroundNormal.sqrMagnitude > 0.0001f
+                    ? sampledGroundNormal
+                    : ReferenceUp;
+                var planarVelocity = Vector3.ProjectOnPlane(velocity, groundNormal);
+                planarVelocity = Vector3.MoveTowards(
+                    planarVelocity, Vector3.zero, groundBrakingAcceleration * deltaTime);
+                if (planarVelocity.magnitude <= groundStopSpeed)
                 {
-                    horizontal = Vector3.zero;
+                    planarVelocity = Vector3.zero;
                 }
 
-                velocity.x = horizontal.x;
-                velocity.z = horizontal.z;
+                velocity = planarVelocity;
             }
             else if (!braking && !grounded && !frame.RiseHeld &&
                      !hasPropulsionCommand && !AssaultBoostActive &&
@@ -809,23 +955,31 @@ namespace ACunicombat.Mechs
             var position = previousPosition + velocity * deltaTime;
             if (braking)
             {
-                position.y = brakingAltitude;
-                velocity.y = 0f;
+                var planeOffset = Vector3.Dot(
+                    position - brakingPlaneAnchor,
+                    ReferenceUp);
+                position -= ReferenceUp * planeOffset;
+                velocity = Vector3.ProjectOnPlane(velocity, ReferenceUp);
             }
 
-            var hasGround = TrySampleGroundHeight(
+            var groundUp = ReferenceUp;
+            var hasGround = TrySampleGroundSurface(
                 position,
-                out var surfaceY,
+                groundUp,
+                out var surfacePoint,
                 out var surfaceNormal);
+            var surfaceDistance = hasGround
+                ? Vector3.Dot(position - surfacePoint, groundUp)
+                : float.PositiveInfinity;
             if (braking)
             {
                 isGrounded = hasGround &&
-                             position.y <= surfaceY + groundedEpsilon;
+                             surfaceDistance <= groundedEpsilon;
             }
             else if (grounded && !frame.RiseHeld)
             {
                 var surfaceDelta = hasGround
-                    ? surfaceY - previousPosition.y
+                    ? Vector3.Dot(surfacePoint - previousPosition, groundUp)
                     : float.NegativeInfinity;
                 if (hasGround &&
                     surfaceDelta >= -maximumGroundSnapDown &&
@@ -834,10 +988,11 @@ namespace ACunicombat.Mechs
                     // Follow a nearby surface, and preserve its tangent as real velocity.
                     // At a ramp edge the sampled floor drops beyond maximumGroundSnapDown,
                     // so this vertical component survives and launches the mech naturally.
-                    position.y = surfaceY;
-                    velocity.y = deltaTime > Mathf.Epsilon
-                        ? surfaceDelta / deltaTime
-                        : 0f;
+                    position -= groundUp * surfaceDistance;
+                    velocity = Vector3.ProjectOnPlane(velocity, groundUp) +
+                               groundUp * (deltaTime > Mathf.Epsilon
+                                   ? surfaceDelta / deltaTime
+                                   : 0f);
                     isGrounded = true;
                 }
                 else
@@ -848,11 +1003,11 @@ namespace ACunicombat.Mechs
             else if (hasGround &&
                      !braking &&
                      !frame.RiseHeld &&
-                     velocity.y <= 0f &&
-                     position.y <= surfaceY)
+                     Vector3.Dot(velocity, groundUp) <= 0f &&
+                     surfaceDistance <= 0f)
             {
-                position.y = surfaceY;
-                velocity.y = 0f;
+                position -= groundUp * surfaceDistance;
+                velocity = Vector3.ProjectOnPlane(velocity, groundUp);
                 isGrounded = true;
             }
             else if (!braking)
@@ -861,11 +1016,19 @@ namespace ACunicombat.Mechs
             }
 
             hasSampledGround = hasGround;
-            sampledGroundY = hasGround ? surfaceY : float.NegativeInfinity;
+            sampledGroundPoint = hasGround ? surfacePoint : position;
             sampledGroundNormal = surfaceNormal;
 
+            if (isGrounded &&
+                (!grounded || Vector3.Angle(ReferenceUp, surfaceNormal) > 0.5f))
+            {
+                ResetReferencePlaneToGround(surfaceNormal);
+            }
+
             transform.SetPositionAndRotation(
-                position, Quaternion.Euler(0f, yawDegrees + modelForwardYawOffset, 0f));
+                position,
+                LogicalRotation *
+                Quaternion.AngleAxis(modelForwardYawOffset, Vector3.up));
         }
 
         private void EnsureThrusterLayout()
@@ -1052,7 +1215,7 @@ namespace ACunicombat.Mechs
                 }
 
                 var radial = channel.ResolveWorldOrigin(transform) - controlCenter;
-                radial.y = 0f;
+                radial = Vector3.ProjectOnPlane(radial, ReferenceUp);
                 usableLeverArmSum += radial.magnitude;
             }
 
@@ -1073,17 +1236,19 @@ namespace ACunicombat.Mechs
                 }
 
                 var radial = channel.ResolveWorldOrigin(transform) - controlCenter;
-                radial.y = 0f;
+                radial = Vector3.ProjectOnPlane(radial, ReferenceUp);
                 if (radial.sqrMagnitude <= Mathf.Epsilon)
                 {
                     continue;
                 }
 
-                // F = up x r guarantees a positive Unity yaw torque from r x F.
-                var forceDirection = Vector3.Cross(Vector3.up, radial).normalized * torqueSign;
+                // F = up x r guarantees a positive yaw torque in the active reference frame.
+                var forceDirection = Vector3.Cross(ReferenceUp, radial).normalized * torqueSign;
                 var force = forceDirection * forceMagnitude;
                 channel.AddForce(force);
-                realizedTorque += Vector3.Dot(Vector3.Cross(radial, force), Vector3.up);
+                realizedTorque += Vector3.Dot(
+                    Vector3.Cross(radial, force),
+                    ReferenceUp);
             }
 
             return realizedTorque;
@@ -1265,8 +1430,9 @@ namespace ACunicombat.Mechs
             if (localForce.y > Mathf.Epsilon)
             {
                 var shoulderFraction = Mathf.Clamp01(shoulderLiftFraction);
-                var shoulderRequest = Vector3.up * (localForce.y * shoulderFraction);
-                var legRequest = Vector3.up * (localForce.y * (1f - shoulderFraction));
+                var up = yawBasis * Vector3.up;
+                var shoulderRequest = up * (localForce.y * shoulderFraction);
+                var legRequest = up * (localForce.y * (1f - shoulderFraction));
                 allocatedForce += AllocateThrusterForce(
                     MechThrusterRole.ShoulderLift,
                     shoulderRequest,
@@ -1325,10 +1491,9 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var horizontalForward = Vector3.ProjectOnPlane(bodyForward, Vector3.up);
-            inertialThrustLockForward = horizontalForward.sqrMagnitude > 0.0001f
-                ? horizontalForward.normalized
-                : Vector3.forward;
+            inertialThrustLockForward = bodyForward.sqrMagnitude > 0.0001f
+                ? bodyForward.normalized
+                : LogicalRotation * Vector3.forward;
             inertialThrustLockActive = true;
         }
 
@@ -1634,16 +1799,7 @@ namespace ACunicombat.Mechs
 
         private Vector3 ResolveMainThrustDirection(Quaternion yawBasis, bool grounded)
         {
-            if (grounded || !vectorThrustEnabled || maximumVectorPitchDegrees <= 0f)
-            {
-                return yawBasis * Vector3.forward;
-            }
-
-            var vectorPitch = Mathf.Clamp(
-                aimPitchDegrees,
-                -maximumVectorPitchDegrees,
-                maximumVectorPitchDegrees);
-            return Quaternion.Euler(vectorPitch, LogicalYawDegrees, 0f) * Vector3.forward;
+            return yawBasis * Vector3.forward;
         }
 
         private void ResolveLiftThrusterForces(
@@ -1676,7 +1832,7 @@ namespace ACunicombat.Mechs
                 var descentNewtons = totalLiftNewtons
                                      * Mathf.Clamp01(descentThrustFraction)
                                      * -verticalInput;
-                descentForce = Vector3.down * descentNewtons;
+                descentForce = -ReferenceUp * descentNewtons;
                 return;
             }
 
@@ -1725,11 +1881,13 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var shoulderDirection = Vector3.up;
+            var shoulderDirection = ReferenceUp;
             if (vectorThrustEnabled && horizontalIntent.sqrMagnitude > 0.0001f)
             {
                 shoulderDirection = TiltUpToward(
-                    horizontalIntent, shoulderLiftVectorDegrees);
+                    horizontalIntent,
+                    ReferenceUp,
+                    shoulderLiftVectorDegrees);
             }
 
             var legDeflection = 0f;
@@ -1752,8 +1910,8 @@ namespace ACunicombat.Mechs
 
             // 脚部喷口自身不做矢量偏转；这里的方向变化代表整条腿/脚在对应动作中转向。
             var legDirection = horizontalIntent.sqrMagnitude > 0.0001f && legDeflection > 0f
-                ? TiltUpToward(horizontalIntent, legDeflection)
-                : Vector3.up;
+                ? TiltUpToward(horizontalIntent, ReferenceUp, legDeflection)
+                : ReferenceUp;
 
             var shoulderFraction = Mathf.Clamp01(shoulderLiftFraction);
             var shoulderBaseMagnitude = totalLiftNewtons * shoulderFraction * liftCommand;
@@ -1766,15 +1924,19 @@ namespace ACunicombat.Mechs
             var desiredVerticalForce = totalLiftNewtons * liftCommand;
             var verticalDeficit = Mathf.Max(
                 0f,
-                desiredVerticalForce - shoulderForce.y - legForce.y);
+                desiredVerticalForce
+                - Vector3.Dot(shoulderForce, ReferenceUp)
+                - Vector3.Dot(legForce, ReferenceUp));
             verticalDeficit = AddVerticalCompensation(
                 ref shoulderForce,
                 shoulderDirection,
+                ReferenceUp,
                 shoulderBaseMagnitude * liftCompensationReserve,
                 verticalDeficit);
             AddVerticalCompensation(
                 ref legForce,
                 legDirection,
+                ReferenceUp,
                 legBaseMagnitude * liftCompensationReserve,
                 verticalDeficit);
 
@@ -1783,12 +1945,14 @@ namespace ACunicombat.Mechs
             if (!grounded && verticalInput <= Mathf.Epsilon)
             {
                 var gravitySupportNewtons = currentMassKg * gravityAcceleration;
-                var upwardForceNewtons = Mathf.Max(0f, shoulderForce.y + legForce.y);
+                var upwardForceNewtons = Mathf.Max(
+                    0f,
+                    Vector3.Dot(shoulderForce + legForce, ReferenceUp));
                 var trimNewtons = Mathf.Clamp(
                     upwardForceNewtons - gravitySupportNewtons,
                     0f,
                     totalLiftNewtons * Mathf.Clamp01(descentThrustFraction));
-                descentForce = Vector3.down * trimNewtons;
+                descentForce = -ReferenceUp * trimNewtons;
             }
         }
 
@@ -1802,7 +1966,7 @@ namespace ACunicombat.Mechs
         {
             if (braking)
             {
-                var horizontalVelocity = Vector3.ProjectOnPlane(velocity, Vector3.up);
+                var horizontalVelocity = Vector3.ProjectOnPlane(velocity, ReferenceUp);
                 return horizontalVelocity.sqrMagnitude > 0.0001f
                     ? -horizontalVelocity.normalized
                     : Vector3.zero;
@@ -1810,12 +1974,12 @@ namespace ACunicombat.Mechs
 
             if (quickBoostApplying && quickBoostDirection.sqrMagnitude > 0.0001f)
             {
-                return Vector3.ProjectOnPlane(quickBoostDirection, Vector3.up).normalized;
+                return Vector3.ProjectOnPlane(quickBoostDirection, ReferenceUp).normalized;
             }
 
             if (AssaultBoostActive)
             {
-                return Vector3.ProjectOnPlane(mainThrustDirection, Vector3.up).normalized;
+                return Vector3.ProjectOnPlane(mainThrustDirection, ReferenceUp).normalized;
             }
 
             var longitudinalCommand = Mathf.Clamp(frame.MoveLocal.y + mainThrottle, -1f, 1f);
@@ -1826,35 +1990,45 @@ namespace ACunicombat.Mechs
                 : Vector3.zero;
         }
 
-        private static Vector3 TiltUpToward(Vector3 horizontalDirection, float degrees)
+        private static Vector3 TiltUpToward(
+            Vector3 horizontalDirection,
+            Vector3 up,
+            float degrees)
         {
-            var horizontal = Vector3.ProjectOnPlane(horizontalDirection, Vector3.up);
+            up = up.sqrMagnitude > 0.0001f ? up.normalized : Vector3.up;
+            var horizontal = Vector3.ProjectOnPlane(horizontalDirection, up);
             if (horizontal.sqrMagnitude <= 0.0001f || degrees <= 0f)
             {
-                return Vector3.up;
+                return up;
             }
 
             horizontal.Normalize();
-            var axis = Vector3.Cross(Vector3.up, horizontal);
-            return (Quaternion.AngleAxis(Mathf.Clamp(degrees, 0f, 89f), axis) * Vector3.up)
+            var axis = Vector3.Cross(up, horizontal);
+            return (Quaternion.AngleAxis(Mathf.Clamp(degrees, 0f, 89f), axis) * up)
                 .normalized;
         }
 
         private static float AddVerticalCompensation(
             ref Vector3 force,
             Vector3 direction,
+            Vector3 up,
             float reserveMagnitude,
             float verticalDeficit)
         {
+            var verticalDirection = Vector3.Dot(direction, up);
             if (verticalDeficit <= Mathf.Epsilon || reserveMagnitude <= Mathf.Epsilon ||
-                direction.y <= 0.0001f)
+                verticalDirection <= 0.0001f)
             {
                 return verticalDeficit;
             }
 
-            var addedMagnitude = Mathf.Min(reserveMagnitude, verticalDeficit / direction.y);
+            var addedMagnitude = Mathf.Min(
+                reserveMagnitude,
+                verticalDeficit / verticalDirection);
             force += direction * addedMagnitude;
-            return Mathf.Max(0f, verticalDeficit - addedMagnitude * direction.y);
+            return Mathf.Max(
+                0f,
+                verticalDeficit - addedMagnitude * verticalDirection);
         }
 
         private static float ResolveDirectionalForceCapacity(
@@ -1913,42 +2087,51 @@ namespace ACunicombat.Mechs
 
         private void ApplyVisualRotation()
         {
-            transform.localRotation = Quaternion.Euler(0f, yawDegrees + modelForwardYawOffset, 0f);
+            transform.rotation =
+                LogicalRotation *
+                Quaternion.AngleAxis(modelForwardYawOffset, Vector3.up);
         }
 
         private void RefreshGroundHeight(Vector3 position)
         {
-            hasSampledGround = TrySampleGroundHeight(
+            hasSampledGround = TrySampleGroundSurface(
                 position,
-                out sampledGroundY,
+                ReferenceUp,
+                out sampledGroundPoint,
                 out sampledGroundNormal);
             if (!hasSampledGround)
             {
-                sampledGroundY = float.NegativeInfinity;
+                sampledGroundPoint = position;
             }
         }
 
-        private bool TrySampleGroundHeight(
+        private bool TrySampleGroundSurface(
             Vector3 position,
-            out float surfaceY,
+            Vector3 referenceUp,
+            out Vector3 surfacePoint,
             out Vector3 surfaceNormal)
         {
-            var origin = position + Vector3.up * 12f;
+            var up = referenceUp.sqrMagnitude > 0.0001f
+                ? referenceUp.normalized
+                : Vector3.up;
+            var origin = position + up * 12f;
             var hitCount = Physics.RaycastNonAlloc(
                 origin,
-                Vector3.down,
+                -up,
                 groundHits,
                 groundProbeDistance,
                 Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.Ignore);
 
             var foundGround = false;
-            surfaceY = float.NegativeInfinity;
-            surfaceNormal = Vector3.up;
+            var nearestDistance = float.PositiveInfinity;
+            surfacePoint = position;
+            surfaceNormal = up;
             for (var i = 0; i < hitCount; i++)
             {
                 var hit = groundHits[i];
-                if (hit.collider == null || hit.normal.y < minimumGroundNormalY)
+                if (hit.collider == null ||
+                    Vector3.Dot(hit.normal, up) < minimumGroundNormalY)
                 {
                     continue;
                 }
@@ -1959,10 +2142,11 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                if (!foundGround || hit.point.y > surfaceY)
+                if (!foundGround || hit.distance < nearestDistance)
                 {
                     foundGround = true;
-                    surfaceY = hit.point.y;
+                    nearestDistance = hit.distance;
+                    surfacePoint = hit.point;
                     surfaceNormal = hit.normal;
                 }
             }

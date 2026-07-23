@@ -73,6 +73,8 @@ namespace ACunicombat.Mechs
         private float fullBodyOverrideElapsed;
         private MechPlayerInputFrame lastFrame;
         private MechRuntimeState runtimeState;
+        private MechRadarController radar;
+        private Camera viewCamera;
         private MechEquipmentAnimationPlayer leftShoulderWeaponPlayer;
         private MechEquipmentAnimationPlayer rightShoulderWeaponPlayer;
         private ShoulderWeaponSequence leftShoulderSequence;
@@ -105,6 +107,11 @@ namespace ACunicombat.Mechs
             if (weaponLayer == null) weaponLayer = GetComponent<MechWeaponArmLayer>();
             if (graphRunner == null) graphRunner = GetComponent<MechBehaviorGraphRunner>();
             runtimeState = GetComponent<MechRuntimeState>();
+            radar = GetComponent<MechRadarController>();
+            if (cam != null)
+            {
+                viewCamera = cam.GetComponent<Camera>();
+            }
 
             if (graphRunner != null && graphRunner.Graph != null)
             {
@@ -239,7 +246,15 @@ namespace ACunicombat.Mechs
             if (cam != null)
             {
                 cam.UpdateLook(in lastFrame);
+                if (lastFrame.ReferencePlaneResetEdge)
+                {
+                    ResetNavigationReference();
+                }
                 motion.SetAimPitch(cam.PitchDegrees);
+            }
+            else if (lastFrame.ReferencePlaneResetEdge)
+            {
+                motion.ResetReferencePlaneToRotation(motion.LogicalRotation);
             }
 
             if (lastFrame.AssaultBoostEdge)
@@ -351,6 +366,40 @@ namespace ACunicombat.Mechs
                                     stateIsQuickBoost[current]));
                 weaponLayer.Tick(in lastFrame, suppress, dt);
             }
+        }
+
+        private void ResetNavigationReference()
+        {
+            if (cam == null || motion == null)
+            {
+                return;
+            }
+
+            if (viewCamera == null)
+            {
+                viewCamera = cam.GetComponent<Camera>();
+            }
+
+            if (radar == null)
+            {
+                radar = GetComponent<MechRadarController>();
+            }
+
+            if (radar != null &&
+                radar.TryGetTrackAtViewport(
+                    viewCamera,
+                    cam.AimViewportPoint,
+                    out var selectedTrack))
+            {
+                motion.ResetReferencePlaneToward(
+                    radar.PredictTrackPosition(selectedTrack));
+            }
+            else
+            {
+                motion.ResetReferencePlaneToRotation(cam.AimRotation);
+            }
+
+            cam.ResetToReferenceHorizon();
         }
 
         private void LateUpdate()

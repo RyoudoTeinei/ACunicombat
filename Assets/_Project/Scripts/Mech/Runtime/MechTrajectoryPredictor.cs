@@ -65,8 +65,8 @@ namespace ACunicombat.Mechs
             var quickBoostRemaining = motion.CurrentQuickBoostRemaining;
             var gravity = motion.Grounded
                 ? Vector3.zero
-                : Vector3.down * motion.GravityAcceleration;
-            var displayOffset = Vector3.up * originHeight
+                : -motion.ReferenceUp * motion.GravityAcceleration;
+            var displayOffset = motion.ReferenceUp * originHeight
                                 + logicalForward * originForwardOffset;
             var predictedPosition = transform.position;
             var travelledDistance = 0f;
