@@ -74,5 +74,18 @@ namespace ACunicombat.Editor.Tests
 
             Assert.That(elevation, Is.EqualTo(-35f).Within(0.01f));
         }
+
+        [Test]
+        public void ReferenceViewPitch_CanPassVerticalWithoutClamping()
+        {
+            motion.ResetReferencePlaneToRotation(Quaternion.identity);
+
+            var viewRotation = motion.ResolveReferenceViewRotation(-120f);
+            var expectedRotation = Quaternion.AngleAxis(-120f, Vector3.right);
+
+            Assert.That(
+                Quaternion.Angle(viewRotation, expectedRotation),
+                Is.LessThan(0.01f));
+        }
     }
 }

@@ -48,6 +48,7 @@ namespace ACunicombat.Mechs
         private GUIStyle titleStyle;
         private GUIStyle microStyle;
         private GUIStyle pitchStyle;
+        private float pitchLadderRollDegrees;
         private static readonly Color HudGreen = new Color(0.3f, 1f, 0.5f, 1f);
         private static readonly Color HudDimGreen = new Color(0.18f, 0.78f, 0.36f, 0.76f);
         private static readonly Color HudBrightGreen = new Color(0.55f, 1f, 0.7f, 1f);
@@ -588,6 +589,10 @@ namespace ACunicombat.Mechs
                 Mathf.Clamp(viewCamera.fieldOfView, 1f, 179f) * Mathf.Deg2Rad;
             var focalPixels = Screen.height * 0.5f /
                               Mathf.Tan(verticalFovRadians * 0.5f);
+            var previousGuiMatrix = GUI.matrix;
+            GUIUtility.RotateAroundPivot(
+                ResolvePitchLadderRollDegrees(cameraForward, referenceUp),
+                center);
 
             const float tickGap = 10f;
             const float referenceLength = 44f;
@@ -642,6 +647,28 @@ namespace ACunicombat.Mechs
                     major ? 1.7f : 1.2f,
                     label);
             }
+
+            GUI.matrix = previousGuiMatrix;
+        }
+
+        private float ResolvePitchLadderRollDegrees(
+            Vector3 cameraForward,
+            Vector3 referenceUp)
+        {
+            var projectedUp = Vector3.ProjectOnPlane(
+                referenceUp,
+                cameraForward);
+            if (projectedUp.sqrMagnitude <= 0.000001f)
+            {
+                return pitchLadderRollDegrees;
+            }
+
+            projectedUp.Normalize();
+            pitchLadderRollDegrees = Mathf.Atan2(
+                Vector3.Dot(projectedUp, viewCamera.transform.right),
+                Vector3.Dot(projectedUp, viewCamera.transform.up)) *
+                Mathf.Rad2Deg;
+            return pitchLadderRollDegrees;
         }
 
         private void DrawMirroredPitchTick(

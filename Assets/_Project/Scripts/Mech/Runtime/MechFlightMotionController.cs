@@ -445,15 +445,13 @@ namespace ACunicombat.Mechs
 
         public void SetAimPitch(float pitchDegrees)
         {
-            aimPitchDegrees = Mathf.Clamp(pitchDegrees, -89f, 89f);
+            aimPitchDegrees = Mathf.DeltaAngle(0f, pitchDegrees);
         }
 
         public Quaternion ResolveReferenceViewRotation(float viewPitchDegrees) =>
             referenceRotation *
             Quaternion.AngleAxis(yawDegrees, Vector3.up) *
-            Quaternion.AngleAxis(
-                Mathf.Clamp(viewPitchDegrees, -89f, 89f),
-                Vector3.right);
+            Quaternion.AngleAxis(viewPitchDegrees, Vector3.right);
 
         public void ResetReferencePlaneToRotation(Quaternion levelRotation)
         {
@@ -675,10 +673,9 @@ namespace ACunicombat.Mechs
             }
             else
             {
-                pitchDegrees = Mathf.Clamp(
-                    pitchDegrees + pitchStepDegrees,
-                    -89f,
-                    89f);
+                pitchDegrees = Mathf.DeltaAngle(
+                    0f,
+                    pitchDegrees + pitchStepDegrees);
             }
             pitchAngularVelocityRadians =
                 currentPitchRateDegrees * Mathf.Deg2Rad;

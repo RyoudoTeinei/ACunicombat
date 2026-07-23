@@ -59,7 +59,6 @@ namespace ACunicombat.Mechs
 
         [Header("View")]
         [SerializeField, Min(0.001f)] private float mouseSensitivity = 0.09f;
-        [SerializeField, Range(15f, 89f)] private float pitchLimit = 82f;
         [SerializeField, Min(1f)] private float cameraDistance = 17f;
         [SerializeField] private float cameraHeight = 5.2f;
         [SerializeField, Min(0.1f)] private float cameraFollowResponse = 14f;
@@ -116,10 +115,8 @@ namespace ACunicombat.Mechs
 
             var visualForward = -(mech.transform.rotation * Vector3.forward);
             yaw = Mathf.Atan2(visualForward.x, visualForward.z) * Mathf.Rad2Deg;
-            pitch = Mathf.Clamp(
-                -Mathf.Asin(Mathf.Clamp(visualForward.y, -1f, 1f)) * Mathf.Rad2Deg,
-                -pitchLimit,
-                pitchLimit);
+            pitch = -Mathf.Asin(
+                Mathf.Clamp(visualForward.y, -1f, 1f)) * Mathf.Rad2Deg;
             LockCursor();
             Debug.Log(
                 $"[AC6Player] Ready. bodyGraph={(bodyActionPlayer != null && bodyActionPlayer.IsGraphValid)} " +
@@ -326,7 +323,9 @@ namespace ACunicombat.Mechs
 
             var delta = mouse.delta.ReadValue();
             yaw += delta.x * mouseSensitivity;
-            pitch = Mathf.Clamp(pitch - delta.y * mouseSensitivity, -pitchLimit, pitchLimit);
+            pitch = Mathf.DeltaAngle(
+                0f,
+                pitch - delta.y * mouseSensitivity);
         }
 
         private void ReadMovement(Keyboard keyboard)

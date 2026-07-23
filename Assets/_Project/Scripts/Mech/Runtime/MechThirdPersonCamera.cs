@@ -15,8 +15,6 @@ namespace ACunicombat.Mechs
         [SerializeField] private float distance = 20f;
         [SerializeField] private float focusHeight = 7.5f;
         [SerializeField] private float pitchSensitivity = 0.12f;
-        [SerializeField] private float minPitch = -60f;
-        [SerializeField] private float maxPitch = 70f;
         [SerializeField, Min(0.01f)] private float followResponse = 8f;
         [Header("High-speed framing")]
         [SerializeField, Min(0.01f)] private float maxHorizontalLagRatio = 0.26f;
@@ -101,7 +99,7 @@ namespace ACunicombat.Mechs
         {
             distance = Mathf.Max(1f, followDistance);
             focusHeight = Mathf.Max(0f, targetFocusHeight);
-            pitchDegrees = Mathf.Clamp(initialPitchDegrees, minPitch, maxPitch);
+            pitchDegrees = Mathf.DeltaAngle(0f, initialPitchDegrees);
             SnapBehindTarget();
         }
 
@@ -196,11 +194,10 @@ namespace ACunicombat.Mechs
 
             var pitchInput =
                 ApplyDeadZone(normalizedOffset.y, aimDeadZone);
-            pitchDegrees = Mathf.Clamp(
+            pitchDegrees = Mathf.DeltaAngle(
+                0f,
                 pitchDegrees -
-                pitchInput * pitchTurnRateDegrees * Time.unscaledDeltaTime,
-                minPitch,
-                maxPitch);
+                pitchInput * pitchTurnRateDegrees * Time.unscaledDeltaTime);
         }
 
         private void EnsureAimCursorInitialized()
