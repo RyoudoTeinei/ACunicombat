@@ -512,7 +512,12 @@ namespace ACunicombat.Mechs
             {
                 var angle = i * Mathf.PI * 0.5f;
                 var direction = new Vector2(Mathf.Sin(angle), -Mathf.Cos(angle));
-                var tickLength = Mathf.Abs(direction.x) > 0.5f ? 30f : 18f;
+                if (Mathf.Abs(direction.x) > 0.5f)
+                {
+                    continue;
+                }
+
+                const float tickLength = 18f;
                 const float tickGap = 10f;
                 var tickStart = ringCenter + direction * (ringRadius + tickGap);
                 var tickEnd = tickStart + direction * tickLength;
@@ -527,6 +532,7 @@ namespace ACunicombat.Mechs
                     HudBrightGreen,
                     2.1f);
             }
+            DrawSightElevationLadder(ringCenter, ringRadius);
 
             var snappedCenter = center;
             if (radar.CandidateTrackId.IsValid &&
@@ -559,6 +565,109 @@ namespace ACunicombat.Mechs
                 smallStyle.normal.textColor = HudBrightGreen;
                 GUI.Label(new Rect(center.x - 70f, center.y + 36f, 140f, 20f), "DESIGNATE", smallStyle);
             }
+        }
+
+        private void DrawSightElevationLadder(Vector2 center, float radius)
+        {
+            var cameraForward = viewCamera.transform.forward.normalized;
+            var sightElevationDegrees = Mathf.Asin(
+                Mathf.Clamp(cameraForward.y, -1f, 1f)) * Mathf.Rad2Deg;
+            var verticalFovRadians =
+                Mathf.Clamp(viewCamera.fieldOfView, 1f, 179f) * Mathf.Deg2Rad;
+            var focalPixels = Screen.height * 0.5f /
+                              Mathf.Tan(verticalFovRadians * 0.5f);
+
+            const float tickGap = 10f;
+            const float referenceLength = 34f;
+            DrawMirroredPitchTick(
+                center,
+                radius,
+                0f,
+                tickGap,
+                referenceLength,
+                HudBrightGreen,
+                2.1f,
+                null);
+
+            for (var pitchDegrees = -80; pitchDegrees <= 80; pitchDegrees += 5)
+            {
+                var relativeDegrees = pitchDegrees - sightElevationDegrees;
+                if (Mathf.Abs(relativeDegrees) >= 85f)
+                {
+                    continue;
+                }
+
+                var yOffset = -Mathf.Tan(relativeDegrees * Mathf.Deg2Rad) *
+                              focalPixels;
+                if (Mathf.Abs(yOffset) > radius - 28f ||
+                    Mathf.Abs(yOffset) < 3f)
+                {
+                    continue;
+                }
+
+                var major = pitchDegrees % 10 == 0;
+                var zero = pitchDegrees == 0;
+                var tickLength = zero ? 34f : major ? 25f : 14f;
+                var color = zero
+                    ? HudBrightGreen
+                    : major
+                        ? new Color(HudBrightGreen.r, HudBrightGreen.g, HudBrightGreen.b, 0.9f)
+                        : new Color(HudDimGreen.r, HudDimGreen.g, HudDimGreen.b, 0.7f);
+                var label = major
+                    ? pitchDegrees == 0
+                        ? "00"
+                        : pitchDegrees > 0
+                            ? $"+{pitchDegrees:00}"
+                            : $"{pitchDegrees:00}"
+                    : null;
+                DrawMirroredPitchTick(
+                    center,
+                    radius,
+                    yOffset,
+                    tickGap,
+                    tickLength,
+                    color,
+                    major ? 1.5f : 1f,
+                    label);
+            }
+        }
+
+        private void DrawMirroredPitchTick(
+            Vector2 center,
+            float radius,
+            float yOffset,
+            float gap,
+            float length,
+            Color color,
+            float thickness,
+            string label)
+        {
+            var halfChord = Mathf.Sqrt(
+                Mathf.Max(0f, radius * radius - yOffset * yOffset));
+            var y = center.y + yOffset;
+            var leftStart = new Vector2(center.x - halfChord - gap, y);
+            var leftEnd = leftStart + Vector2.left * length;
+            var rightStart = new Vector2(center.x + halfChord + gap, y);
+            var rightEnd = rightStart + Vector2.right * length;
+            DrawLine(leftStart, leftEnd, color, thickness);
+            DrawLine(rightStart, rightEnd, color, thickness);
+
+            if (string.IsNullOrEmpty(label))
+            {
+                return;
+            }
+
+            microStyle.normal.textColor = color;
+            microStyle.alignment = TextAnchor.MiddleRight;
+            GUI.Label(
+                new Rect(leftEnd.x - 42f, y - 9f, 36f, 18f),
+                label,
+                microStyle);
+            microStyle.alignment = TextAnchor.MiddleLeft;
+            GUI.Label(
+                new Rect(rightEnd.x + 6f, y - 9f, 36f, 18f),
+                label,
+                microStyle);
         }
 
         private void DrawWorldTrackMarkers()
