@@ -340,7 +340,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private float dashScrollMetersPerSecond = 48f;
         [SerializeField] private float dashAccelerationDeadzone = 0.3f;
         [SerializeField] private float pathStartDistance = 30f;
-        [SerializeField] private float pathHalfWidth = 6f;
+        [SerializeField] private float pathHalfWidth = 9f;
         [SerializeField] private float pathDirectionSmoothingSeconds = 0.32f;
         [SerializeField] private float pathLateralSmoothingSeconds = 0.18f;
         [SerializeField] private float pathLengthSmoothingSeconds = 0.24f;
@@ -773,16 +773,14 @@ namespace ACunicombat.Mechs
                 rightPathLine,
                 lineStart + laneOffset,
                 lineEnd + laneOffset);
-            if (pathMaterial != null)
-            {
-                var dashPatternLength = Mathf.Max(0.01f, dashSegmentLength) +
-                                        Mathf.Max(0.01f, dashGapLength);
-                pathMaterial.mainTextureScale = new Vector2(
-                    (fullPathLength - hiddenDistance) /
-                    dashPatternLength,
-                    1f);
-                UpdateDashAnimation(deltaTime);
-            }
+            var dashPatternLength = Mathf.Max(0.01f, dashSegmentLength) +
+                                    Mathf.Max(0.01f, dashGapLength);
+            var textureScale = new Vector2(
+                (fullPathLength - hiddenDistance) / dashPatternLength,
+                1f);
+            leftPathLine.textureScale = textureScale;
+            rightPathLine.textureScale = textureScale;
+            UpdateDashAnimation(deltaTime);
         }
 
         private void EnsurePathRenderer()
@@ -808,33 +806,7 @@ namespace ACunicombat.Mechs
                     filterMode = FilterMode.Bilinear,
                     hideFlags = HideFlags.HideAndDontSave,
                 };
-                var segmentLength = Mathf.Max(0.01f, dashSegmentLength);
-                var gapLength = Mathf.Max(0.01f, dashGapLength);
-                var visiblePixels = Mathf.Clamp(
-                    Mathf.RoundToInt(
-                        dashTexture.width *
-                        segmentLength / (segmentLength + gapLength)),
-                    1,
-                    dashTexture.width - 1);
-                for (var x = 0; x < dashTexture.width; x++)
-                {
-                    var color = Color.clear;
-                    if (x < visiblePixels)
-                    {
-                        var normalized = visiblePixels > 1
-                            ? x / (visiblePixels - 1f)
-                            : 0.5f;
-                        var pulse = 0.45f +
-                                    Mathf.Sin(normalized * Mathf.PI) * 0.55f;
-                        color = new Color(1f, 1f, 1f, pulse);
-                    }
-
-                    dashTexture.SetPixel(
-                        x,
-                        0,
-                        color);
-                }
-                dashTexture.Apply(false, true);
+                RefreshDashTexture();
             }
 
             if (pathMaterial == null)
@@ -945,7 +917,7 @@ namespace ACunicombat.Mechs
 
         private void UpdateDashAnimation(float deltaTime)
         {
-            if (pathMaterial == null || motion == null)
+            if (dashTexture == null || motion == null)
             {
                 return;
             }
@@ -967,11 +939,38 @@ namespace ACunicombat.Mechs
                      patternLength) *
                     Mathf.Max(0f, deltaTime),
                     1f);
+                RefreshDashTexture();
+            }
+        }
+
+        private void RefreshDashTexture()
+        {
+            if (dashTexture == null)
+            {
+                return;
             }
 
-            pathMaterial.mainTextureOffset = new Vector2(
-                dashTexturePhase,
-                0f);
+            var segmentLength = Mathf.Max(0.01f, dashSegmentLength);
+            var gapLength = Mathf.Max(0.01f, dashGapLength);
+            var visibleFraction = segmentLength / (segmentLength + gapLength);
+            for (var x = 0; x < dashTexture.width; x++)
+            {
+                var patternPosition = Mathf.Repeat(
+                    x / (float)dashTexture.width + dashTexturePhase,
+                    1f);
+                var color = Color.clear;
+                if (patternPosition < visibleFraction)
+                {
+                    var normalized = patternPosition / visibleFraction;
+                    var pulse = 0.45f +
+                                Mathf.Sin(normalized * Mathf.PI) * 0.55f;
+                    color = new Color(1f, 1f, 1f, pulse);
+                }
+
+                dashTexture.SetPixel(x, 0, color);
+            }
+
+            dashTexture.Apply(false, false);
         }
 
         private void OnDisable()
