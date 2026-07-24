@@ -339,6 +339,9 @@ namespace ACunicombat.Mechs
         [SerializeField] private float dashGapLength = 5.7f;
         [SerializeField] private float dashScrollMetersPerSecond = 48f;
         [SerializeField] private float dashAccelerationDeadzone = 0.3f;
+        [SerializeField] private float dashAlignedSpeedTolerance = 1.5f;
+        [SerializeField] private float dashLightWidth = 32f;
+        [SerializeField, Range(0f, 1f)] private float dashMovingBaseBrightness = 0.32f;
         [SerializeField] private float pathStartDistance = 30f;
         [SerializeField] private float pathHalfWidth = 9f;
         [SerializeField] private float pathDirectionSmoothingSeconds = 0.32f;
@@ -362,11 +365,13 @@ namespace ACunicombat.Mechs
         private LineRenderer rightPathLine;
         private Material pathMaterial;
         private Texture2D dashTexture;
+        private Color32[] dashPixels;
         private Vector3 visualPathAnchor;
         private Vector3 visualPathDirection = Vector3.forward;
         private Vector3 visualPathRight = Vector3.right;
         private float visualPathSignedSpeed;
-        private float dashTexturePhase;
+        private float dashLightDistance;
+        private bool dashLightInitialized;
         private bool pathVisualInitialized;
 
         public bool Active => active;
@@ -422,6 +427,7 @@ namespace ACunicombat.Mechs
             manualOverride = false;
             autoThrottleCommand = 0f;
             pathVisualInitialized = false;
+            dashLightInitialized = false;
             EnsurePathRenderer();
             SetPathVisible(true);
             return true;
@@ -773,14 +779,11 @@ namespace ACunicombat.Mechs
                 rightPathLine,
                 lineStart + laneOffset,
                 lineEnd + laneOffset);
-            var dashPatternLength = Mathf.Max(0.01f, dashSegmentLength) +
-                                    Mathf.Max(0.01f, dashGapLength);
-            var textureScale = new Vector2(
-                (fullPathLength - hiddenDistance) / dashPatternLength,
-                1f);
-            leftPathLine.textureScale = textureScale;
-            rightPathLine.textureScale = textureScale;
-            UpdateDashAnimation(deltaTime);
+            leftPathLine.textureScale = Vector2.one;
+            rightPathLine.textureScale = Vector2.one;
+            UpdateDashAnimation(
+                deltaTime,
+                fullPathLength - hiddenDistance);
         }
 
         private void EnsurePathRenderer()
@@ -799,14 +802,18 @@ namespace ACunicombat.Mechs
 
             if (dashTexture == null)
             {
-                dashTexture = new Texture2D(64, 1, TextureFormat.RGBA32, false)
+                dashTexture = new Texture2D(4096, 1, TextureFormat.RGBA32, false)
                 {
                     name = "Runtime Orbit Sync Dash",
-                    wrapMode = TextureWrapMode.Repeat,
+                    wrapMode = TextureWrapMode.Clamp,
                     filterMode = FilterMode.Bilinear,
                     hideFlags = HideFlags.HideAndDontSave,
                 };
-                RefreshDashTexture();
+                dashPixels = new Color32[dashTexture.width];
+                RefreshDashTexture(
+                    Mathf.Max(1f, minimumPathLength - pathStartDistance),
+                    true,
+                    false);
             }
 
             if (pathMaterial == null)
@@ -868,20 +875,15 @@ namespace ACunicombat.Mechs
             renderer.useWorldSpace = true;
             renderer.loop = false;
             renderer.alignment = LineAlignment.View;
-            // Stretch gives this line one 0..1 UV span. Material tiling then maps the
-            // configured world-space dash and gap lengths without LineRenderer adding
-            // a second width-based repetition.
+            // The runtime texture contains the entire visible guide. Stretch keeps the
+            // fixed dash mask stationary while only its brightness is animated.
             renderer.textureMode = LineTextureMode.Stretch;
             renderer.numCapVertices = 2;
             renderer.numCornerVertices = 2;
             renderer.startWidth = lineWidth;
             renderer.endWidth = lineWidth * 0.65f;
             renderer.startColor = pathColor;
-            renderer.endColor = new Color(
-                pathColor.r,
-                pathColor.g,
-                pathColor.b,
-                pathColor.a * 0.35f);
+            renderer.endColor = pathColor;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
             renderer.lightProbeUsage = LightProbeUsage.Off;
@@ -915,61 +917,112 @@ namespace ACunicombat.Mechs
             }
         }
 
-        private void UpdateDashAnimation(float deltaTime)
+        private void UpdateDashAnimation(
+            float deltaTime,
+            float visiblePathLength)
         {
             if (dashTexture == null || motion == null)
             {
                 return;
             }
 
+            visiblePathLength = Mathf.Max(1f, visiblePathLength);
+            if (!dashLightInitialized)
+            {
+                dashLightDistance = visiblePathLength * 0.5f;
+                dashLightInitialized = true;
+            }
+
+            var desiredAlongSpeed =
+                Vector3.Dot(filteredTargetVelocity, parallelDirection) +
+                longitudinalVelocityBias;
+            var actualAlongSpeed = Vector3.Dot(
+                motion.Velocity,
+                parallelDirection);
+            var speedAligned = Mathf.Abs(
+                actualAlongSpeed - desiredAlongSpeed) <=
+                Mathf.Max(0f, dashAlignedSpeedTolerance);
             var alongAcceleration = Vector3.Dot(
                 motion.CurrentControlAcceleration,
                 parallelDirection);
-            if (Mathf.Abs(alongAcceleration) >=
+            var highlightActive = !speedAligned;
+            if (highlightActive &&
+                Mathf.Abs(alongAcceleration) >=
                 Mathf.Max(0f, dashAccelerationDeadzone))
             {
-                var patternLength = Mathf.Max(0.01f, dashSegmentLength) +
-                                    Mathf.Max(0.01f, dashGapLength);
-                // Positive acceleration moves the highlight toward the path end.
-                // Texture sampling runs in the opposite direction to visible UV motion.
-                dashTexturePhase = Mathf.Repeat(
-                    dashTexturePhase -
+                dashLightDistance = Mathf.Repeat(
+                    dashLightDistance +
                     Mathf.Sign(alongAcceleration) *
-                    (Mathf.Max(0f, dashScrollMetersPerSecond) /
-                     patternLength) *
+                    Mathf.Max(0f, dashScrollMetersPerSecond) *
                     Mathf.Max(0f, deltaTime),
-                    1f);
-                RefreshDashTexture();
+                    visiblePathLength);
             }
+
+            RefreshDashTexture(
+                visiblePathLength,
+                speedAligned,
+                highlightActive);
         }
 
-        private void RefreshDashTexture()
+        private void RefreshDashTexture(
+            float visiblePathLength,
+            bool speedAligned,
+            bool highlightActive)
         {
             if (dashTexture == null)
             {
                 return;
             }
 
+            dashPixels ??= new Color32[dashTexture.width];
+            visiblePathLength = Mathf.Max(1f, visiblePathLength);
+            dashLightDistance = Mathf.Repeat(
+                dashLightDistance,
+                visiblePathLength);
             var segmentLength = Mathf.Max(0.01f, dashSegmentLength);
             var gapLength = Mathf.Max(0.01f, dashGapLength);
-            var visibleFraction = segmentLength / (segmentLength + gapLength);
+            var patternLength = segmentLength + gapLength;
+            var lightSigma = Mathf.Max(0.1f, dashLightWidth) * 0.35f;
+            var baseBrightness = Mathf.Clamp01(dashMovingBaseBrightness);
             for (var x = 0; x < dashTexture.width; x++)
             {
+                var worldDistance =
+                    x / (dashTexture.width - 1f) * visiblePathLength;
                 var patternPosition = Mathf.Repeat(
-                    x / (float)dashTexture.width + dashTexturePhase,
-                    1f);
-                var color = Color.clear;
-                if (patternPosition < visibleFraction)
+                    worldDistance,
+                    patternLength);
+                if (patternPosition >= segmentLength)
                 {
-                    var normalized = patternPosition / visibleFraction;
-                    var pulse = 0.45f +
-                                Mathf.Sin(normalized * Mathf.PI) * 0.55f;
-                    color = new Color(1f, 1f, 1f, pulse);
+                    dashPixels[x] = new Color32(255, 255, 255, 0);
+                    continue;
                 }
 
-                dashTexture.SetPixel(x, 0, color);
+                var brightness = speedAligned ? 1f : baseBrightness;
+                if (highlightActive)
+                {
+                    var directLightDistance = Mathf.Abs(
+                        worldDistance - dashLightDistance);
+                    var lightDistance = Mathf.Min(
+                        directLightDistance,
+                        visiblePathLength - directLightDistance);
+                    var pulse = Mathf.Exp(
+                        -(lightDistance * lightDistance) /
+                        (2f * lightSigma * lightSigma));
+                    brightness = Mathf.Lerp(
+                        baseBrightness,
+                        1f,
+                        pulse);
+                }
+
+                dashPixels[x] = new Color32(
+                    255,
+                    255,
+                    255,
+                    (byte)Mathf.RoundToInt(
+                        Mathf.Clamp01(brightness) * 255f));
             }
 
+            dashTexture.SetPixels32(dashPixels);
             dashTexture.Apply(false, false);
         }
 
