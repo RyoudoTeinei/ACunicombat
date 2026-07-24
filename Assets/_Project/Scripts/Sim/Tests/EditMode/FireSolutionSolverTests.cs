@@ -64,6 +64,70 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(solution.InterceptTime, Is.EqualTo(4.48).Within(0.01));
         }
 
+        [Test]
+        public void MissileSolution_UsesEjectionAndBoostSegments()
+        {
+            var track = ConfirmedTrack(lastUpdateTime: 1.0);
+            var kinematics = StandardMissileKinematics();
+
+            var solution = FireSolutionSolver.SolveMissile(
+                track,
+                double3.zero,
+                double3.zero,
+                kinematics,
+                requestTime: 1.0);
+
+            var expectedFlightTime =
+                (-40.0 + math.sqrt(40.0 * 40.0 + 600.0 * 1_000.0)) /
+                300.0;
+            Assert.That(solution.Failure, Is.EqualTo(FireSolutionFailure.None));
+            Assert.That(solution.WeaponReleaseAuthorized, Is.True);
+            Assert.That(
+                solution.InterceptTime - 1.0,
+                Is.EqualTo(expectedFlightTime).Within(0.001));
+            Assert.That(solution.InterceptPoint.z, Is.EqualTo(1_000.0).Within(0.01));
+        }
+
+        [Test]
+        public void MissileSolution_IsInvariantToSharedWorldVelocity()
+        {
+            var stationaryTrack = ConfirmedTrack(lastUpdateTime: 1.0);
+            var movingTrack = ConfirmedTrack(lastUpdateTime: 1.0);
+            movingTrack.Velocity = new double3(0.0, 0.0, 200.0);
+            var kinematics = StandardMissileKinematics();
+
+            var stationarySolution = FireSolutionSolver.SolveMissile(
+                stationaryTrack,
+                double3.zero,
+                double3.zero,
+                kinematics,
+                requestTime: 1.0);
+            var movingSolution = FireSolutionSolver.SolveMissile(
+                movingTrack,
+                double3.zero,
+                new double3(0.0, 0.0, 200.0),
+                kinematics,
+                requestTime: 1.0);
+
+            Assert.That(movingSolution.Failure, Is.EqualTo(FireSolutionFailure.None));
+            Assert.That(
+                movingSolution.InterceptTime,
+                Is.EqualTo(stationarySolution.InterceptTime).Within(0.001));
+            Assert.That(
+                movingSolution.InterceptPoint.z,
+                Is.GreaterThan(stationarySolution.InterceptPoint.z));
+        }
+
+        private static MissileKinematicProfile StandardMissileKinematics()
+        {
+            return new MissileKinematicProfile
+            {
+                EjectionSpeed = 40.0,
+                BoostAcceleration = 300.0,
+                MotorBurnDuration = 3.5,
+            };
+        }
+
         private static TrackSnapshot ConfirmedTrack(double lastUpdateTime)
         {
             var track = new TrackSnapshot

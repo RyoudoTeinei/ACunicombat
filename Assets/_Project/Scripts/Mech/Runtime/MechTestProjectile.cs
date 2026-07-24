@@ -34,7 +34,6 @@ namespace ACunicombat.Mechs
         private float lifeRemaining;
         private float launchDelay;
         private float acceleration;
-        private float maximumSpeed;
         private float turnRateRadians;
         private float maximumTravelDistance;
         private float distanceTravelled;
@@ -90,7 +89,6 @@ namespace ACunicombat.Mechs
             float lifetimeSeconds,
             float delaySeconds = 0f,
             float accelerationMetersPerSecondSquared = 0f,
-            float maximumSpeedMetersPerSecond = 0f,
             float turnRateDegreesPerSecond = 0f,
             MechEffectPrefabLibrary newEffectLibrary = null,
             int newImpactFfxId = 0,
@@ -118,7 +116,6 @@ namespace ACunicombat.Mechs
             lifeRemaining = Mathf.Max(0.1f, lifetimeSeconds);
             launchDelay = Mathf.Max(0f, delaySeconds);
             acceleration = Mathf.Max(0f, accelerationMetersPerSecondSquared);
-            maximumSpeed = Mathf.Max(initialVelocity.magnitude, maximumSpeedMetersPerSecond);
             turnRateRadians = Mathf.Max(0f, turnRateDegreesPerSecond) * Mathf.Deg2Rad;
             maximumTravelDistance = Mathf.Max(0f, newMaximumTravelDistance);
             distanceTravelled = 0f;
@@ -249,13 +246,14 @@ namespace ACunicombat.Mechs
             var currentSpeed = velocity.magnitude;
             if (motorActive)
             {
-                var thrustDirection = currentSpeed > 0.01f
-                    ? velocity / currentSpeed
-                    : transform.forward;
-                currentSpeed = Mathf.Min(
-                    maximumSpeed,
-                    currentSpeed + acceleration * deltaTime);
-                velocity = thrustDirection * currentSpeed;
+                var thrustDirection =
+                    transform.forward.sqrMagnitude > 0.001f
+                        ? transform.forward.normalized
+                        : currentSpeed > 0.01f
+                            ? velocity / currentSpeed
+                            : Vector3.forward;
+                velocity +=
+                    thrustDirection * acceleration * deltaTime;
             }
 
             Vector3 targetPosition;

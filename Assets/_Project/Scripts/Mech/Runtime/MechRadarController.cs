@@ -659,13 +659,17 @@ namespace ACunicombat.Mechs
         public bool TryAuthorizeMissileLaunch(
             MissileGuidanceMode guidanceMode,
             float coneDegrees,
-            double projectileSpeed,
+            in MissileKinematicProfile kinematics,
             out TrackSnapshot track,
             out FireSolution solution,
             out int guidanceChannelToken)
         {
             guidanceChannelToken = 0;
-            if (!TryGetFireSolution(coneDegrees, projectileSpeed, out track, out solution))
+            if (!TryGetMissileFireSolution(
+                    coneDegrees,
+                    kinematics,
+                    out track,
+                    out solution))
             {
                 return false;
             }
@@ -687,6 +691,37 @@ namespace ACunicombat.Mechs
             }
 
             return true;
+        }
+
+        public bool TryGetMissileFireSolution(
+            float coneDegrees,
+            in MissileKinematicProfile kinematics,
+            out TrackSnapshot track,
+            out FireSolution solution)
+        {
+            solution = default;
+            if (!TryGetFireControlTrack(out track))
+            {
+                return false;
+            }
+
+            solution = FireSolutionSolver.SolveMissile(
+                track,
+                ToDouble3(transform.position),
+                ToDouble3(playerVelocity),
+                kinematics,
+                SimTimeSeconds);
+            if (!solution.WeaponReleaseAuthorized)
+            {
+                return false;
+            }
+
+            var ray = GetAimRay();
+            var toIntercept =
+                ToVector3(solution.InterceptPoint) - ray.origin;
+            return toIntercept.sqrMagnitude > 0.001f &&
+                   Vector3.Angle(ray.direction, toIntercept) <=
+                   coneDegrees;
         }
 
         public void ReleaseGuidanceChannel(int token)

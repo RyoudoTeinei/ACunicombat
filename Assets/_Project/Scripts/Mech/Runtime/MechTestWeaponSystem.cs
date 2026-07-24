@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ACunicombat.FireControl;
 using ACunicombat.Sensing.Contracts;
 using UnityEngine;
 
@@ -13,6 +14,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechPlayerInputAdapter input;
         [SerializeField] private MechRuntimeState runtimeState;
         [SerializeField] private MechPlayerRig playerRig;
+        [SerializeField] private MechFlightMotionController flightMotion;
         [SerializeField] private Camera aimingCamera;
         private MechThirdPersonCamera aimController;
         [SerializeField] private CombatTestTarget target;
@@ -26,12 +28,14 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(1f)] private float missileMaximumFlightTimeSeconds = 300f;
         [SerializeField, Min(1000f)] private float missileMaximumRangeMeters = 50000f;
         [Header("Missile propulsion and seeker")]
-        [SerializeField, Min(0.1f)] private float missileMotorBurnSeconds = 2.1f;
+        [SerializeField, Min(0f)] private float missileEjectionSpeedMps = 40f;
+        [SerializeField, Min(0.1f)] private float missileBoostAccelerationMps2 = 300f;
+        [SerializeField, Min(0.1f)] private float missileMotorBurnSeconds = 3.5f;
         [SerializeField, Min(100f)] private float missileSeekerRangeMeters = 8000f;
         [SerializeField, Range(1f, 89f)] private float missileSeekerSearchHalfAngleDegrees = 35f;
         [SerializeField, Range(1f, 89f)] private float missileSeekerGimbalDegrees = 60f;
-        [SerializeField, Min(0f)] private float missileLateralAccelerationMps2 = 75f;
-        [SerializeField, Min(0f)] private float missileManeuverDeltaVMps = 180f;
+        [SerializeField, Min(0f)] private float missileLateralAccelerationMps2 = 180f;
+        [SerializeField, Min(0f)] private float missileManeuverDeltaVMps = 300f;
         [Header("Missile fuze and warhead")]
         [SerializeField, Min(0.1f)] private float missileProximityFuseRadiusMeters = 12f;
         [SerializeField, Min(0f)] private float missileFuseArmSeconds = 0.75f;
@@ -63,6 +67,7 @@ namespace ACunicombat.Mechs
             input = newInput;
             runtimeState = newRuntimeState;
             playerRig = GetComponent<MechPlayerRig>();
+            flightMotion = GetComponent<MechFlightMotionController>();
             aimingCamera = newAimingCamera;
             aimController = aimingCamera != null
                 ? aimingCamera.GetComponent<MechThirdPersonCamera>()
@@ -90,6 +95,7 @@ namespace ACunicombat.Mechs
             if (input == null) input = GetComponent<MechPlayerInputAdapter>();
             if (runtimeState == null) runtimeState = GetComponent<MechRuntimeState>();
             if (playerRig == null) playerRig = GetComponent<MechPlayerRig>();
+            if (flightMotion == null) flightMotion = GetComponent<MechFlightMotionController>();
             if (aimingCamera == null) aimingCamera = Camera.main;
             if (aimController == null && aimingCamera != null)
             {
@@ -223,11 +229,12 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            var missileKinematics = BuildMissileKinematics();
             if (radarController == null ||
                 !radarController.TryAuthorizeMissileLaunch(
                     MissileGuidanceMode.ActiveRadar,
                     missileLockDegrees,
-                    230f,
+                    missileKinematics,
                     out var track,
                     out var solution,
                     out var guidanceToken))
@@ -243,8 +250,10 @@ namespace ACunicombat.Mechs
             var seekerActivationDelay = Mathf.Clamp(
                 (float)(solution.SeekerActivationTime -
                         radarController.SimTimeSeconds),
-                missileMotorBurnSeconds,
+                0.5f,
                 8f);
+            var inheritedVelocity =
+                flightMotion != null ? flightMotion.Velocity : Vector3.zero;
             Debug.Log(
                 $"[MechTestWeaponSystem] Missile launch authorized: slot={slot}, track={trackId}, " +
                 $"channel={guidanceToken}, seeker={seekerActivationDelay:0.0}s.",
@@ -277,9 +286,8 @@ namespace ACunicombat.Mechs
                     missileMaximumFlightTimeSeconds,
                     trackId,
                     i * 0.06f,
-                    85f,
-                    230f,
-                    150f,
+                    acceleration: missileBoostAccelerationMps2,
+                    turnRateDegrees: 150f,
                     launchFfxId: slot == MechPartSlot.LeftBackWeapon ? 6082100 : 6083100,
                     projectileFfxId: slot == MechPartSlot.LeftBackWeapon ? 6082101 : 6083101,
                     launchAnchor: muzzle,
@@ -295,7 +303,8 @@ namespace ACunicombat.Mechs
                     proximityFuseRadius: missileProximityFuseRadiusMeters,
                     proximityFuseArmTime: missileFuseArmSeconds,
                     proximityFuseSafeDistance: missileFuseSafeDistanceMeters,
-                    warheadLethalRadius: missileWarheadLethalRadiusMeters);
+                    warheadLethalRadius: missileWarheadLethalRadiusMeters,
+                    inheritedVelocity: inheritedVelocity);
             }
             muzzleIndex = (muzzleIndex + salvoCount) % muzzles.Length;
         }
@@ -327,7 +336,6 @@ namespace ACunicombat.Mechs
             TrackId homingTrack = default,
             float launchDelay = 0f,
             float acceleration = 0f,
-            float maximumSpeed = 0f,
             float turnRateDegrees = 0f,
             int launchFfxId = 0,
             int projectileFfxId = 0,
@@ -345,7 +353,8 @@ namespace ACunicombat.Mechs
             float proximityFuseRadius = 12f,
             float proximityFuseArmTime = 0.75f,
             float proximityFuseSafeDistance = 20f,
-            float warheadLethalRadius = 18f)
+            float warheadLethalRadius = 18f,
+            Vector3 inheritedVelocity = default)
         {
             EnsureMaterials();
             SpawnNativeOneShot(launchFfxId, launchAnchor, position, direction);
@@ -390,13 +399,12 @@ namespace ACunicombat.Mechs
                 radarController,
                 homingTrack,
                 kind,
-                direction * speed,
+                inheritedVelocity + direction * speed,
                 damage,
                 radius,
                 lifetime,
                 launchDelay,
                 acceleration,
-                maximumSpeed,
                 turnRateDegrees,
                 nativeEffectLibrary,
                 impactFfxId,
@@ -513,7 +521,11 @@ namespace ACunicombat.Mechs
             }
 
             var targetCenter = new Vector2(screen.x, Screen.height - screen.y);
-            var color = TryGetAimPoint(missileLockDegrees, 230f, out _, out _)
+            var color = radarController.TryGetMissileFireSolution(
+                    missileLockDegrees,
+                    BuildMissileKinematics(),
+                    out _,
+                    out _)
                 ? new Color(1f, 0.35f, 0.12f)
                 : new Color(0.25f, 0.9f, 0.95f);
             const float bracket = 34f;
@@ -522,6 +534,16 @@ namespace ACunicombat.Mechs
             hudLabelStyle.normal.textColor = color;
             GUI.Label(new Rect(targetCenter.x - 90f, targetCenter.y - 65f, 180f, 22f),
                 $"{track.TrackId}  {range:0} m  {track.Lifecycle}  {track.Confidence:P0}", hudLabelStyle);
+        }
+
+        private MissileKinematicProfile BuildMissileKinematics()
+        {
+            return new MissileKinematicProfile
+            {
+                EjectionSpeed = missileEjectionSpeedMps,
+                BoostAcceleration = missileBoostAccelerationMps2,
+                MotorBurnDuration = missileMotorBurnSeconds,
+            };
         }
 
         public static void SpawnImpact(
