@@ -12,6 +12,7 @@ namespace ACunicombat.Mechs
     {
         [SerializeField] private MechPlayerInputAdapter input;
         [SerializeField] private MechRuntimeState runtimeState;
+        [SerializeField] private MechPlayerRig playerRig;
         [SerializeField] private Camera aimingCamera;
         private MechThirdPersonCamera aimController;
         [SerializeField] private CombatTestTarget target;
@@ -49,6 +50,7 @@ namespace ACunicombat.Mechs
         {
             input = newInput;
             runtimeState = newRuntimeState;
+            playerRig = GetComponent<MechPlayerRig>();
             aimingCamera = newAimingCamera;
             aimController = aimingCamera != null
                 ? aimingCamera.GetComponent<MechThirdPersonCamera>()
@@ -75,6 +77,7 @@ namespace ACunicombat.Mechs
         {
             if (input == null) input = GetComponent<MechPlayerInputAdapter>();
             if (runtimeState == null) runtimeState = GetComponent<MechRuntimeState>();
+            if (playerRig == null) playerRig = GetComponent<MechPlayerRig>();
             if (aimingCamera == null) aimingCamera = Camera.main;
             if (aimController == null && aimingCamera != null)
             {
@@ -123,11 +126,13 @@ namespace ACunicombat.Mechs
             {
                 FireHandWeapon(MechPartSlot.RightHandWeapon, TestWeaponKind.Rifle, ref rightHandMuzzleIndex);
             }
-            if (frame.LeftShoulderFireEdge)
+            if (playerRig != null &&
+                playerRig.ConsumeShoulderMissileLaunch(MechPartSlot.LeftBackWeapon))
             {
                 FireMissileSalvo(MechPartSlot.LeftBackWeapon, ref leftBackMuzzleIndex);
             }
-            if (frame.RightShoulderFireEdge)
+            if (playerRig != null &&
+                playerRig.ConsumeShoulderMissileLaunch(MechPartSlot.RightBackWeapon))
             {
                 FireMissileSalvo(MechPartSlot.RightBackWeapon, ref rightBackMuzzleIndex);
             }

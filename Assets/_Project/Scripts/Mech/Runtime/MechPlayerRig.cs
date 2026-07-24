@@ -23,14 +23,19 @@ namespace ACunicombat.Mechs
         private const string RightAirQuickBoostActionId = "a000_122413";
         private const string AssaultBoostCruiseActionId = "a000_120200";
         private const string ShoulderRestActionId = "a000_800000";
+        private const string ShoulderDeployActionId = "a000_800110";
+        private const string ShoulderOpenActionId = "a000_800120";
+        private const string ShoulderFireActionId = "a000_800210";
+        private const string ShoulderCloseActionId = "a000_800320";
+        private const string ShoulderStowActionId = "a000_800310";
 
         private static readonly string[] ShoulderFireSequenceActionIds =
         {
-            "a000_800110", // Rest -> deployed.
-            "a000_800120", // Deployed -> aimed.
-            "a000_800210", // Fire while retaining the aimed pose.
-            "a000_800320", // Aimed -> deployed.
-            "a000_800310", // Deployed -> rest.
+            ShoulderDeployActionId,
+            ShoulderOpenActionId,
+            ShoulderFireActionId,
+            ShoulderCloseActionId,
+            ShoulderStowActionId,
         };
 
         private enum FullBodyOverrideKind
@@ -38,6 +43,18 @@ namespace ACunicombat.Mechs
             None,
             QuickBoost,
             AssaultBoostCruise,
+        }
+
+        private enum ShoulderLauncherPhase
+        {
+            Stowed,
+            Deploying,
+            Ready,
+            Opening,
+            Firing,
+            Closing,
+            Stowing,
+            FallbackFiring,
         }
 
         [SerializeField] private MechPlayerInputAdapter input;
@@ -75,18 +92,18 @@ namespace ACunicombat.Mechs
         private MechRuntimeState runtimeState;
         private MechRadarController radar;
         private Camera viewCamera;
-        private MechEquipmentAnimationPlayer leftShoulderWeaponPlayer;
-        private MechEquipmentAnimationPlayer rightShoulderWeaponPlayer;
-        private ShoulderWeaponSequence leftShoulderSequence;
-        private ShoulderWeaponSequence rightShoulderSequence;
-        private bool shoulderRestPoseInitialized;
+        private ShoulderLauncherState leftShoulderLauncher;
+        private ShoulderLauncherState rightShoulderLauncher;
 
-        private sealed class ShoulderWeaponSequence
+        private sealed class ShoulderLauncherState
         {
             public MechEquipmentAnimationPlayer Player;
-            public string[] ActionIds;
-            public int NextActionIndex;
             public MechPartSlot Slot;
+            public ShoulderLauncherPhase Phase;
+            public bool FireRequested;
+            public bool LaunchAuthorizedThisFrame;
+            public bool HasCanonicalCycle;
+            public string FallbackFireActionId;
         }
 
         private void Awake()
@@ -208,9 +225,10 @@ namespace ACunicombat.Mechs
 
             var dt = Time.deltaTime;
             EnsureActionPlayer();
-            TryInitializeShoulderRestPoses();
-            AdvanceShoulderSequence(ref leftShoulderSequence);
-            AdvanceShoulderSequence(ref rightShoulderSequence);
+            TryInitializeShoulderLaunchers();
+            var hasStt = HasSttTrack();
+            UpdateShoulderLauncher(leftShoulderLauncher, hasStt);
+            UpdateShoulderLauncher(rightShoulderLauncher, hasStt);
             lastFrame = input.Sample();
             quickBoostActivationConsumed = false;
 
@@ -229,18 +247,12 @@ namespace ACunicombat.Mechs
 
             if (lastFrame.LeftShoulderFireEdge)
             {
-                FireShoulderWeapon(
-                    MechPartSlot.LeftBackWeapon,
-                    ref leftShoulderWeaponPlayer,
-                    ref leftShoulderSequence);
+                RequestShoulderFire(leftShoulderLauncher);
             }
 
             if (lastFrame.RightShoulderFireEdge)
             {
-                FireShoulderWeapon(
-                    MechPartSlot.RightBackWeapon,
-                    ref rightShoulderWeaponPlayer,
-                    ref rightShoulderSequence);
+                RequestShoulderFire(rightShoulderLauncher);
             }
 
             if (cam != null)
@@ -526,25 +538,42 @@ namespace ACunicombat.Mechs
             return moveLocal.y < 0f ? BackwardAirQuickBoostActionId : ForwardAirQuickBoostActionId;
         }
 
-        private void FireShoulderWeapon(
-            MechPartSlot slot,
-            ref MechEquipmentAnimationPlayer equipmentPlayer,
-            ref ShoulderWeaponSequence sequence)
+        public bool ConsumeShoulderMissileLaunch(MechPartSlot slot)
         {
-            if (equipmentPlayer == null)
+            var launcher = slot == MechPartSlot.LeftBackWeapon
+                ? leftShoulderLauncher
+                : slot == MechPartSlot.RightBackWeapon
+                    ? rightShoulderLauncher
+                    : null;
+
+            if (launcher == null || !launcher.LaunchAuthorizedThisFrame)
             {
-                equipmentPlayer = ResolveEquipmentPlayer(slot);
+                return false;
             }
 
-            if (equipmentPlayer == null)
+            launcher.LaunchAuthorizedThisFrame = false;
+            return true;
+        }
+
+        private void TryInitializeShoulderLaunchers()
+        {
+            if (leftShoulderLauncher == null)
             {
-                Debug.LogWarning($"[MechPlayerRig] No equipment animation player found for {slot}.", this);
-                return;
+                leftShoulderLauncher = CreateShoulderLauncher(MechPartSlot.LeftBackWeapon);
             }
 
-            if (sequence != null)
+            if (rightShoulderLauncher == null)
             {
-                return;
+                rightShoulderLauncher = CreateShoulderLauncher(MechPartSlot.RightBackWeapon);
+            }
+        }
+
+        private ShoulderLauncherState CreateShoulderLauncher(MechPartSlot slot)
+        {
+            var equipmentPlayer = ResolveEquipmentPlayer(slot);
+            if (equipmentPlayer == null)
+            {
+                return null;
             }
 
             var hasCanonicalSequence = true;
@@ -557,81 +586,196 @@ namespace ACunicombat.Mechs
                 }
             }
 
-            string[] actionIds;
-            if (hasCanonicalSequence)
-            {
-                actionIds = ShoulderFireSequenceActionIds;
-            }
-            else
-            {
-                var fallbackActionId = FirstAvailableAction(
+            var fallbackActionId = hasCanonicalSequence
+                ? string.Empty
+                : FirstAvailableAction(
                     equipmentPlayer,
-                    "a000_800210",
+                    ShoulderFireActionId,
                     "a000_000100",
                     "a000_800410");
-                if (string.IsNullOrEmpty(fallbackActionId))
-                {
-                    Debug.LogWarning($"[MechPlayerRig] No playable fire action found for {slot}.", this);
-                    return;
-                }
-
-                actionIds = new[] { fallbackActionId };
-            }
-
-            sequence = new ShoulderWeaponSequence
+            ApplyShoulderRestPose(equipmentPlayer);
+            return new ShoulderLauncherState
             {
                 Player = equipmentPlayer,
-                ActionIds = actionIds,
-                NextActionIndex = 0,
                 Slot = slot,
+                Phase = ShoulderLauncherPhase.Stowed,
+                HasCanonicalCycle = hasCanonicalSequence,
+                FallbackFireActionId = fallbackActionId,
             };
-            AdvanceShoulderSequence(ref sequence);
         }
 
-        private void AdvanceShoulderSequence(ref ShoulderWeaponSequence sequence)
+        private bool HasSttTrack()
         {
-            if (sequence == null || sequence.Player == null || sequence.Player.IsPlaying)
+            if (radar == null)
             {
-                return;
+                radar = GetComponent<MechRadarController>();
             }
 
-            if (sequence.NextActionIndex < sequence.ActionIds.Length)
-            {
-                var actionId = sequence.ActionIds[sequence.NextActionIndex++];
-                if (!sequence.Player.PlayActionPreservingPose(actionId))
-                {
-                    Debug.LogWarning(
-                        $"[MechPlayerRig] Failed to play {sequence.Slot} action {actionId}.",
-                        this);
-                    sequence = null;
-                }
-
-                return;
-            }
-
-            ApplyShoulderRestPose(sequence.Player);
-
-            Debug.Log($"[MechPlayerRig] {sequence.Slot} fire sequence completed.", this);
-            sequence = null;
+            return radar != null && radar.HasStt;
         }
 
-        private void TryInitializeShoulderRestPoses()
+        private void RequestShoulderFire(ShoulderLauncherState launcher)
         {
-            if (shoulderRestPoseInitialized)
+            if (launcher == null || launcher.Player == null)
+            {
+                Debug.LogWarning("[MechPlayerRig] No shoulder launcher animation player found.", this);
+                return;
+            }
+
+            switch (launcher.Phase)
+            {
+                case ShoulderLauncherPhase.Stowed:
+                    if (!launcher.HasCanonicalCycle)
+                    {
+                        StartFallbackShoulderFire(launcher);
+                        return;
+                    }
+
+                    launcher.FireRequested = true;
+                    PlayShoulderAction(launcher, ShoulderDeployActionId, ShoulderLauncherPhase.Deploying);
+                    break;
+
+                case ShoulderLauncherPhase.Deploying:
+                    launcher.FireRequested = true;
+                    break;
+
+                case ShoulderLauncherPhase.Ready:
+                    PlayShoulderAction(launcher, ShoulderOpenActionId, ShoulderLauncherPhase.Opening);
+                    break;
+            }
+        }
+
+        private void UpdateShoulderLauncher(ShoulderLauncherState launcher, bool hasStt)
+        {
+            if (launcher == null || launcher.Player == null)
             {
                 return;
             }
 
-            leftShoulderWeaponPlayer = ResolveEquipmentPlayer(MechPartSlot.LeftBackWeapon);
-            rightShoulderWeaponPlayer = ResolveEquipmentPlayer(MechPartSlot.RightBackWeapon);
-            if (leftShoulderWeaponPlayer == null && rightShoulderWeaponPlayer == null)
+            launcher.LaunchAuthorizedThisFrame = false;
+            if (launcher.Player.IsPlaying)
             {
                 return;
             }
 
-            ApplyShoulderRestPose(leftShoulderWeaponPlayer);
-            ApplyShoulderRestPose(rightShoulderWeaponPlayer);
-            shoulderRestPoseInitialized = true;
+            switch (launcher.Phase)
+            {
+                case ShoulderLauncherPhase.Stowed:
+                    if (hasStt && launcher.HasCanonicalCycle)
+                    {
+                        PlayShoulderAction(
+                            launcher,
+                            ShoulderDeployActionId,
+                            ShoulderLauncherPhase.Deploying);
+                    }
+                    break;
+
+                case ShoulderLauncherPhase.Deploying:
+                    launcher.Phase = ShoulderLauncherPhase.Ready;
+                    if (launcher.FireRequested)
+                    {
+                        launcher.FireRequested = false;
+                        PlayShoulderAction(
+                            launcher,
+                            ShoulderOpenActionId,
+                            ShoulderLauncherPhase.Opening);
+                    }
+                    else if (!hasStt)
+                    {
+                        PlayShoulderAction(
+                            launcher,
+                            ShoulderStowActionId,
+                            ShoulderLauncherPhase.Stowing);
+                    }
+                    break;
+
+                case ShoulderLauncherPhase.Ready:
+                    if (!hasStt)
+                    {
+                        PlayShoulderAction(
+                            launcher,
+                            ShoulderStowActionId,
+                            ShoulderLauncherPhase.Stowing);
+                    }
+                    break;
+
+                case ShoulderLauncherPhase.Opening:
+                    // The opening clip has reached its terminal pose, so the cover is physically open.
+                    launcher.LaunchAuthorizedThisFrame = true;
+                    PlayShoulderAction(
+                        launcher,
+                        ShoulderFireActionId,
+                        ShoulderLauncherPhase.Firing);
+                    break;
+
+                case ShoulderLauncherPhase.Firing:
+                    PlayShoulderAction(
+                        launcher,
+                        ShoulderCloseActionId,
+                        ShoulderLauncherPhase.Closing);
+                    break;
+
+                case ShoulderLauncherPhase.Closing:
+                    if (hasStt)
+                    {
+                        launcher.Phase = ShoulderLauncherPhase.Ready;
+                    }
+                    else
+                    {
+                        PlayShoulderAction(
+                            launcher,
+                            ShoulderStowActionId,
+                            ShoulderLauncherPhase.Stowing);
+                    }
+                    break;
+
+                case ShoulderLauncherPhase.Stowing:
+                    ApplyShoulderRestPose(launcher.Player);
+                    launcher.Phase = ShoulderLauncherPhase.Stowed;
+                    break;
+
+                case ShoulderLauncherPhase.FallbackFiring:
+                    ApplyShoulderRestPose(launcher.Player);
+                    launcher.Phase = ShoulderLauncherPhase.Stowed;
+                    break;
+            }
+        }
+
+        private void StartFallbackShoulderFire(ShoulderLauncherState launcher)
+        {
+            if (string.IsNullOrEmpty(launcher.FallbackFireActionId))
+            {
+                Debug.LogWarning($"[MechPlayerRig] No playable fire action found for {launcher.Slot}.", this);
+                return;
+            }
+
+            if (PlayShoulderAction(
+                    launcher,
+                    launcher.FallbackFireActionId,
+                    ShoulderLauncherPhase.FallbackFiring))
+            {
+                launcher.LaunchAuthorizedThisFrame = true;
+            }
+        }
+
+        private bool PlayShoulderAction(
+            ShoulderLauncherState launcher,
+            string actionId,
+            ShoulderLauncherPhase nextPhase)
+        {
+            if (launcher.Player.PlayActionPreservingPose(actionId))
+            {
+                launcher.Phase = nextPhase;
+                return true;
+            }
+
+            Debug.LogWarning(
+                $"[MechPlayerRig] Failed to play {launcher.Slot} action {actionId}.",
+                this);
+            ApplyShoulderRestPose(launcher.Player);
+            launcher.Phase = ShoulderLauncherPhase.Stowed;
+            launcher.FireRequested = false;
+            return false;
         }
 
         private static void ApplyShoulderRestPose(MechEquipmentAnimationPlayer player)
@@ -642,8 +786,8 @@ namespace ACunicombat.Mechs
             }
 
             player.StopPlayback();
-            player.SampleActionAtEnd("a000_800320");
-            player.SampleActionAtEnd("a000_800310");
+            player.SampleActionAtEnd(ShoulderCloseActionId);
+            player.SampleActionAtEnd(ShoulderStowActionId);
             if (player.HasAction(ShoulderRestActionId))
             {
                 player.SampleActionAtTime(ShoulderRestActionId, 0f);
