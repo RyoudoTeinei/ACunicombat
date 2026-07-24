@@ -335,9 +335,12 @@ namespace ACunicombat.Mechs
         [SerializeField] private float minimumPathLength = 180f;
         [SerializeField] private float maximumPathLength = 3000f;
         [SerializeField] private float lineWidth = 0.22f;
-        [SerializeField] private float dashLength = 18f;
+        [SerializeField] private float dashLength = 42f;
+        [SerializeField, Range(0.2f, 0.8f)] private float dashVisibleFraction = 0.55f;
+        [SerializeField] private float dashScrollCyclesPerSecond = 1.15f;
+        [SerializeField] private float dashAccelerationDeadzone = 0.3f;
         [SerializeField] private float pathStartDistance = 30f;
-        [SerializeField] private float pathHalfWidth = 4f;
+        [SerializeField] private float pathHalfWidth = 6f;
         [SerializeField] private float pathDirectionSmoothingSeconds = 0.32f;
         [SerializeField] private float pathLateralSmoothingSeconds = 0.18f;
         [SerializeField] private float pathLengthSmoothingSeconds = 0.24f;
@@ -363,6 +366,7 @@ namespace ACunicombat.Mechs
         private Vector3 visualPathDirection = Vector3.forward;
         private Vector3 visualPathRight = Vector3.right;
         private float visualPathSignedSpeed;
+        private float dashTexturePhase;
         private bool pathVisualInitialized;
 
         public bool Active => active;
@@ -775,6 +779,7 @@ namespace ACunicombat.Mechs
                     (fullPathLength - hiddenDistance) /
                     Mathf.Max(1f, dashLength),
                     1f);
+                UpdateDashAnimation(deltaTime);
             }
         }
 
@@ -794,19 +799,36 @@ namespace ACunicombat.Mechs
 
             if (dashTexture == null)
             {
-                dashTexture = new Texture2D(16, 1, TextureFormat.RGBA32, false)
+                dashTexture = new Texture2D(64, 1, TextureFormat.RGBA32, false)
                 {
                     name = "Runtime Orbit Sync Dash",
                     wrapMode = TextureWrapMode.Repeat,
                     filterMode = FilterMode.Bilinear,
                     hideFlags = HideFlags.HideAndDontSave,
                 };
+                var visiblePixels = Mathf.Clamp(
+                    Mathf.RoundToInt(
+                        dashTexture.width *
+                        Mathf.Clamp(dashVisibleFraction, 0.2f, 0.8f)),
+                    1,
+                    dashTexture.width - 1);
                 for (var x = 0; x < dashTexture.width; x++)
                 {
+                    var color = Color.clear;
+                    if (x < visiblePixels)
+                    {
+                        var normalized = visiblePixels > 1
+                            ? x / (visiblePixels - 1f)
+                            : 0.5f;
+                        var pulse = 0.45f +
+                                    Mathf.Sin(normalized * Mathf.PI) * 0.55f;
+                        color = new Color(1f, 1f, 1f, pulse);
+                    }
+
                     dashTexture.SetPixel(
                         x,
                         0,
-                        x < 10 ? Color.white : Color.clear);
+                        color);
                 }
                 dashTexture.Apply(false, true);
             }
@@ -912,6 +934,34 @@ namespace ACunicombat.Mechs
             {
                 renderer.positionCount = 0;
             }
+        }
+
+        private void UpdateDashAnimation(float deltaTime)
+        {
+            if (pathMaterial == null || motion == null)
+            {
+                return;
+            }
+
+            var alongAcceleration = Vector3.Dot(
+                motion.CurrentControlAcceleration,
+                parallelDirection);
+            if (Mathf.Abs(alongAcceleration) >=
+                Mathf.Max(0f, dashAccelerationDeadzone))
+            {
+                // Positive acceleration moves the highlight toward the path end.
+                // Texture sampling runs in the opposite direction to visible UV motion.
+                dashTexturePhase = Mathf.Repeat(
+                    dashTexturePhase -
+                    Mathf.Sign(alongAcceleration) *
+                    Mathf.Max(0f, dashScrollCyclesPerSecond) *
+                    Mathf.Max(0f, deltaTime),
+                    1f);
+            }
+
+            pathMaterial.mainTextureOffset = new Vector2(
+                dashTexturePhase,
+                0f);
         }
 
         private void OnDisable()

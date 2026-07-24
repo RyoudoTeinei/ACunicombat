@@ -31,7 +31,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private bool moveLaterally = true;
         [SerializeField] private float lateralAmplitudeMeters = 12f;
         [SerializeField] private float lateralSpeedMetersPerSecond = 3.5f;
-        [SerializeField] private float flightSpeedMetersPerSecond = 100f;
+        [SerializeField] private float flightSpeedMetersPerSecond = 180f;
         [SerializeField] private Vector3 flightDirection = Vector3.right;
         [SerializeField] private bool orientAlongFlightPath = true;
         [SerializeField] private Transform aimPoint;
@@ -141,6 +141,13 @@ namespace ACunicombat.Mechs
 
         private void Awake()
         {
+            // Migrate the airborne prototype target saved with the previous default.
+            if (motionMode == CombatTestTargetMotionMode.LinearFlight &&
+                Mathf.Abs(flightSpeedMetersPerSecond - 100f) < 0.01f)
+            {
+                flightSpeedMetersPerSecond = 180f;
+            }
+
             CacheComponents();
             origin = transform.position;
             originRotation = transform.rotation;

@@ -1005,7 +1005,7 @@ public static class AC6PlayableSceneBuilder
             airborneAimPoint,
             2400f,
             Vector3.right,
-            100f);
+            180f);
         EditorUtility.SetDirty(airborneTarget);
         return airborneTarget;
     }
