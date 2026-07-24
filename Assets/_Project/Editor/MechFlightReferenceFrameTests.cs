@@ -203,6 +203,33 @@ namespace ACunicombat.Editor.Tests
         }
 
         [Test]
+        public void OrbitSync_BrakesBeforeClosingSpeedExceedsStoppingDistance()
+        {
+            var acceleration = MechOrbitSynchronizer.CalculateSynchronizationAcceleration(
+                Vector3.zero,
+                new Vector3(30f, 0f, 0f),
+                new Vector3(100f, 0f, 0f),
+                Vector3.zero,
+                Vector3.zero,
+                Vector3.right,
+                0f,
+                false,
+                false,
+                1f,
+                0.35f,
+                45f,
+                100f,
+                positiveLongitudinalAcceleration: 10f,
+                negativeLongitudinalAcceleration: 5f,
+                brakingSafety: 0.78f,
+                holdRadius: 3f);
+
+            Assert.That(acceleration.x, Is.LessThan(0f));
+            Assert.That(acceleration.y, Is.Zero.Within(0.001f));
+            Assert.That(acceleration.z, Is.Zero.Within(0.001f));
+        }
+
+        [Test]
         public void OrbitSync_ParallelDirectionFallsBackWhenTargetIsStationary()
         {
             Assert.That(

@@ -650,6 +650,78 @@ namespace ACunicombat.Mechs
             trajectorySyncAccelerationCommand = Vector3.zero;
         }
 
+        public float GetAvailableDirectionalAcceleration(Vector3 worldDirection)
+        {
+            if (worldDirection.sqrMagnitude <= 0.0001f)
+            {
+                return 0f;
+            }
+
+            EnsureThrusterLayout();
+            ResolveThrusterForces(
+                out var mainNewtons,
+                out var lateralNewtons,
+                out var reverseNewtons);
+            var localDirection =
+                Quaternion.Inverse(LogicalRotation) *
+                worldDirection.normalized;
+            var forceCapacity = 0f;
+            if (Mathf.Abs(localDirection.z) > 0.0001f)
+            {
+                var role = localDirection.z >= 0f
+                    ? MechThrusterRole.Main
+                    : MechThrusterRole.Reverse;
+                var rated = localDirection.z >= 0f
+                    ? mainNewtons
+                    : reverseNewtons;
+                forceCapacity +=
+                    Mathf.Abs(localDirection.z) *
+                    ResolveThrusterForceCapacity(role, rated, true);
+            }
+
+            if (Mathf.Abs(localDirection.x) > 0.0001f)
+            {
+                var role = localDirection.x >= 0f
+                    ? MechThrusterRole.StrafePositive
+                    : MechThrusterRole.StrafeNegative;
+                forceCapacity +=
+                    Mathf.Abs(localDirection.x) *
+                    ResolveThrusterForceCapacity(
+                        role,
+                        lateralNewtons,
+                        false);
+            }
+
+            if (localDirection.y > 0.0001f)
+            {
+                var shoulderRated = verticalThrustKn * 1000f
+                                    * Mathf.Clamp01(shoulderLiftFraction);
+                var legRated = verticalThrustKn * 1000f
+                               * (1f - Mathf.Clamp01(shoulderLiftFraction));
+                forceCapacity += localDirection.y *
+                    (ResolveThrusterForceCapacity(
+                         MechThrusterRole.ShoulderLift,
+                         shoulderRated,
+                         true) +
+                     ResolveThrusterForceCapacity(
+                         MechThrusterRole.LegLift,
+                         legRated,
+                         true));
+            }
+            else if (localDirection.y < -0.0001f)
+            {
+                var descentRated = verticalThrustKn * 1000f
+                                   * Mathf.Clamp01(descentThrustFraction);
+                forceCapacity += -localDirection.y *
+                    ResolveThrusterForceCapacity(
+                        MechThrusterRole.Descent,
+                        descentRated,
+                        true);
+            }
+
+            return forceCapacity / Mathf.Max(1f, ResolveMassKg());
+        }
+
         public void ConfigureGravity(float acceleration)
         {
             gravityAcceleration = Mathf.Max(0f, acceleration);

@@ -325,6 +325,8 @@ namespace ACunicombat.Mechs
         [SerializeField] private float positionCorrectionGain = 0.35f;
         [SerializeField] private float maximumPositionCorrectionSpeed = 45f;
         [SerializeField] private float maximumSynchronizationAcceleration = 32f;
+        [SerializeField, Range(0.1f, 1f)] private float longitudinalBrakingSafety = 0.78f;
+        [SerializeField] private float longitudinalHoldRadius = 3f;
         [SerializeField] private float throttleVelocityRange = 300f;
         [SerializeField] private float maximumLongitudinalVelocityBias = 300f;
         [SerializeField] private float targetVelocitySmoothingSeconds = 0.35f;
@@ -564,13 +566,21 @@ namespace ACunicombat.Mechs
                 velocityResponseSeconds,
                 positionCorrectionGain,
                 maximumPositionCorrectionSpeed,
-                maximumSynchronizationAcceleration);
+                maximumSynchronizationAcceleration,
+                motion.GetAvailableDirectionalAcceleration(
+                    parallelDirection),
+                motion.GetAvailableDirectionalAcceleration(
+                    -parallelDirection),
+                longitudinalBrakingSafety,
+                longitudinalHoldRadius);
             motion.SetTrajectorySyncAcceleration(requestedAcceleration);
-            autoThrottleCommand = Mathf.Clamp01(
-                Mathf.Abs(Vector3.Dot(
+            autoThrottleCommand = Mathf.Clamp(
+                Vector3.Dot(
                     requestedAcceleration,
-                    parallelDirection)) /
-                Mathf.Max(0.01f, maximumSynchronizationAcceleration));
+                    parallelDirection) /
+                Mathf.Max(0.01f, maximumSynchronizationAcceleration),
+                -1f,
+                1f);
             lateralOverrideLastFrame = lateralOverride;
             longitudinalOverrideLastFrame = directLongitudinalOverride;
             DrawParallelPath(deltaTime);
@@ -589,15 +599,20 @@ namespace ACunicombat.Mechs
             float responseSeconds,
             float positionGain,
             float maximumCorrectionSpeed,
-            float maximumAcceleration)
+            float maximumAcceleration,
+            float positiveLongitudinalAcceleration = float.PositiveInfinity,
+            float negativeLongitudinalAcceleration = float.PositiveInfinity,
+            float brakingSafety = 0.78f,
+            float holdRadius = 3f)
         {
             pathDirection = pathDirection.sqrMagnitude > 0.0001f
                 ? pathDirection.normalized
                 : Vector3.forward;
             var positionError =
                 targetPosition + desiredOffset - playerPosition;
-            var alongPositionError =
-                Vector3.Project(positionError, pathDirection);
+            var alongError =
+                Vector3.Dot(positionError, pathDirection);
+            var alongPositionError = pathDirection * alongError;
             var crossPositionError = positionError - alongPositionError;
             var positionCorrection = Vector3.ClampMagnitude(
                 crossPositionError * Mathf.Max(0f, positionGain),
@@ -605,9 +620,27 @@ namespace ACunicombat.Mechs
             if (Mathf.Abs(longitudinalBias) < 0.05f &&
                 !longitudinalOverride)
             {
-                positionCorrection += Vector3.ClampMagnitude(
-                    alongPositionError * Mathf.Max(0f, positionGain),
+                var proportionalClosingSpeed = Mathf.Min(
+                    Mathf.Abs(alongError) * Mathf.Max(0f, positionGain),
                     Mathf.Max(0f, maximumCorrectionSpeed));
+                var brakingAcceleration = alongError >= 0f
+                    ? negativeLongitudinalAcceleration
+                    : positiveLongitudinalAcceleration;
+                var stoppingLimitedSpeed = float.IsFinite(brakingAcceleration)
+                    ? Mathf.Sqrt(
+                          2f *
+                          Mathf.Max(0f, brakingAcceleration) *
+                          Mathf.Max(
+                              0f,
+                              Mathf.Abs(alongError) -
+                              Mathf.Max(0f, holdRadius))) *
+                      Mathf.Clamp01(brakingSafety)
+                    : float.PositiveInfinity;
+                var closingSpeed = Mathf.Min(
+                    proportionalClosingSpeed,
+                    stoppingLimitedSpeed);
+                positionCorrection +=
+                    pathDirection * Mathf.Sign(alongError) * closingSpeed;
             }
 
             var desiredVelocity =
