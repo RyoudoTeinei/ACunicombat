@@ -61,6 +61,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechFlightMotionController motion;
         [SerializeField] private MechThrustVisualizer thrustVisualizer;
         [SerializeField] private MechThirdPersonCamera cam;
+        [SerializeField] private MechOrbitSynchronizer orbitSynchronizer;
         [SerializeField] private MechBehaviorGraphRunner graphRunner;
         [SerializeField] private MechBodyActionPlayer actionPlayer;
         [SerializeField] private MechWeaponArmLayer weaponLayer;
@@ -125,6 +126,15 @@ namespace ACunicombat.Mechs
             if (graphRunner == null) graphRunner = GetComponent<MechBehaviorGraphRunner>();
             runtimeState = GetComponent<MechRuntimeState>();
             radar = GetComponent<MechRadarController>();
+            if (orbitSynchronizer == null)
+            {
+                orbitSynchronizer = GetComponent<MechOrbitSynchronizer>();
+                if (orbitSynchronizer == null)
+                {
+                    orbitSynchronizer = gameObject.AddComponent<MechOrbitSynchronizer>();
+                }
+            }
+            orbitSynchronizer.Configure(motion, radar);
             if (cam != null)
             {
                 viewCamera = cam.GetComponent<Camera>();
@@ -296,7 +306,19 @@ namespace ACunicombat.Mechs
                 }
             }
 
-            motion.Tick(in lastFrame, dt);
+            orbitSynchronizer?.Tick(in lastFrame, dt);
+            var motionFrame = lastFrame;
+            if (orbitSynchronizer != null && orbitSynchronizer.Active)
+            {
+                // In synchronization mode the physical throttle is owned by the flight computer.
+                // Lever changes have already been converted to a relative along-track speed bias.
+                motionFrame.MainThrottle = 0f;
+                if (orbitSynchronizer.RequestsAutomaticDeparture)
+                {
+                    motionFrame.RiseHeld = true;
+                }
+            }
+            motion.Tick(in motionFrame, dt);
 
             var grounded = motion.Grounded;
             var ccf = graphRunner.StateElapsedSeconds >= cancelFlagUnlockSeconds ? 0x1Fu : 0u;
@@ -405,9 +427,12 @@ namespace ACunicombat.Mechs
             {
                 motion.ResetReferencePlaneToward(
                     radar.PredictTrackPosition(selectedTrack));
+                orbitSynchronizer?.Configure(motion, radar);
+                orbitSynchronizer?.Begin(selectedTrack);
             }
             else
             {
+                orbitSynchronizer?.Cancel();
                 motion.ResetReferencePlaneToRotation(cam.AimRotation);
             }
 
@@ -874,6 +899,13 @@ namespace ACunicombat.Mechs
                 sb.AppendLine($"矢量推力: {(motion.VectorThrustEnabled ? "开启" : "关闭")}  " +
                               $"推力显示[2]: {(thrustVisualizer != null && thrustVisualizer.Visible ? "开启" : "关闭")}  " +
                               $"惯性锁定[F]: {(motion.InertialThrustLockActive ? "开启" : "关闭")}");
+                if (orbitSynchronizer != null && orbitSynchronizer.Active)
+                {
+                    sb.AppendLine(
+                        $"轨道同步: T{orbitSynchronizer.SynchronizedTrackId.Value.Index:00}  " +
+                        $"自动节流: {orbitSynchronizer.AutoThrottleCommand:P0}  " +
+                        $"纵向偏置: {orbitSynchronizer.LongitudinalVelocityBias:F1} m/s");
+                }
             }
 
             sb.AppendLine($"Input: {lastFrame.MoveLocal}  Position: {transform.position}");
@@ -917,7 +949,12 @@ namespace ACunicombat.Mechs
 
             GUI.Label(new Rect(x + 14f, 124f, 90f, 20f), "THROTTLE", instrumentCaptionStyle);
             GUI.Label(new Rect(x + 96f, 120f, 120f, 32f),
-                $"{motion.MainThrottle:P0}", instrumentValueStyle);
+                orbitSynchronizer != null &&
+                orbitSynchronizer.Active &&
+                !orbitSynchronizer.ManualOverride
+                    ? $"AUTO {orbitSynchronizer.AutoThrottleCommand:P0}"
+                    : $"{lastFrame.MainThrottle:P0}",
+                instrumentValueStyle);
             GUI.Label(new Rect(x + 14f, 154f, 90f, 20f), "ENVELOPE", instrumentCaptionStyle);
             GUI.Label(new Rect(x + 96f, 150f, 120f, 32f),
                 $"{motion.OperationalSpeedEnvelope:0} m/s", instrumentValueStyle);
@@ -946,6 +983,13 @@ namespace ACunicombat.Mechs
             {
                 status = "ENVELOPE LIMITING";
                 statusColor = new Color(1f, 0.82f, 0.2f);
+            }
+            else if (orbitSynchronizer != null && orbitSynchronizer.Active)
+            {
+                status = orbitSynchronizer.ManualOverride
+                    ? "ORBIT SYNC / MANUAL"
+                    : "ORBIT SYNC ACTIVE";
+                statusColor = new Color(0.1f, 0.95f, 0.85f);
             }
 
             instrumentStatusStyle.normal.textColor = statusColor;

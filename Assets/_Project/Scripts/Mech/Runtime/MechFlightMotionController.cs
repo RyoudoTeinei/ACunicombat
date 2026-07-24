@@ -160,6 +160,9 @@ namespace ACunicombat.Mechs
         private bool flightEnvelopeOverrideActive;
         private bool inertialThrustLockActive;
         private Vector3 inertialThrustLockForward = Vector3.forward;
+        private bool trajectorySyncCommandActive;
+        private Vector3 trajectorySyncAccelerationCommand;
+        private Vector3 currentTrajectorySyncForceNewtons;
         private Vector3 brakingPlaneAnchor;
         private Vector3 sampledGroundPoint;
         private Vector3 sampledGroundNormal = Vector3.up;
@@ -225,6 +228,10 @@ namespace ACunicombat.Mechs
         public Vector3 CurrentDescentForceNewtons => currentDescentForceNewtons;
 
         public Vector3 CurrentQuickBoostForceNewtons => currentQuickBoostForceNewtons;
+
+        public Vector3 CurrentTrajectorySyncForceNewtons => currentTrajectorySyncForceNewtons;
+
+        public bool TrajectorySyncCommandActive => trajectorySyncCommandActive;
 
         public Vector3 FixedControlCenterWorld => transform.TransformPoint(fixedControlCenterLocal);
 
@@ -629,6 +636,20 @@ namespace ACunicombat.Mechs
             vectorThrustEnabled = enabled;
         }
 
+        public void SetTrajectorySyncAcceleration(Vector3 acceleration)
+        {
+            trajectorySyncCommandActive = true;
+            trajectorySyncAccelerationCommand = IsFinite(acceleration)
+                ? acceleration
+                : Vector3.zero;
+        }
+
+        public void ClearTrajectorySyncCommand()
+        {
+            trajectorySyncCommandActive = false;
+            trajectorySyncAccelerationCommand = Vector3.zero;
+        }
+
         public void ConfigureGravity(float acceleration)
         {
             gravityAcceleration = Mathf.Max(0f, acceleration);
@@ -645,6 +666,7 @@ namespace ACunicombat.Mechs
             currentLegLiftForceNewtons = Vector3.zero;
             currentDescentForceNewtons = Vector3.zero;
             currentQuickBoostForceNewtons = Vector3.zero;
+            currentTrajectorySyncForceNewtons = Vector3.zero;
 
             // Cursor displacement commands bounded yaw and pitch rates in the active reference
             // frame. Roll remains zero relative to that frame.
@@ -892,6 +914,36 @@ namespace ACunicombat.Mechs
                 }
             }
 
+            if (!braking && trajectorySyncCommandActive &&
+                trajectorySyncAccelerationCommand.sqrMagnitude > 0.0001f)
+            {
+                var requestedSyncForce =
+                    trajectorySyncAccelerationCommand * currentMassKg;
+                requestedSyncForce = ApplyFlightEnvelopeToForce(
+                    requestedSyncForce,
+                    flightEnvelopeOverrideActive);
+                currentTrajectorySyncForceNewtons = AllocateAvailableDirectionalForce(
+                    requestedSyncForce,
+                    attitudeBasis,
+                    mainThrustNewtons,
+                    lateralThrustNewtons,
+                    reverseThrustNewtons);
+                if (currentTrajectorySyncForceNewtons.sqrMagnitude > 0.0001f)
+                {
+                    velocity += currentTrajectorySyncForceNewtons
+                                / currentMassKg * deltaTime;
+                    currentControlForceNewtons += currentTrajectorySyncForceNewtons;
+                    currentControlAcceleration = currentControlForceNewtons / currentMassKg;
+                    currentShoulderLiftForceNewtons =
+                        SumThrusterForce(MechThrusterRole.ShoulderLift);
+                    currentLegLiftForceNewtons =
+                        SumThrusterForce(MechThrusterRole.LegLift);
+                    currentDescentForceNewtons =
+                        SumThrusterForce(MechThrusterRole.Descent);
+                    hasPropulsionCommand = true;
+                }
+            }
+
             if (quickBoostApplying && quickBoostDirection.sqrMagnitude > 0.0001f)
             {
                 currentQuickBoostForceNewtons = AllocateDirectionalReserveForce(
@@ -961,7 +1013,7 @@ namespace ACunicombat.Mechs
                 velocity = planarVelocity;
             }
             else if (!braking && !grounded && !frame.RiseHeld &&
-                     !hasPropulsionCommand && !AssaultBoostActive &&
+                      !hasPropulsionCommand && !AssaultBoostActive &&
                      !quickBoostApplying)
             {
                 velocity = Vector3.MoveTowards(
@@ -1414,6 +1466,77 @@ namespace ACunicombat.Mechs
             return direction * appliedMagnitude;
         }
 
+        private float ResolveThrusterForceCapacity(
+            MechThrusterRole role,
+            float ratedGroupForceNewtons,
+            bool compensatePairedSides)
+        {
+            var ratedMagnitude = Mathf.Max(0f, ratedGroupForceNewtons);
+            if (ratedMagnitude <= Mathf.Epsilon)
+            {
+                return 0f;
+            }
+
+            var channelCount = 0;
+            var leftCount = 0;
+            var rightCount = 0;
+            for (var i = 0; i < thrusterChannels.Count; i++)
+            {
+                if (thrusterChannels[i].Role != role)
+                {
+                    continue;
+                }
+
+                channelCount++;
+                if (thrusterChannels[i].Side == MechThrusterSide.Left) leftCount++;
+                if (thrusterChannels[i].Side == MechThrusterSide.Right) rightCount++;
+            }
+
+            if (channelCount == 0)
+            {
+                return ratedMagnitude;
+            }
+
+            var leftCapacity = 0f;
+            var rightCapacity = 0f;
+            var centerCapacity = 0f;
+            for (var i = 0; i < thrusterChannels.Count; i++)
+            {
+                var channel = thrusterChannels[i];
+                if (channel.Role != role)
+                {
+                    continue;
+                }
+
+                switch (channel.Side)
+                {
+                    case MechThrusterSide.Left when leftCount > 0 && rightCount > 0:
+                        leftCapacity += ratedMagnitude * 0.5f / leftCount * channel.Health;
+                        break;
+                    case MechThrusterSide.Right when leftCount > 0 && rightCount > 0:
+                        rightCapacity += ratedMagnitude * 0.5f / rightCount * channel.Health;
+                        break;
+                    default:
+                        centerCapacity += ratedMagnitude / channelCount * channel.Health;
+                        break;
+                }
+            }
+
+            if (!compensatePairedSides || leftCount == 0 || rightCount == 0)
+            {
+                return leftCapacity + rightCapacity + centerCapacity;
+            }
+
+            var symmetricSideCapacity = Mathf.Min(leftCapacity, rightCapacity);
+            var compensatedLeft = symmetricSideCapacity
+                                  + Mathf.Max(0f, leftCapacity - rightCapacity)
+                                  * damagedSideCompensationEfficiency;
+            var compensatedRight = symmetricSideCapacity
+                                   + Mathf.Max(0f, rightCapacity - leftCapacity)
+                                   * damagedSideCompensationEfficiency;
+            return compensatedLeft + compensatedRight + centerCapacity;
+        }
+
         private Vector3 AllocateDirectionalReserveForce(
             Vector3 requestedForce,
             Quaternion yawBasis)
@@ -1468,6 +1591,126 @@ namespace ACunicombat.Mechs
                     MechThrusterRole.LegLift,
                     legRequest,
                     legRequest.magnitude,
+                    true);
+            }
+
+            return allocatedForce;
+        }
+
+        private Vector3 AllocateAvailableDirectionalForce(
+            Vector3 requestedForce,
+            Quaternion attitudeBasis,
+            float mainNewtons,
+            float lateralNewtons,
+            float reverseNewtons)
+        {
+            if (requestedForce.sqrMagnitude <= Mathf.Epsilon)
+            {
+                return Vector3.zero;
+            }
+
+            var localForce = Quaternion.Inverse(attitudeBasis) * requestedForce;
+            var allocatedForce = Vector3.zero;
+            if (Mathf.Abs(localForce.z) > Mathf.Epsilon)
+            {
+                var role = localForce.z >= 0f
+                    ? MechThrusterRole.Main
+                    : MechThrusterRole.Reverse;
+                var ratedCapacity = localForce.z >= 0f
+                    ? mainNewtons
+                    : reverseNewtons;
+                var remainingCapacity = Mathf.Max(
+                    0f,
+                    ResolveThrusterForceCapacity(role, ratedCapacity, true) -
+                    SumThrusterForce(role).magnitude);
+                var request = attitudeBasis * new Vector3(
+                    0f,
+                    0f,
+                    Mathf.Clamp(localForce.z, -remainingCapacity, remainingCapacity));
+                allocatedForce += AllocateThrusterForce(
+                    role,
+                    request,
+                    ratedCapacity,
+                    true);
+            }
+
+            if (Mathf.Abs(localForce.x) > Mathf.Epsilon)
+            {
+                var role = localForce.x >= 0f
+                    ? MechThrusterRole.StrafePositive
+                    : MechThrusterRole.StrafeNegative;
+                var remainingCapacity = Mathf.Max(
+                    0f,
+                    ResolveThrusterForceCapacity(role, lateralNewtons, false) -
+                    SumThrusterForce(role).magnitude);
+                var request = attitudeBasis * new Vector3(
+                    Mathf.Clamp(localForce.x, -remainingCapacity, remainingCapacity),
+                    0f,
+                    0f);
+                allocatedForce += AllocateThrusterForce(
+                    role,
+                    request,
+                    lateralNewtons,
+                    false);
+            }
+
+            if (localForce.y > Mathf.Epsilon)
+            {
+                var shoulderRated = verticalThrustKn * 1000f
+                                    * Mathf.Clamp01(shoulderLiftFraction);
+                var legRated = verticalThrustKn * 1000f
+                               * (1f - Mathf.Clamp01(shoulderLiftFraction));
+                var shoulderRemaining = Mathf.Max(
+                    0f,
+                    ResolveThrusterForceCapacity(
+                        MechThrusterRole.ShoulderLift,
+                        shoulderRated,
+                        true) -
+                    SumThrusterForce(MechThrusterRole.ShoulderLift).magnitude);
+                var legRemaining = Mathf.Max(
+                    0f,
+                    ResolveThrusterForceCapacity(
+                        MechThrusterRole.LegLift,
+                        legRated,
+                        true) -
+                    SumThrusterForce(MechThrusterRole.LegLift).magnitude);
+                var totalRemaining = shoulderRemaining + legRemaining;
+                var requestedUp = Mathf.Min(localForce.y, totalRemaining);
+                if (requestedUp > Mathf.Epsilon && totalRemaining > Mathf.Epsilon)
+                {
+                    var up = attitudeBasis * Vector3.up;
+                    var shoulderRequest = up * requestedUp
+                                          * (shoulderRemaining / totalRemaining);
+                    var legRequest = up * requestedUp
+                                     * (legRemaining / totalRemaining);
+                    allocatedForce += AllocateThrusterForce(
+                        MechThrusterRole.ShoulderLift,
+                        shoulderRequest,
+                        shoulderRated,
+                        true);
+                    allocatedForce += AllocateThrusterForce(
+                        MechThrusterRole.LegLift,
+                        legRequest,
+                        legRated,
+                        true);
+                }
+            }
+            else if (localForce.y < -Mathf.Epsilon)
+            {
+                var descentRated = verticalThrustKn * 1000f
+                                   * Mathf.Clamp01(descentThrustFraction);
+                var remainingCapacity = Mathf.Max(
+                    0f,
+                    ResolveThrusterForceCapacity(
+                        MechThrusterRole.Descent,
+                        descentRated,
+                        true) -
+                    SumThrusterForce(MechThrusterRole.Descent).magnitude);
+                var requestMagnitude = Mathf.Min(-localForce.y, remainingCapacity);
+                allocatedForce += AllocateThrusterForce(
+                    MechThrusterRole.Descent,
+                    -(attitudeBasis * Vector3.up) * requestMagnitude,
+                    descentRated,
                     true);
             }
 
@@ -1571,6 +1814,42 @@ namespace ACunicombat.Mechs
             }
 
             return limitedTotal;
+        }
+
+        private Vector3 ApplyFlightEnvelopeToForce(Vector3 force, bool bypass)
+        {
+            if (bypass || operationalSpeedEnvelope <= 0f ||
+                force.sqrMagnitude <= 0.0001f ||
+                velocity.sqrMagnitude <= 0.0001f)
+            {
+                return force;
+            }
+
+            var speed = velocity.magnitude;
+            var responseStart = Mathf.Max(
+                0f,
+                operationalSpeedEnvelope - envelopeResponseBand);
+            if (speed <= responseStart)
+            {
+                return force;
+            }
+
+            var velocityDirection = velocity / speed;
+            var outwardForce = Vector3.Dot(force, velocityDirection);
+            if (outwardForce <= 0f)
+            {
+                return force;
+            }
+
+            var outwardScale = speed >= operationalSpeedEnvelope
+                ? 0f
+                : Mathf.InverseLerp(
+                    operationalSpeedEnvelope,
+                    responseStart,
+                    speed);
+            flightEnvelopeLimiting |= outwardScale < 0.999f;
+            return force -
+                   velocityDirection * outwardForce * (1f - outwardScale);
         }
 
         private static bool IsAttitudeThrusterRole(MechThrusterRole role)
@@ -2109,6 +2388,13 @@ namespace ACunicombat.Mechs
             }
 
             return float.IsPositiveInfinity(capacity) ? 0f : Mathf.Max(0f, capacity);
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return float.IsFinite(value.x) &&
+                   float.IsFinite(value.y) &&
+                   float.IsFinite(value.z);
         }
 
         private void ApplyVisualRotation()

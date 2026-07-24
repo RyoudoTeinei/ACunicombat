@@ -25,6 +25,8 @@ namespace ACunicombat.Mechs
         public bool BrakeHeld;
         /// <summary>持久主推进节流，[0,1]。它控制推力比例，不直接指定速度。</summary>
         public float MainThrottle;
+        /// <summary>本帧节流杆相对上一帧的变化量；轨道同步飞控将其解释为沿轨速度设定变化。</summary>
+        public float MainThrottleDelta;
         /// <summary>按住时临时解除作战速度包线；技术安全上限仍然生效。</summary>
         public bool FlightEnvelopeOverrideHeld;
         /// <summary>按住 F 时冻结当前水平推力参考；机体仍可随鼠标转向。</summary>
@@ -135,6 +137,7 @@ namespace ACunicombat.Mechs
             frame.VectorThrustToggleEdge = keyboard.digit1Key.wasPressedThisFrame;
             frame.ThrustVisualizationToggleEdge = keyboard.digit2Key.wasPressedThisFrame;
 
+            var previousThrottle = mainThrottle;
             var throttleAxis = (keyboard.rKey.isPressed ? 1f : 0f)
                                - (keyboard.cKey.isPressed ? 1f : 0f);
             mainThrottle = Mathf.Clamp01(
@@ -158,6 +161,7 @@ namespace ACunicombat.Mechs
             }
 
             frame.MainThrottle = mainThrottle;
+            frame.MainThrottleDelta = mainThrottle - previousThrottle;
 
             Current = frame;
             return frame;

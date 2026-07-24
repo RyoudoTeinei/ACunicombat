@@ -113,5 +113,110 @@ namespace ACunicombat.Editor.Tests
                 motion.ConstrainPitchForCurrentMode(-120f),
                 Is.EqualTo(-85f).Within(0.001f));
         }
+
+        [Test]
+        public void OrbitSync_MatchesTargetVelocityWithoutTeleporting()
+        {
+            var acceleration = MechOrbitSynchronizer.CalculateSynchronizationAcceleration(
+                Vector3.zero,
+                Vector3.zero,
+                new Vector3(100f, 20f, 0f),
+                new Vector3(80f, 0f, 0f),
+                new Vector3(-100f, -20f, 0f),
+                Vector3.right,
+                0f,
+                false,
+                false,
+                1f,
+                0.35f,
+                45f,
+                30f);
+
+            Assert.That(acceleration.x, Is.EqualTo(30f).Within(0.001f));
+            Assert.That(acceleration.y, Is.Zero.Within(0.001f));
+            Assert.That(acceleration.z, Is.Zero.Within(0.001f));
+        }
+
+        [Test]
+        public void OrbitSync_LateralOverrideDoesNotFightPlayerTranslation()
+        {
+            var acceleration = MechOrbitSynchronizer.CalculateSynchronizationAcceleration(
+                new Vector3(0f, 20f, 0f),
+                new Vector3(40f, 15f, 0f),
+                Vector3.zero,
+                new Vector3(40f, 0f, 0f),
+                Vector3.zero,
+                Vector3.right,
+                0f,
+                true,
+                false,
+                1f,
+                0.5f,
+                45f,
+                100f);
+
+            Assert.That(acceleration.y, Is.Zero.Within(0.001f));
+            Assert.That(acceleration.z, Is.Zero.Within(0.001f));
+        }
+
+        [Test]
+        public void OrbitSync_LongitudinalBiasAllowsIntentionalRangeChange()
+        {
+            var acceleration = MechOrbitSynchronizer.CalculateSynchronizationAcceleration(
+                Vector3.zero,
+                new Vector3(120f, 0f, 0f),
+                Vector3.zero,
+                new Vector3(100f, 0f, 0f),
+                Vector3.zero,
+                Vector3.right,
+                20f,
+                false,
+                false,
+                1f,
+                0.5f,
+                45f,
+                100f);
+
+            Assert.That(acceleration, Is.EqualTo(Vector3.zero));
+        }
+
+        [Test]
+        public void OrbitSync_LongitudinalOverrideDoesNotCounterThrottle()
+        {
+            var acceleration = MechOrbitSynchronizer.CalculateSynchronizationAcceleration(
+                Vector3.zero,
+                new Vector3(20f, 8f, 0f),
+                Vector3.zero,
+                new Vector3(100f, 0f, 0f),
+                Vector3.zero,
+                Vector3.right,
+                0f,
+                false,
+                true,
+                1f,
+                0.5f,
+                45f,
+                100f);
+
+            Assert.That(acceleration.x, Is.Zero.Within(0.001f));
+            Assert.That(acceleration.y, Is.EqualTo(-8f).Within(0.001f));
+        }
+
+        [Test]
+        public void OrbitSync_ParallelDirectionFallsBackWhenTargetIsStationary()
+        {
+            Assert.That(
+                MechOrbitSynchronizer.ResolveParallelDirection(
+                    Vector3.zero,
+                    Vector3.up * 20f,
+                    Vector3.forward),
+                Is.EqualTo(Vector3.up));
+            Assert.That(
+                MechOrbitSynchronizer.ResolveParallelDirection(
+                    Vector3.zero,
+                    Vector3.zero,
+                    Vector3.left * 4f),
+                Is.EqualTo(Vector3.left));
+        }
     }
 }
