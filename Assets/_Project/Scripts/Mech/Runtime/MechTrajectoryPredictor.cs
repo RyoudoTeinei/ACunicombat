@@ -896,7 +896,10 @@ namespace ACunicombat.Mechs
             renderer.useWorldSpace = true;
             renderer.loop = false;
             renderer.alignment = LineAlignment.View;
-            renderer.textureMode = LineTextureMode.Tile;
+            // Stretch gives this line one 0..1 UV span. Material tiling then maps the
+            // configured world-space dash and gap lengths without LineRenderer adding
+            // a second width-based repetition.
+            renderer.textureMode = LineTextureMode.Stretch;
             renderer.numCapVertices = 2;
             renderer.numCornerVertices = 2;
             renderer.startWidth = lineWidth;
