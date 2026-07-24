@@ -335,9 +335,9 @@ namespace ACunicombat.Mechs
         [SerializeField] private float minimumPathLength = 180f;
         [SerializeField] private float maximumPathLength = 3000f;
         [SerializeField] private float lineWidth = 0.22f;
-        [SerializeField] private float dashLength = 42f;
-        [SerializeField, Range(0.2f, 0.8f)] private float dashVisibleFraction = 0.55f;
-        [SerializeField] private float dashScrollCyclesPerSecond = 1.15f;
+        [SerializeField] private float dashSegmentLength = 230f;
+        [SerializeField] private float dashGapLength = 95f;
+        [SerializeField] private float dashScrollMetersPerSecond = 48f;
         [SerializeField] private float dashAccelerationDeadzone = 0.3f;
         [SerializeField] private float pathStartDistance = 30f;
         [SerializeField] private float pathHalfWidth = 6f;
@@ -775,9 +775,11 @@ namespace ACunicombat.Mechs
                 lineEnd + laneOffset);
             if (pathMaterial != null)
             {
+                var dashPatternLength = Mathf.Max(1f, dashSegmentLength) +
+                                        Mathf.Max(1f, dashGapLength);
                 pathMaterial.mainTextureScale = new Vector2(
                     (fullPathLength - hiddenDistance) /
-                    Mathf.Max(1f, dashLength),
+                    dashPatternLength,
                     1f);
                 UpdateDashAnimation(deltaTime);
             }
@@ -806,10 +808,12 @@ namespace ACunicombat.Mechs
                     filterMode = FilterMode.Bilinear,
                     hideFlags = HideFlags.HideAndDontSave,
                 };
+                var segmentLength = Mathf.Max(1f, dashSegmentLength);
+                var gapLength = Mathf.Max(1f, dashGapLength);
                 var visiblePixels = Mathf.Clamp(
                     Mathf.RoundToInt(
                         dashTexture.width *
-                        Mathf.Clamp(dashVisibleFraction, 0.2f, 0.8f)),
+                        segmentLength / (segmentLength + gapLength)),
                     1,
                     dashTexture.width - 1);
                 for (var x = 0; x < dashTexture.width; x++)
@@ -949,12 +953,15 @@ namespace ACunicombat.Mechs
             if (Mathf.Abs(alongAcceleration) >=
                 Mathf.Max(0f, dashAccelerationDeadzone))
             {
+                var patternLength = Mathf.Max(1f, dashSegmentLength) +
+                                    Mathf.Max(1f, dashGapLength);
                 // Positive acceleration moves the highlight toward the path end.
                 // Texture sampling runs in the opposite direction to visible UV motion.
                 dashTexturePhase = Mathf.Repeat(
                     dashTexturePhase -
                     Mathf.Sign(alongAcceleration) *
-                    Mathf.Max(0f, dashScrollCyclesPerSecond) *
+                    (Mathf.Max(0f, dashScrollMetersPerSecond) /
+                     patternLength) *
                     Mathf.Max(0f, deltaTime),
                     1f);
             }
