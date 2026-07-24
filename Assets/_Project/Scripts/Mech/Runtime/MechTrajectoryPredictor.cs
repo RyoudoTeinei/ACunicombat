@@ -22,10 +22,20 @@ namespace ACunicombat.Mechs
         [SerializeField] private float originForwardOffset = 3f;
         [SerializeField] private float lineWidth = 0.16f;
         [SerializeField] private Color trajectoryColor = new(0.12f, 1f, 0.32f, 0.95f);
+        [Header("显示稳定")]
+        [SerializeField] private float velocitySmoothingSeconds = 0.16f;
+        [SerializeField] private float accelerationSmoothingSeconds = 0.28f;
+        [SerializeField] private float referenceFrameSmoothingSeconds = 0.12f;
 
         private LineRenderer line;
         private Material runtimeMaterial;
         private readonly Vector3[] visiblePoints = new Vector3[192];
+        private Vector3 smoothedVelocity;
+        private Vector3 smoothedControlAcceleration;
+        private Vector3 smoothedQuickBoostAcceleration;
+        private Vector3 smoothedLogicalForward = Vector3.forward;
+        private Vector3 smoothedReferenceUp = Vector3.up;
+        private bool visualStateInitialized;
 
         public void Configure(MechFlightMotionController controller)
         {
@@ -51,23 +61,65 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var logicalForward = motion.LogicalRotation * Vector3.forward;
-            var predictedVelocity = motion.Velocity;
-            if (predictedVelocity.magnitude < minimumReferenceSpeed &&
+            var targetLogicalForward = motion.LogicalRotation * Vector3.forward;
+            var targetVelocity = motion.Velocity;
+            var targetControlAcceleration = motion.CurrentControlAcceleration;
+            var targetQuickBoostAcceleration = motion.CurrentQuickBoostAcceleration;
+            var targetReferenceUp = motion.ReferenceUp;
+            if (targetVelocity.magnitude < minimumReferenceSpeed &&
                 motion.CurrentControlAcceleration.sqrMagnitude < 0.0001f)
             {
-                predictedVelocity = logicalForward * minimumReferenceSpeed;
+                targetVelocity = targetLogicalForward * minimumReferenceSpeed;
             }
 
+            if (!visualStateInitialized)
+            {
+                smoothedVelocity = targetVelocity;
+                smoothedControlAcceleration = targetControlAcceleration;
+                smoothedQuickBoostAcceleration = targetQuickBoostAcceleration;
+                smoothedLogicalForward = targetLogicalForward.normalized;
+                smoothedReferenceUp = targetReferenceUp.normalized;
+                visualStateInitialized = true;
+            }
+            else
+            {
+                var deltaTime = Mathf.Max(0f, Time.deltaTime);
+                smoothedVelocity = Vector3.Lerp(
+                    smoothedVelocity,
+                    targetVelocity,
+                    ExponentialSmoothingFactor(deltaTime, velocitySmoothingSeconds));
+                smoothedControlAcceleration = Vector3.Lerp(
+                    smoothedControlAcceleration,
+                    targetControlAcceleration,
+                    ExponentialSmoothingFactor(deltaTime, accelerationSmoothingSeconds));
+                smoothedQuickBoostAcceleration = Vector3.Lerp(
+                    smoothedQuickBoostAcceleration,
+                    targetQuickBoostAcceleration,
+                    ExponentialSmoothingFactor(deltaTime, velocitySmoothingSeconds));
+                var frameSmoothing = ExponentialSmoothingFactor(
+                    deltaTime,
+                    referenceFrameSmoothingSeconds);
+                smoothedLogicalForward = SmoothDirection(
+                    smoothedLogicalForward,
+                    targetLogicalForward,
+                    frameSmoothing);
+                smoothedReferenceUp = SmoothDirection(
+                    smoothedReferenceUp,
+                    targetReferenceUp,
+                    frameSmoothing);
+            }
+
+            var logicalForward = smoothedLogicalForward;
+            var predictedVelocity = smoothedVelocity;
             var duration = Mathf.Max(0.1f, predictionSeconds);
             var stepSeconds = duration / (sampleCount - 1f);
-            var controlAcceleration = motion.CurrentControlAcceleration;
-            var quickBoostAcceleration = motion.CurrentQuickBoostAcceleration;
+            var controlAcceleration = smoothedControlAcceleration;
+            var quickBoostAcceleration = smoothedQuickBoostAcceleration;
             var quickBoostRemaining = motion.CurrentQuickBoostRemaining;
             var gravity = motion.Grounded
                 ? Vector3.zero
-                : -motion.ReferenceUp * motion.GravityAcceleration;
-            var displayOffset = motion.ReferenceUp * originHeight
+                : -smoothedReferenceUp * motion.GravityAcceleration;
+            var displayOffset = smoothedReferenceUp * originHeight
                                 + logicalForward * originForwardOffset;
             var predictedPosition = transform.position;
             var travelledDistance = 0f;
@@ -219,6 +271,43 @@ namespace ACunicombat.Mechs
                 Destroy(runtimeMaterial);
             }
         }
+
+        private void OnDisable()
+        {
+            visualStateInitialized = false;
+        }
+
+        private static float ExponentialSmoothingFactor(
+            float deltaTime,
+            float responseSeconds)
+        {
+            return responseSeconds <= 0.0001f
+                ? 1f
+                : 1f - Mathf.Exp(-Mathf.Max(0f, deltaTime) / responseSeconds);
+        }
+
+        private static Vector3 SmoothDirection(
+            Vector3 current,
+            Vector3 target,
+            float factor)
+        {
+            if (target.sqrMagnitude <= 0.0001f)
+            {
+                return current.sqrMagnitude > 0.0001f
+                    ? current.normalized
+                    : Vector3.forward;
+            }
+
+            if (current.sqrMagnitude <= 0.0001f)
+            {
+                return target.normalized;
+            }
+
+            return Vector3.Slerp(
+                current.normalized,
+                target.normalized,
+                Mathf.Clamp01(factor)).normalized;
+        }
     }
 
     /// <summary>
@@ -247,6 +336,11 @@ namespace ACunicombat.Mechs
         [SerializeField] private float maximumPathLength = 3000f;
         [SerializeField] private float lineWidth = 0.22f;
         [SerializeField] private float dashLength = 18f;
+        [SerializeField] private float pathStartDistance = 30f;
+        [SerializeField] private float pathHalfWidth = 4f;
+        [SerializeField] private float pathDirectionSmoothingSeconds = 0.32f;
+        [SerializeField] private float pathLateralSmoothingSeconds = 0.18f;
+        [SerializeField] private float pathLengthSmoothingSeconds = 0.24f;
         [SerializeField] private Color pathColor = new(0.1f, 0.95f, 0.85f, 0.9f);
 
         private TrackId synchronizedTrackId;
@@ -261,9 +355,15 @@ namespace ACunicombat.Mechs
         private bool active;
         private bool manualOverride;
         private float autoThrottleCommand;
-        private LineRenderer pathLine;
+        private LineRenderer leftPathLine;
+        private LineRenderer rightPathLine;
         private Material pathMaterial;
         private Texture2D dashTexture;
+        private Vector3 visualPathAnchor;
+        private Vector3 visualPathDirection = Vector3.forward;
+        private Vector3 visualPathRight = Vector3.right;
+        private float visualPathSignedSpeed;
+        private bool pathVisualInitialized;
 
         public bool Active => active;
         public bool ManualOverride => manualOverride;
@@ -317,6 +417,7 @@ namespace ACunicombat.Mechs
             active = true;
             manualOverride = false;
             autoThrottleCommand = 0f;
+            pathVisualInitialized = false;
             EnsurePathRenderer();
             SetPathVisible(true);
             return true;
@@ -328,6 +429,7 @@ namespace ACunicombat.Mechs
             synchronizedTrackId = default;
             manualOverride = false;
             autoThrottleCommand = 0f;
+            pathVisualInitialized = false;
             motion?.ClearTrajectorySyncCommand();
             SetPathVisible(false);
         }
@@ -461,7 +563,7 @@ namespace ACunicombat.Mechs
                 Mathf.Max(0.01f, maximumSynchronizationAcceleration));
             lateralOverrideLastFrame = lateralOverride;
             longitudinalOverrideLastFrame = directLongitudinalOverride;
-            DrawParallelPath();
+            DrawParallelPath(deltaTime);
         }
 
         public static Vector3 CalculateSynchronizationAcceleration(
@@ -556,10 +658,10 @@ namespace ACunicombat.Mechs
             SetPathVisible(false);
         }
 
-        private void DrawParallelPath()
+        private void DrawParallelPath(float deltaTime)
         {
             EnsurePathRenderer();
-            if (pathLine == null)
+            if (leftPathLine == null || rightPathLine == null)
             {
                 return;
             }
@@ -567,108 +669,248 @@ namespace ACunicombat.Mechs
             var signedSpeed =
                 Vector3.Dot(filteredTargetVelocity, parallelDirection) +
                 longitudinalVelocityBias;
-            var lineDirection = signedSpeed >= 0f
+            var desiredDirection = signedSpeed >= 0f
                 ? parallelDirection
                 : -parallelDirection;
-            var pathLength = Mathf.Clamp(
-                Mathf.Abs(signedSpeed) * Mathf.Max(0.1f, predictionSeconds),
+            var referenceUp = motion != null &&
+                              motion.ReferenceUp.sqrMagnitude > 0.0001f
+                ? motion.ReferenceUp.normalized
+                : Vector3.up;
+            var desiredAnchor = transform.position + referenceUp * 4f;
+            var desiredRight = Vector3.Cross(referenceUp, desiredDirection);
+            if (desiredRight.sqrMagnitude <= 0.0001f && motion != null)
+            {
+                desiredRight = motion.LogicalRotation * Vector3.right;
+            }
+
+            desiredRight = Vector3.ProjectOnPlane(
+                desiredRight,
+                desiredDirection).normalized;
+            if (!pathVisualInitialized)
+            {
+                visualPathAnchor = desiredAnchor;
+                visualPathDirection = desiredDirection.normalized;
+                visualPathRight = desiredRight.sqrMagnitude > 0.0001f
+                    ? desiredRight
+                    : Vector3.right;
+                visualPathSignedSpeed = signedSpeed;
+                pathVisualInitialized = true;
+            }
+            else
+            {
+                var directionFactor = ExponentialSmoothingFactor(
+                    deltaTime,
+                    pathDirectionSmoothingSeconds);
+                visualPathDirection = SmoothDirection(
+                    visualPathDirection,
+                    desiredDirection,
+                    directionFactor);
+
+                var anchorDelta = desiredAnchor - visualPathAnchor;
+                var alongDelta = Vector3.Project(
+                    anchorDelta,
+                    visualPathDirection);
+                var lateralDelta = anchorDelta - alongDelta;
+                visualPathAnchor += alongDelta +
+                                    lateralDelta * ExponentialSmoothingFactor(
+                                        deltaTime,
+                                        pathLateralSmoothingSeconds);
+
+                desiredRight = Vector3.Cross(referenceUp, visualPathDirection);
+                if (desiredRight.sqrMagnitude <= 0.0001f && motion != null)
+                {
+                    desiredRight = motion.LogicalRotation * Vector3.right;
+                }
+
+                desiredRight = Vector3.ProjectOnPlane(
+                    desiredRight,
+                    visualPathDirection).normalized;
+                if (desiredRight.sqrMagnitude > 0.0001f)
+                {
+                    if (Vector3.Dot(desiredRight, visualPathRight) < 0f)
+                    {
+                        desiredRight = -desiredRight;
+                    }
+
+                    visualPathRight = SmoothDirection(
+                        visualPathRight,
+                        desiredRight,
+                        directionFactor);
+                }
+
+                visualPathSignedSpeed = Mathf.Lerp(
+                    visualPathSignedSpeed,
+                    signedSpeed,
+                    ExponentialSmoothingFactor(
+                        deltaTime,
+                        pathLengthSmoothingSeconds));
+            }
+
+            var fullPathLength = Mathf.Clamp(
+                Mathf.Abs(visualPathSignedSpeed) *
+                Mathf.Max(0.1f, predictionSeconds),
                 Mathf.Max(10f, minimumPathLength),
                 Mathf.Max(minimumPathLength, maximumPathLength));
-            var displayOffset = motion != null
-                ? motion.ReferenceUp * 4f
-                : Vector3.up * 4f;
-            var start = transform.position + displayOffset;
-            pathLine.positionCount = 2;
-            pathLine.SetPosition(0, start);
-            pathLine.SetPosition(1, start + lineDirection * pathLength);
+            var hiddenDistance = Mathf.Clamp(
+                pathStartDistance,
+                0f,
+                Mathf.Max(0f, fullPathLength - 1f));
+            var lineStart = visualPathAnchor +
+                            visualPathDirection * hiddenDistance;
+            var lineEnd = visualPathAnchor +
+                          visualPathDirection * fullPathLength;
+            var laneOffset = visualPathRight *
+                             Mathf.Max(0.1f, pathHalfWidth);
+            SetLinePositions(
+                leftPathLine,
+                lineStart - laneOffset,
+                lineEnd - laneOffset);
+            SetLinePositions(
+                rightPathLine,
+                lineStart + laneOffset,
+                lineEnd + laneOffset);
             if (pathMaterial != null)
             {
                 pathMaterial.mainTextureScale = new Vector2(
-                    pathLength / Mathf.Max(1f, dashLength),
+                    (fullPathLength - hiddenDistance) /
+                    Mathf.Max(1f, dashLength),
                     1f);
             }
         }
 
         private void EnsurePathRenderer()
         {
-            if (pathLine != null)
+            if (leftPathLine != null && rightPathLine != null)
             {
                 return;
             }
 
-            var child = transform.Find("OrbitSyncTrajectory");
-            if (child == null)
-            {
-                var pathObject = new GameObject("OrbitSyncTrajectory");
-                child = pathObject.transform;
-                child.SetParent(transform, false);
-            }
+            leftPathLine ??= EnsurePathLine(
+                "OrbitSyncTrajectoryLeft",
+                "OrbitSyncTrajectory");
+            rightPathLine ??= EnsurePathLine(
+                "OrbitSyncTrajectoryRight",
+                null);
 
-            pathLine = child.GetComponent<LineRenderer>();
-            if (pathLine == null)
+            if (dashTexture == null)
             {
-                pathLine = child.gameObject.AddComponent<LineRenderer>();
-            }
-
-            pathLine.useWorldSpace = true;
-            pathLine.loop = false;
-            pathLine.alignment = LineAlignment.View;
-            pathLine.textureMode = LineTextureMode.Tile;
-            pathLine.numCapVertices = 2;
-            pathLine.numCornerVertices = 2;
-            pathLine.startWidth = lineWidth;
-            pathLine.endWidth = lineWidth * 0.65f;
-            pathLine.startColor = pathColor;
-            pathLine.endColor = new Color(
-                pathColor.r,
-                pathColor.g,
-                pathColor.b,
-                pathColor.a * 0.35f);
-            pathLine.shadowCastingMode = ShadowCastingMode.Off;
-            pathLine.receiveShadows = false;
-            pathLine.lightProbeUsage = LightProbeUsage.Off;
-            pathLine.reflectionProbeUsage = ReflectionProbeUsage.Off;
-
-            dashTexture = new Texture2D(16, 1, TextureFormat.RGBA32, false)
-            {
-                name = "Runtime Orbit Sync Dash",
-                wrapMode = TextureWrapMode.Repeat,
-                filterMode = FilterMode.Bilinear,
-                hideFlags = HideFlags.HideAndDontSave,
-            };
-            for (var x = 0; x < dashTexture.width; x++)
-            {
-                dashTexture.SetPixel(
-                    x,
-                    0,
-                    x < 10 ? Color.white : Color.clear);
-            }
-            dashTexture.Apply(false, true);
-
-            var shader = Shader.Find("Sprites/Default")
-                         ?? Shader.Find("Universal Render Pipeline/Particles/Unlit")
-                         ?? Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader != null)
-            {
-                pathMaterial = new Material(shader)
+                dashTexture = new Texture2D(16, 1, TextureFormat.RGBA32, false)
                 {
-                    name = "Runtime Orbit Sync Path Material",
+                    name = "Runtime Orbit Sync Dash",
+                    wrapMode = TextureWrapMode.Repeat,
+                    filterMode = FilterMode.Bilinear,
                     hideFlags = HideFlags.HideAndDontSave,
-                    mainTexture = dashTexture,
                 };
-                pathLine.sharedMaterial = pathMaterial;
+                for (var x = 0; x < dashTexture.width; x++)
+                {
+                    dashTexture.SetPixel(
+                        x,
+                        0,
+                        x < 10 ? Color.white : Color.clear);
+                }
+                dashTexture.Apply(false, true);
+            }
+
+            if (pathMaterial == null)
+            {
+                var shader = Shader.Find("Sprites/Default")
+                             ?? Shader.Find("Universal Render Pipeline/Particles/Unlit")
+                             ?? Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader != null)
+                {
+                    pathMaterial = new Material(shader)
+                    {
+                        name = "Runtime Orbit Sync Path Material",
+                        hideFlags = HideFlags.HideAndDontSave,
+                        mainTexture = dashTexture,
+                    };
+                }
+            }
+
+            if (pathMaterial != null)
+            {
+                leftPathLine.sharedMaterial = pathMaterial;
+                rightPathLine.sharedMaterial = pathMaterial;
             }
         }
 
         private void SetPathVisible(bool visible)
         {
-            if (pathLine != null)
+            SetLineVisible(leftPathLine, visible);
+            SetLineVisible(rightPathLine, visible);
+        }
+
+        private LineRenderer EnsurePathLine(
+            string objectName,
+            string legacyObjectName)
+        {
+            var child = transform.Find(objectName);
+            if (child == null && !string.IsNullOrEmpty(legacyObjectName))
             {
-                pathLine.enabled = visible;
-                if (!visible)
+                child = transform.Find(legacyObjectName);
+                if (child != null)
                 {
-                    pathLine.positionCount = 0;
+                    child.name = objectName;
                 }
+            }
+
+            if (child == null)
+            {
+                var pathObject = new GameObject(objectName);
+                child = pathObject.transform;
+                child.SetParent(transform, false);
+            }
+
+            var renderer = child.GetComponent<LineRenderer>();
+            if (renderer == null)
+            {
+                renderer = child.gameObject.AddComponent<LineRenderer>();
+            }
+
+            renderer.useWorldSpace = true;
+            renderer.loop = false;
+            renderer.alignment = LineAlignment.View;
+            renderer.textureMode = LineTextureMode.Tile;
+            renderer.numCapVertices = 2;
+            renderer.numCornerVertices = 2;
+            renderer.startWidth = lineWidth;
+            renderer.endWidth = lineWidth * 0.65f;
+            renderer.startColor = pathColor;
+            renderer.endColor = new Color(
+                pathColor.r,
+                pathColor.g,
+                pathColor.b,
+                pathColor.a * 0.35f);
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.lightProbeUsage = LightProbeUsage.Off;
+            renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            return renderer;
+        }
+
+        private static void SetLinePositions(
+            LineRenderer renderer,
+            Vector3 start,
+            Vector3 end)
+        {
+            renderer.positionCount = 2;
+            renderer.SetPosition(0, start);
+            renderer.SetPosition(1, end);
+        }
+
+        private static void SetLineVisible(
+            LineRenderer renderer,
+            bool visible)
+        {
+            if (renderer == null)
+            {
+                return;
+            }
+
+            renderer.enabled = visible;
+            if (!visible)
+            {
+                renderer.positionCount = 0;
             }
         }
 
@@ -696,6 +938,38 @@ namespace ACunicombat.Mechs
                 (float)value.x,
                 (float)value.y,
                 (float)value.z);
+        }
+
+        private static float ExponentialSmoothingFactor(
+            float deltaTime,
+            float responseSeconds)
+        {
+            return responseSeconds <= 0.0001f
+                ? 1f
+                : 1f - Mathf.Exp(-Mathf.Max(0f, deltaTime) / responseSeconds);
+        }
+
+        private static Vector3 SmoothDirection(
+            Vector3 current,
+            Vector3 target,
+            float factor)
+        {
+            if (target.sqrMagnitude <= 0.0001f)
+            {
+                return current.sqrMagnitude > 0.0001f
+                    ? current.normalized
+                    : Vector3.forward;
+            }
+
+            if (current.sqrMagnitude <= 0.0001f)
+            {
+                return target.normalized;
+            }
+
+            return Vector3.Slerp(
+                current.normalized,
+                target.normalized,
+                Mathf.Clamp01(factor)).normalized;
         }
     }
 }
