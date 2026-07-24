@@ -18,6 +18,8 @@ using UnityEngine.SceneManagement;
 public static class AC6PlayableSceneBuilder
 {
     private const string BuildRequestFileName = "RunAC6PlayableSceneBuild.request";
+    private const string SkyboxBuildRequestFileName =
+        "RunAC6DeepSpaceSkyboxBuild.request";
     private const string GraphAssetPath =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/AC6BehaviorGraph.asset";
     private const string ShowcaseScenePath =
@@ -38,6 +40,7 @@ public static class AC6PlayableSceneBuilder
         GeneratedMaterialsRoot + "/AC6SparseDeepSpaceSkybox.mat";
     private const string DeepSpaceSkyTexturePath =
         GeneratedMaterialsRoot + "/AC6SparseDeepSpacePanorama.png";
+    private const string DeepSpaceSkyTextureVersion = "2-distant-sun";
     private const string PoseRoot = "Tools/LocalOut/actions";
 
     private static readonly (MechPartSlot Slot, string Token)[] FrameSlots =
@@ -103,17 +106,43 @@ public static class AC6PlayableSceneBuilder
         }
 
         var requestPath = Path.Combine(projectRoot, "Temp", BuildRequestFileName);
-        if (!File.Exists(requestPath))
+        var skyboxRequestPath = Path.Combine(
+            projectRoot,
+            "Temp",
+            SkyboxBuildRequestFileName);
+        var buildRequested = File.Exists(requestPath);
+        var skyboxBuildRequested = File.Exists(skyboxRequestPath);
+        if (!buildRequested && !skyboxBuildRequested)
         {
             return;
         }
 
-        File.Delete(requestPath);
+        if (buildRequested)
+        {
+            File.Delete(requestPath);
+        }
+
+        if (skyboxBuildRequested)
+        {
+            File.Delete(skyboxRequestPath);
+        }
+
         EditorApplication.delayCall += () =>
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
                 Debug.LogError("AC6 playable scene build request was skipped because Unity is in Play Mode.");
+                return;
+            }
+
+            if (skyboxBuildRequested && !buildRequested)
+            {
+                ConfigureDeepSpaceEnvironment();
+                EditorSceneManager.MarkSceneDirty(
+                    SceneManager.GetActiveScene());
+                EditorSceneManager.SaveOpenScenes();
+                Debug.Log(
+                    "[AC6PlayableScene] Deep-space skybox rebuilt with distant sun.");
                 return;
             }
 
@@ -780,7 +809,7 @@ public static class AC6PlayableSceneBuilder
 
         if (skybox.HasProperty("_Rotation"))
         {
-            skybox.SetFloat("_Rotation", 18f);
+            skybox.SetFloat("_Rotation", 0f);
         }
 
         if (skybox.HasProperty("_Mapping"))
@@ -849,7 +878,11 @@ public static class AC6PlayableSceneBuilder
     private static Texture2D GetOrCreateDeepSpacePanorama()
     {
         var panorama = AssetDatabase.LoadAssetAtPath<Texture2D>(DeepSpaceSkyTexturePath);
-        if (panorama != null)
+        var existingImporter =
+            AssetImporter.GetAtPath(DeepSpaceSkyTexturePath) as TextureImporter;
+        if (panorama != null &&
+            existingImporter != null &&
+            existingImporter.userData == DeepSpaceSkyTextureVersion)
         {
             return panorama;
         }
@@ -919,6 +952,8 @@ public static class AC6PlayableSceneBuilder
             }
         }
 
+        PaintDistantSun(pixels, width, height);
+
         var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
         texture.SetPixels32(pixels);
         texture.Apply(false, false);
@@ -939,10 +974,86 @@ public static class AC6PlayableSceneBuilder
             importer.filterMode = FilterMode.Bilinear;
             importer.textureCompression = TextureImporterCompression.CompressedHQ;
             importer.maxTextureSize = width;
+            importer.userData = DeepSpaceSkyTextureVersion;
             importer.SaveAndReimport();
         }
 
         return AssetDatabase.LoadAssetAtPath<Texture2D>(DeepSpaceSkyTexturePath);
+    }
+
+    private static void PaintDistantSun(
+        Color32[] pixels,
+        int width,
+        int height)
+    {
+        // Matches the scene's Key Light: the visible sun lies opposite the
+        // direction in which the directional light rays travel.
+        var lightRotation = Quaternion.Euler(31f, -32f, 0f);
+        var sunDirection = -(lightRotation * Vector3.forward);
+        var longitude = Mathf.Atan2(sunDirection.z, sunDirection.x);
+        var latitude = Mathf.Asin(Mathf.Clamp(sunDirection.y, -1f, 1f));
+        var centerX = (0.5f - longitude / (2f * Mathf.PI)) * width;
+        var centerY = (0.5f + latitude / Mathf.PI) * height;
+        var latitudeScale = Mathf.Max(0.1f, Mathf.Cos(latitude));
+        const float diskRadiusDegrees = 0.72f;
+        const float coronaRadiusDegrees = 3.2f;
+        var coronaPixels = Mathf.CeilToInt(
+            coronaRadiusDegrees / 180f * height);
+
+        for (var offsetY = -coronaPixels; offsetY <= coronaPixels; offsetY++)
+        {
+            var y = Mathf.RoundToInt(centerY) + offsetY;
+            if (y < 0 || y >= height)
+            {
+                continue;
+            }
+
+            for (var offsetX = -coronaPixels * 2;
+                 offsetX <= coronaPixels * 2;
+                 offsetX++)
+            {
+                var x = (Mathf.RoundToInt(centerX) + offsetX + width) % width;
+                var longitudeDegrees =
+                    offsetX / (float)width * 360f * latitudeScale;
+                var latitudeDegrees =
+                    offsetY / (float)height * 180f;
+                var angularDistance = Mathf.Sqrt(
+                    longitudeDegrees * longitudeDegrees +
+                    latitudeDegrees * latitudeDegrees);
+                if (angularDistance > coronaRadiusDegrees)
+                {
+                    continue;
+                }
+
+                var index = y * width + x;
+                var existing = pixels[index];
+                if (angularDistance <= diskRadiusDegrees)
+                {
+                    var edge = Mathf.SmoothStep(
+                        1f,
+                        0.82f,
+                        angularDistance / diskRadiusDegrees);
+                    pixels[index] = new Color32(
+                        (byte)Mathf.Lerp(existing.r, 255f, edge),
+                        (byte)Mathf.Lerp(existing.g, 248f, edge),
+                        (byte)Mathf.Lerp(existing.b, 220f, edge),
+                        255);
+                    continue;
+                }
+
+                var corona = 1f -
+                    Mathf.InverseLerp(
+                        diskRadiusDegrees,
+                        coronaRadiusDegrees,
+                        angularDistance);
+                corona = corona * corona * 0.42f;
+                pixels[index] = new Color32(
+                    (byte)Mathf.Clamp(existing.r + 255f * corona, 0f, 255f),
+                    (byte)Mathf.Clamp(existing.g + 205f * corona, 0f, 255f),
+                    (byte)Mathf.Clamp(existing.b + 125f * corona, 0f, 255f),
+                    255);
+            }
+        }
     }
 
     private static CombatTestTarget BuildCombatTestTarget()
