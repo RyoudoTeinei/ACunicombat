@@ -55,17 +55,18 @@ namespace ACunicombat.FireControl
                 return solution;
             }
 
+            var currentPosition = track.PredictPosition(requestTime);
             var timeOfFlight = 0.0;
             for (var i = 0; i < 3; i++)
             {
-                var predictionAge = trackAge + timeOfFlight;
-                var predicted = track.Position + track.Velocity * predictionAge;
+                var predicted =
+                    currentPosition + track.Velocity * timeOfFlight;
                 timeOfFlight = math.length(predicted - shooterPosition) / projectileSpeed;
             }
 
             solution.InterceptTime = requestTime + timeOfFlight;
-            solution.InterceptPoint = track.Position
-                + track.Velocity * (solution.InterceptTime - track.LastUpdateTime);
+            solution.InterceptPoint =
+                currentPosition + track.Velocity * timeOfFlight;
             solution.MidcourseAimPoint = solution.InterceptPoint;
 
             var propagationSeconds = math.max(0.0, solution.InterceptTime - track.LastPredictTime);

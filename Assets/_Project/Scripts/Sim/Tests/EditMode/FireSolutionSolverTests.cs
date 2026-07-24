@@ -41,6 +41,29 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(solution.WeaponReleaseAuthorized, Is.False);
         }
 
+        [Test]
+        public void PredictedTrackState_IsNotPropagatedAgainFromLastMeasurement()
+        {
+            var track = ConfirmedTrack(lastUpdateTime: 1.0);
+            track.Position = new double3(0.0, 0.0, 1_000.0);
+            track.Velocity = new double3(0.0, 0.0, 100.0);
+            track.LastPredictTime = 2.0;
+
+            Assert.That(
+                track.PredictPosition(2.25).z,
+                Is.EqualTo(1_025.0).Within(0.01));
+
+            var solution = FireSolutionSolver.Solve(
+                track,
+                double3.zero,
+                projectileSpeed: 500.0,
+                requestTime: 2.0);
+
+            Assert.That(solution.Failure, Is.EqualTo(FireSolutionFailure.None));
+            Assert.That(solution.InterceptPoint.z, Is.EqualTo(1_248.0).Within(0.1));
+            Assert.That(solution.InterceptTime, Is.EqualTo(4.48).Within(0.01));
+        }
+
         private static TrackSnapshot ConfirmedTrack(double lastUpdateTime)
         {
             var track = new TrackSnapshot

@@ -165,7 +165,17 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            motionElapsedSeconds += Time.deltaTime;
+            ApplyHitFlash(Time.time < flashUntil);
+        }
+
+        private void FixedUpdate()
+        {
+            if (!IsAlive)
+            {
+                return;
+            }
+
+            motionElapsedSeconds += Time.fixedDeltaTime;
             if (motionMode == CombatTestTargetMotionMode.LinearFlight)
             {
                 var velocity = flightDirection * flightSpeedMetersPerSecond;
@@ -183,8 +193,6 @@ namespace ACunicombat.Mechs
                 var offset = Mathf.Sin(motionElapsedSeconds * angularSpeed) * lateralAmplitudeMeters;
                 transform.position = origin + Vector3.right * offset;
             }
-
-            ApplyHitFlash(Time.time < flashUntil);
         }
 
         private void ResetTarget()

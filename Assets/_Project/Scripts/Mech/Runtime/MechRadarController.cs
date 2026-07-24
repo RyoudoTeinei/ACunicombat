@@ -549,8 +549,7 @@ namespace ACunicombat.Mechs
 
         public Vector3 PredictTrackPosition(in TrackSnapshot track)
         {
-            var age = math.max(0.0, SimTimeSeconds - track.LastUpdateTime);
-            return ToVector3(track.Position + track.Velocity * age);
+            return ToVector3(track.PredictPosition(SimTimeSeconds));
         }
 
         private bool TryGetFireControlTrack(out TrackSnapshot track)

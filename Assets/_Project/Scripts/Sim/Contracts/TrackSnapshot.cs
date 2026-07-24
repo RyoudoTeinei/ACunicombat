@@ -54,6 +54,14 @@ namespace ACunicombat.Sensing.Contracts
         public float InterferenceScore;
         public TrackLifecycle Lifecycle;
 
+        public double3 PredictPosition(double time)
+        {
+            var propagationSeconds = math.max(
+                0.0,
+                time - LastPredictTime);
+            return Position + Velocity * propagationSeconds;
+        }
+
         /// <summary>6×6 对称阵上三角行主序索引：i ≤ j，行 i 的起点 = 6i − i(i−1)/2。</summary>
         public static int CovarianceIndex(int i, int j)
         {
