@@ -62,6 +62,8 @@ namespace ACunicombat.Mechs
         private readonly Measurement[] measurementScratch = new Measurement[MaximumPublicEchoes];
         private readonly GuidanceChannel[] guidanceChannels =
             new GuidanceChannel[GuidanceChannelCapacity];
+        private readonly bool[] auxiliarySensorAllocated = new bool[64];
+        private readonly byte[] auxiliarySensorGenerations = new byte[64];
         private readonly double[] nextTwsRevisitTimes =
             new double[MaximumPublicTracks];
         private readonly uint[] twsRevisitTrackKeys =
@@ -96,6 +98,22 @@ namespace ACunicombat.Mechs
         public bool HasStt => sttTrackId.IsValid && TryGetTrack(sttTrackId, out _);
         public float DesignationProgress => designationProgress;
 
+        public readonly struct MissileSeekerHandle
+        {
+            internal MissileSeekerHandle(
+                SimEntityId entityId,
+                SensorId sensorId)
+            {
+                EntityId = entityId;
+                SensorId = sensorId;
+            }
+
+            internal SimEntityId EntityId { get; }
+            public SensorId SensorId { get; }
+            public bool IsValid =>
+                EntityId.IsValid && SensorId.IsValid;
+        }
+
         public void Configure(Camera newAimingCamera, CombatTestTarget newTarget)
         {
             aimingCamera = newAimingCamera;
@@ -121,6 +139,159 @@ namespace ACunicombat.Mechs
             sttTrackId = default;
             candidateTrackId = default;
             designationProgress = 0f;
+        }
+
+        public bool TryRegisterMissileSeeker(
+            Vector3 position,
+            Vector3 velocity,
+            float maximumRangeMeters,
+            float beamWidthDegrees,
+            out MissileSeekerHandle handle)
+        {
+            EnsureInitialized();
+            handle = default;
+            if (driver == null)
+            {
+                return false;
+            }
+
+            for (var index = 1;
+                 index < auxiliarySensorAllocated.Length;
+                 index++)
+            {
+                if (auxiliarySensorAllocated[index])
+                {
+                    continue;
+                }
+
+                var generation = auxiliarySensorGenerations[index];
+                if (generation == 0)
+                {
+                    generation = 1;
+                    auxiliarySensorGenerations[index] = generation;
+                }
+
+                var sensor = new SensorId(
+                    new Handle(index, generation));
+                var entity = driver.RegisterEntity(
+                    BuildState(position, velocity));
+                driver.RegisterAuxiliaryRadarSensor(
+                    new RadarSensorProfile
+                    {
+                        SensorId = sensor,
+                        EmitterId = new EmitterId(
+                            new Handle(index, generation)),
+                        PlatformId = new PlatformId(
+                            new Handle(index, generation)),
+                        OwnerEntityId = entity,
+                        DwellConfig = new RadarDwellConfig
+                        {
+                            ConstantsDb = 215f,
+                            IntegrationGainDb = 8f,
+                            NoisePowerDb = 0f,
+                            DetectThresholdLowDb = 3f,
+                            DetectThresholdHighDb = 10f,
+                            RangeResolutionMeters = 3f,
+                            BeamWidthRadians =
+                                beamWidthDegrees * Mathf.Deg2Rad,
+                            VelocityResolutionMps = 0.75f,
+                        },
+                        Capability =
+                            SensorCapability.Range |
+                            SensorCapability.Doppler |
+                            SensorCapability.LosRate,
+                        MaxRangeMeters =
+                            Mathf.Max(100f, maximumRangeMeters),
+                        FrequencyBand = 1,
+                        WaveformId = 2,
+                        MainlobePowerDb = 56f,
+                        SidelobeLevelDb = -32f,
+                        ClutterPowerDb = -45f,
+                        Resolutions =
+                            new ResolutionMerge.Resolutions
+                            {
+                                RangeMeters = 3f,
+                                AngleRadians = 0.5f * Mathf.Deg2Rad,
+                                VelocityMps = 0.75f,
+                            },
+                    });
+
+                auxiliarySensorAllocated[index] = true;
+                handle = new MissileSeekerHandle(entity, sensor);
+                return true;
+            }
+
+            return false;
+        }
+
+        public void UpdateMissileSeekerState(
+            in MissileSeekerHandle handle,
+            Vector3 position,
+            Vector3 velocity)
+        {
+            if (driver == null || !handle.IsValid)
+            {
+                return;
+            }
+
+            driver.SetEntityState(
+                handle.EntityId,
+                BuildState(position, velocity));
+        }
+
+        public void ScheduleMissileSeekerDwell(
+            in MissileSeekerHandle handle,
+            Vector3 direction,
+            float beamWidthDegrees,
+            ulong sequence)
+        {
+            if (driver == null ||
+                !handle.IsValid ||
+                direction.sqrMagnitude <= 0.001f)
+            {
+                return;
+            }
+
+            driver.ScheduleRadarDwell(new Dwell
+            {
+                SensorId = handle.SensorId,
+                DueTime = SimTimeSeconds,
+                DwellTimeSeconds = 0.004f,
+                BeamDirection = ToFloat3(direction.normalized),
+                BeamWidthRadians =
+                    Mathf.Max(0.1f, beamWidthDegrees) * Mathf.Deg2Rad,
+                Priority = DwellPriority.MissileTerminal,
+                Sequence = sequence,
+            });
+        }
+
+        public int CopyMissileSeekerMeasurements(
+            in MissileSeekerHandle handle,
+            Measurement[] destination) =>
+            driver != null && handle.IsValid
+                ? driver.CopyDetections(handle.SensorId, destination)
+                : 0;
+
+        public void UnregisterMissileSeeker(
+            in MissileSeekerHandle handle)
+        {
+            if (driver == null || !handle.IsValid)
+            {
+                return;
+            }
+
+            driver.UnregisterRadarSensor(handle.SensorId);
+            driver.UnregisterEntity(handle.EntityId);
+            var index = handle.SensorId.Value.Index;
+            if ((uint)index < auxiliarySensorAllocated.Length)
+            {
+                auxiliarySensorAllocated[index] = false;
+                auxiliarySensorGenerations[index]++;
+                if (auxiliarySensorGenerations[index] == 0)
+                {
+                    auxiliarySensorGenerations[index] = 1;
+                }
+            }
         }
 
         public int CopyTracks(TrackSnapshot[] destination) =>
@@ -1014,8 +1185,22 @@ namespace ACunicombat.Mechs
             };
         }
 
+        private static KinematicState BuildState(
+            Vector3 position,
+            Vector3 velocity)
+        {
+            return new KinematicState
+            {
+                PositionWorld = ToDouble3(position),
+                VelocityWorld = ToDouble3(velocity),
+            };
+        }
+
         private static double3 ToDouble3(Vector3 value) =>
             new double3(value.x, value.y, value.z);
+
+        private static float3 ToFloat3(Vector3 value) =>
+            new float3(value.x, value.y, value.z);
 
         private static Vector3 ToVector3(double3 value) =>
             new Vector3((float)value.x, (float)value.y, (float)value.z);

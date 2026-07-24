@@ -26,4 +26,59 @@ namespace ACunicombat.FireControl
         public static bool WithinGimbalLimit(float3 losDirection, float3 seekerAxis, float maxGimbalRadians) =>
             math.dot(losDirection, seekerAxis) >= math.cos(maxGimbalRadians);
     }
+
+    public static class MissileEngagementMath
+    {
+        public static bool IsInsideSeekerVolume(
+            float3 missilePosition,
+            float3 seekerForward,
+            float3 targetPosition,
+            float maximumRange,
+            float halfAngleRadians)
+        {
+            var offset = targetPosition - missilePosition;
+            var rangeSquared = math.lengthsq(offset);
+            if (rangeSquared <= 1e-6f ||
+                rangeSquared > maximumRange * maximumRange)
+            {
+                return false;
+            }
+
+            var forward = math.normalizesafe(
+                seekerForward,
+                new float3(0f, 0f, 1f));
+            var direction = offset * math.rsqrt(rangeSquared);
+            return math.dot(forward, direction) >=
+                   math.cos(halfAngleRadians);
+        }
+
+        public static float3 LineOfSightRate(
+            float3 relativePosition,
+            float3 relativeVelocity)
+        {
+            var rangeSquared = math.lengthsq(relativePosition);
+            return rangeSquared > 1e-6f
+                ? math.cross(relativePosition, relativeVelocity) /
+                  rangeSquared
+                : float3.zero;
+        }
+
+        public static bool TryGetProximityPass(
+            float3 relativePosition,
+            float3 relativeVelocity,
+            float stepSeconds,
+            float fuseRadius,
+            out float timeToClosestApproach,
+            out float closestDistance)
+        {
+            var result = CpaSolver.Solve(
+                relativePosition,
+                relativeVelocity,
+                double3.zero,
+                math.max(0f, stepSeconds));
+            timeToClosestApproach = (float)result.Time;
+            closestDistance = (float)result.Distance;
+            return closestDistance <= fuseRadius;
+        }
+    }
 }

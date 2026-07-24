@@ -4,6 +4,7 @@ using ACunicombat.Simulation.Core;
 using ACunicombat.Simulation.Kinematics;
 using ACunicombat.Simulation.World;
 using ACunicombat.Tracking;
+using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -33,6 +34,10 @@ namespace ACunicombat.Simulation.Driver
         private RadarSensorSystem radar;
         private RadarTrackManager trackManager;
         private SimEntityId trackOriginEntity;
+        private SensorId trackSensorId;
+        private EmitterId trackEmitterId;
+        private NativeList<Measurement> trackDetectionScratch;
+        private NativeList<EmissionEvent> trackEmissionScratch;
 
         public double SimTimeSeconds => motionClock.SimTimeSeconds;
         public long MotionOverrunTicks => motionClock.OverrunTicks;
@@ -52,6 +57,14 @@ namespace ACunicombat.Simulation.Driver
             dwellScheduler = new DwellScheduler(512);
             radar = new RadarSensorSystem(world, grid, dwellScheduler) { SessionSeed = sessionSeed };
             trackManager = new RadarTrackManager();
+            trackDetectionScratch =
+                new NativeList<Measurement>(
+                    RadarSensorSystem.DetectionRingCapacity,
+                    Allocator.Persistent);
+            trackEmissionScratch =
+                new NativeList<EmissionEvent>(
+                    1024,
+                    Allocator.Persistent);
         }
 
         public SimEntityId RegisterEntity(in KinematicState initial) => world.Register(initial);
@@ -65,7 +78,16 @@ namespace ACunicombat.Simulation.Driver
         {
             radar.RegisterSensor(profile);
             trackOriginEntity = profile.OwnerEntityId;
+            trackSensorId = profile.SensorId;
+            trackEmitterId = profile.EmitterId;
         }
+
+        public void RegisterAuxiliaryRadarSensor(
+            in RadarSensorProfile profile) =>
+            radar.RegisterSensor(profile);
+
+        public void UnregisterRadarSensor(SensorId sensorId) =>
+            radar.UnregisterSensor(sensorId);
 
         public void RegisterRadarTarget(in RadarTargetProfile profile) => radar.RegisterTarget(profile);
 
@@ -98,6 +120,30 @@ namespace ACunicombat.Simulation.Driver
             return count;
         }
 
+        public int CopyDetections(
+            SensorId sensorId,
+            Measurement[] destination)
+        {
+            if (destination == null || radar == null)
+            {
+                return 0;
+            }
+
+            var count = 0;
+            for (var i = 0;
+                 i < radar.Detections.Length && count < destination.Length;
+                 i++)
+            {
+                var measurement = radar.Detections[i];
+                if (measurement.SensorId.Equals(sensorId))
+                {
+                    destination[count++] = measurement;
+                }
+            }
+
+            return count;
+        }
+
         private void FixedUpdate()
         {
             var dt = Time.fixedDeltaTime;
@@ -116,9 +162,34 @@ namespace ACunicombat.Simulation.Driver
                     sensorVelocity = sensorState.VelocityWorld;
                 }
 
+                trackDetectionScratch.Clear();
+                for (var detectionIndex = 0;
+                     detectionIndex < radar.Detections.Length;
+                     detectionIndex++)
+                {
+                    var measurement =
+                        radar.Detections[detectionIndex];
+                    if (measurement.SensorId.Equals(trackSensorId))
+                    {
+                        trackDetectionScratch.Add(measurement);
+                    }
+                }
+
+                trackEmissionScratch.Clear();
+                for (var emissionIndex = 0;
+                     emissionIndex < radar.Emissions.Length;
+                     emissionIndex++)
+                {
+                    var emission = radar.Emissions[emissionIndex];
+                    if (emission.EmitterId.Equals(trackEmitterId))
+                    {
+                        trackEmissionScratch.Add(emission);
+                    }
+                }
+
                 trackManager.Process(
-                    radar.Detections,
-                    radar.Emissions,
+                    trackDetectionScratch,
+                    trackEmissionScratch,
                     sensorPosition,
                     sensorVelocity,
                     sensorClock.SimTimeSeconds);
@@ -134,6 +205,14 @@ namespace ACunicombat.Simulation.Driver
         private void OnDestroy()
         {
             radar?.Dispose();
+            if (trackDetectionScratch.IsCreated)
+            {
+                trackDetectionScratch.Dispose();
+            }
+            if (trackEmissionScratch.IsCreated)
+            {
+                trackEmissionScratch.Dispose();
+            }
             dwellScheduler?.Dispose();
             grid?.Dispose();
             world?.Dispose();

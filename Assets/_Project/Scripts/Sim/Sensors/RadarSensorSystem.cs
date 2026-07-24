@@ -68,6 +68,16 @@ namespace ACunicombat.Sensors
             sensorRegistered[index] = true;
         }
 
+        public void UnregisterSensor(SensorId sensorId)
+        {
+            var index = sensorId.Value.Index;
+            if ((uint)index < sensorRegistered.Length &&
+                sensorProfiles[index].SensorId.Equals(sensorId))
+            {
+                sensorRegistered[index] = false;
+            }
+        }
+
         public void RegisterTarget(in RadarTargetProfile profile)
         {
             var index = profile.EntityId.Value.Index;

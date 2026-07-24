@@ -25,6 +25,18 @@ namespace ACunicombat.Mechs
         [Header("Test weapon envelopes")]
         [SerializeField, Min(1f)] private float missileMaximumFlightTimeSeconds = 300f;
         [SerializeField, Min(1000f)] private float missileMaximumRangeMeters = 50000f;
+        [Header("Missile propulsion and seeker")]
+        [SerializeField, Min(0.1f)] private float missileMotorBurnSeconds = 2.1f;
+        [SerializeField, Min(100f)] private float missileSeekerRangeMeters = 8000f;
+        [SerializeField, Range(1f, 89f)] private float missileSeekerSearchHalfAngleDegrees = 35f;
+        [SerializeField, Range(1f, 89f)] private float missileSeekerGimbalDegrees = 60f;
+        [SerializeField, Min(0f)] private float missileLateralAccelerationMps2 = 75f;
+        [SerializeField, Min(0f)] private float missileManeuverDeltaVMps = 180f;
+        [Header("Missile fuze and warhead")]
+        [SerializeField, Min(0.1f)] private float missileProximityFuseRadiusMeters = 12f;
+        [SerializeField, Min(0f)] private float missileFuseArmSeconds = 0.75f;
+        [SerializeField, Min(0f)] private float missileFuseSafeDistanceMeters = 20f;
+        [SerializeField, Min(0.1f)] private float missileWarheadLethalRadiusMeters = 18f;
 
         private readonly Dictionary<MechPartSlot, Transform[]> muzzlesBySlot =
             new Dictionary<MechPartSlot, Transform[]>();
@@ -217,7 +229,7 @@ namespace ACunicombat.Mechs
                     missileLockDegrees,
                     230f,
                     out var track,
-                    out _,
+                    out var solution,
                     out var guidanceToken))
             {
                 Debug.LogWarning(
@@ -228,9 +240,14 @@ namespace ACunicombat.Mechs
             }
 
             var trackId = track.TrackId;
+            var seekerActivationDelay = Mathf.Clamp(
+                (float)(solution.SeekerActivationTime -
+                        radarController.SimTimeSeconds),
+                missileMotorBurnSeconds,
+                8f);
             Debug.Log(
                 $"[MechTestWeaponSystem] Missile launch authorized: slot={slot}, track={trackId}, " +
-                $"channel={guidanceToken}.",
+                $"channel={guidanceToken}, seeker={seekerActivationDelay:0.0}s.",
                 this);
             var salvoCount = Mathf.Min(4, muzzles.Length);
             for (var i = 0; i < salvoCount; i++)
@@ -267,7 +284,18 @@ namespace ACunicombat.Mechs
                     projectileFfxId: slot == MechPartSlot.LeftBackWeapon ? 6082101 : 6083101,
                     launchAnchor: muzzle,
                     maximumTravelDistance: missileMaximumRangeMeters,
-                    guidanceChannelToken: guidanceToken);
+                    guidanceChannelToken: guidanceToken,
+                    motorBurnDuration: missileMotorBurnSeconds,
+                    seekerActivationDelay: seekerActivationDelay,
+                    seekerMaximumRange: missileSeekerRangeMeters,
+                    seekerHalfAngleDegrees: missileSeekerSearchHalfAngleDegrees,
+                    seekerGimbalDegrees: missileSeekerGimbalDegrees,
+                    maximumLateralAcceleration: missileLateralAccelerationMps2,
+                    maneuverDeltaV: missileManeuverDeltaVMps,
+                    proximityFuseRadius: missileProximityFuseRadiusMeters,
+                    proximityFuseArmTime: missileFuseArmSeconds,
+                    proximityFuseSafeDistance: missileFuseSafeDistanceMeters,
+                    warheadLethalRadius: missileWarheadLethalRadiusMeters);
             }
             muzzleIndex = (muzzleIndex + salvoCount) % muzzles.Length;
         }
@@ -306,7 +334,18 @@ namespace ACunicombat.Mechs
             int impactFfxId = 0,
             Transform launchAnchor = null,
             float maximumTravelDistance = 0f,
-            int guidanceChannelToken = 0)
+            int guidanceChannelToken = 0,
+            float motorBurnDuration = 2.1f,
+            float seekerActivationDelay = 2.5f,
+            float seekerMaximumRange = 8000f,
+            float seekerHalfAngleDegrees = 35f,
+            float seekerGimbalDegrees = 60f,
+            float maximumLateralAcceleration = 75f,
+            float maneuverDeltaV = 180f,
+            float proximityFuseRadius = 12f,
+            float proximityFuseArmTime = 0.75f,
+            float proximityFuseSafeDistance = 20f,
+            float warheadLethalRadius = 18f)
         {
             EnsureMaterials();
             SpawnNativeOneShot(launchFfxId, launchAnchor, position, direction);
@@ -336,8 +375,13 @@ namespace ACunicombat.Mechs
 
             if (TryInstantiateNativeEffect(projectileFfxId, projectile.transform, out var nativeProjectileEffect))
             {
-                placeholderRenderer.enabled = false;
-                trail.enabled = false;
+                // Keep the physical missile body and its motor-only trail
+                // visible after the native exhaust particles stop at burnout.
+                if (kind != TestWeaponKind.Missile)
+                {
+                    placeholderRenderer.enabled = false;
+                    trail.enabled = false;
+                }
                 nativeProjectileEffect.name = $"Native_FFX_{projectileFfxId}";
             }
 
@@ -357,7 +401,18 @@ namespace ACunicombat.Mechs
                 nativeEffectLibrary,
                 impactFfxId,
                 maximumTravelDistance,
-                guidanceChannelToken);
+                guidanceChannelToken,
+                motorBurnDuration,
+                seekerActivationDelay,
+                seekerMaximumRange,
+                seekerHalfAngleDegrees,
+                seekerGimbalDegrees,
+                maximumLateralAcceleration,
+                maneuverDeltaV,
+                proximityFuseRadius,
+                proximityFuseArmTime,
+                proximityFuseSafeDistance,
+                warheadLethalRadius);
         }
 
         private bool TryGetAimPoint(

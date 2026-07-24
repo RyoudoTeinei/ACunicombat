@@ -53,6 +53,49 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(measurement.RadialVelocity, Is.EqualTo(-10f).Within(1f));
         }
 
+        [Test]
+        public void UnregisteredAuxiliarySensor_DoesNotProcessPendingDwell()
+        {
+            using var world = new SimWorld();
+            using var grid =
+                new SpatialHashGrid(SimWorld.MaxEntities * 2);
+            using var scheduler = new DwellScheduler(32);
+            using var radar =
+                new RadarSensorSystem(world, grid, scheduler)
+                {
+                    SessionSeed = 1234u,
+                };
+
+            var sensorEntity =
+                world.Register(State(double3.zero, double3.zero));
+            var targetEntity = world.Register(State(
+                new double3(0.0, 0.0, 1_000.0),
+                double3.zero));
+            var sensorId = new SensorId(new Handle(3, 1));
+            radar.RegisterSensor(TestSensor(sensorId, sensorEntity));
+            radar.RegisterTarget(new RadarTargetProfile
+            {
+                EntityId = targetEntity,
+                RadarCrossSectionSquareMeters = 1f,
+            });
+            radar.ScheduleDwell(new Dwell
+            {
+                SensorId = sensorId,
+                DueTime = 0.04,
+                DwellTimeSeconds = 0.02f,
+                BeamDirection = new float3(0f, 0f, 1f),
+                BeamWidthRadians = math.radians(20f),
+                Priority = DwellPriority.MissileTerminal,
+                Sequence = 1,
+            });
+
+            radar.UnregisterSensor(sensorId);
+            radar.Tick(0.04);
+
+            Assert.That(radar.Emissions.Length, Is.Zero);
+            Assert.That(radar.Detections.Length, Is.Zero);
+        }
+
         private static RadarSensorProfile TestSensor(SensorId sensorId, SimEntityId owner)
         {
             return new RadarSensorProfile

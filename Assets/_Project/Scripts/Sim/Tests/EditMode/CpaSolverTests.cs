@@ -58,5 +58,64 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(a.Time, Is.EqualTo(b.Time));
             Assert.That(a.Distance, Is.EqualTo(b.Distance));
         }
+
+        [Test]
+        public void MissileSeekerVolume_RejectsTargetsOutsideRangeOrFieldOfView()
+        {
+            var origin = float3.zero;
+            var forward = new float3(0f, 0f, 1f);
+            var halfAngle = math.radians(30f);
+
+            Assert.That(
+                MissileEngagementMath.IsInsideSeekerVolume(
+                    origin,
+                    forward,
+                    new float3(0f, 0f, 900f),
+                    1000f,
+                    halfAngle),
+                Is.True);
+            Assert.That(
+                MissileEngagementMath.IsInsideSeekerVolume(
+                    origin,
+                    forward,
+                    new float3(900f, 0f, 100f),
+                    1000f,
+                    halfAngle),
+                Is.False);
+            Assert.That(
+                MissileEngagementMath.IsInsideSeekerVolume(
+                    origin,
+                    forward,
+                    new float3(0f, 0f, 1100f),
+                    1000f,
+                    halfAngle),
+                Is.False);
+        }
+
+        [Test]
+        public void MissileProximityPass_DetectsNonContactCrossing()
+        {
+            var detected = MissileEngagementMath.TryGetProximityPass(
+                new float3(20f, 8f, 0f),
+                new float3(-100f, 0f, 0f),
+                0.25f,
+                10f,
+                out var time,
+                out var distance);
+
+            Assert.That(detected, Is.True);
+            Assert.That(time, Is.EqualTo(0.2f).Within(1e-5f));
+            Assert.That(distance, Is.EqualTo(8f).Within(1e-4f));
+        }
+
+        [Test]
+        public void MissileLineOfSightRate_IsZeroForPureClosingMotion()
+        {
+            var rate = MissileEngagementMath.LineOfSightRate(
+                new float3(0f, 0f, 1000f),
+                new float3(0f, 0f, -200f));
+
+            Assert.That(math.length(rate), Is.LessThan(1e-6f));
+        }
     }
 }
