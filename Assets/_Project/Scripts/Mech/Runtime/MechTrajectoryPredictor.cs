@@ -335,8 +335,8 @@ namespace ACunicombat.Mechs
         [SerializeField] private float minimumPathLength = 180f;
         [SerializeField] private float maximumPathLength = 3000f;
         [SerializeField] private float lineWidth = 0.22f;
-        [SerializeField] private float dashSegmentLength = 3.45f;
-        [SerializeField] private float dashGapLength = 1.9f;
+        [SerializeField] private float dashSegmentLength = 5.175f;
+        [SerializeField] private float dashGapLength = 5.7f;
         [SerializeField] private float dashScrollMetersPerSecond = 48f;
         [SerializeField] private float dashAccelerationDeadzone = 0.3f;
         [SerializeField] private float pathStartDistance = 30f;
