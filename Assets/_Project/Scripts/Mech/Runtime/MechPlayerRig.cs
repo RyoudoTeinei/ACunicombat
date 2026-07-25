@@ -65,6 +65,8 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechBehaviorGraphRunner graphRunner;
         [SerializeField] private MechBodyActionPlayer actionPlayer;
         [SerializeField] private MechWeaponArmLayer weaponLayer;
+        [SerializeField] private MechThermalSignature thermalSignature;
+        [SerializeField] private MechThermalVisionController thermalVision;
 
         [Tooltip("キャラ制御フラグ近似：状态进入该秒数后视为全部取消窗口开放。TAE 旗标窗进 IR 后由数据替换。")]
         [SerializeField] private float cancelFlagUnlockSeconds = 0.15f;
@@ -126,6 +128,10 @@ namespace ACunicombat.Mechs
             if (graphRunner == null) graphRunner = GetComponent<MechBehaviorGraphRunner>();
             runtimeState = GetComponent<MechRuntimeState>();
             radar = GetComponent<MechRadarController>();
+            if (radar != null && GetComponent<MechThreatWarningPresenter>() == null)
+            {
+                gameObject.AddComponent<MechThreatWarningPresenter>();
+            }
             if (orbitSynchronizer == null)
             {
                 orbitSynchronizer = GetComponent<MechOrbitSynchronizer>();
@@ -135,6 +141,20 @@ namespace ACunicombat.Mechs
                 }
             }
             orbitSynchronizer.Configure(motion, radar);
+            thermalSignature = GetComponent<MechThermalSignature>();
+            if (thermalSignature == null)
+            {
+                thermalSignature = gameObject.AddComponent<MechThermalSignature>();
+            }
+            thermalSignature.Configure(motion);
+            if (thermalVision == null)
+            {
+                thermalVision = FindAnyObjectByType<MechThermalVisionController>();
+                if (thermalVision == null)
+                {
+                    thermalVision = gameObject.AddComponent<MechThermalVisionController>();
+                }
+            }
             if (cam != null)
             {
                 viewCamera = cam.GetComponent<Camera>();
@@ -253,6 +273,25 @@ namespace ACunicombat.Mechs
                 thrustVisualizer?.ToggleVisible();
                 Debug.Log($"[MechPlayerRig] Thrust visualization: " +
                           $"{(thrustVisualizer != null && thrustVisualizer.Visible ? "ON" : "OFF")}.", this);
+            }
+
+            if (lastFrame.ThermalVisionCycleEdge)
+            {
+                thermalVision?.CycleMode();
+            }
+
+            if (thermalSignature != null)
+            {
+                // 主/副火力=解剖学左/右手；肩部发射经 RequestShoulderFire 也计入对应侧。
+                if (lastFrame.PrimaryFireEdge || lastFrame.LeftShoulderFireEdge)
+                {
+                    thermalSignature.NotifyWeaponFired(leftHand: true);
+                }
+
+                if (lastFrame.SecondaryFireEdge || lastFrame.RightShoulderFireEdge)
+                {
+                    thermalSignature.NotifyWeaponFired(leftHand: false);
+                }
             }
 
             if (lastFrame.LeftShoulderFireEdge)
@@ -967,6 +1006,12 @@ namespace ACunicombat.Mechs
             GUI.Label(new Rect(x + 14f, 244f, 110f, 20f), "THRUST LOCK [F]", instrumentCaptionStyle);
             GUI.Label(new Rect(x + 124f, 240f, 132f, 32f),
                 motion.InertialThrustLockActive ? "LOCKED" : "BODY", instrumentValueStyle);
+            GUI.Label(new Rect(x + 14f, 274f, 110f, 20f), "THERMAL [`]", instrumentCaptionStyle);
+            GUI.Label(new Rect(x + 124f, 270f, 132f, 32f),
+                thermalVision == null || thermalVision.Mode == MechThermalVisionMode.Off
+                    ? "OFF"
+                    : thermalVision.Mode == MechThermalVisionMode.WhiteHot ? "WHT" : "BLK",
+                instrumentValueStyle);
             var status = "FLIGHT CONTROL NOMINAL";
             var statusColor = new Color(0.55f, 0.82f, 0.9f);
             if (motion.Braking)
@@ -993,7 +1038,7 @@ namespace ACunicombat.Mechs
             }
 
             instrumentStatusStyle.normal.textColor = statusColor;
-            GUI.Label(new Rect(x + 14f, 284f, width - 28f, 30f), status, instrumentStatusStyle);
+            GUI.Label(new Rect(x + 14f, 312f, width - 28f, 30f), status, instrumentStatusStyle);
         }
 
         private void EnsureInstrumentStyles()

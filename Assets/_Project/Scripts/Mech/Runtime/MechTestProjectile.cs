@@ -3,6 +3,7 @@ using ACunicombat.FireControl;
 using ACunicombat.Sensing.Contracts;
 using Unity.Mathematics;
 using UnityEngine;
+// 数据链契约（LinkMessage/LinkTerminalId）在 Contracts 程序集，无需额外 using。
 
 namespace ACunicombat.Mechs
 {
@@ -23,6 +24,12 @@ namespace ACunicombat.Mechs
         private const float ReacquisitionGateMeters = 350f;
         private const float SeekerScanIntervalSeconds = 0.05f;
         private const float SeekerLockMemorySeconds = 0.35f;
+
+        // 物理查询复用缓冲：SphereCastAll/OverlapSphere 每次分配数组，
+        // 弹幕场景下是稳定的每帧 GC 压力源。主线程单发访问，静态复用安全。
+        private static readonly RaycastHit[] SphereCastScratch = new RaycastHit[32];
+        private static readonly Collider[] OverlapScratch = new Collider[64];
+        private static readonly System.Collections.Generic.HashSet<CombatTestTarget> DamagedScratch = new();
 
         private Transform owner;
         private MechRadarController radarController;
@@ -69,6 +76,14 @@ namespace ACunicombat.Mechs
         private MechRadarController.MissileSeekerHandle seekerHandle;
         private readonly Measurement[] seekerMeasurementScratch =
             new Measurement[8];
+        // 物理数据链：中段修正只来自经链路投递的 GuidanceUpdate 报文。
+        private LinkTerminalId linkTerminal;
+        private ulong lastLinkSequence;
+        private readonly LinkMessage[] linkInboxScratch = new LinkMessage[8];
+        private bool irSourceRegistered;
+        private bool irMotorStateRegistered;
+        private const float MotorIrIntensityDb = 58f;
+        private const float CoastIrIntensityDb = 28f;
         private ParticleSystem[] propulsionParticles = Array.Empty<ParticleSystem>();
         private TrailRenderer projectileTrail;
         private bool motorVisualActive;
@@ -162,6 +177,21 @@ namespace ACunicombat.Mechs
                     seekerMaximumRange,
                     newSeekerHalfAngleDegrees * 2f,
                     out seekerHandle);
+                if (seekerHandle.IsValid)
+                {
+                    // 数据链终端 + 制导上行订阅：发射后的航迹更新只经物理链路到达。
+                    if (radarController.TryRegisterMissileLinkTerminal(
+                            in seekerHandle, out linkTerminal) &&
+                        targetTrackId.IsValid)
+                    {
+                        radarController.BeginGuidanceUplink(linkTerminal, targetTrackId);
+                    }
+
+                    // 红外点源（MAW 数据源）：发动机状态决定强度。
+                    radarController.RegisterMissileIrSource(in seekerHandle, CoastIrIntensityDb);
+                    irSourceRegistered = true;
+                    irMotorStateRegistered = false;
+                }
             }
             missilePhase = launchDelay > 0f
                 ? MissileFlightPhase.LaunchDelay
@@ -242,6 +272,14 @@ namespace ACunicombat.Mechs
                 seekerHandle,
                 transform.position,
                 velocity);
+            if (irSourceRegistered && motorActive != irMotorStateRegistered)
+            {
+                // 燃烧段羽焰强度高一个量级；燃尽滑翔段 MAW 告警可能中断（真实行为）。
+                radarController.SetMissileIrIntensity(
+                    in seekerHandle,
+                    motorActive ? MotorIrIntensityDb : CoastIrIntensityDb);
+                irMotorStateRegistered = motorActive;
+            }
 
             var currentSpeed = velocity.magnitude;
             if (motorActive)
@@ -398,26 +436,32 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            var seekerForward = velocity.sqrMagnitude > 0.001f
+                ? velocity.normalized
+                : transform.forward;
+            var estimateWithinGimbal = false;
             if (seekerLocked)
             {
                 seekerEstimatedPosition +=
                     seekerEstimatedVelocity * deltaTime;
-                var toEstimate =
-                    seekerEstimatedPosition - transform.position;
-                var seekerForward = velocity.sqrMagnitude > 0.001f
-                    ? velocity.normalized
-                    : transform.forward;
-                if (toEstimate.sqrMagnitude <= 0.001f ||
-                    !PnGuidance.WithinGimbalLimit(
-                        ToFloat3(toEstimate.normalized),
-                        ToFloat3(seekerForward),
-                        seekerGimbalRadians))
+                // 锁定记忆唯一衰减路径：每帧扣 deltaTime，仅被接受的新量测重置满。
+                // 原实现"框架角外按帧扣 + 无量测按扫描周期再扣"会双重扣减，
+                // 实际记忆时长只有名义值的一半左右。
+                seekerLockMemoryRemaining -= deltaTime;
+                if (seekerLockMemoryRemaining <= 0f)
                 {
-                    seekerLockMemoryRemaining -= deltaTime;
-                    if (seekerLockMemoryRemaining <= 0f)
-                    {
-                        seekerLocked = false;
-                    }
+                    seekerLocked = false;
+                }
+                else
+                {
+                    var toEstimate =
+                        seekerEstimatedPosition - transform.position;
+                    estimateWithinGimbal =
+                        toEstimate.sqrMagnitude > 0.001f &&
+                        PnGuidance.WithinGimbalLimit(
+                            ToFloat3(toEstimate.normalized),
+                            ToFloat3(seekerForward),
+                            seekerGimbalRadians);
                 }
             }
 
@@ -428,7 +472,8 @@ namespace ACunicombat.Mechs
             }
             seekerScanRemaining = SeekerScanIntervalSeconds;
 
-            var searchDirection = seekerLocked
+            // 估计位置出框架角时天线摆不过去，退回数据链/惯性方向搜索。
+            var searchDirection = seekerLocked && estimateWithinGimbal
                 ? seekerEstimatedPosition - transform.position
                 : hasCachedGuidanceTrack && radarController != null
                     ? radarController.PredictTrackPosition(
@@ -453,12 +498,7 @@ namespace ACunicombat.Mechs
                     seekerMeasurementScratch);
             if (measurementCount <= 0)
             {
-                seekerLockMemoryRemaining -= SeekerScanIntervalSeconds;
-                if (seekerLockMemoryRemaining <= 0f)
-                {
-                    seekerLocked = false;
-                }
-                return;
+                return; // 记忆衰减已由上方每帧路径统一处理。
             }
 
             var bestScore = float.PositiveInfinity;
@@ -478,6 +518,16 @@ namespace ACunicombat.Mechs
                     measurement.Range <= 0f ||
                     measurement.Timestamp <=
                     seekerLastMeasurementTime)
+                {
+                    continue;
+                }
+
+                // 框架角物理限制：传感器仿真不建模天线罩，视线在框架角外的
+                // 回波不可能被本导引头接收，在消费端过滤。
+                if (!PnGuidance.WithinGimbalLimit(
+                        measurement.Direction,
+                        ToFloat3(seekerForward),
+                        seekerGimbalRadians))
                 {
                     continue;
                 }
@@ -556,36 +606,41 @@ namespace ACunicombat.Mechs
             seekerLockMemoryRemaining = SeekerLockMemorySeconds;
         }
 
+        /// <summary>
+        /// 中段修正 = 消费经物理链路投递的 GuidanceUpdate 报文（发射端泵按周期
+        /// 上行；再捕获也在发射端做）。载机被击落/出链路距离/被干扰 → 报文停，
+        /// 导弹只剩记忆外推——不再有任何直读航迹库的后门。
+        /// 制导通道（资源）与链路接收独立：pitbull 释放通道后上行仍在，
+        /// 丢锁可靠链路重新引导。
+        /// </summary>
         private bool TryUpdateDatalinkTrack(
             float deltaTime,
             out TrackSnapshot track)
         {
             track = default;
-            if (guidanceChannelReleased ||
-                !targetTrackId.IsValid ||
-                radarController == null)
+            if (radarController == null)
             {
                 return false;
             }
 
-            if (radarController.TryGetTrack(targetTrackId, out track))
+            if (linkTerminal.IsValid)
             {
-                cachedGuidanceTrack = track;
-                hasCachedGuidanceTrack = true;
-                guidanceMemoryRemaining = GuidanceMemorySeconds;
-                return true;
-            }
+                var messageCount = radarController.CopyLinkMessages(
+                    linkTerminal, linkInboxScratch);
+                for (var i = 0; i < messageCount; i++)
+                {
+                    var message = linkInboxScratch[i];
+                    if (message.Kind != LinkMessageKind.GuidanceUpdate ||
+                        message.Sequence <= lastLinkSequence)
+                    {
+                        continue; // 投递箱按 Tick 清空但轮询更频繁：Sequence 去重。
+                    }
 
-            if (hasCachedGuidanceTrack &&
-                radarController.TryReacquireTrack(
-                    cachedGuidanceTrack,
-                    ReacquisitionGateMeters,
-                    out track))
-            {
-                targetTrackId = track.TrackId;
-                cachedGuidanceTrack = track;
-                guidanceMemoryRemaining = GuidanceMemorySeconds;
-                return true;
+                    lastLinkSequence = message.Sequence;
+                    cachedGuidanceTrack = message.TrackPayload;
+                    hasCachedGuidanceTrack = true;
+                    guidanceMemoryRemaining = GuidanceMemorySeconds;
+                }
             }
 
             guidanceMemoryRemaining =
@@ -632,21 +687,21 @@ namespace ACunicombat.Mechs
 
         private void DetonateWarhead(Vector3 detonationPoint)
         {
-            var colliders = Physics.OverlapSphere(
+            var colliderCount = Physics.OverlapSphereNonAlloc(
                 detonationPoint,
                 warheadLethalRadius,
+                OverlapScratch,
                 Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.Collide);
             var damagedAnyTarget = false;
-            var damagedTargets = new System.Collections.Generic.HashSet<
-                CombatTestTarget>();
-            for (var i = 0; i < colliders.Length; i++)
+            DamagedScratch.Clear();
+            for (var i = 0; i < colliderCount; i++)
             {
                 var candidate =
-                    colliders[i].GetComponentInParent<CombatTestTarget>();
+                    OverlapScratch[i].GetComponentInParent<CombatTestTarget>();
                 if (candidate == null ||
                     !candidate.IsAlive ||
-                    !damagedTargets.Add(candidate))
+                    !DamagedScratch.Add(candidate))
                 {
                     continue;
                 }
@@ -697,19 +752,25 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            var hits = Physics.SphereCastAll(
+            var hitCount = Physics.SphereCastNonAlloc(
                 transform.position,
                 collisionRadius,
                 travel / distance,
+                SphereCastScratch,
                 distance,
                 Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.Collide);
-            Array.Sort(
-                hits,
-                (left, right) => left.distance.CompareTo(right.distance));
-            for (var i = 0; i < hits.Length; i++)
+            var bestDistance = float.MaxValue;
+            var found = false;
+            for (var i = 0; i < hitCount; i++)
             {
-                var colliderTransform = hits[i].collider.transform;
+                var hit = SphereCastScratch[i];
+                if (hit.distance >= bestDistance)
+                {
+                    continue;
+                }
+
+                var colliderTransform = hit.collider.transform;
                 if (owner != null &&
                     (colliderTransform == owner ||
                      colliderTransform.IsChildOf(owner)))
@@ -717,11 +778,12 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                selectedHit = hits[i];
-                return true;
+                bestDistance = hit.distance;
+                selectedHit = hit;
+                found = true;
             }
 
-            return false;
+            return found;
         }
 
         private void HandleDirectImpact(RaycastHit hit)
@@ -787,7 +849,22 @@ namespace ACunicombat.Mechs
         private void OnDestroy()
         {
             ReleaseGuidanceChannel();
-            radarController?.UnregisterMissileSeeker(seekerHandle);
+            if (radarController != null)
+            {
+                if (irSourceRegistered)
+                {
+                    radarController.UnregisterMissileIrSource(in seekerHandle);
+                }
+
+                if (linkTerminal.IsValid)
+                {
+                    radarController.UnregisterMissileLinkTerminal(linkTerminal);
+                }
+
+                radarController.UnregisterMissileSeeker(seekerHandle);
+            }
+
+            linkTerminal = default;
             seekerHandle = default;
         }
 

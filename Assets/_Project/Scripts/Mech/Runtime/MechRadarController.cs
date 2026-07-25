@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using ACunicombat.DataLink;
 using ACunicombat.FireControl;
 using ACunicombat.Sensing.Contracts;
 using ACunicombat.Sensors;
@@ -58,6 +61,32 @@ namespace ACunicombat.Mechs
         private readonly bool[] targetRadarRegistered = new bool[MaximumSceneTargets];
         private int sceneTargetCount;
         private readonly SensorId sensorId = new SensorId(new Handle(0, 1));
+        // ESM 接收机与雷达传感器分属两套系统，索引空间独立。
+        private readonly SensorId esmReceiverId = new SensorId(new Handle(0, 1));
+        [Tooltip("给场景目标自动补挂测试辐射源（RWR 没有会辐射的对手就听不到任何东西）。")]
+        [SerializeField] private bool autoEquipTestEmitters = true;
+
+        // ---- 数据链：本机终端 index 1，导弹终端 8..63；EmitterId 用 32+index
+        // 区段与雷达发射机（0 区段）分开，ESM 消隐按 EmitterId 精确匹配。----
+        private const int MissileLinkIndexStart = 8;
+        private const int LinkEmitterIndexBase = 32;
+        private const byte GuidanceNetworkId = 0;
+        private const float GuidanceUplinkIntervalSeconds = 0.25f;
+        private const float GuidanceReacquisitionGateMeters = 350f;
+        private readonly LinkTerminalId ownLinkTerminalId = new LinkTerminalId(new Handle(1, 1));
+        private readonly bool[] missileLinkAllocated = new bool[64];
+        private readonly byte[] missileLinkGenerations = new byte[64];
+
+        private struct UplinkSubscription
+        {
+            public bool Active;
+            public LinkTerminalId MissileTerminal;
+            public TrackId TrackId;
+            public TrackSnapshot LastSent;
+            public double NextSendTime;
+        }
+
+        private readonly UplinkSubscription[] uplinkSubscriptions = new UplinkSubscription[8];
         private readonly TrackSnapshot[] trackScratch = new TrackSnapshot[MaximumPublicTracks];
         private readonly Measurement[] measurementScratch = new Measurement[MaximumPublicEchoes];
         private readonly GuidanceChannel[] guidanceChannels =
@@ -297,6 +326,17 @@ namespace ACunicombat.Mechs
         public int CopyTracks(TrackSnapshot[] destination) =>
             driver != null ? driver.CopyTracks(destination) : 0;
 
+        public int ThreatCount => driver != null ? driver.ThreatCount : 0;
+
+        public int CopyThreats(ThreatSnapshot[] destination) =>
+            driver != null ? driver.CopyThreats(destination) : 0;
+
+        public bool TryGetHighestThreat(out ThreatSnapshot snapshot)
+        {
+            snapshot = default;
+            return driver != null && driver.TryGetHighestThreat(out snapshot);
+        }
+
         public bool TryGetTrackAtViewport(
             Camera viewCamera,
             Vector2 viewportPoint,
@@ -367,7 +407,9 @@ namespace ACunicombat.Mechs
                 return 0;
             }
 
-            var count = driver.CopyDetections(measurementScratch);
+            // 只取主雷达自己的量测：探测环里混着导弹导引头的回波，它们以导弹为
+            // 原点，用玩家位置重建会在 HUD 上画出幽灵回波。
+            var count = driver.CopyDetections(sensorId, measurementScratch);
             count = Mathf.Min(count, destination.Length);
             for (var i = 0; i < count; i++)
             {
@@ -456,6 +498,8 @@ namespace ACunicombat.Mechs
                     : hasTwsTrack
                         ? 1f / TwsRevisitIntervalSeconds
                         : GetSearchFrameRate(false),
+                // 显示用近似：排队中的驻留 + 本 tick 常态负载（STT 模式 2 搜索+2 TWS
+                // +1 STT≈5，纯搜索 4 搜索+2 TWS≈6）相对每 tick 预算 16 的占比。
                 DwellLoad = Mathf.Clamp01((scheduledDwells + (hasStt ? 5f : 6f)) / 16f),
                 DeferredDwellCount = driver != null ? driver.DeferredDwellCount : 0,
                 GuidanceChannelsUsed = usedChannels,
@@ -851,6 +895,7 @@ namespace ACunicombat.Mechs
 
             ValidateSttTrack();
             ScheduleDwells();
+            PumpGuidanceUplinks(driver.SimTimeSeconds);
         }
 
         private void ScheduleDwells()
@@ -925,34 +970,58 @@ namespace ACunicombat.Mechs
         private void ScheduleTwsRevisits(double now, bool hasStt)
         {
             var count = CopyTracks(trackScratch);
-            var scheduled = 0;
-            for (var i = 0; i < count && scheduled < TwsRevisitsPerTick; i++)
+            Span<bool> pickedThisCall = stackalloc bool[MaximumPublicTracks];
+            for (var scheduled = 0; scheduled < TwsRevisitsPerTick; scheduled++)
             {
-                var track = trackScratch[i];
-                if (track.Lifecycle == TrackLifecycle.Dropped ||
-                    track.TrackId.Equals(sttTrackId))
+                // 每轮挑"最久未访"的到期航迹，而不是按槽位序取前 N 个——
+                // 槽位序在满载时会让高索引航迹饥饿。
+                var bestIndex = -1;
+                var bestDueTime = double.MaxValue;
+                for (var i = 0; i < count; i++)
                 {
-                    continue;
+                    if (pickedThisCall[i])
+                    {
+                        continue;
+                    }
+
+                    var track = trackScratch[i];
+                    if (track.Lifecycle == TrackLifecycle.Dropped ||
+                        track.TrackId.Equals(sttTrackId))
+                    {
+                        continue;
+                    }
+
+                    var slot = track.TrackId.Value.Index;
+                    if ((uint)slot >= nextTwsRevisitTimes.Length)
+                    {
+                        continue;
+                    }
+
+                    if (twsRevisitTrackKeys[slot] != track.TrackId.Packed)
+                    {
+                        twsRevisitTrackKeys[slot] = track.TrackId.Packed;
+                        nextTwsRevisitTimes[slot] = now;
+                    }
+
+                    if (now + 1e-6 < nextTwsRevisitTimes[slot] ||
+                        nextTwsRevisitTimes[slot] >= bestDueTime)
+                    {
+                        continue;
+                    }
+
+                    bestDueTime = nextTwsRevisitTimes[slot];
+                    bestIndex = i;
                 }
 
-                var slot = track.TrackId.Value.Index;
-                if ((uint)slot >= nextTwsRevisitTimes.Length)
+                if (bestIndex < 0)
                 {
-                    continue;
+                    return;
                 }
 
-                if (twsRevisitTrackKeys[slot] != track.TrackId.Packed)
-                {
-                    twsRevisitTrackKeys[slot] = track.TrackId.Packed;
-                    nextTwsRevisitTimes[slot] = now;
-                }
-
-                if (now + 1e-6 < nextTwsRevisitTimes[slot])
-                {
-                    continue;
-                }
-
-                var predictedPosition = PredictTrackPosition(track);
+                pickedThisCall[bestIndex] = true;
+                var selected = trackScratch[bestIndex];
+                var selectedSlot = selected.TrackId.Value.Index;
+                var predictedPosition = PredictTrackPosition(selected);
                 var direction = (predictedPosition - transform.position).normalized;
                 if (direction.sqrMagnitude < 0.5f)
                 {
@@ -963,19 +1032,18 @@ namespace ACunicombat.Mechs
                 {
                     SensorId = sensorId,
                     DueTime = now,
-                    DwellTimeSeconds = track.Lifecycle == TrackLifecycle.Tentative
+                    DwellTimeSeconds = selected.Lifecycle == TrackLifecycle.Tentative
                         ? 0.012f
                         : 0.016f,
                     BeamDirection = direction,
                     BeamWidthRadians = TwsBeamWidthDegrees * Mathf.Deg2Rad,
-                    Priority = track.Lifecycle == TrackLifecycle.Tentative
+                    Priority = selected.Lifecycle == TrackLifecycle.Tentative
                         ? DwellPriority.AlertConfirm
                         : DwellPriority.TrackWhileScan,
                     Sequence = ++dwellSequence,
                 });
-                nextTwsRevisitTimes[slot] = now +
+                nextTwsRevisitTimes[selectedSlot] = now +
                     (hasStt ? TwsRevisitIntervalSeconds * 1.5f : TwsRevisitIntervalSeconds);
-                scheduled++;
             }
         }
 
@@ -996,12 +1064,17 @@ namespace ACunicombat.Mechs
 
         private Vector3 SearchDirection(float azimuthDegrees, float elevationDegrees)
         {
-            var horizontal = Mathf.Tan(azimuthDegrees * Mathf.Deg2Rad);
-            var vertical = Mathf.Tan(elevationDegrees * Mathf.Deg2Rad);
+            // 球面组合而非 tan 叠加：tan 叠加在大方位角处把实际仰角压缩 1/cos(az)
+            // （az=50°、el=30° 的格子实际仰角只有 ~20°），而 IsWithinBodyRadarFrame
+            // 按真实球面角放行 ±50°/±30° 全域——四角会成为永远扫不到的盲区。
+            // 此写法保证 atan2(x,z)=az、asin(y)=el 与判定/显示换算严格一致。
+            var azimuth = azimuthDegrees * Mathf.Deg2Rad;
+            var elevation = elevationDegrees * Mathf.Deg2Rad;
+            var cosElevation = Mathf.Cos(elevation);
             return (
-                searchFrameForward +
-                searchFrameRight * horizontal +
-                searchFrameUp * vertical).normalized;
+                searchFrameRight * (Mathf.Sin(azimuth) * cosElevation) +
+                searchFrameUp * Mathf.Sin(elevation) +
+                searchFrameForward * (Mathf.Cos(azimuth) * cosElevation)).normalized;
         }
 
         private float GetSearchFrameRate(bool hasStt)
@@ -1114,11 +1187,299 @@ namespace ACunicombat.Mechs
                     VelocityMps = 2f,
                 },
             });
+            // 本机数据链终端（制导网 0）：定向上行 20° 波束指向导弹，功率低于雷达
+            // 主瓣——敌方 ESM 能在多远听到上行由这两个数值决定。
+            driver.RegisterLinkTerminal(new LinkTerminalProfile
+            {
+                TerminalId = ownLinkTerminalId,
+                OwnerEntityId = playerEntity,
+                EmitterId = new EmitterId(new Handle(LinkEmitterIndexBase + 1, 1)),
+                NetworkId = GuidanceNetworkId,
+                TransmitPowerDb = 52f,
+                SidelobeLevelDb = -30f,
+                BeamWidthRadians = 20f * Mathf.Deg2Rad,
+                ReceiveSensitivityDb = -60f,
+                MaxRangeMeters = 150_000.0,
+                FrequencyBand = 2,
+                WaveformId = 10,
+            });
+
+            // 被动告警接收机：消隐本机雷达与本机链路终端；本机导弹导引头的辐射
+            // 照样能听到（真实 RWR 分不清敌我辐射源，主瓣朝外时多数被阈值滤掉）。
+            driver.RegisterEsmReceiver(new EsmReceiverProfile
+            {
+                ReceiverId = esmReceiverId,
+                OwnerEntityId = playerEntity,
+                BlankedEmitterId = new EmitterId(new Handle(0, 1)),
+                BlankedEmitterId2 = new EmitterId(new Handle(LinkEmitterIndexBase + 1, 1)),
+                SensitivityFloorDb = -40f,
+                BearingSigmaRadians = 8f * Mathf.Deg2Rad,
+            });
+            RegisterWaveformLibrary();
             initialized = true;
 
             for (var i = 0; i < sceneTargetCount; i++)
             {
                 UpdateTargetRegistration(i);
+            }
+        }
+
+        [Serializable]
+        private struct WaveformLibraryEntry
+        {
+            public int band;
+            public int waveformId;
+            public string className;
+            public string name;
+        }
+
+        [Serializable]
+        private struct WaveformLibraryFile
+        {
+            public WaveformLibraryEntry[] entries;
+        }
+
+        /// <summary>
+        /// 波形库：代码内默认条目保底，StreamingAssets/EsmWaveformLibrary.json
+        /// 存在时逐条覆盖/追加（P2 数据文件化——威胁类型扩展不再改代码）。
+        /// </summary>
+        private void RegisterWaveformLibrary()
+        {
+            driver.RegisterEsmWaveformClass(1, 1, EsmWaveformClass.FireControlRadar);
+            driver.RegisterEsmWaveformClass(1, 2, EsmWaveformClass.MissileSeeker);
+            driver.RegisterEsmWaveformClass(1, 3, EsmWaveformClass.SearchRadar);
+            driver.RegisterEsmWaveformClass(2, 10, EsmWaveformClass.DataLinkUplink);
+            driver.RegisterEsmWaveformClass(
+                MawSensorSystem.InfraredBand,
+                MawSensorSystem.PlumeWaveformId,
+                EsmWaveformClass.InfraredPlume);
+
+            var path = Path.Combine(Application.streamingAssetsPath, "EsmWaveformLibrary.json");
+            if (!File.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                var file = JsonUtility.FromJson<WaveformLibraryFile>(File.ReadAllText(path));
+                if (file.entries == null)
+                {
+                    return;
+                }
+
+                foreach (var entry in file.entries)
+                {
+                    if (Enum.TryParse<EsmWaveformClass>(entry.className, out var waveformClass))
+                    {
+                        driver.RegisterEsmWaveformClass(
+                            (ushort)entry.band, (ushort)entry.waveformId, waveformClass);
+                    }
+                    else
+                    {
+                        Debug.LogWarning(
+                            $"[MechRadar] 波形库条目类名无法解析: {entry.className} ({entry.name})", this);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[MechRadar] 波形库加载失败，使用内置默认: {exception.Message}", this);
+            }
+        }
+
+        // ---- 数据链：导弹终端分配 / 制导上行泵 / 红外源桥 ----
+
+        public bool TryRegisterMissileLinkTerminal(
+            in MissileSeekerHandle seekerHandle,
+            out LinkTerminalId terminalId)
+        {
+            terminalId = default;
+            if (driver == null || !seekerHandle.IsValid)
+            {
+                return false;
+            }
+
+            for (var index = MissileLinkIndexStart; index < missileLinkAllocated.Length; index++)
+            {
+                if (missileLinkAllocated[index])
+                {
+                    continue;
+                }
+
+                var generation = missileLinkGenerations[index];
+                if (generation == 0)
+                {
+                    generation = 1;
+                    missileLinkGenerations[index] = generation;
+                }
+
+                terminalId = new LinkTerminalId(new Handle(index, generation));
+                driver.RegisterLinkTerminal(new LinkTerminalProfile
+                {
+                    TerminalId = terminalId,
+                    OwnerEntityId = seekerHandle.EntityId,
+                    EmitterId = new EmitterId(new Handle(LinkEmitterIndexBase + index, generation)),
+                    NetworkId = GuidanceNetworkId,
+                    // 导弹端暂只收不发；发射参数为将来回传/应答预留。
+                    TransmitPowerDb = 40f,
+                    SidelobeLevelDb = -30f,
+                    BeamWidthRadians = 2f * Mathf.PI,
+                    ReceiveSensitivityDb = -70f,
+                    MaxRangeMeters = 150_000.0,
+                    FrequencyBand = 2,
+                    WaveformId = 10,
+                });
+                missileLinkAllocated[index] = true;
+                return true;
+            }
+
+            return false;
+        }
+
+        public void UnregisterMissileLinkTerminal(LinkTerminalId terminalId)
+        {
+            if (driver == null || !terminalId.IsValid)
+            {
+                return;
+            }
+
+            EndGuidanceUplink(terminalId);
+            driver.UnregisterLinkTerminal(terminalId);
+            var index = terminalId.Value.Index;
+            if (index >= MissileLinkIndexStart && index < missileLinkAllocated.Length)
+            {
+                missileLinkAllocated[index] = false;
+                missileLinkGenerations[index]++;
+                if (missileLinkGenerations[index] == 0)
+                {
+                    missileLinkGenerations[index] = 1;
+                }
+            }
+        }
+
+        public bool BeginGuidanceUplink(LinkTerminalId missileTerminal, TrackId trackId)
+        {
+            if (!missileTerminal.IsValid || !trackId.IsValid)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < uplinkSubscriptions.Length; i++)
+            {
+                if (uplinkSubscriptions[i].Active)
+                {
+                    continue;
+                }
+
+                var subscription = new UplinkSubscription
+                {
+                    Active = true,
+                    MissileTerminal = missileTerminal,
+                    TrackId = trackId,
+                    NextSendTime = 0.0,
+                };
+                if (TryGetTrack(trackId, out var track))
+                {
+                    subscription.LastSent = track;
+                }
+
+                uplinkSubscriptions[i] = subscription;
+                return true;
+            }
+
+            return false;
+        }
+
+        public void EndGuidanceUplink(LinkTerminalId missileTerminal)
+        {
+            for (var i = 0; i < uplinkSubscriptions.Length; i++)
+            {
+                if (uplinkSubscriptions[i].Active &&
+                    uplinkSubscriptions[i].MissileTerminal.Equals(missileTerminal))
+                {
+                    uplinkSubscriptions[i] = default;
+                }
+            }
+        }
+
+        public int CopyLinkMessages(LinkTerminalId terminalId, LinkMessage[] destination) =>
+            driver != null ? driver.CopyLinkInbox(terminalId, destination) : 0;
+
+        public void RegisterMissileIrSource(in MissileSeekerHandle seekerHandle, float intensityDb)
+        {
+            if (driver != null && seekerHandle.IsValid)
+            {
+                driver.RegisterIrSource(seekerHandle.EntityId, intensityDb);
+            }
+        }
+
+        public void SetMissileIrIntensity(in MissileSeekerHandle seekerHandle, float intensityDb)
+        {
+            if (driver != null && seekerHandle.IsValid)
+            {
+                driver.SetIrSourceIntensity(seekerHandle.EntityId, intensityDb);
+            }
+        }
+
+        public void UnregisterMissileIrSource(in MissileSeekerHandle seekerHandle)
+        {
+            if (driver != null && seekerHandle.IsValid)
+            {
+                driver.UnregisterIrSource(seekerHandle.EntityId);
+            }
+        }
+
+        /// <summary>
+        /// 制导上行泵：按周期把航迹快照经物理链路发往在飞导弹。原航迹丢失时
+        /// 在发射端做再捕获（导弹端只消费报文，不再直读航迹库）。
+        /// </summary>
+        private void PumpGuidanceUplinks(double now)
+        {
+            for (var i = 0; i < uplinkSubscriptions.Length; i++)
+            {
+                var subscription = uplinkSubscriptions[i];
+                if (!subscription.Active || now + 1e-6 < subscription.NextSendTime)
+                {
+                    continue;
+                }
+
+                TrackSnapshot track = default;
+                var haveTrack =
+                    subscription.TrackId.IsValid &&
+                    TryGetTrack(subscription.TrackId, out track) &&
+                    IsFireControlUsable(track.Lifecycle);
+                if (!haveTrack)
+                {
+                    if (subscription.LastSent.TrackId.IsValid &&
+                        TryReacquireTrack(
+                            subscription.LastSent,
+                            GuidanceReacquisitionGateMeters,
+                            out track))
+                    {
+                        subscription.TrackId = track.TrackId;
+                    }
+                    else
+                    {
+                        // 无可发的航迹：跳过本周期，链路静默（导弹端靠记忆外推）。
+                        subscription.NextSendTime = now + GuidanceUplinkIntervalSeconds;
+                        uplinkSubscriptions[i] = subscription;
+                        continue;
+                    }
+                }
+
+                subscription.LastSent = track;
+                driver.SendLinkMessage(new LinkMessage
+                {
+                    Kind = LinkMessageKind.GuidanceUpdate,
+                    NetworkId = GuidanceNetworkId,
+                    SourceTerminal = ownLinkTerminalId,
+                    TargetTerminal = subscription.MissileTerminal,
+                    SendTime = now,
+                    TrackPayload = track,
+                });
+                subscription.NextSendTime = now + GuidanceUplinkIntervalSeconds;
+                uplinkSubscriptions[i] = subscription;
             }
         }
 
@@ -1158,6 +1519,12 @@ namespace ACunicombat.Mechs
             targetEntities[sceneTargetCount] =
                 driver.RegisterEntity(BuildState(source, Vector3.zero));
             sceneTargetCount++;
+
+            if (autoEquipTestEmitters &&
+                sceneTarget.GetComponent<MechTestRadarEmitter>() == null)
+            {
+                sceneTarget.gameObject.AddComponent<MechTestRadarEmitter>();
+            }
         }
 
         private void UpdateTargetRegistration(int index)

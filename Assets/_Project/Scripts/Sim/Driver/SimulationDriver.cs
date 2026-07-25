@@ -1,3 +1,4 @@
+using ACunicombat.DataLink;
 using ACunicombat.Sensing.Contracts;
 using ACunicombat.Sensors;
 using ACunicombat.Simulation.Core;
@@ -33,6 +34,12 @@ namespace ACunicombat.Simulation.Driver
         private DwellScheduler dwellScheduler;
         private RadarSensorSystem radar;
         private RadarTrackManager trackManager;
+        private EsmReceiverSystem esmReceiver;
+        private EsmThreatCorrelator threatCorrelator;
+        private SensorId ownshipEsmReceiverId;
+        private MawSensorSystem mawSensor;
+        private SimEntityId ownshipMawEntity;
+        private DataLinkSystem dataLink;
         private SimEntityId trackOriginEntity;
         private SensorId trackSensorId;
         private EmitterId trackEmitterId;
@@ -57,6 +64,10 @@ namespace ACunicombat.Simulation.Driver
             dwellScheduler = new DwellScheduler(512);
             radar = new RadarSensorSystem(world, grid, dwellScheduler) { SessionSeed = sessionSeed };
             trackManager = new RadarTrackManager();
+            esmReceiver = new EsmReceiverSystem(world) { SessionSeed = sessionSeed };
+            threatCorrelator = new EsmThreatCorrelator();
+            mawSensor = new MawSensorSystem(world) { SessionSeed = sessionSeed };
+            dataLink = new DataLinkSystem(world) { SessionSeed = sessionSeed };
             trackDetectionScratch =
                 new NativeList<Measurement>(
                     RadarSensorSystem.DetectionRingCapacity,
@@ -88,6 +99,58 @@ namespace ACunicombat.Simulation.Driver
 
         public void UnregisterRadarSensor(SensorId sensorId) =>
             radar.UnregisterSensor(sensorId);
+
+        /// <summary>登记本机被动告警接收机；相关器只消费该接收机的接触。
+        /// MAW 红外通道复用同一接收机身份（同一相关器、同一 RWR 环）。</summary>
+        public void RegisterEsmReceiver(in EsmReceiverProfile profile)
+        {
+            esmReceiver.RegisterReceiver(profile);
+            ownshipEsmReceiverId = profile.ReceiverId;
+            ownshipMawEntity = profile.OwnerEntityId;
+        }
+
+        // ---- 红外点源（MAW 数据源，场景桥按热状态喂入） ----
+
+        public void RegisterIrSource(SimEntityId entityId, float intensityDb) =>
+            mawSensor.RegisterSource(entityId, intensityDb);
+
+        public void SetIrSourceIntensity(SimEntityId entityId, float intensityDb) =>
+            mawSensor.SetSourceIntensity(entityId, intensityDb);
+
+        public void UnregisterIrSource(SimEntityId entityId) =>
+            mawSensor.UnregisterSource(entityId);
+
+        // ---- 数据链（终端注册 / 收发，框架级：机体/无人机/僚机/导弹/拦截弹共用） ----
+
+        public void RegisterLinkTerminal(in LinkTerminalProfile profile) =>
+            dataLink.RegisterTerminal(profile);
+
+        public void UnregisterLinkTerminal(LinkTerminalId terminalId) =>
+            dataLink.UnregisterTerminal(terminalId);
+
+        /// <summary>入队发送；下一个传感器 Tick 投递（一 Tick 固有时延）。</summary>
+        public bool SendLinkMessage(in LinkMessage message) =>
+            dataLink != null && dataLink.Send(message);
+
+        public int CopyLinkInbox(LinkTerminalId terminalId, LinkMessage[] destination) =>
+            dataLink?.CopyInbox(terminalId, destination) ?? 0;
+
+        public void UnregisterEsmReceiver(SensorId receiverId) =>
+            esmReceiver.UnregisterReceiver(receiverId);
+
+        public void RegisterEsmWaveformClass(ushort band, ushort waveformId, EsmWaveformClass waveformClass) =>
+            threatCorrelator.RegisterWaveformClass(band, waveformId, waveformClass);
+
+        public int ThreatCount => threatCorrelator?.Count ?? 0;
+
+        public int CopyThreats(ThreatSnapshot[] destination) =>
+            threatCorrelator?.CopyThreats(destination) ?? 0;
+
+        public bool TryGetHighestThreat(out ThreatSnapshot snapshot)
+        {
+            snapshot = default;
+            return threatCorrelator != null && threatCorrelator.TryGetHighestThreat(out snapshot);
+        }
 
         public void RegisterRadarTarget(in RadarTargetProfile profile) => radar.RegisterTarget(profile);
 
@@ -152,7 +215,12 @@ namespace ACunicombat.Simulation.Driver
             var sensorTicks = sensorClock.Advance(dt);
             for (var i = 0; i < sensorTicks; i++)
             {
-                radar.Tick(sensorClock.SimTimeSeconds);
+                // Advance 已把时钟推到最终时刻；追帧时回推出每个 tick 的实际时间。
+                // 两个追赶 tick 共用最终时间戳会让第二个消费不到任何到期驻留，
+                // 还清空上一 tick 的探测环——等于白丢一帧探测。
+                var tickTime = sensorClock.SimTimeSeconds
+                               - SensorStepSeconds * (sensorTicks - 1 - i);
+                radar.Tick(tickTime);
                 var sensorPosition = double3.zero;
                 var sensorVelocity = double3.zero;
                 if (trackOriginEntity.IsValid
@@ -192,7 +260,30 @@ namespace ACunicombat.Simulation.Driver
                     trackEmissionScratch,
                     sensorPosition,
                     sensorVelocity,
-                    sensorClock.SimTimeSeconds);
+                    tickTime);
+
+                // 数据链：投递队列中的报文（写链路辐射 + 按物理条件投递）。
+                dataLink.Tick(tickTime);
+
+                // 被动告警：同 Tick 消费全部辐射环（每环每 Tick 清空，接收必须
+                // 与辐射同步）——雷达环 + 数据链环 + MAW 红外通道，汇入同一
+                // 接触环后由相关器按本机接收机 Id 过滤处理。
+                esmReceiver.BeginTick();
+                esmReceiver.Consume(radar.Emissions, tickTime);
+                esmReceiver.Consume(dataLink.Emissions, tickTime);
+                if (ownshipEsmReceiverId.IsValid)
+                {
+                    mawSensor.AppendContacts(
+                        ownshipMawEntity,
+                        ownshipEsmReceiverId,
+                        esmReceiver.Contacts,
+                        tickTime);
+                }
+
+                threatCorrelator.Process(
+                    esmReceiver.Contacts,
+                    ownshipEsmReceiverId,
+                    tickTime);
             }
 
             fusionClock.Advance(dt);
@@ -204,6 +295,8 @@ namespace ACunicombat.Simulation.Driver
 
         private void OnDestroy()
         {
+            dataLink?.Dispose();
+            esmReceiver?.Dispose();
             radar?.Dispose();
             if (trackDetectionScratch.IsCreated)
             {
