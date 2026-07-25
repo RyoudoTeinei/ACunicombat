@@ -1503,6 +1503,12 @@ namespace ACunicombat.Mechs
             {
                 return;
             }
+            if (sceneTarget.transform == transform ||
+                sceneTarget.transform.IsChildOf(transform) ||
+                transform.IsChildOf(sceneTarget.transform))
+            {
+                return;
+            }
 
             for (var i = 0; i < sceneTargetCount; i++)
             {

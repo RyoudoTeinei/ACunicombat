@@ -112,6 +112,12 @@ namespace ACunicombat.Mechs
             }
         }
 
+        public void ConfigureIdentity(string newTargetId, int newTeamId)
+        {
+            SetTargetId(newTargetId);
+            teamId = newTeamId;
+        }
+
         public void ApplyDamage(
             float damage,
             Vector3 hitPoint,

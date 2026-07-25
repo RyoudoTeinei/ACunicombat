@@ -76,6 +76,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private float quickBoostStateMaxSeconds = 0.8f;
         [SerializeField] private bool showFlightInstruments = true;
         [SerializeField] private bool showDebugOverlay = true;
+        [SerializeField] private bool aiControlled;
 
         private GUIStyle instrumentCaptionStyle;
         private GUIStyle instrumentValueStyle;
@@ -128,7 +129,9 @@ namespace ACunicombat.Mechs
             if (graphRunner == null) graphRunner = GetComponent<MechBehaviorGraphRunner>();
             runtimeState = GetComponent<MechRuntimeState>();
             radar = GetComponent<MechRadarController>();
-            if (radar != null && GetComponent<MechThreatWarningPresenter>() == null)
+            if (!aiControlled &&
+                radar != null &&
+                GetComponent<MechThreatWarningPresenter>() == null)
             {
                 gameObject.AddComponent<MechThreatWarningPresenter>();
             }
@@ -147,7 +150,7 @@ namespace ACunicombat.Mechs
                 thermalSignature = gameObject.AddComponent<MechThermalSignature>();
             }
             thermalSignature.Configure(motion);
-            if (thermalVision == null)
+            if (!aiControlled && thermalVision == null)
             {
                 thermalVision = FindAnyObjectByType<MechThermalVisionController>();
                 if (thermalVision == null)
@@ -170,6 +173,15 @@ namespace ACunicombat.Mechs
             {
                 cam.Configure(transform, motion);
             }
+        }
+
+        public void ConfigureAiControl()
+        {
+            aiControlled = true;
+            cam = null;
+            showFlightInstruments = false;
+            showDebugOverlay = false;
+            thermalVision = null;
         }
 
         /// <summary>

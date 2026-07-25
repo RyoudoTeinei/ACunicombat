@@ -42,6 +42,8 @@ public static class AC6PlayableSceneBuilder
         GeneratedMaterialsRoot + "/AC6SparseDeepSpacePanorama.png";
     private const string DeepSpaceSkyTextureVersion = "2-distant-sun";
     private const string PoseRoot = "Tools/LocalOut/actions";
+    private const string LoadoutRoot =
+        "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Loadouts";
 
     private static readonly (MechPartSlot Slot, string Token)[] FrameSlots =
     {
@@ -423,7 +425,7 @@ public static class AC6PlayableSceneBuilder
 
         DisableShowcaseLabels(mech);
         BuildPlayerEnvironment();
-        var combatTarget = BuildCombatTestTarget();
+        var combatTarget = BuildCombatTestTarget(mech);
         BuildNavigationReference();
 
         var testWeaponSystem = Ensure<MechTestWeaponSystem>(mech);
@@ -837,10 +839,10 @@ public static class AC6PlayableSceneBuilder
         RenderSettings.skybox = skybox;
         RenderSettings.fog = false;
         RenderSettings.ambientMode = AmbientMode.Trilight;
-        RenderSettings.ambientSkyColor = new Color(0.035f, 0.045f, 0.065f, 1f);
-        RenderSettings.ambientEquatorColor = new Color(0.012f, 0.016f, 0.024f, 1f);
-        RenderSettings.ambientGroundColor = new Color(0.004f, 0.005f, 0.008f, 1f);
-        RenderSettings.ambientIntensity = 0.42f;
+        RenderSettings.ambientSkyColor = new Color(0.16f, 0.19f, 0.24f, 1f);
+        RenderSettings.ambientEquatorColor = new Color(0.085f, 0.10f, 0.13f, 1f);
+        RenderSettings.ambientGroundColor = new Color(0.035f, 0.04f, 0.055f, 1f);
+        RenderSettings.ambientIntensity = 0.85f;
         RenderSettings.reflectionIntensity = 0.32f;
 
         var playerCamera = GameObject.Find("AC6PlayerCamera");
@@ -864,6 +866,31 @@ public static class AC6PlayableSceneBuilder
             RenderSettings.sun = keyLight;
             EditorUtility.SetDirty(keyLight);
         }
+
+        var fillLightObject = GameObject.Find("Gameplay Fill Light");
+        if (fillLightObject == null)
+        {
+            fillLightObject = new GameObject("Gameplay Fill Light");
+            if (keyLightObject != null)
+            {
+                fillLightObject.transform.SetParent(
+                    keyLightObject.transform.parent,
+                    false);
+            }
+        }
+
+        var fillLight = fillLightObject.GetComponent<Light>();
+        if (fillLight == null)
+        {
+            fillLight = fillLightObject.AddComponent<Light>();
+        }
+        fillLight.type = LightType.Directional;
+        fillLight.color = new Color(0.46f, 0.58f, 0.72f, 1f);
+        fillLight.intensity = 0.9f;
+        fillLight.shadows = LightShadows.None;
+        fillLight.transform.rotation = Quaternion.Euler(24f, 148f, 0f);
+        EditorUtility.SetDirty(fillLight);
+        EditorUtility.SetDirty(fillLightObject);
 
         var rimLightObject = GameObject.Find("Rim Light");
         var rimLight = rimLightObject != null ? rimLightObject.GetComponent<Light>() : null;
@@ -1056,11 +1083,18 @@ public static class AC6PlayableSceneBuilder
         }
     }
 
-    private static CombatTestTarget BuildCombatTestTarget()
+    private static CombatTestTarget BuildCombatTestTarget(GameObject playerMech)
     {
-        const string targetName = "AC6CombatTestTarget";
-        const string airborneTargetName = "AC6AirborneCombatTestTarget";
-        foreach (var staleName in new[] { targetName, airborneTargetName, "Moving_Target" })
+        const string firstTargetName = "AC6AiCombatMech_A";
+        const string secondTargetName = "AC6AiCombatMech_B";
+        foreach (var staleName in new[]
+                 {
+                     firstTargetName,
+                     secondTargetName,
+                     "AC6CombatTestTarget",
+                     "AC6AirborneCombatTestTarget",
+                     "Moving_Target",
+                 })
         {
             var stale = GameObject.Find(staleName);
             if (stale != null)
@@ -1069,75 +1103,194 @@ public static class AC6PlayableSceneBuilder
             }
         }
 
-        Directory.CreateDirectory(GeneratedMaterialsRoot);
-        var armorMaterial = GetOrCreateEnvironmentMaterial(
-            $"{GeneratedMaterialsRoot}/CombatTargetArmor.mat",
-            new Color(0.16f, 0.19f, 0.22f, 1f), 0.78f, 0.32f);
-        var warningMaterial = GetOrCreateEnvironmentMaterial(
-            $"{GeneratedMaterialsRoot}/CombatTargetWarning.mat",
-            new Color(0.72f, 0.12f, 0.035f, 1f), 0.58f, 0.38f);
-        var sensorMaterial = GetOrCreateEnvironmentMaterial(
-            $"{GeneratedMaterialsRoot}/CombatTargetSensor.mat",
-            new Color(0.04f, 0.62f, 0.72f, 1f), 0.24f, 0.7f);
+        var playerAimPoint = playerMech.transform.Find("TargetAimPoint");
+        if (playerAimPoint == null)
+        {
+            playerAimPoint = new GameObject("TargetAimPoint").transform;
+            playerAimPoint.SetParent(playerMech.transform, false);
+            playerAimPoint.localPosition = new Vector3(0f, 5.5f, 0f);
+        }
 
-        var root = new GameObject(targetName);
-        root.transform.position = new Vector3(0f, 11f, 150f);
+        var playerTarget = Ensure<CombatTestTarget>(playerMech);
+        playerTarget.Configure(playerAimPoint, 5000f, false, 0f, 0f);
+        playerTarget.ConfigureIdentity("PLAYER-MECH", 1);
+        EditorUtility.SetDirty(playerTarget);
 
-        CreateTargetPrimitive(root.transform, "Armored Hull", PrimitiveType.Sphere,
-            Vector3.zero, Vector3.zero, new Vector3(7.5f, 5f, 4.5f), armorMaterial);
-        CreateTargetPrimitive(root.transform, "Upper Armor", PrimitiveType.Cube,
-            new Vector3(0f, 1.8f, 0f), Vector3.zero, new Vector3(6.8f, 1.4f, 4.8f), armorMaterial);
-        CreateTargetPrimitive(root.transform, "Left Equipment Pod", PrimitiveType.Cube,
-            new Vector3(-5.3f, 0.4f, 0f), new Vector3(0f, 0f, 8f), new Vector3(3f, 3.8f, 3.4f), armorMaterial);
-        CreateTargetPrimitive(root.transform, "Right Equipment Pod", PrimitiveType.Cube,
-            new Vector3(5.3f, 0.4f, 0f), new Vector3(0f, 0f, -8f), new Vector3(3f, 3.8f, 3.4f), armorMaterial);
-        CreateTargetPrimitive(root.transform, "Left Warning Panel", PrimitiveType.Cube,
-            new Vector3(-2.4f, 0f, -2.3f), Vector3.zero, new Vector3(1.3f, 1.8f, 0.18f), warningMaterial);
-        CreateTargetPrimitive(root.transform, "Right Warning Panel", PrimitiveType.Cube,
-            new Vector3(2.4f, 0f, -2.3f), Vector3.zero, new Vector3(1.3f, 1.8f, 0.18f), warningMaterial);
-        CreateTargetPrimitive(root.transform, "Sensor", PrimitiveType.Sphere,
-            new Vector3(0f, 0.4f, -2.65f), Vector3.zero, Vector3.one * 1.1f, sensorMaterial);
+        var playerLoadout =
+            playerMech.GetComponent<MechRuntimeState>()?.CurrentLoadout;
+        var variantA = BuildAiVariantLoadout(
+            playerLoadout,
+            $"{LoadoutRoot}/AC6_Skinned_MixedA.asset",
+            $"{LoadoutRoot}/AC6_AI_Target_A.asset",
+            "ac6_ai_target_a",
+            "AI Target A");
+        var variantB = BuildAiVariantLoadout(
+            playerLoadout,
+            $"{LoadoutRoot}/AC6_Skinned_MixedB.asset",
+            $"{LoadoutRoot}/AC6_AI_Target_B.asset",
+            "ac6_ai_target_b",
+            "AI Target B");
 
-        var aimPoint = new GameObject("TargetAimPoint").transform;
-        aimPoint.SetParent(root.transform, false);
-        aimPoint.localPosition = new Vector3(0f, 0.4f, 0f);
-
-        var target = root.AddComponent<CombatTestTarget>();
-        target.Configure(aimPoint, 2400f, true, 12f, 3.5f);
-        EditorUtility.SetDirty(target);
-
-        var airborneRoot = UnityEngine.Object.Instantiate(root);
-        airborneRoot.name = airborneTargetName;
-        airborneRoot.transform.position = new Vector3(0f, 120f, 150f);
-        var airborneTarget = airborneRoot.GetComponent<CombatTestTarget>();
-        var airborneAimPoint = airborneRoot.transform.Find("TargetAimPoint");
-        airborneTarget.SetTargetId("SIM-TGT-AIR-01");
-        airborneTarget.ConfigureLinearFlight(
-            airborneAimPoint,
-            2400f,
-            Vector3.right,
-            180f);
-        EditorUtility.SetDirty(airborneTarget);
-        return airborneTarget;
+        var first = BuildAiCombatMech(
+            playerMech,
+            playerTarget,
+            variantA,
+            firstTargetName,
+            "AI-MECH-A",
+            new Vector3(0f, 11f, 150f),
+            new Color(0.58f, 0.10f, 0.06f, 1f));
+        BuildAiCombatMech(
+            playerMech,
+            playerTarget,
+            variantB,
+            secondTargetName,
+            "AI-MECH-B",
+            new Vector3(0f, 120f, 150f),
+            new Color(0.10f, 0.28f, 0.62f, 1f));
+        return first;
     }
 
-    private static GameObject CreateTargetPrimitive(
-        Transform parent,
-        string name,
-        PrimitiveType primitiveType,
-        Vector3 localPosition,
-        Vector3 localEulerAngles,
-        Vector3 localScale,
-        Material material)
+    private static CombatTestTarget BuildAiCombatMech(
+        GameObject playerMech,
+        CombatTestTarget playerTarget,
+        MechLoadoutDefinition variantLoadout,
+        string objectName,
+        string targetId,
+        Vector3 position,
+        Color identificationColor)
     {
-        var part = GameObject.CreatePrimitive(primitiveType);
-        part.name = name;
-        part.transform.SetParent(parent, false);
-        part.transform.localPosition = localPosition;
-        part.transform.localRotation = Quaternion.Euler(localEulerAngles);
-        part.transform.localScale = localScale;
-        part.GetComponent<MeshRenderer>().sharedMaterial = material;
-        return part;
+        var root = UnityEngine.Object.Instantiate(
+            playerMech,
+            playerMech.transform.parent);
+        root.name = objectName;
+        root.transform.position = position;
+        root.transform.rotation = Quaternion.LookRotation(
+            playerMech.transform.position - position,
+            Vector3.up);
+
+        var assembler = root.GetComponent<MechAssembler>();
+        if (assembler != null && variantLoadout != null)
+        {
+            assembler.Loadout = variantLoadout;
+            assembler.Assemble();
+            EditorUtility.SetDirty(assembler);
+        }
+
+        var radarHud = root.GetComponent<MechRadarHudPresenter>();
+        if (radarHud != null)
+        {
+            UnityEngine.Object.DestroyImmediate(radarHud);
+        }
+        var warningHud = root.GetComponent<MechThreatWarningPresenter>();
+        if (warningHud != null)
+        {
+            UnityEngine.Object.DestroyImmediate(warningHud);
+        }
+
+        var input = Ensure<MechPlayerInputAdapter>(root);
+        input.SetExternalControl(true);
+        var rig = Ensure<MechPlayerRig>(root);
+        rig.ConfigureAiControl();
+        rig.enabled = false;
+
+        var aimPoint = root.transform.Find("TargetAimPoint");
+        var target = Ensure<CombatTestTarget>(root);
+        target.Configure(aimPoint, 5000f, false, 0f, 0f);
+        target.ConfigureIdentity(targetId, 2);
+
+        var sensorObject = new GameObject("AI Fire-Control Sensor");
+        sensorObject.transform.SetParent(root.transform, false);
+        sensorObject.transform.localPosition = new Vector3(0f, 6f, 0f);
+        var sensorCamera = sensorObject.AddComponent<Camera>();
+        sensorCamera.enabled = false;
+        sensorCamera.fieldOfView = 60f;
+        sensorCamera.nearClipPlane = 0.1f;
+        sensorCamera.farClipPlane = 100000f;
+
+        var weaponSystem = Ensure<MechTestWeaponSystem>(root);
+        weaponSystem.Configure(
+            input,
+            root.GetComponent<MechRuntimeState>(),
+            sensorCamera,
+            playerTarget,
+            AC6FxrEffectFactory.BuildLibrary());
+        weaponSystem.ConfigureAimViewport(new Vector2(0.5f, 0.5f));
+        weaponSystem.enabled = false;
+        if (weaponSystem.RadarController != null)
+        {
+            weaponSystem.RadarController.enabled = false;
+            EditorUtility.SetDirty(weaponSystem.RadarController);
+        }
+
+        var ai = Ensure<MechAiTargetController>(root);
+        ai.Configure(playerTarget, sensorCamera);
+        ai.enabled = false;
+
+        var aiSo = new SerializedObject(ai);
+        var tintProperty = aiSo.FindProperty("identificationTint");
+        if (tintProperty != null)
+        {
+            tintProperty.colorValue = identificationColor;
+            aiSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        EditorUtility.SetDirty(input);
+        EditorUtility.SetDirty(rig);
+        EditorUtility.SetDirty(target);
+        EditorUtility.SetDirty(sensorCamera);
+        EditorUtility.SetDirty(weaponSystem);
+        EditorUtility.SetDirty(ai);
+        EditorUtility.SetDirty(root);
+        return target;
+    }
+
+    private static MechLoadoutDefinition BuildAiVariantLoadout(
+        MechLoadoutDefinition playerLoadout,
+        string frameSourcePath,
+        string destinationPath,
+        string loadoutId,
+        string displayName)
+    {
+        var frameSource =
+            AssetDatabase.LoadAssetAtPath<MechLoadoutDefinition>(
+                frameSourcePath);
+        if (playerLoadout == null || frameSource == null)
+        {
+            return playerLoadout;
+        }
+
+        var assignments = new List<MechPartAssignment>();
+        foreach (var playerAssignment in
+                 playerLoadout.EnumerateEnabledAssignments())
+        {
+            var part = playerAssignment.part;
+            if (FrameSlots.Any(entry => entry.Slot == playerAssignment.slot) &&
+                frameSource.TryGetPart(playerAssignment.slot, out var framePart))
+            {
+                part = framePart;
+            }
+
+            assignments.Add(new MechPartAssignment
+            {
+                slot = playerAssignment.slot,
+                part = part,
+                enabled = playerAssignment.enabled,
+            });
+        }
+
+        var loadout =
+            AssetDatabase.LoadAssetAtPath<MechLoadoutDefinition>(
+                destinationPath);
+        if (loadout == null)
+        {
+            loadout = ScriptableObject.CreateInstance<MechLoadoutDefinition>();
+            AssetDatabase.CreateAsset(loadout, destinationPath);
+        }
+
+        loadout.EditorConfigure(loadoutId, displayName, assignments);
+        EditorUtility.SetDirty(loadout);
+        AssetDatabase.SaveAssets();
+        return loadout;
     }
 
     private static void CreateRampCourse(

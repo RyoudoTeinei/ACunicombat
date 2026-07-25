@@ -29,6 +29,8 @@ namespace ACunicombat.Mechs
         [SerializeField] private Key operationModeKey = Key.Tab;
         [SerializeField] private Key breakLockKey = Key.T;
         [SerializeField] private Key cycleTargetKey = Key.G;
+        [Header("Friendly missile cue")]
+        [SerializeField, Min(3f)] private float friendlyMissileMarkerRadius = 7f;
 
         private readonly TrackSnapshot[] tracks =
             new TrackSnapshot[MechRadarController.MaximumPublicTracks];
@@ -48,6 +50,7 @@ namespace ACunicombat.Mechs
         private GUIStyle titleStyle;
         private GUIStyle microStyle;
         private GUIStyle pitchStyle;
+        private GUIStyle zoomStyle;
         private float pitchLadderRollDegrees;
         private static readonly Color HudGreen = new Color(0.3f, 1f, 0.5f, 1f);
         private static readonly Color HudDimGreen = new Color(0.18f, 0.78f, 0.36f, 0.76f);
@@ -56,6 +59,7 @@ namespace ACunicombat.Mechs
         private static readonly Color HudWhite = new Color(0.82f, 0.92f, 0.86f, 0.95f);
         private static readonly Color HudRed = new Color(1f, 0.18f, 0.12f, 1f);
         private static readonly Color HudAmber = new Color(1f, 0.72f, 0.18f, 0.95f);
+        private static readonly Color HudMissileLink = new Color(1f, 0.48f, 0.12f, 0.9f);
         private static readonly Color HudPanel = new Color(0.008f, 0.025f, 0.022f, 0.88f);
         private static readonly Color HudPanelGrid = new Color(0.08f, 0.34f, 0.19f, 0.24f);
         private static readonly Color HudFanFill = new Color(0.04f, 0.25f, 0.12f, 0.36f);
@@ -148,8 +152,10 @@ namespace ACunicombat.Mechs
             }
 
             EnsureStyles();
+            DrawMissileAttackLinks();
             DrawTacticalPlot();
             DrawRadarStatus();
+            DrawFriendlyMissileMarkers();
             if (radar.TrackOperationMode)
             {
                 DrawTransientEchoes();
@@ -268,6 +274,46 @@ namespace ACunicombat.Mechs
                     microStyle);
             }
 
+            DrawTacticalMissiles(center, radius, range);
+        }
+
+        private void DrawTacticalMissiles(
+            Vector2 center,
+            float radius,
+            float displayRange)
+        {
+            var projectiles = MechTestProjectile.Registry;
+            for (var i = 0; i < projectiles.Count; i++)
+            {
+                var projectile = projectiles[i];
+                if (!IsFriendlyMissile(projectile))
+                {
+                    continue;
+                }
+
+                var relativeWorld = projectile.transform.position - transform.position;
+                var relativeLocal = ToHeadingLocal(relativeWorld);
+                var horizontal = new Vector2(relativeLocal.x, relativeLocal.z);
+                var normalizedRange = Mathf.Clamp01(horizontal.magnitude / displayRange);
+                var point = horizontal.sqrMagnitude > 0.0001f
+                    ? center + new Vector2(horizontal.x, -horizontal.y).normalized *
+                      radius * normalizedRange
+                    : center;
+
+                DrawDiamond(point, 5f, HudBrightGreen, false, 1.3f);
+
+                var velocityLocal = ToHeadingLocal(projectile.Velocity);
+                var heading = new Vector2(velocityLocal.x, -velocityLocal.z);
+                if (heading.sqrMagnitude <= 0.01f)
+                {
+                    continue;
+                }
+
+                var direction = heading.normalized;
+                var arrowEnd = point + direction * 18f;
+                DrawLine(point, arrowEnd, HudBrightGreen, 1.3f);
+                DrawArrowHead(arrowEnd, direction, HudBrightGreen, 1.3f);
+            }
         }
 
         private void DrawRadarStatus()
@@ -542,6 +588,7 @@ namespace ACunicombat.Mechs
                     2.1f);
             }
             DrawSightElevationLadder(ringCenter, ringRadius);
+            DrawZoomMagnification(ringCenter, ringRadius);
 
             var snappedCenter = center;
             if (radar.CandidateTrackId.IsValid &&
@@ -649,6 +696,30 @@ namespace ACunicombat.Mechs
             }
 
             GUI.matrix = previousGuiMatrix;
+        }
+
+        private void DrawZoomMagnification(Vector2 center, float radius)
+        {
+            if (aimController == null && viewCamera != null)
+            {
+                aimController =
+                    viewCamera.GetComponent<MechThirdPersonCamera>();
+            }
+
+            if (aimController == null || !aimController.IsZoomActive)
+            {
+                return;
+            }
+
+            zoomStyle.normal.textColor = HudBrightGreen;
+            GUI.Label(
+                new Rect(
+                    center.x + radius * 0.52f,
+                    center.y - radius * 0.76f,
+                    96f,
+                    28f),
+                $"{aimController.ZoomMagnification}X",
+                zoomStyle);
         }
 
         private float ResolvePitchLadderRollDegrees(
@@ -779,6 +850,92 @@ namespace ACunicombat.Mechs
                     smallStyle);
             }
         }
+
+        private void DrawFriendlyMissileMarkers()
+        {
+            var projectiles = MechTestProjectile.Registry;
+            var radius = Mathf.Max(3f, friendlyMissileMarkerRadius);
+            for (var i = 0; i < projectiles.Count; i++)
+            {
+                var projectile = projectiles[i];
+                if (!IsFriendlyMissile(projectile))
+                {
+                    continue;
+                }
+
+                var screen = viewCamera.WorldToScreenPoint(projectile.transform.position);
+                if (screen.z <= 0f ||
+                    screen.x < radius ||
+                    screen.x > Screen.width - radius ||
+                    screen.y < radius ||
+                    screen.y > Screen.height - radius)
+                {
+                    continue;
+                }
+
+                DrawDiamond(
+                    new Vector2(screen.x, Screen.height - screen.y),
+                    radius,
+                    HudBrightGreen,
+                    false,
+                    1.4f);
+            }
+        }
+
+        private void DrawMissileAttackLinks()
+        {
+            var projectiles = MechTestProjectile.Registry;
+            var missileRadius = Mathf.Max(3f, friendlyMissileMarkerRadius);
+            const float targetFrameClearance = TrackMarkerSize * 0.5f + 4f;
+            for (var i = 0; i < projectiles.Count; i++)
+            {
+                var projectile = projectiles[i];
+                if (!IsFriendlyMissile(projectile) ||
+                    !TryGetTrackScreenPoint(
+                        projectile.GuidanceTrackId,
+                        out var targetPoint))
+                {
+                    continue;
+                }
+
+                var missileScreen =
+                    viewCamera.WorldToScreenPoint(projectile.transform.position);
+                var missilePoint =
+                    new Vector2(missileScreen.x, Screen.height - missileScreen.y);
+                if (missileScreen.z <= 0f ||
+                    !IsInsideScreen(missilePoint, missileRadius) ||
+                    !IsInsideScreen(targetPoint, targetFrameClearance))
+                {
+                    continue;
+                }
+
+                var delta = targetPoint - missilePoint;
+                var distance = delta.magnitude;
+                if (distance <= missileRadius + targetFrameClearance + 4f)
+                {
+                    continue;
+                }
+
+                var direction = delta / distance;
+                DrawLine(
+                    missilePoint + direction * (missileRadius + 3f),
+                    targetPoint - direction * targetFrameClearance,
+                    HudMissileLink,
+                    1f,
+                    true);
+            }
+        }
+
+        private bool IsFriendlyMissile(MechTestProjectile projectile) =>
+            projectile != null &&
+            projectile.IsMissile &&
+            projectile.IsOwnedBy(transform);
+
+        private static bool IsInsideScreen(Vector2 point, float margin) =>
+            point.x >= margin &&
+            point.x <= Screen.width - margin &&
+            point.y >= margin &&
+            point.y <= Screen.height - margin;
 
         private void DrawTransientEchoes()
         {
@@ -1210,6 +1367,13 @@ namespace ACunicombat.Mechs
                 alignment = TextAnchor.MiddleLeft,
                 wordWrap = false,
             };
+            zoomStyle ??= new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 19,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                wordWrap = false,
+            };
         }
 
         private static Rect ClampToScreen(Rect rect, float margin)
@@ -1285,16 +1449,33 @@ namespace ACunicombat.Mechs
             DrawLine(center + new Vector2(3f, 3f * sign), center + new Vector2(0f, 0f), color, 1f);
         }
 
-        private static void DrawDiamond(Vector2 center, float radius, Color color, bool dashed)
+        private static void DrawArrowHead(
+            Vector2 tip,
+            Vector2 forward,
+            Color color,
+            float thickness)
+        {
+            var side = new Vector2(-forward.y, forward.x);
+            var basePoint = tip - forward * 5f;
+            DrawLine(tip, basePoint + side * 3f, color, thickness);
+            DrawLine(tip, basePoint - side * 3f, color, thickness);
+        }
+
+        private static void DrawDiamond(
+            Vector2 center,
+            float radius,
+            Color color,
+            bool dashed,
+            float thickness = 1f)
         {
             var a = center + new Vector2(0f, -radius);
             var b = center + new Vector2(radius, 0f);
             var c = center + new Vector2(0f, radius);
             var d = center + new Vector2(-radius, 0f);
-            DrawLine(a, b, color, 1f, dashed);
-            DrawLine(b, c, color, 1f, dashed);
-            DrawLine(c, d, color, 1f, dashed);
-            DrawLine(d, a, color, 1f, dashed);
+            DrawLine(a, b, color, thickness, dashed);
+            DrawLine(b, c, color, thickness, dashed);
+            DrawLine(c, d, color, thickness, dashed);
+            DrawLine(d, a, color, thickness, dashed);
         }
 
         private static void DrawTrackSymbol(

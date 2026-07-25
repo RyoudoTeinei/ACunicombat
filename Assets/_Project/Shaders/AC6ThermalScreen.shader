@@ -27,6 +27,8 @@ Shader "Hidden/ACunicombat/AC6/Thermal Screen"
             // x = 探测器像素块边长(屏幕像素), y = 噪声幅度, z = 背景冷底灰度,
             // w = 极性（>0 白热，<0 黑热）。
             float4 _AC6ThermalScreenParams;
+            // x = 锐化强度, y = 对比度, z = 太空背景噪声比例。
+            float4 _AC6ThermalClarityParams;
 
             float Hash21(float2 p)
             {
@@ -56,10 +58,49 @@ Shader "Hidden/ACunicombat/AC6/Thermal Screen"
                 {
                     g = _AC6ThermalScreenParams.z;
                 }
+                else
+                {
+                    float2 texel = blockPx / _ScreenParams.xy;
+                    float gLeft = dot(
+                        SAMPLE_TEXTURE2D_X(
+                            _BlitTexture,
+                            sampler_LinearClamp,
+                            quv - float2(texel.x, 0)).rgb,
+                        float3(0.299, 0.587, 0.114));
+                    float gRight = dot(
+                        SAMPLE_TEXTURE2D_X(
+                            _BlitTexture,
+                            sampler_LinearClamp,
+                            quv + float2(texel.x, 0)).rgb,
+                        float3(0.299, 0.587, 0.114));
+                    float gUp = dot(
+                        SAMPLE_TEXTURE2D_X(
+                            _BlitTexture,
+                            sampler_LinearClamp,
+                            quv + float2(0, texel.y)).rgb,
+                        float3(0.299, 0.587, 0.114));
+                    float gDown = dot(
+                        SAMPLE_TEXTURE2D_X(
+                            _BlitTexture,
+                            sampler_LinearClamp,
+                            quv - float2(0, texel.y)).rgb,
+                        float3(0.299, 0.587, 0.114));
+                    float neighbourAverage =
+                        (gLeft + gRight + gUp + gDown) * 0.25;
+                    g = saturate(
+                        g + (g - neighbourAverage) *
+                        _AC6ThermalClarityParams.x);
+                    g = saturate(
+                        (g - 0.5) * _AC6ThermalClarityParams.y + 0.5);
+                }
 
                 // 逐探测器单元的时域噪声：seed 用块坐标，帧间由 _Time 扰动。
                 float noise = Hash21(cell + frac(_Time.y * 7.31) * 251.0) - 0.5;
-                g = saturate(g + noise * _AC6ThermalScreenParams.y);
+                float noiseScale = isBackground
+                    ? _AC6ThermalClarityParams.z
+                    : 1.0;
+                g = saturate(
+                    g + noise * _AC6ThermalScreenParams.y * noiseScale);
 
                 if (_AC6ThermalScreenParams.w < 0.0)
                 {

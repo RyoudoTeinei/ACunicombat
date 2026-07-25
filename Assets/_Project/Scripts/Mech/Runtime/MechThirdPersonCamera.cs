@@ -1,5 +1,6 @@
 using ACunicombat.Sensing.Contracts;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace ACunicombat.Mechs
 {
@@ -42,6 +43,15 @@ namespace ACunicombat.Mechs
         [Header("Space-scale rendering")]
         [SerializeField, Min(0.01f)] private float nearClipDistance = 0.5f;
         [SerializeField, Min(1000f)] private float farClipDistance = 100000f;
+        [Header("View zoom")]
+        [SerializeField] private Key zoomKey = Key.CapsLock;
+        [SerializeField, Range(5f, 60f)] private float zoomFieldOfView = 22f;
+        [SerializeField, Range(3f, 20f)] private float precisionZoomFieldOfView = 6.6f;
+        [SerializeField, Range(2f, 12f)] private float maximumZoomFieldOfView = 3.3f;
+        [SerializeField, Range(0.05f, 0.8f)] private float overviewZoomOwnshipAlpha = 0.24f;
+        [SerializeField, Range(0.05f, 1f)] private float overviewZoomAimSensitivity = 0.55f;
+        [SerializeField, Range(0.02f, 1f)] private float precisionZoomAimSensitivity = 0.24f;
+        [SerializeField, Range(0.01f, 1f)] private float maximumZoomAimSensitivity = 0.13f;
 
         private float pitchDegrees = 8f;
         private Vector3 localLag;
@@ -50,6 +60,13 @@ namespace ACunicombat.Mechs
         private float baseFieldOfView;
         private float fieldOfViewVelocity;
         private bool fieldOfViewInitialized;
+        private int zoomStage;
+        private Renderer[] zoomRenderers = System.Array.Empty<Renderer>();
+        private bool[] zoomRendererPreviousStates = System.Array.Empty<bool>();
+        private Material[][] zoomRendererPreviousMaterials =
+            System.Array.Empty<Material[]>();
+        private Material zoomGhostMaterial;
+        private OwnshipZoomVisualState ownshipZoomVisualState;
         private Vector2 aimViewportPoint;
         private bool aimCursorInitialized;
         private MechRadarController radar;
@@ -76,6 +93,22 @@ namespace ACunicombat.Mechs
         }
 
         public Quaternion AimRotation => ComputeRotation();
+        public bool IsZoomActive
+        {
+            get
+            {
+                var keyboard = Keyboard.current;
+                return keyboard != null &&
+                       keyboard[zoomKey]?.isPressed == true;
+            }
+        }
+
+        public int ZoomMagnification => zoomStage switch
+        {
+            2 => 20,
+            1 => 10,
+            _ => 3,
+        };
 
         public void Configure(Transform target, MechFlightMotionController motionController)
         {
@@ -179,7 +212,10 @@ namespace ACunicombat.Mechs
             var viewportDelta = new Vector2(
                 frame.MouseDelta.x / screenSize.x,
                 frame.MouseDelta.y / screenSize.y);
-            aimViewportPoint += viewportDelta * aimCursorSensitivity;
+            aimViewportPoint +=
+                viewportDelta *
+                aimCursorSensitivity *
+                GetZoomAimSensitivityMultiplier();
 
             var extents = new Vector2(
                 Mathf.Max(0.01f, aimCursorHalfExtent.x),
@@ -226,6 +262,21 @@ namespace ACunicombat.Mechs
 
             return Mathf.Sign(value) *
                    Mathf.InverseLerp(deadZone, 1f, magnitude);
+        }
+
+        private float GetZoomAimSensitivityMultiplier()
+        {
+            if (!IsZoomActive)
+            {
+                return 1f;
+            }
+
+            return zoomStage switch
+            {
+                2 => maximumZoomAimSensitivity,
+                1 => precisionZoomAimSensitivity,
+                _ => overviewZoomAimSensitivity,
+            };
         }
 
         public void Follow(float deltaTime)
@@ -557,13 +608,211 @@ namespace ACunicombat.Mechs
             var speed01 = Mathf.Clamp01(motion.Velocity.magnitude / fullSpeedFovAt);
             speed01 = speed01 * speed01 * (3f - 2f * speed01);
             var targetFieldOfView = baseFieldOfView + maxSpeedFovIncrease * speed01;
+            var keyboard = Keyboard.current;
+            var zoomControl = keyboard != null ? keyboard[zoomKey] : null;
+            var zoomActive = zoomControl?.isPressed == true;
+            if (zoomActive)
+            {
+                var scroll = Mouse.current?.scroll.ReadValue().y ?? 0f;
+                if (scroll > 0.01f)
+                {
+                    zoomStage = Mathf.Min(2, zoomStage + 1);
+                }
+                else if (scroll < -0.01f)
+                {
+                    zoomStage = Mathf.Max(0, zoomStage - 1);
+                }
+
+                var selectedFieldOfView = zoomStage switch
+                {
+                    2 => maximumZoomFieldOfView,
+                    1 => precisionZoomFieldOfView,
+                    _ => zoomFieldOfView,
+                };
+                targetFieldOfView = Mathf.Min(
+                    targetFieldOfView,
+                    selectedFieldOfView);
+            }
+            var ownshipVisualState = !zoomActive
+                ? OwnshipZoomVisualState.Visible
+                : zoomStage >= 1
+                    ? OwnshipZoomVisualState.Hidden
+                    : OwnshipZoomVisualState.Ghost;
+            SetOwnshipZoomVisualState(ownshipVisualState);
             controlledCamera.fieldOfView = Mathf.SmoothDamp(
                 controlledCamera.fieldOfView,
                 targetFieldOfView,
                 ref fieldOfViewVelocity,
-                0.35f,
+                zoomActive ? 0.12f : 0.24f,
                 Mathf.Infinity,
                 deltaTime);
+        }
+
+        private void SetOwnshipZoomVisualState(OwnshipZoomVisualState state)
+        {
+            if (state == ownshipZoomVisualState)
+            {
+                return;
+            }
+
+            if (state != OwnshipZoomVisualState.Visible &&
+                zoomRenderers.Length == 0)
+            {
+                if (followTarget == null)
+                {
+                    return;
+                }
+
+                var candidates = followTarget.GetComponentsInChildren<Renderer>(true);
+                var count = 0;
+                for (var i = 0; i < candidates.Length; i++)
+                {
+                    if (candidates[i] is MeshRenderer or SkinnedMeshRenderer)
+                    {
+                        count++;
+                    }
+                }
+
+                zoomRenderers = new Renderer[count];
+                zoomRendererPreviousStates = new bool[count];
+                zoomRendererPreviousMaterials = new Material[count][];
+                var index = 0;
+                for (var i = 0; i < candidates.Length; i++)
+                {
+                    var renderer = candidates[i];
+                    if (renderer is not MeshRenderer &&
+                        renderer is not SkinnedMeshRenderer)
+                    {
+                        continue;
+                    }
+
+                    zoomRenderers[index] = renderer;
+                    zoomRendererPreviousStates[index] = renderer.forceRenderingOff;
+                    zoomRendererPreviousMaterials[index] = renderer.sharedMaterials;
+                    index++;
+                }
+            }
+
+            if (state == OwnshipZoomVisualState.Visible)
+            {
+                RestoreOwnshipRenderers();
+                ownshipZoomVisualState = state;
+                return;
+            }
+
+            if (state == OwnshipZoomVisualState.Ghost)
+            {
+                EnsureZoomGhostMaterial();
+            }
+
+            for (var i = 0; i < zoomRenderers.Length; i++)
+            {
+                var renderer = zoomRenderers[i];
+                if (renderer == null)
+                {
+                    continue;
+                }
+
+                if (state == OwnshipZoomVisualState.Hidden)
+                {
+                    renderer.forceRenderingOff = true;
+                    continue;
+                }
+
+                renderer.forceRenderingOff =
+                    i < zoomRendererPreviousStates.Length &&
+                    zoomRendererPreviousStates[i];
+                var originalMaterials =
+                    i < zoomRendererPreviousMaterials.Length
+                        ? zoomRendererPreviousMaterials[i]
+                        : null;
+                if (zoomGhostMaterial != null &&
+                    originalMaterials is { Length: > 0 })
+                {
+                    var ghostMaterials = new Material[originalMaterials.Length];
+                    for (var materialIndex = 0;
+                         materialIndex < ghostMaterials.Length;
+                         materialIndex++)
+                    {
+                        ghostMaterials[materialIndex] = zoomGhostMaterial;
+                    }
+                    renderer.sharedMaterials = ghostMaterials;
+                }
+            }
+
+            ownshipZoomVisualState = state;
+        }
+
+        private void EnsureZoomGhostMaterial()
+        {
+            if (zoomGhostMaterial != null)
+            {
+                zoomGhostMaterial.SetFloat(
+                    "_GhostAlpha",
+                    overviewZoomOwnshipAlpha);
+                return;
+            }
+
+            var shader = Shader.Find("ACunicombat/Zoom Dotted Ghost");
+            if (shader == null)
+            {
+                return;
+            }
+
+            zoomGhostMaterial = new Material(shader)
+            {
+                name = "Runtime Zoom Dotted Ghost",
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            zoomGhostMaterial.SetFloat("_GhostAlpha", overviewZoomOwnshipAlpha);
+        }
+
+        private void RestoreOwnshipRenderers()
+        {
+            for (var i = 0; i < zoomRenderers.Length; i++)
+            {
+                var renderer = zoomRenderers[i];
+                if (renderer == null)
+                {
+                    continue;
+                }
+
+                renderer.forceRenderingOff =
+                    i < zoomRendererPreviousStates.Length &&
+                    zoomRendererPreviousStates[i];
+                if (i < zoomRendererPreviousMaterials.Length &&
+                    zoomRendererPreviousMaterials[i] != null)
+                {
+                    renderer.sharedMaterials =
+                        zoomRendererPreviousMaterials[i];
+                }
+            }
+
+            zoomRenderers = System.Array.Empty<Renderer>();
+            zoomRendererPreviousStates = System.Array.Empty<bool>();
+            zoomRendererPreviousMaterials = System.Array.Empty<Material[]>();
+        }
+
+        private void OnDisable()
+        {
+            SetOwnshipZoomVisualState(OwnshipZoomVisualState.Visible);
+        }
+
+        private void OnDestroy()
+        {
+            RestoreOwnshipRenderers();
+            if (zoomGhostMaterial != null)
+            {
+                Destroy(zoomGhostMaterial);
+                zoomGhostMaterial = null;
+            }
+        }
+
+        private enum OwnshipZoomVisualState
+        {
+            Visible,
+            Ghost,
+            Hidden,
         }
 
         private void InitializeFieldOfView()

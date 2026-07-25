@@ -93,12 +93,36 @@ namespace ACunicombat.Mechs
         private float lastSpaceDownTime = -10f;
         private float spaceHeldSince = -1f;
         private float mainThrottle;
+        private bool externalControl;
+        private MechPlayerInputFrame externalFrame;
 
         public MechPlayerInputFrame Current { get; private set; }
+
+        public void SetExternalControl(bool enabled)
+        {
+            externalControl = enabled;
+            if (!enabled)
+            {
+                externalFrame = default;
+            }
+        }
+
+        public void SubmitExternalFrame(in MechPlayerInputFrame frame)
+        {
+            externalControl = true;
+            externalFrame = frame;
+            Current = frame;
+        }
 
         /// <summary>每帧调用（由 MechPlayerRig 驱动，保证与运动层同帧序）。</summary>
         public MechPlayerInputFrame Sample()
         {
+            if (externalControl)
+            {
+                Current = externalFrame;
+                return externalFrame;
+            }
+
             var keyboard = Keyboard.current;
             var mouse = Mouse.current;
             var frame = default(MechPlayerInputFrame);

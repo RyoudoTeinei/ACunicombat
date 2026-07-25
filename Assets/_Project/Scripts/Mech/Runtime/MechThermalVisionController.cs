@@ -27,6 +27,7 @@ namespace ACunicombat.Mechs
         private const string ScreenFeatureName = "AC6ThermalScreen";
         private static readonly int WindowId = Shader.PropertyToID("_AC6ThermalWindow");
         private static readonly int ScreenParamsId = Shader.PropertyToID("_AC6ThermalScreenParams");
+        private static readonly int ClarityParamsId = Shader.PropertyToID("_AC6ThermalClarityParams");
 
         [Tooltip("Installer 会把两个 feature 资产引用填进来；为空时按名字反射查找激活管线。")]
         [SerializeField] private ScriptableRendererFeature thermalObjectsFeature;
@@ -41,9 +42,12 @@ namespace ACunicombat.Mechs
         [SerializeField] private float windowHighMargin = 1.05f;
 
         [Header("传感器质感")]
-        [Range(1f, 12f)] [SerializeField] private float detectorPixelSize = 3f;
-        [Range(0f, 0.3f)] [SerializeField] private float noiseAmplitude = 0.05f;
-        [Range(0f, 0.2f)] [SerializeField] private float backgroundLevel = 0.03f;
+        [Range(1f, 4f)] [SerializeField] private float detectorPixelSize = 1.25f;
+        [Range(0f, 0.05f)] [SerializeField] private float noiseAmplitude = 0.008f;
+        [Range(0f, 0.2f)] [SerializeField] private float backgroundLevel = 0.025f;
+        [Range(0f, 1f)] [SerializeField] private float sharpness = 0.38f;
+        [Range(0.8f, 1.5f)] [SerializeField] private float contrast = 1.1f;
+        [Range(0f, 1f)] [SerializeField] private float backgroundNoiseScale = 0.08f;
 
         [Header("自动标记")]
         [SerializeField] private float autoTagIntervalSeconds = 0.5f;
@@ -181,6 +185,11 @@ namespace ACunicombat.Mechs
                 noiseAmplitude,
                 backgroundLevel,
                 mode == MechThermalVisionMode.BlackHot ? -1f : 1f));
+            Shader.SetGlobalVector(ClarityParamsId, new Vector4(
+                sharpness,
+                contrast,
+                backgroundNoiseScale,
+                0f));
         }
 
         private void AutoTagUntaggedHeatSources()

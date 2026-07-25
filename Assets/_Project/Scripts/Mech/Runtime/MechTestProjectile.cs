@@ -20,6 +20,9 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class MechTestProjectile : MonoBehaviour
     {
+        private static readonly System.Collections.Generic.List<MechTestProjectile> registry = new();
+        public static System.Collections.Generic.IReadOnlyList<MechTestProjectile> Registry => registry;
+
         private const float GuidanceMemorySeconds = 4f;
         private const float ReacquisitionGateMeters = 350f;
         private const float SeekerScanIntervalSeconds = 0.05f;
@@ -56,6 +59,7 @@ namespace ACunicombat.Mechs
         private MissileFlightPhase missilePhase = MissileFlightPhase.LaunchDelay;
         private float missileFlightTime;
         private float motorBurnDuration;
+        private float motorBurnElapsed;
         private float seekerActivationDelay;
         private float seekerMaximumRange;
         private float seekerHalfAngleRadians;
@@ -69,6 +73,7 @@ namespace ACunicombat.Mechs
         private float seekerScanRemaining;
         private float seekerLockMemoryRemaining;
         private bool seekerLocked;
+        private Vector3 desiredAttitudeForward;
         private Vector3 seekerEstimatedPosition;
         private Vector3 seekerEstimatedVelocity;
         private double seekerLastMeasurementTime = -1.0;
@@ -92,6 +97,24 @@ namespace ACunicombat.Mechs
         public bool SeekerLocked => seekerLocked;
         public float ManeuverDeltaVRemaining => maneuverDeltaVRemaining;
         public Vector3 Velocity => velocity;
+        public bool IsMissile => weaponKind == TestWeaponKind.Missile;
+        public TrackId GuidanceTrackId =>
+            hasCachedGuidanceTrack && cachedGuidanceTrack.TrackId.IsValid
+                ? cachedGuidanceTrack.TrackId
+                : targetTrackId;
+
+        public bool IsOwnedBy(Transform candidateOwner) =>
+            candidateOwner != null && owner == candidateOwner;
+
+        private void OnEnable()
+        {
+            if (!registry.Contains(this))
+            {
+                registry.Add(this);
+            }
+        }
+
+        private void OnDisable() => registry.Remove(this);
 
         public void Configure(
             Transform newOwner,
@@ -126,6 +149,11 @@ namespace ACunicombat.Mechs
             targetTrackId = newTargetTrackId;
             weaponKind = kind;
             velocity = initialVelocity;
+            desiredAttitudeForward = transform.forward.sqrMagnitude > 0.001f
+                ? transform.forward.normalized
+                : initialVelocity.sqrMagnitude > 0.001f
+                    ? initialVelocity.normalized
+                    : Vector3.forward;
             damage = newDamage;
             collisionRadius = Mathf.Max(0.01f, newCollisionRadius);
             lifeRemaining = Mathf.Max(0.1f, lifetimeSeconds);
@@ -214,23 +242,37 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            if (launchDelay > 0f)
+            var motorIgnited = launchDelay <= 0f;
+            if (weaponKind == TestWeaponKind.Missile && launchDelay > 0f)
             {
-                launchDelay -= dt;
-                if (launchDelay > 0f)
+                launchDelay = Mathf.Max(0f, launchDelay - dt);
+                motorIgnited = launchDelay <= 0f;
+                if (motorIgnited)
                 {
-                    return;
+                    missilePhase = MissileFlightPhase.Boost;
+                    SetMotorVisual(true);
                 }
-
-                missilePhase = MissileFlightPhase.Boost;
-                SetMotorVisual(weaponKind == TestWeaponKind.Missile);
             }
 
             var proximityDetonated = false;
             if (weaponKind == TestWeaponKind.Missile)
             {
                 missileFlightTime += dt;
-                UpdateMissile(dt);
+                if (motorIgnited)
+                {
+                    motorBurnElapsed += dt;
+                    UpdateMissile(dt);
+                    UpdateMissileAttitude(dt);
+                }
+                else
+                {
+                    // Cold ejection still moves ballistically; only motor,
+                    // seeker and guidance wait for safe separation.
+                    radarController?.UpdateMissileSeekerState(
+                        seekerHandle,
+                        transform.position,
+                        velocity);
+                }
                 proximityDetonated = TryDetonateProximity(dt);
             }
 
@@ -256,7 +298,8 @@ namespace ACunicombat.Mechs
 
             transform.position += travel;
             distanceTravelled += travel.magnitude;
-            if (velocity.sqrMagnitude > 0.001f)
+            if (weaponKind != TestWeaponKind.Missile &&
+                velocity.sqrMagnitude > 0.001f)
             {
                 transform.rotation = Quaternion.LookRotation(
                     velocity.normalized,
@@ -266,7 +309,7 @@ namespace ACunicombat.Mechs
 
         private void UpdateMissile(float deltaTime)
         {
-            var motorActive = missileFlightTime < motorBurnDuration;
+            var motorActive = motorBurnElapsed < motorBurnDuration;
             SetMotorVisual(motorActive);
             radarController?.UpdateMissileSeekerState(
                 seekerHandle,
@@ -339,12 +382,49 @@ namespace ACunicombat.Mechs
 
             if (hasGuidance)
             {
+                var toTarget = targetPosition - transform.position;
+                if (toTarget.sqrMagnitude > 0.001f)
+                {
+                    desiredAttitudeForward = toTarget.normalized;
+                }
                 ApplyGuidance(
                     targetPosition,
                     targetVelocity,
                     seekerLocked,
                     deltaTime);
             }
+            else if (velocity.sqrMagnitude > 0.001f)
+            {
+                desiredAttitudeForward = velocity.normalized;
+            }
+        }
+
+        private void UpdateMissileAttitude(float deltaTime)
+        {
+            if (desiredAttitudeForward.sqrMagnitude <= 0.001f)
+            {
+                return;
+            }
+
+            var forward = desiredAttitudeForward.normalized;
+            var up = Vector3.ProjectOnPlane(transform.up, forward);
+            if (up.sqrMagnitude <= 0.001f)
+            {
+                up = Vector3.ProjectOnPlane(Vector3.up, forward);
+            }
+            if (up.sqrMagnitude <= 0.001f)
+            {
+                up = Vector3.ProjectOnPlane(Vector3.right, forward);
+            }
+
+            var targetRotation = Quaternion.LookRotation(forward, up.normalized);
+            var turnDegreesPerSecond = turnRateRadians > 0f
+                ? turnRateRadians * Mathf.Rad2Deg
+                : 90f;
+            transform.rotation = Quaternion.RotateTowards(
+                transform.rotation,
+                targetRotation,
+                turnDegreesPerSecond * deltaTime);
         }
 
         private void ApplyGuidance(

@@ -15,9 +15,9 @@ namespace ACunicombat.Mechs
     /// 机体红外特征（sim 层热状态，07-21 决策的热资源与红外可见性同源）：
     /// 按通道维护一阶热模型——推进器由主节流/AB 持续加热、QB 边沿注入脉冲、
     /// 武器开火注入脉冲，真空散热简化为向基线温度的指数回落（慢冷却=热惯性，
-    /// 刚机动完的目标在热像里持续显眼）。温度经 MaterialPropertyBlock 写进
-    /// 逐 renderer 的 _ThermalTemp，由热辐射 override shader 消费；将来的
-    /// 红外导引头/IRST 读同一组 GetChannelTemperature，与玩家所见同源。
+    /// 刚机动完的目标在热像里持续显眼）。温度可选地经 MaterialPropertyBlock
+    /// 写进逐 renderer 的 _ThermalTemp，由热辐射 override shader 消费；将来的
+    /// 红外导引头/IRST 读取同一组 GetChannelTemperature，与玩家所见同源。
     /// 部件→通道映射基于 MechRuntimeState 的装配记录，装配完成后自动重绑。
     /// </summary>
     public sealed class MechThermalSignature : MonoBehaviour
@@ -49,6 +49,10 @@ namespace ACunicombat.Mechs
         [Tooltip("蒙皮从推进器传导升温的比例。")]
         [Range(0f, 1f)] [SerializeField] private float skinConductionFraction = 0.22f;
 
+        [Header("渲染输出")]
+        [Tooltip("向原始机体 Renderer 写入温度属性。当前 AC6 多材质渲染路径不兼容，默认关闭；热状态仿真不受影响。")]
+        [SerializeField] private bool writeRendererTemperaturePropertyBlocks;
+
         private readonly float[] temperatures = new float[ChannelCount];
         private readonly float[] appliedTemperatures = new float[ChannelCount];
         private readonly List<Renderer>[] channelRenderers =
@@ -78,6 +82,10 @@ namespace ACunicombat.Mechs
 
         private void Awake()
         {
+            // AC6 multi-material renderers are incompatible with thermal values
+            // on their normal-rendering MPB path. Thermal vision reads this
+            // component's simulation state directly instead.
+            writeRendererTemperaturePropertyBlocks = false;
             if (motion == null) motion = GetComponent<MechFlightMotionController>();
             runtimeState = GetComponent<MechRuntimeState>();
             propertyBlock = new MaterialPropertyBlock();
@@ -89,6 +97,7 @@ namespace ACunicombat.Mechs
             {
                 appliedTemperatures[i] = float.MinValue;
             }
+            ClearLegacyRendererTemperatureOverrides();
         }
 
         private void OnEnable() => registry.Add(this);
@@ -222,6 +231,11 @@ namespace ACunicombat.Mechs
 
         private void ApplyToRenderers()
         {
+            if (!writeRendererTemperaturePropertyBlocks)
+            {
+                return;
+            }
+
             for (var c = 0; c < ChannelCount; c++)
             {
                 if (Mathf.Abs(temperatures[c] - appliedTemperatures[c]) < 0.25f)
@@ -244,6 +258,25 @@ namespace ACunicombat.Mechs
                     propertyBlock.SetFloat(ThermalTempId, temperatures[c]);
                     renderer.SetPropertyBlock(propertyBlock);
                 }
+            }
+        }
+
+        private void ClearLegacyRendererTemperatureOverrides()
+        {
+            var renderers = GetComponentsInChildren<Renderer>(true);
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                var renderer = renderers[i];
+                if (renderer is not MeshRenderer &&
+                    renderer is not SkinnedMeshRenderer)
+                {
+                    continue;
+                }
+
+                // Normal rendering does not consume thermal MPBs. Clear the
+                // entire stale block because Unity has no per-property removal
+                // API and a value of zero can itself black out legacy shaders.
+                renderer.SetPropertyBlock(null);
             }
         }
     }

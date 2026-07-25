@@ -29,6 +29,7 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(1000f)] private float missileMaximumRangeMeters = 50000f;
         [Header("Missile propulsion and seeker")]
         [SerializeField, Min(0f)] private float missileEjectionSpeedMps = 40f;
+        [SerializeField, Min(0f)] private float missileLaunchClearanceMeters = 0.8f;
         [SerializeField, Min(0.1f)] private float missileBoostAccelerationMps2 = 300f;
         [SerializeField, Min(0.1f)] private float missileMotorBurnSeconds = 3.5f;
         [SerializeField, Min(100f)] private float missileSeekerRangeMeters = 8000f;
@@ -88,6 +89,40 @@ namespace ACunicombat.Mechs
             aimViewportPoint = new Vector2(
                 Mathf.Clamp(viewportPoint.x, 0.05f, 0.95f),
                 Mathf.Clamp(viewportPoint.y, 0.05f, 0.95f));
+        }
+
+        public void CommandFireHandWeapon(TestWeaponKind kind)
+        {
+            if (kind == TestWeaponKind.Missile)
+            {
+                return;
+            }
+
+            if (kind == TestWeaponKind.Cannon)
+            {
+                FireHandWeapon(
+                    MechPartSlot.LeftHandWeapon,
+                    kind,
+                    ref leftHandMuzzleIndex);
+                return;
+            }
+
+            FireHandWeapon(
+                MechPartSlot.RightHandWeapon,
+                kind,
+                ref rightHandMuzzleIndex);
+        }
+
+        public void CommandFireMissile(MechPartSlot slot)
+        {
+            if (slot == MechPartSlot.LeftBackWeapon)
+            {
+                FireMissileSalvo(slot, ref leftBackMuzzleIndex);
+            }
+            else if (slot == MechPartSlot.RightBackWeapon)
+            {
+                FireMissileSalvo(slot, ref rightBackMuzzleIndex);
+            }
         }
 
         private void Awake()
@@ -270,17 +305,16 @@ namespace ACunicombat.Mechs
                 }
 
                 var muzzle = muzzles[(muzzleIndex + i) % muzzles.Length];
-                var launchDirection = muzzle.forward;
-                if (Vector3.Dot(launchDirection, GetAimRay().direction) < 0f)
-                {
-                    launchDirection = GetAimRay().direction;
-                }
+                var launchDirection = ResolveMissileLaunchDirection(muzzle);
+                var launchPosition =
+                    muzzle.position +
+                    launchDirection * missileLaunchClearanceMeters;
 
                 SpawnProjectile(
-                    muzzle.position,
-                    launchDirection.normalized,
+                    launchPosition,
+                    launchDirection,
                     TestWeaponKind.Missile,
-                    55f,
+                    missileEjectionSpeedMps,
                     300f,
                     0.22f,
                     missileMaximumFlightTimeSeconds,
@@ -307,6 +341,42 @@ namespace ACunicombat.Mechs
                     inheritedVelocity: inheritedVelocity);
             }
             muzzleIndex = (muzzleIndex + salvoCount) % muzzles.Length;
+        }
+
+        private Vector3 ResolveMissileLaunchDirection(Transform muzzle)
+        {
+            var bodyForward = flightMotion != null
+                ? flightMotion.LogicalRotation * Vector3.forward
+                : transform.forward;
+            if (bodyForward.sqrMagnitude <= 0.001f)
+            {
+                bodyForward = Vector3.forward;
+            }
+            bodyForward.Normalize();
+
+            // Imported dummy transforms do not consistently use local +Z as the
+            // tube axis. Select the local basis direction that actually points
+            // closest to the deployed launcher's forward hemisphere.
+            var candidates = new[]
+            {
+                muzzle.forward, -muzzle.forward,
+                muzzle.up, -muzzle.up,
+                muzzle.right, -muzzle.right,
+            };
+            var launchDirection = bodyForward;
+            var bestAlignment = 0.5f;
+            for (var i = 0; i < candidates.Length; i++)
+            {
+                var candidate = candidates[i].normalized;
+                var alignment = Vector3.Dot(candidate, bodyForward);
+                if (alignment > bestAlignment)
+                {
+                    bestAlignment = alignment;
+                    launchDirection = candidate;
+                }
+            }
+
+            return launchDirection.normalized;
         }
 
         private Transform GetNextMuzzle(MechPartSlot slot, ref int index)
@@ -357,7 +427,11 @@ namespace ACunicombat.Mechs
             Vector3 inheritedVelocity = default)
         {
             EnsureMaterials();
-            SpawnNativeOneShot(launchFfxId, launchAnchor, position, direction);
+            SpawnNativeOneShot(
+                launchFfxId,
+                launchAnchor,
+                launchAnchor != null ? launchAnchor.position : position,
+                direction);
             var projectile = GameObject.CreatePrimitive(
                 kind == TestWeaponKind.Missile ? PrimitiveType.Cube : PrimitiveType.Sphere);
             projectile.name = $"Test_{kind}_Projectile";
