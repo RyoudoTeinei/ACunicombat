@@ -40,15 +40,20 @@ namespace ACunicombat.Simulation.World
         }
 
         /// <summary>
-        /// 收集波束锥包围体触及的候选实体索引（粗筛）。
-        /// TODO(阶段 1)：锥体包围盒 → 相交单元枚举。首版实现为退化版——按最大探测
-        /// 距离的轴对齐包围盒遍历单元；波束方向点积精筛属于 Sensors 层候选筛选 Job。
+        /// 收集波束锥包围体触及的候选实体索引（粗筛，保守：锥 ⊂ conv(顶点, 端面圆盘)
+        /// ⊂ 此 AABB）。原退化版按最大探测距离全域 AABB 遍历（100 km/10 km 单元 =
+        /// 21³≈9261 次查询/驻留）；锥体 AABB 在窄波束下小 1~2 个数量级。
+        /// 波束方向点积精筛仍在 Sensors 层做。
         /// </summary>
         public void QueryBeamBroadphase(
-            double3 origin, float3 direction, double maxRange, NativeList<int> results)
+            double3 origin, float3 direction, double maxRange, float halfAngleRadians,
+            NativeList<int> results)
         {
-            var minCell = CellOf(origin - maxRange);
-            var maxCell = CellOf(origin + maxRange);
+            var axis = math.normalizesafe((double3)direction, new double3(0.0, 0.0, 1.0));
+            var endCenter = origin + axis * maxRange;
+            var endRadius = maxRange * math.tan(math.clamp(halfAngleRadians, 0f, math.PI * 0.49f));
+            var minCell = CellOf(math.min(origin, endCenter - endRadius));
+            var maxCell = CellOf(math.max(origin, endCenter + endRadius));
             for (var x = minCell.x; x <= maxCell.x; x++)
             {
                 for (var y = minCell.y; y <= maxCell.y; y++)

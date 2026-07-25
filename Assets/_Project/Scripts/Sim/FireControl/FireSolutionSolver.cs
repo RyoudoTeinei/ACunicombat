@@ -10,6 +10,8 @@ namespace ACunicombat.FireControl
         CovarianceTooLarge = 2,
         OutOfWeaponEnvelope = 3,
         LifecycleBelowConfirmed = 4,
+        /// <summary>综合质量（置信×新鲜度×不确定度）未达开火门槛——与协方差超限区分开，避免调试误导。</summary>
+        QualityBelowThreshold = 5,
     }
 
     public struct FireSolution
@@ -132,7 +134,7 @@ namespace ACunicombat.FireControl
             solution.WeaponReleaseAuthorized = solution.Quality >= 0.15f;
             solution.Failure = solution.WeaponReleaseAuthorized
                 ? FireSolutionFailure.None
-                : FireSolutionFailure.CovarianceTooLarge;
+                : FireSolutionFailure.QualityBelowThreshold;
             return solution;
         }
 
@@ -266,10 +268,12 @@ namespace ACunicombat.FireControl
                 solution.Quality >= 0.15f;
             solution.Failure = solution.WeaponReleaseAuthorized
                 ? FireSolutionFailure.None
-                : FireSolutionFailure.CovarianceTooLarge;
+                : FireSolutionFailure.QualityBelowThreshold;
             return solution;
         }
 
+        // 直线相对运动假设：不计导弹转弯/追击几何，大离轴发射时 TOF 偏乐观、
+        // 中段瞄准点偏前。首版可接受；引入机动模型时替换本可达性判据。
         private static double ReachabilityGap(
             double3 initialRelativePosition,
             double3 relativeVelocity,

@@ -158,7 +158,9 @@ namespace ACunicombat.Sensors
             var halfBeamCos = math.cos(beamWidth * 0.5f);
             var count = 0;
             candidateScratch.Clear();
-            grid.QueryBeamBroadphase(sensorState.PositionWorld, beamDirection, profile.MaxRangeMeters, candidateScratch);
+            grid.QueryBeamBroadphase(
+                sensorState.PositionWorld, beamDirection, profile.MaxRangeMeters,
+                beamWidth * 0.5f, candidateScratch);
             for (var i = 0; i < candidateScratch.Length && count < dwellScratch.Length; i++)
             {
                 var targetIndex = candidateScratch[i];
@@ -221,20 +223,30 @@ namespace ACunicombat.Sensors
                 var relativeVelocity = targetState.VelocityWorld - sensorState.VelocityWorld;
                 var radialVelocity = (float)math.dot(relativeVelocity, (double3)trueDirection);
                 var losRate = (float3)(math.cross(relativePosition, relativeVelocity) / (range * range));
+                // 抽样序固定为 距离→径向速度→LOS率×2：新增抽样只能追加在末尾，
+                // 否则同一 seed 下先前字段的噪声值全部改变（确定性回放约束）。
+                var rangeNoise = rng.NextGaussian() * sigmaRange;
+                var velocityNoise = rng.NextGaussian() * sigmaVelocity;
+                // LOS 率噪声与 LosRateVar 同源：σ = σθ/驻留时间。不加噪的真值 LOS 率
+                // 会让 PN 制导拿到完美视线率，终端精度远超噪声模型应有水平。
+                var losRateSigma = sigmaAngle / math.max(dwell.DwellTimeSeconds, 1e-2f);
+                var noisyLosRate = losRate
+                    + tangentA * (rng.NextGaussian() * losRateSigma)
+                    + tangentB * (rng.NextGaussian() * losRateSigma);
 
                 dwellScratch[count++] = new Measurement
                 {
                     SensorId = profile.SensorId,
                     Timestamp = world.SnapshotTime,
                     Range = (profile.Capability & SensorCapability.Range) != 0
-                        ? (float)range + rng.NextGaussian() * sigmaRange
+                        ? (float)range + rangeNoise
                         : float.NaN,
                     Direction = noisyDirection,
                     RadialVelocity = (profile.Capability & SensorCapability.Doppler) != 0
-                        ? radialVelocity + rng.NextGaussian() * sigmaVelocity
+                        ? radialVelocity + velocityNoise
                         : float.NaN,
                     LosRate = (profile.Capability & SensorCapability.LosRate) != 0
-                        ? losRate
+                        ? noisyLosRate
                         : new float3(float.NaN),
                     RangeVar = sigmaRange * sigmaRange,
                     AngleVar = sigmaAngle * sigmaAngle,

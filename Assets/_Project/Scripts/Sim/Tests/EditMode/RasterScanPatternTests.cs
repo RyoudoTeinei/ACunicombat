@@ -25,7 +25,9 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(first.x, Is.EqualTo(-50f).Within(0.001f));
             Assert.That(first.y, Is.EqualTo(30f).Within(0.001f));
             Assert.That(secondRowFirst.x, Is.EqualTo(50f).Within(0.001f));
-            Assert.That(secondRowFirst.y, Is.EqualTo(20f).Within(0.001f));
+            // 8 行均布 ±30°：行距 = 60/7 ≈ 8.571°（实现保证 ≤ 请求的 9° 以维持
+            // 波束重叠）。原期望 20° 意味着 10° 行距，与上面断言的 8 行/60° 矛盾。
+            Assert.That(secondRowFirst.y, Is.EqualTo(30f - 60f / 7f).Within(0.001f));
 
             for (var i = pattern.ColumnCount + 1; i < pattern.CellCount; i++)
             {

@@ -323,7 +323,7 @@ namespace ACunicombat.Tracking
         private int FindAssociation(double3 position, in Matrix6 measurementCovariance)
         {
             var bestIndex = -1;
-            var bestDistance = AssociationGateSquared;
+            var bestDistance = double.MaxValue;
             for (var i = 0; i < slots.Length; i++)
             {
                 if (!slots[i].Active)
@@ -341,11 +341,19 @@ namespace ACunicombat.Tracking
                     normalizedDistance += delta[axis] * delta[axis] / variance;
                 }
 
-                if (normalizedDistance < bestDistance)
+                // 本 tick 已吃到量测的槽门限收紧 4×：同目标重叠驻留的重复量测
+                // 归一化距离 ≪ 门限仍可合并，但近距编队的相邻目标不再被
+                // 已关联的航迹抢走（最近邻无排他性的最小缓解）。
+                var gate = associated[i]
+                    ? AssociationGateSquared * 0.25
+                    : AssociationGateSquared;
+                if (normalizedDistance >= gate || normalizedDistance >= bestDistance)
                 {
-                    bestDistance = normalizedDistance;
-                    bestIndex = i;
+                    continue;
                 }
+
+                bestDistance = normalizedDistance;
+                bestIndex = i;
             }
 
             return bestIndex;
