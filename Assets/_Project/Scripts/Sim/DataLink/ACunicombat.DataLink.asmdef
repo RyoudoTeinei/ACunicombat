@@ -1,0 +1,21 @@
+{
+    "name": "ACunicombat.DataLink",
+    "rootNamespace": "ACunicombat.DataLink",
+    "references": [
+        "ACunicombat.Simulation.Core",
+        "ACunicombat.Sensing.Contracts",
+        "ACunicombat.Simulation.Kinematics",
+        "ACunicombat.Simulation.World",
+        "Unity.Mathematics",
+        "Unity.Collections"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
