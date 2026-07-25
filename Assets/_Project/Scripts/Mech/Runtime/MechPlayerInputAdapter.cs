@@ -49,6 +49,8 @@ namespace ACunicombat.Mechs
         public bool VectorThrustToggleEdge;
         /// <summary>Digit 2 toggles runtime thrust-force visualization.</summary>
         public bool ThrustVisualizationToggleEdge;
+        /// <summary>Backquote (`~) cycles thermal vision: off → white hot → black hot.</summary>
+        public bool ThermalVisionCycleEdge;
     }
 
     /// <summary>
@@ -136,6 +138,7 @@ namespace ACunicombat.Mechs
             frame.RightShoulderFireEdge = keyboard.eKey.wasPressedThisFrame;
             frame.VectorThrustToggleEdge = keyboard.digit1Key.wasPressedThisFrame;
             frame.ThrustVisualizationToggleEdge = keyboard.digit2Key.wasPressedThisFrame;
+            frame.ThermalVisionCycleEdge = keyboard.backquoteKey.wasPressedThisFrame;
 
             var previousThrottle = mainThrottle;
             var throttleAxis = (keyboard.rKey.isPressed ? 1f : 0f)
