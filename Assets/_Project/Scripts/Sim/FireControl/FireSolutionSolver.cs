@@ -194,7 +194,12 @@ namespace ACunicombat.FireControl
             solution.InterceptTime = requestTime + timeOfFlight;
             solution.InterceptPoint =
                 currentPosition + track.Velocity * timeOfFlight;
-            solution.MidcourseAimPoint = solution.InterceptPoint;
+            // The projectile inherits the shooter's inertial velocity. Aim at
+            // the target's future position minus the shooter's displacement
+            // during the projectile time of flight.
+            solution.MidcourseAimPoint =
+                solution.InterceptPoint -
+                shooterVelocity * timeOfFlight;
 
             var propagationSeconds = math.max(0.0, solution.InterceptTime - track.LastPredictTime);
             var largestSigma = 0.0;

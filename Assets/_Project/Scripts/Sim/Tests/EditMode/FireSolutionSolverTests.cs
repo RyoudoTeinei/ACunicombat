@@ -189,6 +189,25 @@ namespace ACunicombat.Tests.EditMode
                 sharedVelocitySolution.InterceptPoint.z,
                 Is.GreaterThan(
                     stationarySolution.InterceptPoint.z));
+            Assert.That(
+                sharedVelocitySolution.MidcourseAimPoint.z,
+                Is.EqualTo(
+                    stationarySolution.MidcourseAimPoint.z)
+                    .Within(0.001));
+
+            var timeOfFlight =
+                sharedVelocitySolution.InterceptTime - 1.0;
+            var launchDirection = math.normalize(
+                sharedVelocitySolution.MidcourseAimPoint);
+            var projectilePositionAtIntercept =
+                (new double3(0.0, 0.0, 250.0) +
+                 launchDirection * 1500.0) *
+                timeOfFlight;
+            Assert.That(
+                math.distance(
+                    projectilePositionAtIntercept,
+                    sharedVelocitySolution.InterceptPoint),
+                Is.LessThan(0.001));
         }
 
         [Test]

@@ -40,6 +40,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private Vector2 aimViewportPoint = new Vector2(0.5f, 0.56f);
         [SerializeField] private float gunAutoAimDegrees = 4f;
         [SerializeField] private float missileLockDegrees = 24f;
+        [SerializeField, Min(60f)] private float rifleRoundsPerMinute = 600f;
         [Header("Point defense")]
         [SerializeField, Range(1f, 20f)] private float pointDefenseLockDegrees = 6f;
         [SerializeField, Min(100f)] private float pointDefenseMaximumRangeMeters = 6000f;
@@ -70,6 +71,7 @@ namespace ACunicombat.Mechs
         private int rightHandMuzzleIndex;
         private int leftBackMuzzleIndex;
         private int rightBackMuzzleIndex;
+        private float nextRifleFireTime;
         private GUIStyle hudLabelStyle;
         private MissileTrackSnapshot pointDefenseTarget;
         private float pointDefenseLockUntil;
@@ -304,9 +306,23 @@ namespace ACunicombat.Mechs
             {
                 FireHandWeapon(MechPartSlot.LeftHandWeapon, TestWeaponKind.Cannon, ref leftHandMuzzleIndex);
             }
-            if (frame.SecondaryFireEdge)
+            if (frame.SecondaryFireHeld)
             {
-                FireHandWeapon(MechPartSlot.RightHandWeapon, TestWeaponKind.Rifle, ref rightHandMuzzleIndex);
+                if (frame.SecondaryFireEdge ||
+                    Time.time >= nextRifleFireTime)
+                {
+                    FireHandWeapon(
+                        MechPartSlot.RightHandWeapon,
+                        TestWeaponKind.Rifle,
+                        ref rightHandMuzzleIndex);
+                    nextRifleFireTime =
+                        Time.time +
+                        60f / Mathf.Max(rifleRoundsPerMinute, 60f);
+                }
+            }
+            else
+            {
+                nextRifleFireTime = 0f;
             }
             if (playerRig != null &&
                 playerRig.ConsumeShoulderMissileLaunch(MechPartSlot.LeftBackWeapon))
@@ -1384,9 +1400,9 @@ namespace ACunicombat.Mechs
                 radarController.TryGetFireSolution(coneDegrees, projectileSpeed, out var track, out var solution))
             {
                 aimPoint = new Vector3(
-                    (float)solution.InterceptPoint.x,
-                    (float)solution.InterceptPoint.y,
-                    (float)solution.InterceptPoint.z);
+                    (float)solution.MidcourseAimPoint.x,
+                    (float)solution.MidcourseAimPoint.y,
+                    (float)solution.MidcourseAimPoint.z);
                 trackId = track.TrackId;
                 return true;
             }
@@ -1542,7 +1558,8 @@ namespace ACunicombat.Mechs
 
             aimPoint =
                 targetPosition +
-                targetVelocity * interceptTime;
+                (targetVelocity - shooterVelocity) *
+                interceptTime;
             return true;
         }
 
