@@ -39,6 +39,9 @@ namespace ACunicombat.Simulation.Driver
         private SensorId ownshipEsmReceiverId;
         private MawSensorSystem mawSensor;
         private SimEntityId ownshipMawEntity;
+        private ElectroOpticalSensorSystem electroOpticalSensor;
+        private ElectroOpticalReceiverProfile electroOpticalReceiver;
+        private bool electroOpticalReceiverRegistered;
         private DataLinkSystem dataLink;
         private SimEntityId trackOriginEntity;
         private SensorId trackSensorId;
@@ -67,6 +70,11 @@ namespace ACunicombat.Simulation.Driver
             esmReceiver = new EsmReceiverSystem(world) { SessionSeed = sessionSeed };
             threatCorrelator = new EsmThreatCorrelator();
             mawSensor = new MawSensorSystem(world) { SessionSeed = sessionSeed };
+            electroOpticalSensor =
+                new ElectroOpticalSensorSystem(world)
+                {
+                    SessionSeed = sessionSeed,
+                };
             dataLink = new DataLinkSystem(world) { SessionSeed = sessionSeed };
             trackDetectionScratch =
                 new NativeList<Measurement>(
@@ -119,6 +127,47 @@ namespace ACunicombat.Simulation.Driver
 
         public void UnregisterIrSource(SimEntityId entityId) =>
             mawSensor.UnregisterSource(entityId);
+
+        public void RegisterElectroOpticalReceiver(
+            in ElectroOpticalReceiverProfile profile)
+        {
+            electroOpticalReceiver = profile;
+            electroOpticalReceiverRegistered = true;
+        }
+
+        public void UpdateElectroOpticalForward(float3 forward)
+        {
+            electroOpticalReceiver.Forward = forward;
+        }
+
+        public void RegisterElectroOpticalTarget(
+            in ElectroOpticalTargetProfile profile) =>
+            electroOpticalSensor.RegisterTarget(profile);
+
+        public void UnregisterElectroOpticalTarget(
+            SimEntityId entityId) =>
+            electroOpticalSensor.UnregisterTarget(entityId);
+
+        public int CopyElectroOpticalObservations(
+            ElectroOpticalObservation[] destination)
+        {
+            if (destination == null ||
+                electroOpticalSensor == null)
+            {
+                return 0;
+            }
+
+            var source = electroOpticalSensor.Observations;
+            var count = math.min(
+                destination.Length,
+                source.Length);
+            for (var i = 0; i < count; i++)
+            {
+                destination[i] = source[i];
+            }
+
+            return count;
+        }
 
         // ---- 数据链（终端注册 / 收发，框架级：机体/无人机/僚机/导弹/拦截弹共用） ----
 
@@ -221,6 +270,12 @@ namespace ACunicombat.Simulation.Driver
                 var tickTime = sensorClock.SimTimeSeconds
                                - SensorStepSeconds * (sensorTicks - 1 - i);
                 radar.Tick(tickTime);
+                if (electroOpticalReceiverRegistered)
+                {
+                    electroOpticalSensor.Tick(
+                        in electroOpticalReceiver,
+                        tickTime);
+                }
                 var sensorPosition = double3.zero;
                 var sensorVelocity = double3.zero;
                 if (trackOriginEntity.IsValid
@@ -296,6 +351,7 @@ namespace ACunicombat.Simulation.Driver
         private void OnDestroy()
         {
             dataLink?.Dispose();
+            electroOpticalSensor?.Dispose();
             esmReceiver?.Dispose();
             radar?.Dispose();
             if (trackDetectionScratch.IsCreated)

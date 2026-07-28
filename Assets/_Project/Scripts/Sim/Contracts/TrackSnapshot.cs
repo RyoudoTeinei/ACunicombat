@@ -19,6 +19,13 @@ namespace ACunicombat.Sensing.Contracts
         Hostile = 2,
     }
 
+    public enum TrackObjectClass : byte
+    {
+        Unknown = 0,
+        AirVehicle = 1,
+        Missile = 2,
+    }
+
     [Flags]
     public enum TrackSourceMask : uint
     {
@@ -42,6 +49,7 @@ namespace ACunicombat.Sensing.Contracts
         public double3 Velocity;
         public fixed double CovarianceUpperTriangular[21];
         public float Confidence;
+        public TrackObjectClass ObjectClass;
         public float Classification;
         public float IdentityConfidence;
         public TrackAffiliation Affiliation;

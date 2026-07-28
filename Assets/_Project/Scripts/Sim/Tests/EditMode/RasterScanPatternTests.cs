@@ -49,5 +49,60 @@ namespace ACunicombat.Tests.EditMode
 
             Assert.That(pattern.Next(), Is.EqualTo(first));
         }
+
+        [Test]
+        public void ProductionSearchRaster_HasUsefulDiagonalBeamOverlap()
+        {
+            const float beamWidthDegrees = 12f;
+            var pattern = new RasterScanPattern(100f, 60f, 8f);
+            var centers = new Unity.Mathematics.float2[pattern.CellCount];
+            for (var i = 0; i < centers.Length; i++)
+            {
+                centers[i] = pattern.Next();
+            }
+
+            var worstNearestCenterDegrees = 0f;
+            for (var azimuth = -50f; azimuth <= 50.001f; azimuth += 0.25f)
+            {
+                for (var elevation = -30f; elevation <= 30.001f; elevation += 0.25f)
+                {
+                    var sample = Direction(azimuth, elevation);
+                    var nearestDegrees = 180f;
+                    for (var i = 0; i < centers.Length; i++)
+                    {
+                        var center = Direction(centers[i].x, centers[i].y);
+                        var dot = Unity.Mathematics.math.clamp(
+                            Unity.Mathematics.math.dot(sample, center),
+                            -1f,
+                            1f);
+                        nearestDegrees = Unity.Mathematics.math.min(
+                            nearestDegrees,
+                            Unity.Mathematics.math.degrees(
+                                Unity.Mathematics.math.acos(dot)));
+                    }
+
+                    worstNearestCenterDegrees = Unity.Mathematics.math.max(
+                        worstNearestCenterDegrees,
+                        nearestDegrees);
+                }
+            }
+
+            var overlapMargin =
+                beamWidthDegrees * 0.5f - worstNearestCenterDegrees;
+            Assert.That(overlapMargin, Is.GreaterThan(0.5f));
+        }
+
+        private static Unity.Mathematics.float3 Direction(
+            float azimuthDegrees,
+            float elevationDegrees)
+        {
+            var azimuth = Unity.Mathematics.math.radians(azimuthDegrees);
+            var elevation = Unity.Mathematics.math.radians(elevationDegrees);
+            var cosElevation = Unity.Mathematics.math.cos(elevation);
+            return new Unity.Mathematics.float3(
+                Unity.Mathematics.math.sin(azimuth) * cosElevation,
+                Unity.Mathematics.math.sin(elevation),
+                Unity.Mathematics.math.cos(azimuth) * cosElevation);
+        }
     }
 }

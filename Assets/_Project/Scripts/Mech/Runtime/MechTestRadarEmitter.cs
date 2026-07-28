@@ -34,8 +34,9 @@ namespace ACunicombat.Mechs
         [SerializeField] private float sweepDegreesPerSecond = 120f;
         [SerializeField] private float searchIntervalSeconds = 0.06f;
         [Tooltip("玩家进入该距离后切换为对玩家的高驻留率照射（演示锁定告警升级）。0=禁用。")]
-        [SerializeField] private float lockRangeMeters = 8_000f;
+        [SerializeField] private float lockRangeMeters = 50_000f;
         [SerializeField] private float lockIntervalSeconds = 0.04f;
+        [SerializeField] private Transform designatedTarget;
 
         private SimulationDriver driver;
         private CombatTestTarget target;
@@ -51,9 +52,27 @@ namespace ACunicombat.Mechs
         private ulong dwellSequence;
         private Vector3 previousPosition;
 
+        public bool HasPlayerLock =>
+            initialized &&
+            lockModeRegistered &&
+            playerTransform != null;
+
+        public void ConfigureTarget(
+            Transform newTarget,
+            float engagementRangeMeters = 50_000f)
+        {
+            designatedTarget = newTarget;
+            playerTransform = newTarget;
+            lockRangeMeters = Mathf.Clamp(
+                engagementRangeMeters,
+                100f,
+                maxRangeMeters);
+        }
+
         private void Awake()
         {
             target = GetComponent<CombatTestTarget>();
+            playerTransform = designatedTarget;
         }
 
         private void FixedUpdate()
@@ -86,8 +105,7 @@ namespace ACunicombat.Mechs
 
             if (playerTransform == null)
             {
-                var playerRadar = FindAnyObjectByType<MechRadarController>();
-                playerTransform = playerRadar != null ? playerRadar.transform : null;
+                playerTransform = designatedTarget;
             }
 
             var lockMode = lockRangeMeters > 0f &&

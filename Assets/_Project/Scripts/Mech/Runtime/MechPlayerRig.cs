@@ -80,7 +80,7 @@ namespace ACunicombat.Mechs
 
         private GUIStyle instrumentCaptionStyle;
         private GUIStyle instrumentValueStyle;
-        private GUIStyle instrumentStatusStyle;
+        private GUIStyle instrumentUnitStyle;
 
         private bool[] stateIsQuickBoost = new bool[0];
         private int idleState = -1;
@@ -982,75 +982,107 @@ namespace ACunicombat.Mechs
             }
 
             EnsureInstrumentStyles();
-            const float width = 270f;
-            const float height = 328f;
-            var x = Mathf.Max(10f, Screen.width - width - 18f);
-            var panel = new Rect(x, 18f, width, height);
-            GUI.Box(panel, GUIContent.none);
+            const float readoutWidth = 180f;
+            const float readoutHeight = 78f;
+            var readoutY = Mathf.Clamp(
+                Screen.height * 0.5f - readoutHeight * 0.5f,
+                170f,
+                Screen.height - readoutHeight - 130f);
+            var sideInset = Mathf.Clamp(
+                Screen.width * 0.16f,
+                readoutWidth * 0.75f,
+                410f);
+            var leftReadout = new Rect(
+                sideInset - readoutWidth * 0.5f,
+                readoutY,
+                readoutWidth,
+                readoutHeight);
+            var rightReadout = new Rect(
+                Screen.width - sideInset - readoutWidth * 0.5f,
+                readoutY,
+                readoutWidth,
+                readoutHeight);
 
-            GUI.Label(new Rect(x + 14f, 28f, 90f, 20f), "REF SPEED", instrumentCaptionStyle);
-            GUI.Label(new Rect(x + 96f, 24f, 120f, 32f),
-                $"{motion.Velocity.magnitude:0.0} m/s", instrumentValueStyle);
-            GUI.Label(new Rect(x + 14f, 58f, 90f, 20f), "HORIZONTAL", instrumentCaptionStyle);
-            GUI.Label(new Rect(x + 96f, 54f, 120f, 32f),
-                $"{motion.HorizontalSpeed:0.0} m/s", instrumentValueStyle);
-            GUI.Label(new Rect(x + 14f, 94f, 90f, 20f), "ALTITUDE", instrumentCaptionStyle);
-            GUI.Label(new Rect(x + 96f, 90f, 120f, 32f),
-                $"{motion.Altitude:0.0} m", instrumentValueStyle);
+            DrawFlightReadout(
+                leftReadout,
+                "速度",
+                FormatInstrumentValue(motion.Velocity.magnitude),
+                "m/s",
+                true);
+            DrawFlightReadout(
+                rightReadout,
+                "高度",
+                FormatInstrumentValue(motion.Altitude),
+                "m",
+                false);
+        }
 
-            GUI.Label(new Rect(x + 14f, 124f, 90f, 20f), "THROTTLE", instrumentCaptionStyle);
-            GUI.Label(new Rect(x + 96f, 120f, 120f, 32f),
-                orbitSynchronizer != null &&
-                orbitSynchronizer.Active &&
-                !orbitSynchronizer.ManualOverride
-                    ? $"AUTO {orbitSynchronizer.AutoThrottleCommand:P0}"
-                    : $"{lastFrame.MainThrottle:P0}",
+        private void DrawFlightReadout(
+            Rect rect,
+            string caption,
+            string value,
+            string unit,
+            bool pointsRight)
+        {
+            GUI.Label(
+                new Rect(rect.x, rect.y, rect.width, 24f),
+                caption,
+                instrumentCaptionStyle);
+            GUI.Label(
+                new Rect(rect.x, rect.y + 19f, rect.width - 30f, 44f),
+                value,
                 instrumentValueStyle);
-            GUI.Label(new Rect(x + 14f, 154f, 90f, 20f), "ENVELOPE", instrumentCaptionStyle);
-            GUI.Label(new Rect(x + 96f, 150f, 120f, 32f),
-                $"{motion.OperationalSpeedEnvelope:0} m/s", instrumentValueStyle);
-            GUI.Label(new Rect(x + 14f, 184f, 110f, 20f), "VECTOR THRUST", instrumentCaptionStyle);
-            GUI.Label(new Rect(x + 124f, 180f, 132f, 32f),
-                motion.VectorThrustEnabled ? "ENABLED" : "DISABLED", instrumentValueStyle);
-            GUI.Label(new Rect(x + 14f, 214f, 110f, 20f), "THRUST VIEW [2]", instrumentCaptionStyle);
-            GUI.Label(new Rect(x + 124f, 210f, 132f, 32f),
-                thrustVisualizer != null && thrustVisualizer.Visible ? "VISIBLE" : "HIDDEN", instrumentValueStyle);
-            GUI.Label(new Rect(x + 14f, 244f, 110f, 20f), "THRUST LOCK [F]", instrumentCaptionStyle);
-            GUI.Label(new Rect(x + 124f, 240f, 132f, 32f),
-                motion.InertialThrustLockActive ? "LOCKED" : "BODY", instrumentValueStyle);
-            GUI.Label(new Rect(x + 14f, 274f, 110f, 20f), "THERMAL [`]", instrumentCaptionStyle);
-            GUI.Label(new Rect(x + 124f, 270f, 132f, 32f),
-                thermalVision == null || thermalVision.Mode == MechThermalVisionMode.Off
-                    ? "OFF"
-                    : thermalVision.Mode == MechThermalVisionMode.WhiteHot ? "WHT" : "BLK",
-                instrumentValueStyle);
-            var status = "FLIGHT CONTROL NOMINAL";
-            var statusColor = new Color(0.55f, 0.82f, 0.9f);
-            if (motion.Braking)
-            {
-                status = "RETRO BRAKE ACTIVE";
-                statusColor = new Color(1f, 0.48f, 0.18f);
-            }
-            else if (motion.FlightEnvelopeOverrideActive)
-            {
-                status = "ENVELOPE OVERRIDE";
-                statusColor = new Color(1f, 0.68f, 0.2f);
-            }
-            else if (motion.FlightEnvelopeLimiting)
-            {
-                status = "ENVELOPE LIMITING";
-                statusColor = new Color(1f, 0.82f, 0.2f);
-            }
-            else if (orbitSynchronizer != null && orbitSynchronizer.Active)
-            {
-                status = orbitSynchronizer.ManualOverride
-                    ? "ORBIT SYNC / MANUAL"
-                    : "ORBIT SYNC ACTIVE";
-                statusColor = new Color(0.1f, 0.95f, 0.85f);
-            }
+            GUI.Label(
+                new Rect(
+                    rect.x + rect.width - 42f,
+                    rect.y + 39f,
+                    42f,
+                    22f),
+                unit,
+                instrumentUnitStyle);
 
-            instrumentStatusStyle.normal.textColor = statusColor;
-            GUI.Label(new Rect(x + 14f, 312f, width - 28f, 30f), status, instrumentStatusStyle);
+            var lineY = rect.y + 64f;
+            var innerX = pointsRight ? rect.x + rect.width - 25f : rect.x + 25f;
+            var outerX = pointsRight ? rect.x + rect.width + 24f : rect.x - 24f;
+            DrawInstrumentLine(
+                new Vector2(innerX, lineY),
+                new Vector2(outerX, lineY),
+                2f);
+            DrawInstrumentLine(
+                new Vector2(outerX, lineY - 5f),
+                new Vector2(outerX, lineY + 5f),
+                2f);
+        }
+
+        private static string FormatInstrumentValue(float value)
+        {
+            var magnitude = Mathf.Abs(value);
+            return magnitude >= 1_000f
+                ? value.ToString("N0")
+                : value.ToString("0.0");
+        }
+
+        private static void DrawInstrumentLine(
+            Vector2 from,
+            Vector2 to,
+            float thickness)
+        {
+            var previousColor = GUI.color;
+            var direction = to - from;
+            var angle = Mathf.Atan2(direction.y, direction.x) *
+                        Mathf.Rad2Deg;
+            GUI.color = new Color(0.38f, 1f, 0.56f, 0.92f);
+            var matrix = GUI.matrix;
+            GUIUtility.RotateAroundPivot(angle, from);
+            GUI.DrawTexture(
+                new Rect(
+                    from.x,
+                    from.y - thickness * 0.5f,
+                    direction.magnitude,
+                    thickness),
+                Texture2D.whiteTexture);
+            GUI.matrix = matrix;
+            GUI.color = previousColor;
         }
 
         private void EnsureInstrumentStyles()
@@ -1062,26 +1094,31 @@ namespace ACunicombat.Mechs
 
             instrumentCaptionStyle = new GUIStyle(GUI.skin.label)
             {
-                fontSize = 12,
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleLeft,
-            };
-            instrumentCaptionStyle.normal.textColor = new Color(0.68f, 0.76f, 0.8f);
-
-            instrumentValueStyle = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 20,
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleRight,
-            };
-            instrumentValueStyle.normal.textColor = Color.white;
-
-            instrumentStatusStyle = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 14,
+                fontSize = 18,
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleCenter,
             };
+            instrumentCaptionStyle.normal.textColor =
+                new Color(0.28f, 0.9f, 0.46f, 0.94f);
+
+            instrumentValueStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 30,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleRight,
+            };
+            instrumentValueStyle.normal.textColor =
+                new Color(0.55f, 1f, 0.68f, 1f);
+
+            instrumentUnitStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 13,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.LowerLeft,
+            };
+            instrumentUnitStyle.normal.textColor =
+                new Color(0.28f, 0.9f, 0.46f, 0.88f);
+
         }
     }
 }

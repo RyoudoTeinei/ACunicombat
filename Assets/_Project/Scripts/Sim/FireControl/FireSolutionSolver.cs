@@ -26,27 +26,98 @@ namespace ACunicombat.FireControl
         public FireSolutionFailure Failure;
     }
 
+    public struct InterceptorEngagementSolution
+    {
+        public bool Reachable;
+        public double3 InterceptPoint;
+        public double InterceptTime;
+        public float FlightTimeSeconds;
+        public float ThreatTimeMarginSeconds;
+        public float RequiredTurnDegrees;
+        public float RequiredTravelMeters;
+    }
+
     public struct MissileKinematicProfile
     {
         public double EjectionSpeed;
         public double BoostAcceleration;
         public double MotorBurnDuration;
+        public double InertMass;
+        public double MainPropellantMass;
+        public double MainEngineThrust;
+        public double MainMassFlow;
 
-        public double BurnoutSpeed =>
-            EjectionSpeed +
-            BoostAcceleration * MotorBurnDuration;
+        public bool UsesVariableMass =>
+            InertMass > 0.0 &&
+            MainPropellantMass > 0.0 &&
+            MainEngineThrust > 0.0 &&
+            MainMassFlow > 0.0;
+
+        public double EffectiveMotorBurnDuration =>
+            UsesVariableMass
+                ? MainPropellantMass / MainMassFlow
+                : MotorBurnDuration;
+
+        public double BurnoutSpeed
+        {
+            get
+            {
+                if (!UsesVariableMass)
+                {
+                    return EjectionSpeed +
+                           BoostAcceleration * MotorBurnDuration;
+                }
+
+                var initialMass = InertMass + MainPropellantMass;
+                var exhaustVelocity =
+                    MainEngineThrust / MainMassFlow;
+                return EjectionSpeed +
+                       exhaustVelocity *
+                       math.log(initialMass / InertMass);
+            }
+        }
 
         public double RelativeTravelDistance(double flightTime)
         {
             var time = math.max(0.0, flightTime);
-            var burnTime = math.min(time, MotorBurnDuration);
+            if (!UsesVariableMass)
+            {
+                var legacyBurnTime =
+                    math.min(time, MotorBurnDuration);
+                var legacyDistance =
+                    EjectionSpeed * legacyBurnTime +
+                    0.5 * BoostAcceleration *
+                    legacyBurnTime * legacyBurnTime;
+                if (time > MotorBurnDuration)
+                {
+                    legacyDistance +=
+                        BurnoutSpeed *
+                        (time - MotorBurnDuration);
+                }
+
+                return legacyDistance;
+            }
+
+            var burnDuration = EffectiveMotorBurnDuration;
+            var burnTime = math.min(time, burnDuration);
+            var initialMass = InertMass + MainPropellantMass;
+            var remainingMass = math.max(
+                InertMass,
+                initialMass - MainMassFlow * burnTime);
+            var exhaustVelocity =
+                MainEngineThrust / MainMassFlow;
+            var massRatioLog =
+                math.log(initialMass / remainingMass);
             var distance =
                 EjectionSpeed * burnTime +
-                0.5 * BoostAcceleration * burnTime * burnTime;
-            if (time > MotorBurnDuration)
+                exhaustVelocity *
+                (burnTime -
+                 remainingMass / MainMassFlow *
+                 massRatioLog);
+            if (time > burnDuration)
             {
                 distance +=
-                    BurnoutSpeed * (time - MotorBurnDuration);
+                    BurnoutSpeed * (time - burnDuration);
             }
 
             return distance;
@@ -54,8 +125,9 @@ namespace ACunicombat.FireControl
 
         public bool IsValid =>
             EjectionSpeed >= 0.0 &&
-            BoostAcceleration > 0.0 &&
-            MotorBurnDuration > 0.0 &&
+            (UsesVariableMass ||
+             (BoostAcceleration > 0.0 &&
+              MotorBurnDuration > 0.0)) &&
             BurnoutSpeed > 1.0;
     }
 
@@ -67,6 +139,21 @@ namespace ACunicombat.FireControl
         public static FireSolution Solve(
             in TrackSnapshot track,
             double3 shooterPosition,
+            double projectileSpeed,
+            double requestTime)
+        {
+            return Solve(
+                in track,
+                shooterPosition,
+                double3.zero,
+                projectileSpeed,
+                requestTime);
+        }
+
+        public static FireSolution Solve(
+            in TrackSnapshot track,
+            double3 shooterPosition,
+            double3 shooterVelocity,
             double projectileSpeed,
             double requestTime)
         {
@@ -91,12 +178,17 @@ namespace ACunicombat.FireControl
             }
 
             var currentPosition = track.PredictPosition(requestTime);
+            var relativeVelocity =
+                track.Velocity - shooterVelocity;
             var timeOfFlight = 0.0;
             for (var i = 0; i < 3; i++)
             {
                 var predicted =
-                    currentPosition + track.Velocity * timeOfFlight;
-                timeOfFlight = math.length(predicted - shooterPosition) / projectileSpeed;
+                    currentPosition +
+                    relativeVelocity * timeOfFlight;
+                timeOfFlight =
+                    math.length(predicted - shooterPosition) /
+                    projectileSpeed;
             }
 
             solution.InterceptTime = requestTime + timeOfFlight;
@@ -135,6 +227,141 @@ namespace ACunicombat.FireControl
             solution.Failure = solution.WeaponReleaseAuthorized
                 ? FireSolutionFailure.None
                 : FireSolutionFailure.QualityBelowThreshold;
+            return solution;
+        }
+
+        public static InterceptorEngagementSolution SolveInterceptor(
+            in MissileTrackSnapshot track,
+            double3 shooterPosition,
+            double3 shooterVelocity,
+            float3 launchForward,
+            in MissileKinematicProfile kinematics,
+            double requestTime,
+            float maximumAngularRateDegreesPerSecond,
+            float maximumFlightTimeSeconds,
+            float maximumTravelDistanceMeters,
+            float responseReserveSeconds = 0.2f)
+        {
+            var solution = default(InterceptorEngagementSolution);
+            if (!track.IsWeaponsQuality ||
+                !track.Incoming ||
+                !kinematics.IsValid ||
+                maximumAngularRateDegreesPerSecond <= 0f ||
+                maximumFlightTimeSeconds <= 0f ||
+                maximumTravelDistanceMeters <= 0f)
+            {
+                return solution;
+            }
+
+            var currentTargetPosition =
+                track.PredictPosition(requestTime);
+            var initialRelativePosition =
+                currentTargetPosition - shooterPosition;
+            var relativeVelocity =
+                track.Velocity - shooterVelocity;
+            var timeAvailable = math.min(
+                maximumFlightTimeSeconds,
+                math.max(
+                    0f,
+                    track.TimeToClosestApproachSeconds -
+                    math.max(0f, responseReserveSeconds)));
+            if (timeAvailable <= 0.05f)
+            {
+                return solution;
+            }
+
+            var normalizedLaunchForward = math.normalizesafe(
+                launchForward,
+                new float3(0f, 0f, 1f));
+            var angularRateRadians =
+                math.radians(maximumAngularRateDegreesPerSecond);
+            var uncertaintyAllowance = math.min(
+                250f,
+                math.max(0f, track.PositionUncertaintyMeters) *
+                    0.12f +
+                math.max(0f, track.CpaUncertaintyMeters) * 0.04f);
+
+            const int sampleCount = 128;
+            var low = 0.0;
+            var high = 0.0;
+            var previousTime = 0.0;
+            var bracketed = false;
+            for (var sample = 1; sample <= sampleCount; sample++)
+            {
+                var sampleTime =
+                    timeAvailable * sample / sampleCount;
+                if (InterceptorReachabilityGap(
+                        initialRelativePosition,
+                        relativeVelocity,
+                        normalizedLaunchForward,
+                        in kinematics,
+                        angularRateRadians,
+                        maximumTravelDistanceMeters,
+                        uncertaintyAllowance,
+                        sampleTime) <= 0.0)
+                {
+                    low = previousTime;
+                    high = sampleTime;
+                    bracketed = true;
+                    break;
+                }
+
+                previousTime = sampleTime;
+            }
+
+            if (!bracketed)
+            {
+                return solution;
+            }
+
+            for (var iteration = 0; iteration < 40; iteration++)
+            {
+                var middle = (low + high) * 0.5;
+                if (InterceptorReachabilityGap(
+                        initialRelativePosition,
+                        relativeVelocity,
+                        normalizedLaunchForward,
+                        in kinematics,
+                        angularRateRadians,
+                        maximumTravelDistanceMeters,
+                        uncertaintyAllowance,
+                        middle) > 0.0)
+                {
+                    low = middle;
+                }
+                else
+                {
+                    high = middle;
+                }
+            }
+
+            var flightTime = high;
+            var relativeIntercept =
+                initialRelativePosition +
+                relativeVelocity * flightTime;
+            var interceptDirection = math.normalizesafe(
+                (float3)relativeIntercept,
+                normalizedLaunchForward);
+            var turnRadians = math.acos(
+                math.clamp(
+                    math.dot(
+                        normalizedLaunchForward,
+                        interceptDirection),
+                    -1f,
+                    1f));
+            solution.Reachable = true;
+            solution.FlightTimeSeconds = (float)flightTime;
+            solution.InterceptTime = requestTime + flightTime;
+            solution.InterceptPoint =
+                currentTargetPosition +
+                track.Velocity * flightTime;
+            solution.ThreatTimeMarginSeconds =
+                track.TimeToClosestApproachSeconds -
+                (float)flightTime;
+            solution.RequiredTurnDegrees =
+                math.degrees(turnRadians);
+            solution.RequiredTravelMeters =
+                (float)math.length(relativeIntercept);
             return solution;
         }
 
@@ -285,6 +512,45 @@ namespace ACunicombat.FireControl
                 relativeVelocity * flightTime);
             return requiredDistance -
                    kinematics.RelativeTravelDistance(flightTime);
+        }
+
+        private static double InterceptorReachabilityGap(
+            double3 initialRelativePosition,
+            double3 relativeVelocity,
+            float3 launchForward,
+            in MissileKinematicProfile kinematics,
+            float maximumAngularRateRadians,
+            float maximumTravelDistanceMeters,
+            float uncertaintyAllowanceMeters,
+            double flightTime)
+        {
+            var relativeIntercept =
+                initialRelativePosition +
+                relativeVelocity * flightTime;
+            var requiredDistance =
+                math.length(relativeIntercept) +
+                uncertaintyAllowanceMeters;
+            var interceptDirection = math.normalizesafe(
+                (float3)relativeIntercept,
+                launchForward);
+            var turnRadians = math.acos(
+                math.clamp(
+                    math.dot(launchForward, interceptDirection),
+                    -1f,
+                    1f));
+            var turnTime = maximumAngularRateRadians > 0f
+                ? turnRadians / maximumAngularRateRadians
+                : double.PositiveInfinity;
+            // The missile keeps translating while it slews, but only part of
+            // its axial acceleration contributes to closing the intercept
+            // geometry during that maneuver.
+            var effectiveClosingTime =
+                math.max(0.0, flightTime - turnTime * 0.55);
+            var availableDistance = math.min(
+                maximumTravelDistanceMeters,
+                kinematics.RelativeTravelDistance(
+                    effectiveClosingTime));
+            return requiredDistance - availableDistance;
         }
     }
 }

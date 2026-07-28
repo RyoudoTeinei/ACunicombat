@@ -33,6 +33,7 @@ namespace ACunicombat.Tracking
         private const double TrackedIntervalSeconds = 0.6;  // TWS ~0.24s 的 2.5 倍余量
         private const double DeEscalateHoldSeconds = 0.6;
         private const double DropUnseenSeconds = 5.0;
+        private const double MissileDropUnseenSeconds = 0.45;
 
         private struct ThreatSlot
         {
@@ -132,7 +133,14 @@ namespace ACunicombat.Tracking
 
                 var slot = slots[i];
                 var unseen = simTime - slot.LastSeen;
-                if (unseen > DropUnseenSeconds)
+                var missileThreat =
+                    slot.WaveformClass ==
+                        EsmWaveformClass.MissileSeeker ||
+                    slot.WaveformClass ==
+                        EsmWaveformClass.InfraredPlume;
+                if ((missileThreat &&
+                     unseen > MissileDropUnseenSeconds) ||
+                    unseen > DropUnseenSeconds)
                 {
                     ReleaseSlot(i);
                     continue;

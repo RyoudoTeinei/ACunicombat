@@ -28,6 +28,8 @@ namespace ACunicombat.Tests.EditMode
             {
                 EntityId = targetEntity,
                 RadarCrossSectionSquareMeters = 1f,
+                ObjectClass = TrackObjectClass.Missile,
+                ClassificationSignature = 1f,
             });
             radar.ScheduleDwell(new Dwell
             {
@@ -51,6 +53,12 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(measurement.Range, Is.EqualTo(1_000f).Within(5f));
             Assert.That(measurement.Direction.z, Is.GreaterThan(0.999f));
             Assert.That(measurement.RadialVelocity, Is.EqualTo(-10f).Within(1f));
+            Assert.That(
+                measurement.ObjectClass,
+                Is.EqualTo(TrackObjectClass.Missile));
+            Assert.That(
+                measurement.ClassificationConfidence,
+                Is.GreaterThan(0.5f));
         }
 
         [Test]

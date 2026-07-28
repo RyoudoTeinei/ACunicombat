@@ -12,19 +12,37 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class MechThreatWarningPresenter : MonoBehaviour
     {
-        private const float PanelSize = 190f;
+        private const float PanelSize = 420f;
         private const float PanelMargin = 18f;
-        private const float RingRadius = 74f;
+        private const float RingRadius = 176f;
+        private const int RingTextureSize = 512;
+        private const int SectorCount = 12;
+        private const float SectorDegrees = 360f / SectorCount;
+        private const float IdentificationThreshold = 0.35f;
 
-        [Header("音频占位（TODO：接入 AC6 解包告警音或合成音）")]
+        [Header("近距来弹显示")]
+        [Tooltip("导弹告警接收功率达到该值且功率仍在上升时，整圈高亮。")]
+        [SerializeField] private float closeMissileReceivedPowerDb = -12f;
+        [Tooltip("判定来弹仍在接近所需的最小接收功率上升率。")]
+        [SerializeField] private float closeMissilePowerTrendDbPerSecond = 0.5f;
+        [Tooltip("接收功率超过该值时，不再要求功率趋势，直接判为近距威胁。")]
+        [SerializeField] private float immediateMissileReceivedPowerDb = -6f;
+
+        [Header("RWR 告警音频")]
         [Tooltip("被搜索扫描单响。")]
         [SerializeField] private AudioClip spikeClip;
-        [Tooltip("升级为被跟踪时单响。")]
+        [Tooltip("被跟踪期间以两声一组播放的接触音。")]
         [SerializeField] private AudioClip trackedClip;
-        [Tooltip("被锁定持续音（循环）。")]
+        [Tooltip("敌跟踪同一组两声之间的停顿。")]
+        [SerializeField, Min(0f)] private float trackedPulseGapSeconds = 0.06f;
+        [Tooltip("敌跟踪两组提示之间的停顿。")]
+        [SerializeField, Min(0f)] private float trackedCyclePauseSeconds = 0.75f;
+        [Tooltip("被 STT 锁定时播放的长接触音（循环）。")]
         [SerializeField] private AudioClip lockLoopClip;
-        [Tooltip("导弹主动雷达开机尖啸（循环，最高优先级）。")]
+        [Tooltip("导弹主动雷达开机时播放的锁定音（循环，最高优先级）。")]
         [SerializeField] private AudioClip missileLoopClip;
+        [Tooltip("Seconds before the missile warning clip ends to start its next repeat.")]
+        [SerializeField, Min(0f)] private float missileRepeatOverlapSeconds = 0.05f;
 
         private MechRadarController radar;
         private MechFlightMotionController flightMotion;
@@ -34,17 +52,19 @@ namespace ACunicombat.Mechs
             new ThreatSnapshot[EsmThreatCorrelatorLimits.MaxThreats];
         private int threatCount;
         private EsmThreatLevel previousHighestLevel;
+        private float nextTrackedPulseTime = -1f;
+        private int trackedPulseIndex;
+        private float nextMissileRepeatTime = -1f;
         private Texture2D ringTexture;
-        private GUIStyle blipStyle;
-        private GUIStyle captionStyle;
-
-        // 告警历史（P2）：级别变化事件环，面板下方滚动显示。
-        private const int HistoryCapacity = 4;
-        private readonly string[] historyLines = new string[HistoryCapacity];
-        private int historyCount;
-        private readonly uint[] knownThreatKeys = new uint[EsmThreatCorrelatorLimits.MaxThreats];
-        private readonly EsmThreatLevel[] knownThreatLevels =
-            new EsmThreatLevel[EsmThreatCorrelatorLimits.MaxThreats];
+        private Texture2D discBackgroundTexture;
+        private Texture2D fullRingMaskTexture;
+        private Texture2D solidTexture;
+        private readonly Texture2D[] sectorMaskTextures = new Texture2D[SectorCount];
+        private readonly ThreatSnapshot[] sectorThreats = new ThreatSnapshot[SectorCount];
+        private readonly int[] sectorThreatCounts = new int[SectorCount];
+        private readonly bool[] sectorOccupied = new bool[SectorCount];
+        private GUIStyle sectorLabelStyle;
+        private GUIStyle statusStyle;
 
         private static class EsmThreatCorrelatorLimits
         {
@@ -55,6 +75,8 @@ namespace ACunicombat.Mechs
         {
             radar = GetComponent<MechRadarController>();
             flightMotion = GetComponent<MechFlightMotionController>();
+            LoadDefaultAudioClips();
+            PreloadAudioClips();
             oneShotSource = gameObject.AddComponent<AudioSource>();
             oneShotSource.playOnAwake = false;
             oneShotSource.spatialBlend = 0f;
@@ -64,9 +86,50 @@ namespace ACunicombat.Mechs
             loopSource.spatialBlend = 0f;
         }
 
+        private void LoadDefaultAudioClips()
+        {
+            if (spikeClip == null)
+            {
+                spikeClip = Resources.Load<AudioClip>("Audio/RWR/contact_oneshot");
+            }
+
+            if (trackedClip == null)
+            {
+                trackedClip = Resources.Load<AudioClip>("Audio/RWR/contact");
+            }
+
+            if (lockLoopClip == null)
+            {
+                lockLoopClip = Resources.Load<AudioClip>("Audio/RWR/contact_loop");
+            }
+
+            if (missileLoopClip == null)
+            {
+                missileLoopClip = Resources.Load<AudioClip>("Audio/RWR/radar_lock");
+            }
+        }
+
+        private void PreloadAudioClips()
+        {
+            spikeClip?.LoadAudioData();
+            trackedClip?.LoadAudioData();
+            lockLoopClip?.LoadAudioData();
+            missileLoopClip?.LoadAudioData();
+        }
+
         private void OnDestroy()
         {
             if (ringTexture != null) Destroy(ringTexture);
+            if (discBackgroundTexture != null) Destroy(discBackgroundTexture);
+            if (fullRingMaskTexture != null) Destroy(fullRingMaskTexture);
+            if (solidTexture != null) Destroy(solidTexture);
+            for (var i = 0; i < sectorMaskTextures.Length; i++)
+            {
+                if (sectorMaskTextures[i] != null)
+                {
+                    Destroy(sectorMaskTextures[i]);
+                }
+            }
         }
 
         private void Update()
@@ -78,59 +141,7 @@ namespace ACunicombat.Mechs
             }
 
             threatCount = radar.CopyThreats(threatScratch);
-            UpdateHistory();
             UpdateAudio();
-        }
-
-        private void UpdateHistory()
-        {
-            for (var i = 0; i < threatCount; i++)
-            {
-                var threat = threatScratch[i];
-                var slot = threat.ThreatId.Value.Index;
-                if ((uint)slot >= knownThreatKeys.Length)
-                {
-                    continue;
-                }
-
-                if (knownThreatKeys[slot] != threat.ThreatId.Packed)
-                {
-                    knownThreatKeys[slot] = threat.ThreatId.Packed;
-                    knownThreatLevels[slot] = EsmThreatLevel.None;
-                }
-
-                if (threat.Level == knownThreatLevels[slot])
-                {
-                    continue;
-                }
-
-                var rising = threat.Level > knownThreatLevels[slot];
-                knownThreatLevels[slot] = threat.Level;
-                if (!rising)
-                {
-                    continue; // 只记录升级事件，降级不刷屏。
-                }
-
-                var label = threat.WaveformClass switch
-                {
-                    EsmWaveformClass.DataLinkUplink => "上行链路",
-                    EsmWaveformClass.InfraredPlume => "红外羽焰",
-                    EsmWaveformClass.MissileSeeker => "导引头",
-                    EsmWaveformClass.SearchRadar => "搜索雷达",
-                    EsmWaveformClass.FireControlRadar => "火控雷达",
-                    _ => "未知辐射",
-                };
-                var levelName = threat.Level switch
-                {
-                    EsmThreatLevel.MissileActive => "导弹!",
-                    EsmThreatLevel.Locked => "锁定",
-                    EsmThreatLevel.Tracked => "跟踪",
-                    _ => "扫描",
-                };
-                historyLines[historyCount % HistoryCapacity] =
-                    $"{Time.time:F0}s {label}→{levelName}";
-                historyCount++;
-            }
         }
 
         private void UpdateAudio()
@@ -144,39 +155,97 @@ namespace ACunicombat.Mechs
                 }
             }
 
-            if (highest > previousHighestLevel)
+            var enteredSpiked =
+                highest == EsmThreatLevel.Spiked &&
+                previousHighestLevel < EsmThreatLevel.Spiked;
+            if (enteredSpiked && spikeClip != null)
             {
-                // 升级瞬间的单响提示（占位：clip 为空则静默）。
-                var clip = highest switch
-                {
-                    EsmThreatLevel.Spiked => spikeClip,
-                    EsmThreatLevel.Tracked => trackedClip,
-                    _ => null,
-                };
-                if (clip != null)
-                {
-                    oneShotSource.PlayOneShot(clip);
-                }
+                oneShotSource.PlayOneShot(spikeClip);
             }
 
-            // 锁定/导弹为持续循环音，导弹优先。
-            var desiredLoop = highest switch
+            UpdateTrackedPulseAudio(highest);
+
+            // 跟踪使用成组短音；锁定使用持续循环音；导弹告警优先。
+            if (highest == EsmThreatLevel.MissileActive &&
+                missileLoopClip != null)
             {
-                EsmThreatLevel.MissileActive => missileLoopClip,
-                EsmThreatLevel.Locked => lockLoopClip,
-                _ => null,
-            };
-            if (loopSource.clip != desiredLoop)
-            {
-                loopSource.Stop();
-                loopSource.clip = desiredLoop;
-                if (desiredLoop != null)
+                var repeatPeriod = Mathf.Max(
+                    0.05f,
+                    missileLoopClip.length - missileRepeatOverlapSeconds);
+                if (loopSource.clip != missileLoopClip || loopSource.loop)
                 {
-                    loopSource.Play();
+                    loopSource.Stop();
+                    loopSource.loop = false;
+                    loopSource.clip = missileLoopClip;
+                    loopSource.PlayOneShot(missileLoopClip);
+                    nextMissileRepeatTime =
+                        Time.unscaledTime + repeatPeriod;
+                }
+                else if (Time.unscaledTime >= nextMissileRepeatTime)
+                {
+                    loopSource.PlayOneShot(missileLoopClip);
+                    nextMissileRepeatTime =
+                        Time.unscaledTime + repeatPeriod;
+                }
+            }
+            else
+            {
+                nextMissileRepeatTime = -1f;
+                var desiredLoop =
+                    highest == EsmThreatLevel.Locked ? lockLoopClip : null;
+                if (loopSource.clip != desiredLoop || !loopSource.loop)
+                {
+                    loopSource.Stop();
+                    loopSource.loop = true;
+                    loopSource.clip = desiredLoop;
+                    if (desiredLoop != null)
+                    {
+                        loopSource.Play();
+                    }
                 }
             }
 
             previousHighestLevel = highest;
+        }
+
+        private void UpdateTrackedPulseAudio(EsmThreatLevel highest)
+        {
+            if (highest != EsmThreatLevel.Tracked || trackedClip == null)
+            {
+                nextTrackedPulseTime = -1f;
+                trackedPulseIndex = 0;
+                return;
+            }
+
+            var now = Time.unscaledTime;
+            if (previousHighestLevel != EsmThreatLevel.Tracked ||
+                nextTrackedPulseTime < 0f)
+            {
+                oneShotSource.PlayOneShot(trackedClip);
+                trackedPulseIndex = 1;
+                nextTrackedPulseTime =
+                    now + trackedClip.length + trackedPulseGapSeconds;
+                return;
+            }
+
+            if (now < nextTrackedPulseTime)
+            {
+                return;
+            }
+
+            oneShotSource.PlayOneShot(trackedClip);
+            if (trackedPulseIndex == 1)
+            {
+                trackedPulseIndex = 0;
+                nextTrackedPulseTime =
+                    now + trackedClip.length + trackedCyclePauseSeconds;
+            }
+            else
+            {
+                trackedPulseIndex = 1;
+                nextTrackedPulseTime =
+                    now + trackedClip.length + trackedPulseGapSeconds;
+            }
         }
 
         private void OnGUI()
@@ -187,14 +256,13 @@ namespace ACunicombat.Mechs
                 Screen.height - PanelSize - PanelMargin,
                 PanelSize,
                 PanelSize);
-            GUI.Box(panel, GUIContent.none);
-            var center = new Vector2(panel.x + PanelSize * 0.5f, panel.y + PanelSize * 0.5f);
-            GUI.DrawTexture(
-                new Rect(center.x - RingRadius, center.y - RingRadius, RingRadius * 2f, RingRadius * 2f),
-                ringTexture);
-
-            captionStyle.normal.textColor = new Color(0.55f, 0.75f, 0.6f);
-            GUI.Label(new Rect(panel.x + 8f, panel.y + 4f, 120f, 18f), "RWR", captionStyle);
+            var center = panel.center;
+            var ringRect = new Rect(
+                center.x - RingRadius,
+                center.y - RingRadius,
+                RingRadius * 2f,
+                RingRadius * 2f);
+            GUI.DrawTexture(ringRect, discBackgroundTexture);
 
             // 机头朝上：方位取飞控逻辑航向（与战术图同基准），退化用 transform。
             var forward = flightMotion != null
@@ -202,68 +270,49 @@ namespace ACunicombat.Mechs
                 : transform.forward;
             var headingDegrees = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
 
-            // 本机中心标记。
-            captionStyle.normal.textColor = new Color(0.4f, 0.9f, 0.8f);
-            GUI.Label(new Rect(center.x - 6f, center.y - 9f, 20f, 18f), "Λ", captionStyle);
-
-            var blink = Time.unscaledTime % 0.5f < 0.3f;
-            for (var i = 0; i < threatCount; i++)
+            CollectSectorThreats(headingDegrees, out var highestLevel, out var closeMissile);
+            var pulse = 0.78f + Mathf.Sin(Time.unscaledTime * 8f) * 0.22f;
+            if (closeMissile)
             {
-                var threat = threatScratch[i];
-                if (threat.Level == EsmThreatLevel.None)
+                DrawTintedTexture(
+                    ringRect,
+                    fullRingMaskTexture,
+                    new Color(0f, 1f, 0.28f, 0.72f + pulse * 0.22f));
+            }
+            else
+            {
+                for (var sector = 0; sector < SectorCount; sector++)
                 {
-                    continue;
+                    if (!sectorOccupied[sector])
+                    {
+                        continue;
+                    }
+
+                    DrawTintedTexture(
+                        ringRect,
+                        sectorMaskTextures[sector],
+                        SectorColor(in sectorThreats[sector], pulse));
                 }
-
-                var azimuthDegrees = Mathf.Atan2(
-                    threat.DirectionWorld.x, threat.DirectionWorld.z) * Mathf.Rad2Deg - headingDegrees;
-                var azimuthRadians = azimuthDegrees * Mathf.Deg2Rad;
-                var blipPosition = center + new Vector2(
-                    Mathf.Sin(azimuthRadians), -Mathf.Cos(azimuthRadians)) * RingRadius;
-
-                var (symbol, color) = threat.Level switch
-                {
-                    EsmThreatLevel.MissileActive => ("M", new Color(1f, 0.25f, 0.2f)),
-                    EsmThreatLevel.Locked => ("L", new Color(1f, 0.45f, 0.15f)),
-                    EsmThreatLevel.Tracked => ("T", new Color(1f, 0.85f, 0.25f)),
-                    _ => ("S", new Color(0.5f, 0.9f, 0.5f)),
-                };
-                if (threat.WaveformClass == EsmWaveformClass.DataLinkUplink)
-                {
-                    symbol = "D"; // 制导上行：有弹在飞的软告警，级别色照常。
-                }
-
-                if (threat.Level >= EsmThreatLevel.Locked && !blink)
-                {
-                    continue; // 锁定/导弹级闪烁。
-                }
-
-                blipStyle.normal.textColor = color;
-                GUI.Label(new Rect(blipPosition.x - 8f, blipPosition.y - 10f, 22f, 20f), symbol, blipStyle);
             }
 
-            // 告警历史 + 对抗提示（面板下方）。
-            var lineY = panel.yMax + 2f;
-            var historyShown = Mathf.Min(historyCount, HistoryCapacity);
-            captionStyle.normal.textColor = new Color(0.6f, 0.7f, 0.62f);
-            for (var i = 0; i < historyShown; i++)
+            GUI.DrawTexture(ringRect, ringTexture);
+
+            if (!closeMissile)
             {
-                var line = historyLines[(historyCount - 1 - i) % HistoryCapacity];
-                GUI.Label(new Rect(panel.x, lineY, 260f, 16f), line, captionStyle);
-                lineY += 15f;
+                DrawSectorLabels(center);
             }
 
-            if (previousHighestLevel >= EsmThreatLevel.Locked && blink)
+            var status = closeMissile
+                ? "敌导弹"
+                : HighestStatus(highestLevel);
+            if (!string.IsNullOrEmpty(status))
             {
-                captionStyle.normal.textColor = previousHighestLevel == EsmThreatLevel.MissileActive
-                    ? new Color(1f, 0.3f, 0.25f)
-                    : new Color(1f, 0.5f, 0.2f);
-                GUI.Label(
-                    new Rect(panel.x, panel.y - 18f, 260f, 16f),
-                    previousHighestLevel == EsmThreatLevel.MissileActive
-                        ? "导弹告警 — 全力规避 / 切断视线"
-                        : "被锁定 — QB 破锁 / 遮蔽机动",
-                    captionStyle);
+                var statusRect = new Rect(panel.center.x - 60f, panel.y + 5f, 120f, 30f);
+                DrawOutline(statusRect, new Color(0.05f, 1f, 0.34f, 0.9f), 1f);
+                statusStyle.normal.textColor = closeMissile
+                    ? new Color(0.12f, 1f, 0.34f, pulse)
+                    : new Color(0.18f, 0.92f, 0.34f, 0.94f);
+                GUI.Label(statusRect, status, statusStyle);
             }
         }
 
@@ -274,36 +323,376 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            const int size = 160;
-            ringTexture = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            var ringColor = new Color(0.35f, 0.65f, 0.45f, 0.9f);
-            var clear = new Color(0f, 0f, 0f, 0f);
-            var outer = size * 0.5f - 1f;
-            var inner = outer - 2f;
-            var center = new Vector2(size * 0.5f, size * 0.5f);
-            for (var y = 0; y < size; y++)
+            solidTexture = new Texture2D(1, 1, TextureFormat.RGBA32, false)
             {
-                for (var x = 0; x < size; x++)
-                {
-                    var d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), center);
-                    ringTexture.SetPixel(x, y, d <= outer && d >= inner ? ringColor : clear);
-                }
+                name = "RWR Solid Pixel",
+                hideFlags = HideFlags.HideAndDontSave,
+                filterMode = FilterMode.Point,
+            };
+            solidTexture.SetPixel(0, 0, Color.white);
+            solidTexture.Apply();
+
+            ringTexture = BuildRingTexture();
+            discBackgroundTexture = BuildDiscBackgroundTexture();
+            fullRingMaskTexture = BuildRingMaskTexture(-1);
+            for (var sector = 0; sector < SectorCount; sector++)
+            {
+                sectorMaskTextures[sector] = BuildRingMaskTexture(sector);
             }
 
-            ringTexture.Apply();
-
-            blipStyle = new GUIStyle(GUI.skin.label)
+            sectorLabelStyle = new GUIStyle(GUI.skin.label)
             {
-                fontSize = 16,
+                fontSize = 15,
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleCenter,
             };
-            captionStyle = new GUIStyle(GUI.skin.label)
+            statusStyle = new GUIStyle(GUI.skin.label)
             {
-                fontSize = 12,
+                fontSize = 18,
                 fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleLeft,
+                alignment = TextAnchor.MiddleCenter,
             };
+        }
+
+        private void CollectSectorThreats(
+            float headingDegrees,
+            out EsmThreatLevel highestLevel,
+            out bool closeMissile)
+        {
+            highestLevel = EsmThreatLevel.None;
+            closeMissile = false;
+            for (var sector = 0; sector < SectorCount; sector++)
+            {
+                sectorOccupied[sector] = false;
+                sectorThreatCounts[sector] = 0;
+            }
+
+            for (var i = 0; i < threatCount; i++)
+            {
+                var threat = threatScratch[i];
+                if (threat.Level == EsmThreatLevel.None)
+                {
+                    continue;
+                }
+
+                if (threat.Level > highestLevel)
+                {
+                    highestLevel = threat.Level;
+                }
+                if (IsCloseMissile(in threat))
+                {
+                    closeMissile = true;
+                }
+
+                var worldAzimuth = Mathf.Atan2(
+                    threat.DirectionWorld.x,
+                    threat.DirectionWorld.z) * Mathf.Rad2Deg;
+                var relativeAzimuth = Mathf.Repeat(
+                    worldAzimuth - headingDegrees + 360f,
+                    360f);
+                var sector = Mathf.FloorToInt(
+                    (relativeAzimuth + SectorDegrees * 0.5f) /
+                    SectorDegrees) % SectorCount;
+                sectorThreatCounts[sector]++;
+                if (!sectorOccupied[sector] ||
+                    ThreatPriority(in threat) > ThreatPriority(in sectorThreats[sector]))
+                {
+                    sectorThreats[sector] = threat;
+                    sectorOccupied[sector] = true;
+                }
+            }
+        }
+
+        private void DrawSectorLabels(Vector2 center)
+        {
+            const float labelRadius = 130f;
+            for (var sector = 0; sector < SectorCount; sector++)
+            {
+                if (!sectorOccupied[sector])
+                {
+                    continue;
+                }
+
+                var angle = sector * SectorDegrees * Mathf.Deg2Rad;
+                var position = center + new Vector2(
+                    Mathf.Sin(angle),
+                    -Mathf.Cos(angle)) * labelRadius;
+                var label = ThreatModelLabel(in sectorThreats[sector]);
+                if (sectorThreatCounts[sector] > 1)
+                {
+                    label += $"×{sectorThreatCounts[sector]}";
+                }
+
+                sectorLabelStyle.normal.textColor =
+                    sectorThreats[sector].Level == EsmThreatLevel.MissileActive
+                        ? new Color(0.25f, 1f, 0.32f)
+                        : new Color(0.42f, 0.95f, 0.48f);
+                GUI.Label(
+                    new Rect(position.x - 44f, position.y - 12f, 88f, 24f),
+                    label,
+                    sectorLabelStyle);
+            }
+        }
+
+        private bool IsCloseMissile(in ThreatSnapshot threat)
+        {
+            if (threat.Level != EsmThreatLevel.MissileActive ||
+                (threat.WaveformClass != EsmWaveformClass.MissileSeeker &&
+                 threat.WaveformClass != EsmWaveformClass.InfraredPlume))
+            {
+                return false;
+            }
+
+            return threat.ReceivedPowerDb >= immediateMissileReceivedPowerDb ||
+                   (threat.ReceivedPowerDb >= closeMissileReceivedPowerDb &&
+                    threat.PowerTrendDbPerSecond >= closeMissilePowerTrendDbPerSecond);
+        }
+
+        private static float ThreatPriority(in ThreatSnapshot threat)
+        {
+            var classPriority = threat.WaveformClass switch
+            {
+                EsmWaveformClass.MissileSeeker => 40f,
+                EsmWaveformClass.InfraredPlume => 35f,
+                EsmWaveformClass.FireControlRadar => 30f,
+                EsmWaveformClass.DataLinkUplink => 20f,
+                EsmWaveformClass.SearchRadar => 10f,
+                _ => 0f,
+            };
+            return (int)threat.Level * 1000f +
+                   classPriority +
+                   threat.IdentificationConfidence * 5f +
+                   threat.ReceivedPowerDb * 0.01f;
+        }
+
+        private static string ThreatModelLabel(in ThreatSnapshot threat)
+        {
+            if (threat.IdentificationConfidence < IdentificationThreshold &&
+                threat.WaveformClass == EsmWaveformClass.Unknown)
+            {
+                return "UNK";
+            }
+
+            return threat.WaveformClass switch
+            {
+                EsmWaveformClass.SearchRadar => $"SR{threat.WaveformId:D2}",
+                EsmWaveformClass.FireControlRadar => $"FCR{threat.WaveformId:D2}",
+                EsmWaveformClass.MissileSeeker => "MSL",
+                EsmWaveformClass.DataLinkUplink => $"DL{threat.WaveformId:D2}",
+                EsmWaveformClass.InfraredPlume => "IR",
+                _ => $"U{threat.WaveformId:D2}",
+            };
+        }
+
+        private static string HighestStatus(EsmThreatLevel level)
+        {
+            return level switch
+            {
+                EsmThreatLevel.MissileActive => "导弹逼近",
+                EsmThreatLevel.Locked => "敌锁定",
+                EsmThreatLevel.Tracked => "敌跟踪",
+                _ => string.Empty,
+            };
+        }
+
+        private static Color SectorColor(in ThreatSnapshot threat, float pulse)
+        {
+            return threat.Level switch
+            {
+                EsmThreatLevel.MissileActive =>
+                    new Color(0f, 0.95f, 0.22f, 0.68f + pulse * 0.2f),
+                EsmThreatLevel.Locked =>
+                    new Color(0f, 0.82f, 0.22f, 0.48f + pulse * 0.12f),
+                EsmThreatLevel.Tracked =>
+                    new Color(0f, 0.7f, 0.22f, 0.4f),
+                _ =>
+                    new Color(0f, 0.52f, 0.2f, 0.28f),
+            };
+        }
+
+        private Texture2D BuildRingTexture()
+        {
+            var texture = NewHudTexture("RWR Ring");
+            var pixels = new Color[RingTextureSize * RingTextureSize];
+            var center = new Vector2(RingTextureSize * 0.5f, RingTextureSize * 0.5f);
+            const float outerRadius = 248f;
+            const float innerRadius = 124f;
+            var color = new Color(0.06f, 1f, 0.32f);
+
+            for (var y = 0; y < RingTextureSize; y++)
+            {
+                for (var x = 0; x < RingTextureSize; x++)
+                {
+                    var delta = new Vector2(x + 0.5f, y + 0.5f) - center;
+                    var distance = delta.magnitude;
+                    var angle = Mathf.Repeat(
+                        Mathf.Atan2(delta.x, delta.y) * Mathf.Rad2Deg + 360f,
+                        360f);
+                    var alpha = distance >= innerRadius && distance <= outerRadius
+                        ? 0.055f
+                        : 0f;
+                    alpha = Mathf.Max(
+                        alpha,
+                        RingLineAlpha(distance, outerRadius, 2.5f) * 0.92f);
+                    alpha = Mathf.Max(
+                        alpha,
+                        RingLineAlpha(distance, innerRadius, 2f) * 0.72f);
+
+                    if (distance > innerRadius + 1f && distance < outerRadius - 1f)
+                    {
+                        var phase = Mathf.Repeat(
+                            angle + SectorDegrees * 0.5f,
+                            SectorDegrees);
+                        var degreesToBoundary = Mathf.Min(phase, SectorDegrees - phase);
+                        var pixelsToBoundary =
+                            distance * degreesToBoundary * Mathf.Deg2Rad;
+                        alpha = Mathf.Max(alpha, Mathf.Clamp01(2.4f - pixelsToBoundary) * 0.36f);
+                    }
+
+                    if (distance > 34f && distance < innerRadius - 4f)
+                    {
+                        var diagonalDistance = Mathf.Abs(Mathf.Abs(delta.x) - Mathf.Abs(delta.y));
+                        var dash = Mathf.Repeat(distance, 28f) < 16f;
+                        if (diagonalDistance < 1.8f && dash)
+                        {
+                            alpha = Mathf.Max(alpha, 0.42f);
+                        }
+                    }
+
+                    alpha = Mathf.Max(alpha, RingLineAlpha(distance, 32f, 2.2f) * 0.9f);
+                    if ((Mathf.Abs(delta.x) < 2.2f && Mathf.Abs(delta.y) < 22f) ||
+                        (Mathf.Abs(delta.y) < 2.2f && Mathf.Abs(delta.x) < 22f))
+                    {
+                        alpha = Mathf.Max(alpha, 0.95f);
+                    }
+
+                    pixels[y * RingTextureSize + x] =
+                        new Color(color.r, color.g, color.b, Mathf.Clamp01(alpha));
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            return texture;
+        }
+
+        private Texture2D BuildDiscBackgroundTexture()
+        {
+            var texture = NewHudTexture("RWR Disc Background");
+            var pixels = new Color[RingTextureSize * RingTextureSize];
+            var center = new Vector2(RingTextureSize * 0.5f, RingTextureSize * 0.5f);
+            const float radius = 248f;
+            var background = new Color(0f, 0.025f, 0.02f, 0.82f);
+
+            for (var y = 0; y < RingTextureSize; y++)
+            {
+                for (var x = 0; x < RingTextureSize; x++)
+                {
+                    var distance = Vector2.Distance(
+                        new Vector2(x + 0.5f, y + 0.5f),
+                        center);
+                    var edgeAlpha = Mathf.Clamp01(radius - distance + 0.5f);
+                    pixels[y * RingTextureSize + x] = new Color(
+                        background.r,
+                        background.g,
+                        background.b,
+                        background.a * edgeAlpha);
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            return texture;
+        }
+
+        private Texture2D BuildRingMaskTexture(int sectorIndex)
+        {
+            var texture = NewHudTexture(
+                sectorIndex < 0 ? "RWR Full Alert Mask" : $"RWR Sector {sectorIndex}");
+            var pixels = new Color[RingTextureSize * RingTextureSize];
+            var center = new Vector2(RingTextureSize * 0.5f, RingTextureSize * 0.5f);
+            const float outerRadius = 248f;
+            const float innerRadius = 124f;
+            var sectorCenter = sectorIndex * SectorDegrees;
+
+            for (var y = 0; y < RingTextureSize; y++)
+            {
+                for (var x = 0; x < RingTextureSize; x++)
+                {
+                    var delta = new Vector2(x + 0.5f, y + 0.5f) - center;
+                    var distance = delta.magnitude;
+                    var radialAlpha = RingBandAlpha(distance, innerRadius, outerRadius);
+                    var alpha = radialAlpha;
+                    if (sectorIndex >= 0 && alpha > 0f)
+                    {
+                        var angle = Mathf.Repeat(
+                            Mathf.Atan2(delta.x, delta.y) * Mathf.Rad2Deg + 360f,
+                            360f);
+                        var edgeDistanceDegrees =
+                            SectorDegrees * 0.5f - 1.4f -
+                            Mathf.Abs(Mathf.DeltaAngle(angle, sectorCenter));
+                        var edgeDistancePixels =
+                            edgeDistanceDegrees * Mathf.Deg2Rad * distance;
+                        alpha *= Mathf.Clamp01(edgeDistancePixels + 1.5f);
+                    }
+
+                    pixels[y * RingTextureSize + x] =
+                        new Color(1f, 1f, 1f, Mathf.Clamp01(alpha));
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            return texture;
+        }
+
+        private static Texture2D NewHudTexture(string textureName)
+        {
+            return new Texture2D(
+                RingTextureSize,
+                RingTextureSize,
+                TextureFormat.RGBA32,
+                false)
+            {
+                name = textureName,
+                hideFlags = HideFlags.HideAndDontSave,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+        }
+
+        private static float RingBandAlpha(float distance, float innerRadius, float outerRadius)
+        {
+            var innerEdge = Mathf.Clamp01(distance - innerRadius + 0.5f);
+            var outerEdge = Mathf.Clamp01(outerRadius - distance + 0.5f);
+            return Mathf.Min(innerEdge, outerEdge);
+        }
+
+        private static float RingLineAlpha(float distance, float radius, float halfWidth)
+        {
+            return Mathf.Clamp01(halfWidth + 0.5f - Mathf.Abs(distance - radius));
+        }
+
+        private static void DrawTintedTexture(Rect rect, Texture texture, Color color)
+        {
+            var previousColor = GUI.color;
+            GUI.color = color;
+            GUI.DrawTexture(rect, texture);
+            GUI.color = previousColor;
+        }
+
+        private void DrawOutline(Rect rect, Color color, float thickness)
+        {
+            DrawTintedTexture(new Rect(rect.x, rect.y, rect.width, thickness), solidTexture, color);
+            DrawTintedTexture(
+                new Rect(rect.x, rect.yMax - thickness, rect.width, thickness),
+                solidTexture,
+                color);
+            DrawTintedTexture(new Rect(rect.x, rect.y, thickness, rect.height), solidTexture, color);
+            DrawTintedTexture(
+                new Rect(rect.xMax - thickness, rect.y, thickness, rect.height),
+                solidTexture,
+                color);
         }
     }
 }

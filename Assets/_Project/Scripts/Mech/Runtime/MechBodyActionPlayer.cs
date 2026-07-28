@@ -39,8 +39,14 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class MechBodyActionPlayer : MonoBehaviour
     {
-        private const int LayerCount = 2;
+        private const int FullBodyLayerIndex = 0;
+        private const int UpperBodyLayerIndex = 1;
+        private const int RightArmLayerIndex = 2;
+        private const int LeftArmLayerIndex = 3;
+        private const int LayerCount = 4;
         private const int SlotCount = 2;
+        private const float MinimumArmBlendSeconds = 0.12f;
+        private const float MinimumOverlayFadeOutSeconds = 0.2f;
 
         [SerializeField] private MechActionRegistry registry;
         [SerializeField] private float playbackSpeed = 1f;
@@ -48,7 +54,13 @@ namespace ACunicombat.Mechs
 
         private readonly List<PartState> parts = new List<PartState>();
         private readonly List<SharedBoneBinding> sharedBoneBindings = new List<SharedBoneBinding>();
-        private readonly LayerState[] layers = { new LayerState(), new LayerState() };
+        private readonly LayerState[] layers =
+        {
+            new LayerState(),
+            new LayerState(),
+            new LayerState(),
+            new LayerState(),
+        };
         private PlayableGraph graph;
         private double clock;
         private int upperBodyMaskPartCount;
@@ -60,9 +72,15 @@ namespace ACunicombat.Mechs
         public double GraphTime => clock;
         public int PartCount => parts.Count;
         public int SharedBoneBindingCount => sharedBoneBindings.Count;
-        public string ActiveFullBodyActionId => layers[0].Active?.actionId ?? string.Empty;
-        public string ActiveUpperBodyActionId => layers[1].Active?.actionId ?? string.Empty;
-        public float UpperBodyLayerWeight => layers[1].LayerWeight;
+        public string ActiveFullBodyActionId =>
+            layers[FullBodyLayerIndex].Active?.actionId ?? string.Empty;
+        public string ActiveUpperBodyActionId =>
+            layers[UpperBodyLayerIndex].Active?.actionId ?? string.Empty;
+        public string ActiveRightArmActionId =>
+            layers[RightArmLayerIndex].Active?.actionId ?? string.Empty;
+        public string ActiveLeftArmActionId =>
+            layers[LeftArmLayerIndex].Active?.actionId ?? string.Empty;
+        public float UpperBodyLayerWeight => layers[UpperBodyLayerIndex].LayerWeight;
         public int UpperBodyMaskPartCount => upperBodyMaskPartCount;
         public int UpperBodyMaskMatchedBoneCount => upperBodyMaskMatchedBoneCount;
         public int UpperBodyMaskActivePathCount => upperBodyMaskActivePathCount;
@@ -95,8 +113,10 @@ namespace ACunicombat.Mechs
             registry = actionRegistry;
             playbackSpeed = speed;
             clock = 0d;
-            layers[0].Reset();
-            layers[1].Reset();
+            for (var layerIndex = 0; layerIndex < LayerCount; layerIndex++)
+            {
+                layers[layerIndex].Reset();
+            }
 
             upperBodyBoneNames.Clear();
             if (maskedUpperBodyBoneNames != null)
@@ -140,7 +160,7 @@ namespace ACunicombat.Mechs
             {
                 PlayFullBody(initialFullBodyActionId);
                 // Snap the initial action instead of fading in from an empty pose.
-                layers[0].Fade = 1f;
+                layers[FullBodyLayerIndex].Fade = 1f;
                 ApplyWeightsAndTimes();
                 EvaluateGraph();
             }
@@ -184,18 +204,42 @@ namespace ACunicombat.Mechs
         public bool HasAction(string actionId) => registry != null && registry.HasAction(actionId);
 
         /// <summary>Crossfades the base locomotion layer to the given registry action.</summary>
-        public bool PlayFullBody(string actionId) => Play(actionId, MechBodyActionLayer.FullBody);
+        public bool PlayFullBody(string actionId) =>
+            Play(actionId, MechBodyActionLayer.FullBody, FullBodyLayerIndex, true);
 
         /// <summary>
         /// Plays a masked upper-body action over the base layer. Non-looping actions fade the
         /// layer back out on their own once the clip ends; looping ones hold until
         /// <see cref="ClearUpperBody"/>.
         /// </summary>
-        public bool PlayUpperBody(string actionId) => Play(actionId, MechBodyActionLayer.UpperBody);
+        public bool PlayUpperBody(string actionId) =>
+            Play(actionId, MechBodyActionLayer.UpperBody, UpperBodyLayerIndex, true);
+
+        /// <summary>
+        /// Plays a right-arm action independently of the left arm. Weapon state machines use
+        /// explicit transitions, so the final pose is held until the next action is blended in.
+        /// </summary>
+        public bool PlayRightArm(string actionId) =>
+            Play(actionId, MechBodyActionLayer.UpperBody, RightArmLayerIndex, false);
+
+        /// <summary>Plays a left-arm action independently of the right arm.</summary>
+        public bool PlayLeftArm(string actionId) =>
+            Play(actionId, MechBodyActionLayer.UpperBody, LeftArmLayerIndex, false);
 
         public void ClearUpperBody(float fadeOutSeconds = -1f)
         {
-            var layer = layers[1];
+            ClearOverlayLayer(UpperBodyLayerIndex, fadeOutSeconds);
+        }
+
+        public void ClearRightArm(float fadeOutSeconds = -1f) =>
+            ClearOverlayLayer(RightArmLayerIndex, fadeOutSeconds);
+
+        public void ClearLeftArm(float fadeOutSeconds = -1f) =>
+            ClearOverlayLayer(LeftArmLayerIndex, fadeOutSeconds);
+
+        private void ClearOverlayLayer(int layerIndex, float fadeOutSeconds)
+        {
+            var layer = layers[layerIndex];
             if (layer.Active == null)
             {
                 return;
@@ -203,8 +247,10 @@ namespace ACunicombat.Mechs
 
             layer.LayerFadeTarget = 0f;
             layer.LayerFadeDuration = fadeOutSeconds >= 0f
-                ? fadeOutSeconds
-                : Mathf.Max(0.01f, layer.Active.blendOutSeconds);
+                ? Mathf.Max(MinimumOverlayFadeOutSeconds, fadeOutSeconds)
+                : Mathf.Max(
+                    MinimumOverlayFadeOutSeconds,
+                    layer.Active.blendOutSeconds);
         }
 
         public void GetSharedBonePoseErrors(
@@ -271,19 +317,34 @@ namespace ACunicombat.Mechs
             }
 
             // Rebuild after a disable/enable cycle and restore whatever was playing.
-            var fullBodyActionId = layers[0].Active?.actionId;
-            var upperBodyActionId = layers[1].Active?.actionId;
-            layers[0].Reset();
-            layers[1].Reset();
+            var fullBodyActionId = layers[FullBodyLayerIndex].Active?.actionId;
+            var upperBodyActionId = layers[UpperBodyLayerIndex].Active?.actionId;
+            var rightArmActionId = layers[RightArmLayerIndex].Active?.actionId;
+            var leftArmActionId = layers[LeftArmLayerIndex].Active?.actionId;
+            for (var layerIndex = 0; layerIndex < LayerCount; layerIndex++)
+            {
+                layers[layerIndex].Reset();
+            }
+
             BuildGraph();
             if (!string.IsNullOrEmpty(fullBodyActionId) && PlayFullBody(fullBodyActionId))
             {
-                layers[0].Fade = 1f;
+                layers[FullBodyLayerIndex].Fade = 1f;
             }
 
             if (!string.IsNullOrEmpty(upperBodyActionId))
             {
                 PlayUpperBody(upperBodyActionId);
+            }
+
+            if (!string.IsNullOrEmpty(rightArmActionId))
+            {
+                PlayRightArm(rightArmActionId);
+            }
+
+            if (!string.IsNullOrEmpty(leftArmActionId))
+            {
+                PlayLeftArm(leftArmActionId);
             }
 
             ApplyWeightsAndTimes();
@@ -294,18 +355,30 @@ namespace ACunicombat.Mechs
 
         private void OnDestroy() => DestroyGraph();
 
-        private bool Play(string actionId, MechBodyActionLayer layerKind)
+        private bool Play(
+            string actionId,
+            MechBodyActionLayer definitionLayer,
+            int runtimeLayerIndex,
+            bool autoFade)
         {
             if (registry == null || !registry.TryGetAction(actionId, out var definition) ||
-                definition.layer != layerKind || !graph.IsValid())
+                definition.layer != definitionLayer || !graph.IsValid())
             {
                 return false;
             }
 
-            var layerIndex = (int)layerKind;
-            var layer = layers[layerIndex];
+            var layer = layers[runtimeLayerIndex];
             if (layer.Active == definition && layer.Fade >= 1f)
             {
+                if (runtimeLayerIndex != FullBodyLayerIndex)
+                {
+                    layer.LayerFadeTarget = 1f;
+                    layer.LayerFadeDuration = ResolveBlendInDuration(
+                        runtimeLayerIndex,
+                        definition.blendInSeconds);
+                    layer.AutoFade = autoFade;
+                }
+
                 return true;
             }
 
@@ -317,11 +390,11 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < parts.Count; i++)
             {
                 var part = parts[i];
-                part.ReleaseSlot(graph, layerIndex, incomingSlot);
+                part.ReleaseSlot(graph, runtimeLayerIndex, incomingSlot);
                 var clip = definition.ResolveClip(part.Source.Slot);
                 if (clip != null)
                 {
-                    part.BindSlot(graph, layerIndex, incomingSlot, clip);
+                    part.BindSlot(graph, runtimeLayerIndex, incomingSlot, clip);
                 }
             }
 
@@ -331,14 +404,29 @@ namespace ACunicombat.Mechs
             layer.ActiveSlot = incomingSlot;
             layer.ActiveStartTime = clock;
             layer.Fade = 0f;
-            layer.FadeDuration = Mathf.Max(0.01f, definition.blendInSeconds);
-            if (layerKind == MechBodyActionLayer.UpperBody)
+            layer.FadeDuration = ResolveBlendInDuration(
+                runtimeLayerIndex,
+                definition.blendInSeconds);
+            layer.AutoFade = autoFade;
+            if (runtimeLayerIndex != FullBodyLayerIndex)
             {
                 layer.LayerFadeTarget = 1f;
-                layer.LayerFadeDuration = Mathf.Max(0.01f, definition.blendInSeconds);
+                layer.LayerFadeDuration = layer.FadeDuration;
             }
 
             return true;
+        }
+
+        private static float ResolveBlendInDuration(
+            int runtimeLayerIndex,
+            float authoredBlendInSeconds)
+        {
+            var minimum =
+                runtimeLayerIndex == RightArmLayerIndex ||
+                runtimeLayerIndex == LeftArmLayerIndex
+                    ? MinimumArmBlendSeconds
+                    : 0.01f;
+            return Mathf.Max(minimum, authoredBlendInSeconds);
         }
 
         private void StepFades(float deltaTime)
@@ -365,19 +453,21 @@ namespace ACunicombat.Mechs
                     }
                 }
 
-                if (layerIndex != (int)MechBodyActionLayer.UpperBody)
+                if (layerIndex == FullBodyLayerIndex)
                 {
                     continue;
                 }
 
                 // Non-looping upper-body actions schedule their own fade-out at clip end.
-                if (!layer.Active.loop && layer.LayerFadeTarget > 0f)
+                if (layer.AutoFade &&
+                    !layer.Active.loop &&
+                    layer.LayerFadeTarget > 0f)
                 {
                     var clipLength = LongestActiveClipLength(layerIndex);
                     var endsAt = layer.ActiveStartTime + clipLength - layer.Active.blendOutSeconds;
                     if (clipLength > 0f && clock >= endsAt)
                     {
-                        ClearUpperBody();
+                        ClearOverlayLayer(layerIndex, -1f);
                     }
                 }
 
@@ -453,7 +543,7 @@ namespace ACunicombat.Mechs
 
                     part.LayerMixer.SetInputWeight(
                         layerIndex,
-                        layerIndex == 0 ? 1f : layer.LayerWeight);
+                        layerIndex == FullBodyLayerIndex ? 1f : layer.LayerWeight);
                 }
             }
         }
@@ -471,7 +561,7 @@ namespace ACunicombat.Mechs
             // does not suppress translation curves authored on the skeleton's Root bone. The
             // movement controller owns world-space locomotion, so looping body actions must stay
             // in place or the rendered mech drifts relative to its logical transform and camera.
-            if (layers[(int)MechBodyActionLayer.FullBody].Active?.loop != true)
+            if (layers[FullBodyLayerIndex].Active?.loop != true)
             {
                 return;
             }
@@ -502,13 +592,35 @@ namespace ACunicombat.Mechs
                     part.LayerMixer.SetInputWeight(layerIndex, layerIndex == 0 ? 1f : 0f);
                 }
 
-                var mask = BuildUpperBodyMask(part, out var matchedBoneCount, out var activePathCount);
-                if (mask != null)
+                var upperMask = BuildBodyMask(
+                    part,
+                    '\0',
+                    out var matchedBoneCount,
+                    out var activePathCount);
+                if (upperMask != null)
                 {
-                    part.LayerMixer.SetLayerMaskFromAvatarMask(1, mask);
+                    part.LayerMixer.SetLayerMaskFromAvatarMask(
+                        UpperBodyLayerIndex,
+                        upperMask);
                     upperBodyMaskPartCount++;
                     upperBodyMaskMatchedBoneCount += matchedBoneCount;
                     upperBodyMaskActivePathCount += activePathCount;
+                }
+
+                var rightArmMask = BuildBodyMask(part, 'R', out _, out _);
+                if (rightArmMask != null)
+                {
+                    part.LayerMixer.SetLayerMaskFromAvatarMask(
+                        RightArmLayerIndex,
+                        rightArmMask);
+                }
+
+                var leftArmMask = BuildBodyMask(part, 'L', out _, out _);
+                if (leftArmMask != null)
+                {
+                    part.LayerMixer.SetLayerMaskFromAvatarMask(
+                        LeftArmLayerIndex,
+                        leftArmMask);
                 }
 
                 var output = AnimationPlayableOutput.Create(graph, $"Part_{i:00}", part.Animator);
@@ -522,8 +634,9 @@ namespace ACunicombat.Mechs
                 this);
         }
 
-        private AvatarMask BuildUpperBodyMask(
+        private AvatarMask BuildBodyMask(
             PartState part,
+            char side,
             out int matchedBoneCount,
             out int activePathCount)
         {
@@ -534,14 +647,26 @@ namespace ACunicombat.Mechs
                 return null;
             }
 
-            var mask = new AvatarMask { name = $"{part.Source.PartRoot.name}_UpperBodyMask" };
+            var suffix = side == '\0' ? "UpperBody" : $"{side}Arm";
+            var mask = new AvatarMask
+            {
+                name = $"{part.Source.PartRoot.name}_{suffix}Mask",
+            };
             var root = part.Source.PartRoot.transform;
             var transforms = part.Source.PartRoot.GetComponentsInChildren<Transform>(true);
-            var wantedNames = new HashSet<string>(upperBodyBoneNames, System.StringComparer.Ordinal);
-            var activeTransforms = new HashSet<Transform>();
-            for (var nameIndex = 0; nameIndex < upperBodyBoneNames.Count; nameIndex++)
+            var wantedNames = new HashSet<string>(System.StringComparer.Ordinal);
+            for (var i = 0; i < upperBodyBoneNames.Count; i++)
             {
-                var boneName = upperBodyBoneNames[nameIndex];
+                var boneName = upperBodyBoneNames[i];
+                if (side == '\0' || IsSideBone(boneName, side))
+                {
+                    wantedNames.Add(boneName);
+                }
+            }
+
+            var activeTransforms = new HashSet<Transform>();
+            foreach (var boneName in wantedNames)
+            {
                 if (string.IsNullOrWhiteSpace(boneName))
                 {
                     continue;
@@ -557,7 +682,7 @@ namespace ACunicombat.Mechs
                 }
             }
 
-            if (matchedBoneCount == 0)
+            if (matchedBoneCount == 0 && side == '\0')
             {
                 return null;
             }
@@ -602,6 +727,18 @@ namespace ACunicombat.Mechs
             }
 
             return mask;
+        }
+
+        private static bool IsSideBone(string boneName, char side)
+        {
+            if (string.IsNullOrEmpty(boneName))
+            {
+                return false;
+            }
+
+            var marker = $"{side}_";
+            return boneName.StartsWith(marker, System.StringComparison.Ordinal) ||
+                   boneName.Contains($"_{marker}", System.StringComparison.Ordinal);
         }
 
         private static string GetRelativeTransformPath(Transform target, Transform root)
@@ -781,6 +918,7 @@ namespace ACunicombat.Mechs
             public float LayerWeight;
             public float LayerFadeTarget;
             public float LayerFadeDuration = 0.15f;
+            public bool AutoFade = true;
 
             public void Reset()
             {
@@ -792,6 +930,7 @@ namespace ACunicombat.Mechs
                 Fade = 0f;
                 LayerWeight = 0f;
                 LayerFadeTarget = 0f;
+                AutoFade = true;
             }
         }
 

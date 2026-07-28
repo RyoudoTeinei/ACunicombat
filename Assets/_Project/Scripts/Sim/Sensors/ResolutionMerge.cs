@@ -112,6 +112,20 @@ namespace ACunicombat.Sensors
             merged.SnrDb = RadarMath.DbFromLinear(snrA + snrB);
             merged.Flags = a.Flags | b.Flags;
             merged.Timestamp = math.min(a.Timestamp, b.Timestamp);
+            if (a.ObjectClass == b.ObjectClass)
+            {
+                merged.ClassificationConfidence =
+                    math.saturate(
+                        a.ClassificationConfidence * wA +
+                        b.ClassificationConfidence * wB);
+            }
+            else if (b.ClassificationConfidence >
+                     a.ClassificationConfidence)
+            {
+                merged.ObjectClass = b.ObjectClass;
+                merged.ClassificationConfidence =
+                    b.ClassificationConfidence;
+            }
 
             if ((cap & SensorCapability.Range) != 0)
             {

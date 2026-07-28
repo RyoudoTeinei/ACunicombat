@@ -29,6 +29,30 @@ namespace ACunicombat.FireControl
 
     public static class MissileEngagementMath
     {
+        public static bool IntersectsProtectedCpaWindow(
+            float timeToClosestApproachSeconds,
+            float closestApproachDistanceMeters,
+            float cpaUncertaintyMeters,
+            float predictionHorizonSeconds,
+            float protectedRadiusMeters,
+            float uncertaintySigmaMultiplier = 2f,
+            float maximumUncertaintyAllowanceMeters = 2500f)
+        {
+            if (timeToClosestApproachSeconds < 0f ||
+                timeToClosestApproachSeconds >
+                    predictionHorizonSeconds)
+            {
+                return false;
+            }
+
+            var uncertaintyAllowance = math.min(
+                math.max(0f, cpaUncertaintyMeters) *
+                    math.max(0f, uncertaintySigmaMultiplier),
+                math.max(0f, maximumUncertaintyAllowanceMeters));
+            return closestApproachDistanceMeters <=
+                   protectedRadiusMeters + uncertaintyAllowance;
+        }
+
         public static bool IsInsideSeekerVolume(
             float3 missilePosition,
             float3 seekerForward,
@@ -61,6 +85,85 @@ namespace ACunicombat.FireControl
                 ? math.cross(relativePosition, relativeVelocity) /
                   rangeSquared
                 : float3.zero;
+        }
+
+        public static float SolveLeadTime(
+            float3 relativePosition,
+            float3 targetVelocity,
+            float missileSpeed,
+            float maximumLeadTimeSeconds)
+        {
+            var rangeSquared = math.lengthsq(relativePosition);
+            var maximumLead = math.max(0f, maximumLeadTimeSeconds);
+            var speed = math.max(0f, missileSpeed);
+            if (rangeSquared <= 1e-6f ||
+                speed <= 1e-3f ||
+                maximumLead <= 0f)
+            {
+                return 0f;
+            }
+
+            var a = math.lengthsq(targetVelocity) - speed * speed;
+            var b = 2f * math.dot(relativePosition, targetVelocity);
+            var c = rangeSquared;
+            const float epsilon = 1e-5f;
+            var solution = float.PositiveInfinity;
+
+            if (math.abs(a) <= epsilon)
+            {
+                if (math.abs(b) > epsilon)
+                {
+                    var linearTime = -c / b;
+                    if (linearTime > 0f)
+                    {
+                        solution = linearTime;
+                    }
+                }
+            }
+            else
+            {
+                var discriminant = b * b - 4f * a * c;
+                if (discriminant >= 0f)
+                {
+                    var root = math.sqrt(discriminant);
+                    var first = (-b - root) / (2f * a);
+                    var second = (-b + root) / (2f * a);
+                    if (first > 0f)
+                    {
+                        solution = first;
+                    }
+                    if (second > 0f)
+                    {
+                        solution = math.min(solution, second);
+                    }
+                }
+            }
+
+            if (!math.isfinite(solution))
+            {
+                // Current speed can be below target speed during cold launch,
+                // while the missile still has substantial boost remaining.
+                // Keep aiming at the bounded future basket until a positive
+                // constant-speed solution becomes available.
+                solution = maximumLead;
+            }
+
+            return math.clamp(solution, 0f, maximumLead);
+        }
+
+        public static float3 PredictLeadPoint(
+            float3 missilePosition,
+            float3 targetPosition,
+            float3 targetVelocity,
+            float missileSpeed,
+            float maximumLeadTimeSeconds)
+        {
+            var leadTime = SolveLeadTime(
+                targetPosition - missilePosition,
+                targetVelocity,
+                missileSpeed,
+                maximumLeadTimeSeconds);
+            return targetPosition + targetVelocity * leadTime;
         }
 
         public static bool TryGetProximityPass(

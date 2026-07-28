@@ -17,7 +17,12 @@ namespace ACunicombat.Sensors
     {
         public const int DetectionRingCapacity = 4096;
         public const int CandidateCapacity = 2048;
-        public const int DwellBudgetPerTick = 16;
+        // This is a scene-level compute guard, not one aircraft's antenna-time
+        // budget. Missile seekers are independent sensors and must not starve
+        // the carrier's search radar merely because they share this simulation.
+        // The design baseline (8 platforms x sensors plus seekers) already
+        // exceeds the old value of 16.
+        public const int DwellBudgetPerTick = 64;
 
         private readonly SimWorld world;
         private readonly SpatialHashGrid grid;
@@ -251,12 +256,16 @@ namespace ACunicombat.Sensors
                     RangeVar = sigmaRange * sigmaRange,
                     AngleVar = sigmaAngle * sigmaAngle,
                     VelocityVar = sigmaVelocity * sigmaVelocity,
-                    LosRateVar = sigmaAngle * sigmaAngle
-                        / math.max(dwell.DwellTimeSeconds * dwell.DwellTimeSeconds, 1e-4f),
-                    SnrDb = snrDb,
-                    Flags = jamPowerDb > profile.DwellConfig.NoisePowerDb
-                        ? MeasurementFlags.Jammed
-                        : MeasurementFlags.None,
+                     LosRateVar = sigmaAngle * sigmaAngle
+                         / math.max(dwell.DwellTimeSeconds * dwell.DwellTimeSeconds, 1e-4f),
+                     SnrDb = snrDb,
+                     ObjectClass = targetProfile.ObjectClass,
+                     ClassificationConfidence =
+                         targetProfile.ClassificationSignature *
+                         math.saturate((snrDb - 2f) / 18f),
+                     Flags = jamPowerDb > profile.DwellConfig.NoisePowerDb
+                         ? MeasurementFlags.Jammed
+                         : MeasurementFlags.None,
                 };
             }
 

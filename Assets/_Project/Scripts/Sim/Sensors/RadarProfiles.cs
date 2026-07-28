@@ -24,5 +24,7 @@ namespace ACunicombat.Sensors
     {
         public SimEntityId EntityId;
         public float RadarCrossSectionSquareMeters;
+        public TrackObjectClass ObjectClass;
+        public float ClassificationSignature;
     }
 }

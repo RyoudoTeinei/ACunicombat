@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using ACunicombat.FireControl;
 using ACunicombat.Sensing.Contracts;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace ACunicombat.Mechs
@@ -11,6 +12,21 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class MechTestWeaponSystem : MonoBehaviour
     {
+        private const string LeftMissileVisualResourcePath =
+            "Projectiles/r27_white";
+        private const string RightMissileVisualResourcePath =
+            "Projectiles/r77_gridfin";
+        private const string LeftMissileVisualEditorAssetPath =
+            "Assets/_Project/LocalGameAssets/Resources/Projectiles/r27_white.glb";
+        private const string RightMissileVisualEditorAssetPath =
+            "Assets/_Project/LocalGameAssets/Resources/Projectiles/r77_gridfin.glb";
+        private const float LeftMissileVisualLengthMeters = 4f;
+        private const float RightMissileVisualLengthMeters = 3.6f;
+        private const float RifleMuzzleVelocityMetersPerSecond = 1500f;
+        private const float RifleProjectileLifetimeSeconds = 8f;
+        private const float CannonMuzzleVelocityMetersPerSecond = 450f;
+        private const float CannonProjectileLifetimeSeconds = 10f;
+
         [SerializeField] private MechPlayerInputAdapter input;
         [SerializeField] private MechRuntimeState runtimeState;
         [SerializeField] private MechPlayerRig playerRig;
@@ -24,24 +40,24 @@ namespace ACunicombat.Mechs
         [SerializeField] private Vector2 aimViewportPoint = new Vector2(0.5f, 0.56f);
         [SerializeField] private float gunAutoAimDegrees = 4f;
         [SerializeField] private float missileLockDegrees = 24f;
-        [Header("Test weapon envelopes")]
-        [SerializeField, Min(1f)] private float missileMaximumFlightTimeSeconds = 300f;
-        [SerializeField, Min(1000f)] private float missileMaximumRangeMeters = 50000f;
-        [Header("Missile propulsion and seeker")]
-        [SerializeField, Min(0f)] private float missileEjectionSpeedMps = 40f;
+        [Header("Point defense")]
+        [SerializeField, Range(1f, 20f)] private float pointDefenseLockDegrees = 6f;
+        [SerializeField, Min(100f)] private float pointDefenseMaximumRangeMeters = 6000f;
+        [SerializeField, Min(0.1f)] private float pointDefenseMaximumLeadSeconds = 6f;
+        [SerializeField, Min(0f)] private float pointDefenseLockHoldSeconds = 0.25f;
+        [Header("Interceptor missile")]
+        [SerializeField, Min(1f)] private float interceptorProtectedRadiusMeters = 180f;
+        [SerializeField, Min(0.1f)] private float interceptorPredictionHorizonSeconds = 60f;
+        [SerializeField, Min(0f)] private float interceptorLockHoldSeconds = 0.5f;
+        [SerializeField, Min(0f)] private float interceptorResponseReserveSeconds = 0.2f;
+        [Header("Air-to-air missile")]
+        [SerializeField] private MissileFlightProfile airToAirMissileProfile =
+            MissileFlightProfile.AirToAirDefault;
+        [Header("Interceptor missile flight")]
+        [SerializeField] private MissileFlightProfile interceptorMissileProfile =
+            MissileFlightProfile.InterceptorDefault;
+        [Header("Missile launcher")]
         [SerializeField, Min(0f)] private float missileLaunchClearanceMeters = 0.8f;
-        [SerializeField, Min(0.1f)] private float missileBoostAccelerationMps2 = 300f;
-        [SerializeField, Min(0.1f)] private float missileMotorBurnSeconds = 3.5f;
-        [SerializeField, Min(100f)] private float missileSeekerRangeMeters = 8000f;
-        [SerializeField, Range(1f, 89f)] private float missileSeekerSearchHalfAngleDegrees = 35f;
-        [SerializeField, Range(1f, 89f)] private float missileSeekerGimbalDegrees = 60f;
-        [SerializeField, Min(0f)] private float missileLateralAccelerationMps2 = 180f;
-        [SerializeField, Min(0f)] private float missileManeuverDeltaVMps = 300f;
-        [Header("Missile fuze and warhead")]
-        [SerializeField, Min(0.1f)] private float missileProximityFuseRadiusMeters = 12f;
-        [SerializeField, Min(0f)] private float missileFuseArmSeconds = 0.75f;
-        [SerializeField, Min(0f)] private float missileFuseSafeDistanceMeters = 20f;
-        [SerializeField, Min(0.1f)] private float missileWarheadLethalRadiusMeters = 18f;
 
         private readonly Dictionary<MechPartSlot, Transform[]> muzzlesBySlot =
             new Dictionary<MechPartSlot, Transform[]>();
@@ -50,13 +66,36 @@ namespace ACunicombat.Mechs
         private int leftBackMuzzleIndex;
         private int rightBackMuzzleIndex;
         private GUIStyle hudLabelStyle;
+        private MissileTrackSnapshot pointDefenseTarget;
+        private float pointDefenseLockUntil;
+        private MissileTrackSnapshot interceptorTarget;
+        private InterceptorEngagementSolution interceptorSolution;
+        private float interceptorLockUntil;
+        private readonly MissileTrackSnapshot[] interceptorTrackScratch =
+            new MissileTrackSnapshot[MechRadarController.MaximumPublicTracks];
 
         private static Material rifleMaterial;
         private static Material cannonMaterial;
         private static Material missileMaterial;
         private static Material trailMaterial;
+        private static GameObject leftMissileVisualPrefab;
+        private static GameObject rightMissileVisualPrefab;
+        private static readonly HashSet<string> missileVisualLoadFailures =
+            new HashSet<string>();
+        private static readonly HashSet<string> missileVisualLoadSuccesses =
+            new HashSet<string>();
+        private static readonly Dictionary<Material, Material>
+            missileUnlitMaterials =
+                new Dictionary<Material, Material>();
 
         public MechRadarController RadarController => radarController;
+        public TrackId PointDefenseTrackId =>
+            pointDefenseTarget.TrackId;
+        public TrackId InterceptorTrackId =>
+            interceptorTarget.TrackId;
+        public bool HasInterceptorLaunchSolution =>
+            interceptorTarget.TrackId.IsValid &&
+            interceptorSolution.Reachable;
 
         public void Configure(
             MechPlayerInputAdapter newInput,
@@ -117,7 +156,7 @@ namespace ACunicombat.Mechs
         {
             if (slot == MechPartSlot.LeftBackWeapon)
             {
-                FireMissileSalvo(slot, ref leftBackMuzzleIndex);
+                FireInterceptorMissile(ref leftBackMuzzleIndex);
             }
             else if (slot == MechPartSlot.RightBackWeapon)
             {
@@ -125,8 +164,91 @@ namespace ACunicombat.Mechs
             }
         }
 
+        public void CommandFireMissileAt(
+            MechPartSlot slot,
+            CombatTestTarget directTarget)
+        {
+            if (directTarget == null || !directTarget.IsAlive)
+            {
+                return;
+            }
+
+            if (slot == MechPartSlot.LeftBackWeapon)
+            {
+                FireInterceptorMissile(ref leftBackMuzzleIndex);
+            }
+            else if (slot == MechPartSlot.RightBackWeapon)
+            {
+                FireDirectMissileSalvo(
+                    slot,
+                    directTarget,
+                    ref rightBackMuzzleIndex);
+            }
+        }
+
+        public void CommandFireInterceptorAt(
+            MechTestProjectile incomingMissile)
+        {
+            if (incomingMissile == null ||
+                !incomingMissile.IsInterceptableMissile ||
+                incomingMissile.IsOwnedBy(transform))
+            {
+                return;
+            }
+
+            FireDirectInterceptorMissile(
+                incomingMissile,
+                ref leftBackMuzzleIndex);
+        }
+
         private void Awake()
         {
+            airToAirMissileProfile =
+                ResolveProfile(
+                    airToAirMissileProfile,
+                    MissileFlightProfile.AirToAirDefault);
+            interceptorMissileProfile =
+                ResolveProfile(
+                    interceptorMissileProfile,
+                    MissileFlightProfile.InterceptorDefault);
+            if (Mathf.Abs(
+                    interceptorMissileProfile
+                        .ProximityFuseRadiusMeters - 10f) <
+                0.01f)
+            {
+                interceptorMissileProfile
+                    .ProximityFuseRadiusMeters = 12f;
+            }
+            if (Mathf.Abs(
+                    interceptorMissileProfile
+                        .WarheadLethalRadiusMeters - 14f) <
+                0.01f)
+            {
+                interceptorMissileProfile
+                    .WarheadLethalRadiusMeters = 22f;
+            }
+
+            if (Mathf.Abs(interceptorPredictionHorizonSeconds - 30f) < 0.01f)
+            {
+                interceptorPredictionHorizonSeconds = 60f;
+            }
+            if (Mathf.Abs(pointDefenseMaximumRangeMeters - 1500f) < 0.01f)
+            {
+                pointDefenseMaximumRangeMeters = 6000f;
+            }
+            if (Mathf.Abs(pointDefenseMaximumLeadSeconds - 2.9f) < 0.01f)
+            {
+                pointDefenseMaximumLeadSeconds = 6f;
+            }
+
+            // Passive AI test mechs retain the complete weapon stack in the
+            // scene, but disabled systems must not initialize shared radar
+            // simulation state during Awake.
+            if (!enabled)
+            {
+                return;
+            }
+
             if (input == null) input = GetComponent<MechPlayerInputAdapter>();
             if (runtimeState == null) runtimeState = GetComponent<MechRuntimeState>();
             if (playerRig == null) playerRig = GetComponent<MechPlayerRig>();
@@ -170,6 +292,8 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            UpdateInterceptorTarget();
+            UpdatePointDefenseTarget();
             var frame = input.Current;
             if (frame.PrimaryFireEdge)
             {
@@ -182,7 +306,7 @@ namespace ACunicombat.Mechs
             if (playerRig != null &&
                 playerRig.ConsumeShoulderMissileLaunch(MechPartSlot.LeftBackWeapon))
             {
-                FireMissileSalvo(MechPartSlot.LeftBackWeapon, ref leftBackMuzzleIndex);
+                FireInterceptorMissile(ref leftBackMuzzleIndex);
             }
             if (playerRig != null &&
                 playerRig.ConsumeShoulderMissileLaunch(MechPartSlot.RightBackWeapon))
@@ -226,12 +350,30 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var projectileSpeed = kind == TestWeaponKind.Rifle ? 520f : 175f;
-            var locked = TryGetAimPoint(
-                kind == TestWeaponKind.Rifle ? gunAutoAimDegrees : gunAutoAimDegrees + 2f,
-                projectileSpeed,
-                out var aimPoint,
-                out _);
+            var projectileSpeed = kind == TestWeaponKind.Rifle
+                ? RifleMuzzleVelocityMetersPerSecond
+                : CannonMuzzleVelocityMetersPerSecond;
+            var inheritedVelocity =
+                flightMotion != null
+                    ? flightMotion.Velocity
+                    : Vector3.zero;
+            var aimPoint = Vector3.zero;
+            var locked =
+                kind == TestWeaponKind.Rifle &&
+                TryGetPointDefenseAimPoint(
+                    muzzle.position,
+                    projectileSpeed,
+                    out aimPoint);
+            if (!locked)
+            {
+                locked = TryGetAimPoint(
+                    kind == TestWeaponKind.Rifle
+                        ? gunAutoAimDegrees
+                        : gunAutoAimDegrees + 2f,
+                    projectileSpeed,
+                    out aimPoint,
+                    out _);
+            }
             var direction = (aimPoint - muzzle.position).normalized;
             if (!locked)
             {
@@ -240,20 +382,163 @@ namespace ACunicombat.Mechs
 
             if (kind == TestWeaponKind.Rifle)
             {
-                SpawnProjectile(muzzle.position, direction, kind, 520f, 110f, 0.08f, 3f,
+                SpawnProjectile(
+                    muzzle.position,
+                    direction,
+                    kind,
+                    RifleMuzzleVelocityMetersPerSecond,
+                    110f,
+                    0.08f,
+                    RifleProjectileLifetimeSeconds,
                     launchFfxId: 6011100, projectileFfxId: 6013101, impactFfxId: 6011101,
-                    launchAnchor: muzzle);
+                    launchAnchor: muzzle,
+                    inheritedVelocity: inheritedVelocity);
             }
             else
             {
-                SpawnProjectile(muzzle.position, direction, kind, 175f, 420f, 0.2f, 6f,
+                SpawnProjectile(
+                    muzzle.position,
+                    direction,
+                    kind,
+                    CannonMuzzleVelocityMetersPerSecond,
+                    420f,
+                    0.2f,
+                    CannonProjectileLifetimeSeconds,
                     launchFfxId: 6031100, projectileFfxId: 6031101,
-                    launchAnchor: muzzle);
+                    launchAnchor: muzzle,
+                    inheritedVelocity: inheritedVelocity);
             }
+        }
+
+        private void FireInterceptorMissile(ref int muzzleIndex)
+        {
+            UpdateInterceptorTarget();
+            var incomingTrack = interceptorTarget;
+            if (!incomingTrack.TrackId.IsValid ||
+                !incomingTrack.IsWeaponsQuality ||
+                !incomingTrack.Incoming)
+            {
+                Debug.LogWarning(
+                    "[MechTestWeaponSystem] Interceptor launch inhibited: " +
+                    "no sensor-confirmed incoming missile track.",
+                    this);
+                return;
+            }
+
+            const MechPartSlot slot =
+                MechPartSlot.LeftBackWeapon;
+            if (!muzzlesBySlot.TryGetValue(
+                    slot,
+                    out var muzzles) ||
+                muzzles.Length == 0)
+            {
+                ResolveMuzzles();
+            }
+            if (!muzzlesBySlot.TryGetValue(
+                    slot,
+                    out muzzles) ||
+                muzzles.Length == 0)
+            {
+                Debug.LogWarning(
+                    "[MechTestWeaponSystem] No interceptor muzzle.",
+                    this);
+                return;
+            }
+
+            var muzzle = muzzles[muzzleIndex % muzzles.Length];
+            if (!TrySolveInterceptorEngagement(
+                    in incomingTrack,
+                    muzzle,
+                    out var launchSolution))
+            {
+                Debug.LogWarning(
+                    "[MechTestWeaponSystem] Interceptor launch inhibited: " +
+                    "the current threat geometry is outside the dynamic " +
+                    "interceptor reachability zone.",
+                    this);
+                return;
+            }
+
+            interceptorSolution = launchSolution;
+            var clearanceDirection =
+                ResolveMissileLaunchDirection(muzzle);
+            var launchDirection =
+                ResolveGuidedMissileLaunchDirection(
+                    muzzle,
+                    ToVector3(launchSolution.InterceptPoint),
+                    80f);
+            var launchPosition =
+                muzzle.position +
+                clearanceDirection * missileLaunchClearanceMeters;
+            var inheritedVelocity =
+                flightMotion != null
+                    ? flightMotion.Velocity
+                    : Vector3.zero;
+            var refinedSolution = SolveInterceptorEngagement(
+                in incomingTrack,
+                launchPosition,
+                inheritedVelocity,
+                launchDirection,
+                radarController.SimTimeSeconds);
+            if (refinedSolution.Reachable)
+            {
+                launchSolution = refinedSolution;
+                interceptorSolution = refinedSolution;
+            }
+
+            SpawnProjectile(
+                launchPosition,
+                launchDirection,
+                TestWeaponKind.Missile,
+                interceptorMissileProfile.EjectionSpeedMps,
+                300f,
+                0.22f,
+                interceptorMissileProfile.MaximumFlightTimeSeconds,
+                homingTrack: incomingTrack.TrackId,
+                launchDelay: 0f,
+                launchFfxId: 6082100,
+                projectileFfxId: 6082101,
+                launchAnchor: muzzle,
+                maximumTravelDistance:
+                    interceptorMissileProfile.MaximumRangeMeters,
+                inheritedVelocity: inheritedVelocity,
+                simulationRadarController: radarController,
+                missileSourceSlot: slot,
+                interceptorMissile: true,
+                missileProfile: interceptorMissileProfile,
+                hasInitialGuidanceEstimate: true,
+                initialGuidancePosition: ToVector3(
+                    incomingTrack.PredictPosition(
+                        radarController.SimTimeSeconds)),
+                initialGuidanceVelocity: ToVector3(
+                    incomingTrack.Velocity),
+                initialGuidanceUncertaintyMeters:
+                    incomingTrack.PositionUncertaintyMeters,
+                prelaunchInterceptPoint: ToVector3(
+                    launchSolution.InterceptPoint));
+
+            Debug.Log(
+                $"[MechTestWeaponSystem] Interceptor launched at " +
+                $"{incomingTrack.TrackId}, sources=" +
+                $"{incomingTrack.SourceMask}, confidence=" +
+                $"{incomingTrack.Confidence:0.00}, TOF=" +
+                $"{launchSolution.FlightTimeSeconds:0.00}s, margin=" +
+                $"{launchSolution.ThreatTimeMarginSeconds:0.00}s.",
+                this);
+            muzzleIndex = (muzzleIndex + 1) % muzzles.Length;
+            interceptorTarget = default;
+            interceptorSolution = default;
+            interceptorLockUntil = 0f;
         }
 
         private void FireMissileSalvo(MechPartSlot slot, ref int muzzleIndex)
         {
+            if (slot == MechPartSlot.LeftBackWeapon)
+            {
+                FireInterceptorMissile(ref muzzleIndex);
+                return;
+            }
+
             if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
             {
                 ResolveMuzzles();
@@ -287,6 +572,9 @@ namespace ACunicombat.Mechs
                         radarController.SimTimeSeconds),
                 0.5f,
                 8f);
+            var launchProfile = airToAirMissileProfile;
+            launchProfile.SeekerActivationDelaySeconds =
+                seekerActivationDelay;
             var inheritedVelocity =
                 flightMotion != null ? flightMotion.Velocity : Vector3.zero;
             Debug.Log(
@@ -305,42 +593,476 @@ namespace ACunicombat.Mechs
                 }
 
                 var muzzle = muzzles[(muzzleIndex + i) % muzzles.Length];
-                var launchDirection = ResolveMissileLaunchDirection(muzzle);
+                var clearanceDirection =
+                    ResolveMissileLaunchDirection(muzzle);
+                var launchDirection =
+                    ResolveGuidedMissileLaunchDirection(
+                        muzzle,
+                        ToVector3(solution.InterceptPoint),
+                        65f);
                 var launchPosition =
                     muzzle.position +
-                    launchDirection * missileLaunchClearanceMeters;
+                    clearanceDirection *
+                    missileLaunchClearanceMeters;
 
                 SpawnProjectile(
                     launchPosition,
                     launchDirection,
                     TestWeaponKind.Missile,
-                    missileEjectionSpeedMps,
+                    launchProfile.EjectionSpeedMps,
                     300f,
                     0.22f,
-                    missileMaximumFlightTimeSeconds,
+                    launchProfile.MaximumFlightTimeSeconds,
                     trackId,
                     i * 0.06f,
-                    acceleration: missileBoostAccelerationMps2,
-                    turnRateDegrees: 150f,
                     launchFfxId: slot == MechPartSlot.LeftBackWeapon ? 6082100 : 6083100,
                     projectileFfxId: slot == MechPartSlot.LeftBackWeapon ? 6082101 : 6083101,
                     launchAnchor: muzzle,
-                    maximumTravelDistance: missileMaximumRangeMeters,
+                    maximumTravelDistance:
+                        launchProfile.MaximumRangeMeters,
                     guidanceChannelToken: guidanceToken,
-                    motorBurnDuration: missileMotorBurnSeconds,
-                    seekerActivationDelay: seekerActivationDelay,
-                    seekerMaximumRange: missileSeekerRangeMeters,
-                    seekerHalfAngleDegrees: missileSeekerSearchHalfAngleDegrees,
-                    seekerGimbalDegrees: missileSeekerGimbalDegrees,
-                    maximumLateralAcceleration: missileLateralAccelerationMps2,
-                    maneuverDeltaV: missileManeuverDeltaVMps,
-                    proximityFuseRadius: missileProximityFuseRadiusMeters,
-                    proximityFuseArmTime: missileFuseArmSeconds,
-                    proximityFuseSafeDistance: missileFuseSafeDistanceMeters,
-                    warheadLethalRadius: missileWarheadLethalRadiusMeters,
-                    inheritedVelocity: inheritedVelocity);
+                    inheritedVelocity: inheritedVelocity,
+                    missileSourceSlot: slot,
+                    missileProfile: launchProfile);
             }
             muzzleIndex = (muzzleIndex + salvoCount) % muzzles.Length;
+        }
+
+        private void FireDirectInterceptorMissile(
+            MechTestProjectile incomingMissile,
+            ref int muzzleIndex)
+        {
+            const MechPartSlot slot =
+                MechPartSlot.LeftBackWeapon;
+            var muzzle = GetNextMuzzle(slot, ref muzzleIndex);
+            if (muzzle == null)
+            {
+                Debug.LogWarning(
+                    "[MechTestWeaponSystem] No AI interceptor muzzle.",
+                    this);
+                return;
+            }
+
+            var launchDirection =
+                ResolveMissileLaunchDirection(muzzle);
+            var launchPosition =
+                muzzle.position +
+                launchDirection * missileLaunchClearanceMeters;
+            var inheritedVelocity =
+                flightMotion != null
+                    ? flightMotion.Velocity
+                    : Vector3.zero;
+            if (!incomingMissile.TryPredictThreatTo(
+                    transform,
+                    inheritedVelocity,
+                    interceptorProtectedRadiusMeters,
+                    interceptorPredictionHorizonSeconds,
+                    out var timeToClosestApproach,
+                    out var closestApproachDistance))
+            {
+                return;
+            }
+
+            var directTrack = new MissileTrackSnapshot
+            {
+                TrackId = new TrackId(
+                    new ACunicombat.Simulation.Core.Handle(
+                        1,
+                        1)),
+                Position = ToDouble3(
+                    incomingMissile.transform.position),
+                Velocity = ToDouble3(incomingMissile.Velocity),
+                PositionUncertaintyMeters = 0f,
+                CpaUncertaintyMeters = 0f,
+                Confidence = 1f,
+                SourceMask = MissileTrackSourceMask.Radar,
+                Quality = MissileTrackQuality.WeaponsQuality,
+                Confirmed = true,
+                Incoming = true,
+                TimeToClosestApproachSeconds =
+                    timeToClosestApproach,
+                ClosestApproachDistanceMeters =
+                    closestApproachDistance,
+                LastEvidenceTime = Time.timeAsDouble,
+                LastUpdateTime = Time.timeAsDouble,
+            };
+            var interceptorKinematics =
+                BuildInterceptorKinematics();
+            var launchSolution =
+                FireSolutionSolver.SolveInterceptor(
+                    in directTrack,
+                    ToDouble3(launchPosition),
+                    ToDouble3(inheritedVelocity),
+                    new float3(
+                        launchDirection.x,
+                        launchDirection.y,
+                        launchDirection.z),
+                    in interceptorKinematics,
+                    Time.timeAsDouble,
+                    interceptorMissileProfile
+                        .MaximumAngularRateDegreesPerSecond,
+                    interceptorMissileProfile
+                        .MaximumFlightTimeSeconds,
+                    interceptorMissileProfile
+                        .MaximumRangeMeters,
+                    interceptorResponseReserveSeconds);
+            if (!launchSolution.Reachable)
+            {
+                return;
+            }
+            var refinedSolution = SolveInterceptorEngagement(
+                in directTrack,
+                launchPosition,
+                inheritedVelocity,
+                launchDirection,
+                Time.timeAsDouble);
+            if (refinedSolution.Reachable)
+            {
+                launchSolution = refinedSolution;
+            }
+            launchDirection = ResolveGuidedMissileLaunchDirection(
+                muzzle,
+                ToVector3(launchSolution.InterceptPoint),
+                80f);
+            var simulationRadar = FindObjectsByType<MechRadarController>(
+                    FindObjectsInactive.Exclude)
+                .FirstOrDefault(candidate =>
+                    candidate != null &&
+                    candidate.isActiveAndEnabled);
+
+            SpawnProjectile(
+                launchPosition,
+                launchDirection,
+                TestWeaponKind.Missile,
+                interceptorMissileProfile.EjectionSpeedMps,
+                300f,
+                0.22f,
+                interceptorMissileProfile.MaximumFlightTimeSeconds,
+                launchDelay: 0f,
+                launchFfxId: 6082100,
+                projectileFfxId: 6082101,
+                launchAnchor: muzzle,
+                maximumTravelDistance:
+                    interceptorMissileProfile.MaximumRangeMeters,
+                inheritedVelocity: inheritedVelocity,
+                simulationRadarController: simulationRadar,
+                missileSourceSlot: slot,
+                interceptorMissile: true,
+                directProjectileTarget: incomingMissile,
+                missileProfile: interceptorMissileProfile,
+                hasInitialGuidanceEstimate: true,
+                initialGuidancePosition:
+                    incomingMissile.transform.position,
+                initialGuidanceVelocity:
+                    incomingMissile.Velocity,
+                prelaunchInterceptPoint:
+                    ToVector3(launchSolution.InterceptPoint));
+        }
+
+        private void FireDirectMissileSalvo(
+            MechPartSlot slot,
+            CombatTestTarget directTarget,
+            ref int muzzleIndex)
+        {
+            if (slot == MechPartSlot.LeftBackWeapon)
+            {
+                FireInterceptorMissile(ref muzzleIndex);
+                return;
+            }
+
+            if (!muzzlesBySlot.TryGetValue(
+                    slot,
+                    out var muzzles) ||
+                muzzles.Length == 0)
+            {
+                ResolveMuzzles();
+            }
+            if (!muzzlesBySlot.TryGetValue(
+                    slot,
+                    out muzzles) ||
+                muzzles.Length == 0)
+            {
+                Debug.LogWarning(
+                    $"[MechTestWeaponSystem] No missile muzzle for {slot}.",
+                    this);
+                return;
+            }
+
+            var firingCombatant = ResolveCombatantRoot(transform);
+            var simulationRadar = FindObjectsByType<MechRadarController>(
+                    FindObjectsInactive.Exclude,
+                    FindObjectsSortMode.None)
+                .FirstOrDefault(candidate =>
+                    candidate != null &&
+                    candidate.isActiveAndEnabled &&
+                    ResolveCombatantRoot(candidate.transform) !=
+                    firingCombatant);
+            var inheritedVelocity =
+                flightMotion != null ? flightMotion.Velocity : Vector3.zero;
+            // Direct-target launch is the AI path: one missile per fire
+            // command so its cooldown represents an actual single launch.
+            const int salvoCount = 1;
+            for (var i = 0; i < salvoCount; i++)
+            {
+                var muzzle =
+                    muzzles[(muzzleIndex + i) % muzzles.Length];
+                var launchDirection =
+                    ResolveDirectMissileLaunchDirection(
+                        muzzle,
+                        directTarget);
+                var launchPosition =
+                    muzzle.position +
+                    launchDirection * missileLaunchClearanceMeters;
+                SpawnProjectile(
+                    launchPosition,
+                    launchDirection,
+                    TestWeaponKind.Missile,
+                    airToAirMissileProfile.EjectionSpeedMps,
+                    300f,
+                    0.22f,
+                    airToAirMissileProfile.MaximumFlightTimeSeconds,
+                    launchDelay: i * 0.06f,
+                    launchFfxId: slot == MechPartSlot.LeftBackWeapon
+                        ? 6082100
+                        : 6083100,
+                    projectileFfxId: slot == MechPartSlot.LeftBackWeapon
+                        ? 6082101
+                        : 6083101,
+                    launchAnchor: muzzle,
+                    maximumTravelDistance:
+                        airToAirMissileProfile.MaximumRangeMeters,
+                    inheritedVelocity: inheritedVelocity,
+                    directGuidanceTarget: directTarget,
+                    simulationRadarController: simulationRadar,
+                    missileSourceSlot: slot,
+                    missileProfile: airToAirMissileProfile);
+            }
+            muzzleIndex = (muzzleIndex + salvoCount) % muzzles.Length;
+        }
+
+        private static Transform ResolveCombatantRoot(Transform source)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            var rig = source.GetComponentInParent<MechPlayerRig>();
+            if (rig != null)
+            {
+                return rig.transform;
+            }
+
+            var target =
+                source.GetComponentInParent<CombatTestTarget>();
+            return target != null ? target.transform : source;
+        }
+
+        private void UpdateInterceptorTarget()
+        {
+            if (TryFindBestIncomingMissile(
+                    out var candidate,
+                    out var candidateSolution))
+            {
+                interceptorTarget = candidate;
+                interceptorSolution = candidateSolution;
+                interceptorLockUntil =
+                    Time.unscaledTime +
+                    interceptorLockHoldSeconds;
+                return;
+            }
+
+            if (!interceptorTarget.TrackId.IsValid ||
+                radarController == null ||
+                !radarController.TryGetMissileTrack(
+                    interceptorTarget.TrackId,
+                    out var retainedTrack) ||
+                !retainedTrack.IsWeaponsQuality ||
+                !retainedTrack.Incoming ||
+                !TryPeekInterceptorMuzzle(out var retainedMuzzle) ||
+                !TrySolveInterceptorEngagement(
+                    in retainedTrack,
+                    retainedMuzzle,
+                    out var retainedSolution) ||
+                Time.unscaledTime >= interceptorLockUntil)
+            {
+                interceptorTarget = default;
+                interceptorSolution = default;
+                return;
+            }
+
+            interceptorTarget = retainedTrack;
+            interceptorSolution = retainedSolution;
+        }
+
+        private bool TryFindBestIncomingMissile(
+            out MissileTrackSnapshot best,
+            out InterceptorEngagementSolution bestSolution)
+        {
+            best = default;
+            bestSolution = default;
+            if (radarController == null ||
+                !TryPeekInterceptorMuzzle(out var muzzle))
+            {
+                return false;
+            }
+
+            var trackCount =
+                radarController.CopyMissileTracks(
+                    interceptorTrackScratch);
+            var bestScore = float.PositiveInfinity;
+            for (var i = 0; i < trackCount; i++)
+            {
+                var candidate = interceptorTrackScratch[i];
+                if (!candidate.TrackId.IsValid ||
+                    !candidate.IsWeaponsQuality ||
+                    !candidate.Incoming ||
+                    !MissileEngagementMath
+                        .IntersectsProtectedCpaWindow(
+                            candidate
+                                .TimeToClosestApproachSeconds,
+                            candidate
+                                .ClosestApproachDistanceMeters,
+                            candidate.CpaUncertaintyMeters,
+                            interceptorPredictionHorizonSeconds,
+                            interceptorProtectedRadiusMeters))
+                {
+                    continue;
+                }
+
+                if (!TrySolveInterceptorEngagement(
+                        in candidate,
+                        muzzle,
+                        out var solution))
+                {
+                    continue;
+                }
+
+                var score =
+                    solution.FlightTimeSeconds +
+                    candidate.ClosestApproachDistanceMeters /
+                    Mathf.Max(
+                        interceptorProtectedRadiusMeters,
+                        1f) +
+                    candidate.PositionUncertaintyMeters /
+                    1000f -
+                    candidate.Confidence * 0.5f -
+                    Mathf.Clamp(
+                        solution.ThreatTimeMarginSeconds,
+                        0f,
+                        10f) *
+                    0.05f;
+                if (score < bestScore)
+                {
+                    best = candidate;
+                    bestSolution = solution;
+                    bestScore = score;
+                }
+            }
+
+            return best.TrackId.IsValid;
+        }
+
+        private bool TryPeekInterceptorMuzzle(out Transform muzzle)
+        {
+            const MechPartSlot slot =
+                MechPartSlot.LeftBackWeapon;
+            if (!muzzlesBySlot.TryGetValue(
+                    slot,
+                    out var muzzles) ||
+                muzzles.Length == 0)
+            {
+                ResolveMuzzles();
+            }
+
+            if (!muzzlesBySlot.TryGetValue(
+                    slot,
+                    out muzzles) ||
+                muzzles.Length == 0)
+            {
+                muzzle = null;
+                return false;
+            }
+
+            muzzle =
+                muzzles[leftBackMuzzleIndex % muzzles.Length];
+            return muzzle != null;
+        }
+
+        private bool TrySolveInterceptorEngagement(
+            in MissileTrackSnapshot track,
+            Transform muzzle,
+            out InterceptorEngagementSolution solution)
+        {
+            solution = default;
+            if (radarController == null || muzzle == null)
+            {
+                return false;
+            }
+
+            var launchDirection =
+                ResolveMissileLaunchDirection(muzzle);
+            var launchPosition =
+                muzzle.position +
+                launchDirection * missileLaunchClearanceMeters;
+            var ownshipVelocity =
+                flightMotion != null
+                    ? flightMotion.Velocity
+                    : Vector3.zero;
+            solution = SolveInterceptorEngagement(
+                in track,
+                launchPosition,
+                ownshipVelocity,
+                launchDirection,
+                radarController.SimTimeSeconds);
+            return solution.Reachable;
+        }
+
+        private InterceptorEngagementSolution SolveInterceptorEngagement(
+            in MissileTrackSnapshot track,
+            Vector3 launchPosition,
+            Vector3 ownshipVelocity,
+            Vector3 launchDirection,
+            double requestTime)
+        {
+            var kinematics = BuildInterceptorKinematics();
+            return FireSolutionSolver.SolveInterceptor(
+                in track,
+                ToDouble3(launchPosition),
+                ToDouble3(ownshipVelocity),
+                new float3(
+                    launchDirection.x,
+                    launchDirection.y,
+                    launchDirection.z),
+                in kinematics,
+                requestTime,
+                interceptorMissileProfile
+                    .MaximumAngularRateDegreesPerSecond,
+                interceptorMissileProfile
+                    .MaximumFlightTimeSeconds,
+                interceptorMissileProfile.MaximumRangeMeters,
+                interceptorResponseReserveSeconds);
+        }
+
+        private static Vector3 ResolveDirectMissileLaunchDirection(
+            Transform muzzle,
+            CombatTestTarget directTarget)
+        {
+            if (muzzle != null &&
+                directTarget != null &&
+                directTarget.AimPoint != null)
+            {
+                var toTarget =
+                    directTarget.AimPoint.position - muzzle.position;
+                if (toTarget.sqrMagnitude > 0.001f)
+                {
+                    return toTarget.normalized;
+                }
+            }
+
+            return muzzle != null
+                ? muzzle.forward
+                : Vector3.forward;
         }
 
         private Vector3 ResolveMissileLaunchDirection(Transform muzzle)
@@ -377,6 +1099,33 @@ namespace ACunicombat.Mechs
             }
 
             return launchDirection.normalized;
+        }
+
+        private Vector3 ResolveGuidedMissileLaunchDirection(
+            Transform muzzle,
+            Vector3 interceptPoint,
+            float maximumDeflectionDegrees)
+        {
+            var clearanceDirection =
+                ResolveMissileLaunchDirection(muzzle);
+            if (muzzle == null)
+            {
+                return clearanceDirection;
+            }
+
+            var toIntercept = interceptPoint - muzzle.position;
+            if (toIntercept.sqrMagnitude <= 0.001f)
+            {
+                return clearanceDirection;
+            }
+
+            return Vector3.RotateTowards(
+                    clearanceDirection,
+                    toIntercept.normalized,
+                    Mathf.Max(0f, maximumDeflectionDegrees) *
+                    Mathf.Deg2Rad,
+                    0f)
+                .normalized;
         }
 
         private Transform GetNextMuzzle(MechPartSlot slot, ref int index)
@@ -420,11 +1169,24 @@ namespace ACunicombat.Mechs
             float seekerGimbalDegrees = 60f,
             float maximumLateralAcceleration = 75f,
             float maneuverDeltaV = 180f,
+            float rcsLateralAcceleration = 0f,
+            float rcsDeltaV = 0f,
             float proximityFuseRadius = 12f,
             float proximityFuseArmTime = 0.75f,
             float proximityFuseSafeDistance = 20f,
             float warheadLethalRadius = 18f,
-            Vector3 inheritedVelocity = default)
+            Vector3 inheritedVelocity = default,
+            CombatTestTarget directGuidanceTarget = null,
+            MechRadarController simulationRadarController = null,
+            MechPartSlot missileSourceSlot = default,
+            bool interceptorMissile = false,
+            MechTestProjectile directProjectileTarget = null,
+            MissileFlightProfile missileProfile = default,
+            bool hasInitialGuidanceEstimate = false,
+            Vector3 initialGuidancePosition = default,
+            Vector3 initialGuidanceVelocity = default,
+            float initialGuidanceUncertaintyMeters = 0f,
+            Vector3 prelaunchInterceptPoint = default)
         {
             EnsureMaterials();
             SpawnNativeOneShot(
@@ -444,9 +1206,27 @@ namespace ACunicombat.Mechs
             };
 
             var collider = projectile.GetComponent<Collider>();
-            if (collider != null) Destroy(collider);
+            if (kind == TestWeaponKind.Missile)
+            {
+                ConfigureMissileHitbox(
+                    collider,
+                    projectile.transform.localScale,
+                    missileSourceSlot);
+            }
+            else if (collider != null)
+            {
+                Destroy(collider);
+            }
             var placeholderRenderer = projectile.GetComponent<Renderer>();
             placeholderRenderer.sharedMaterial = GetProjectileMaterial(kind);
+            if (kind == TestWeaponKind.Missile)
+            {
+                TryAttachMissileVisual(
+                    projectile.transform,
+                    placeholderRenderer,
+                    aimingCamera,
+                    missileSourceSlot);
+            }
 
             var trail = projectile.AddComponent<TrailRenderer>();
             trail.time = kind == TestWeaponKind.Missile ? 0.8f : 0.16f;
@@ -470,7 +1250,9 @@ namespace ACunicombat.Mechs
 
             projectile.AddComponent<MechTestProjectile>().Configure(
                 transform,
-                radarController,
+                simulationRadarController != null
+                    ? simulationRadarController
+                    : radarController,
                 homingTrack,
                 kind,
                 inheritedVelocity + direction * speed,
@@ -491,10 +1273,21 @@ namespace ACunicombat.Mechs
                 seekerGimbalDegrees,
                 maximumLateralAcceleration,
                 maneuverDeltaV,
+                rcsLateralAcceleration,
+                rcsDeltaV,
                 proximityFuseRadius,
                 proximityFuseArmTime,
                 proximityFuseSafeDistance,
-                warheadLethalRadius);
+                warheadLethalRadius,
+                directGuidanceTarget,
+                interceptorMissile,
+                directProjectileTarget,
+                missileProfile,
+                hasInitialGuidanceEstimate,
+                initialGuidancePosition,
+                initialGuidanceVelocity,
+                initialGuidanceUncertaintyMeters,
+                prelaunchInterceptPoint);
         }
 
         private bool TryGetAimPoint(
@@ -518,6 +1311,237 @@ namespace ACunicombat.Mechs
             aimPoint = ray.origin + ray.direction * 100000f;
             trackId = default;
             return false;
+        }
+
+        private void UpdatePointDefenseTarget()
+        {
+            var aimRay = GetAimRay();
+            if (TryFindBestPointDefenseTarget(
+                    aimRay,
+                    pointDefenseLockDegrees,
+                    pointDefenseMaximumRangeMeters,
+                    out var candidate))
+            {
+                pointDefenseTarget = candidate;
+                pointDefenseLockUntil =
+                    Time.unscaledTime + pointDefenseLockHoldSeconds;
+                return;
+            }
+
+            if (!pointDefenseTarget.TrackId.IsValid ||
+                radarController == null ||
+                !radarController.TryGetMissileTrack(
+                    pointDefenseTarget.TrackId,
+                    out var retainedTrack) ||
+                !retainedTrack.IsWeaponsQuality ||
+                !retainedTrack.Incoming ||
+                Time.unscaledTime >= pointDefenseLockUntil)
+            {
+                pointDefenseTarget = default;
+                return;
+            }
+
+            pointDefenseTarget = retainedTrack;
+        }
+
+        private bool TryFindBestPointDefenseTarget(
+            Ray aimRay,
+            float coneDegrees,
+            float maximumRange,
+            out MissileTrackSnapshot best)
+        {
+            best = default;
+            if (radarController == null)
+            {
+                return false;
+            }
+
+            var trackCount =
+                radarController.CopyMissileTracks(
+                    interceptorTrackScratch);
+            var bestScore = float.MaxValue;
+            var rangeLimitSquared = maximumRange * maximumRange;
+            for (var i = 0; i < trackCount; i++)
+            {
+                var candidate = interceptorTrackScratch[i];
+                if (!candidate.TrackId.IsValid ||
+                    !candidate.IsWeaponsQuality ||
+                    !candidate.Incoming)
+                {
+                    continue;
+                }
+
+                var predictedPosition =
+                    candidate.PredictPosition(
+                        radarController.SimTimeSeconds);
+                var toCandidate =
+                    new Vector3(
+                        (float)predictedPosition.x,
+                        (float)predictedPosition.y,
+                        (float)predictedPosition.z) -
+                    aimRay.origin;
+                var distanceSquared = toCandidate.sqrMagnitude;
+                if (distanceSquared <= 0.01f ||
+                    distanceSquared > rangeLimitSquared)
+                {
+                    continue;
+                }
+
+                var direction = toCandidate / Mathf.Sqrt(distanceSquared);
+                var alignment = Vector3.Dot(aimRay.direction, direction);
+                var minimumAlignment = Mathf.Cos(coneDegrees * Mathf.Deg2Rad);
+                if (alignment < minimumAlignment)
+                {
+                    continue;
+                }
+
+                var angularPenalty = 1f - alignment;
+                var rangePenalty =
+                    Mathf.Sqrt(distanceSquared) /
+                    Mathf.Max(maximumRange, 1f) *
+                    0.015f;
+                var score = angularPenalty + rangePenalty;
+                if (score < bestScore)
+                {
+                    best = candidate;
+                    bestScore = score;
+                }
+            }
+
+            return best.TrackId.IsValid;
+        }
+
+        private bool TryGetPointDefenseAimPoint(
+            Vector3 shooterPosition,
+            float projectileSpeed,
+            out Vector3 aimPoint)
+        {
+            aimPoint = default;
+            if (!pointDefenseTarget.TrackId.IsValid ||
+                radarController == null)
+            {
+                return false;
+            }
+
+            var predictedPosition =
+                pointDefenseTarget.PredictPosition(
+                    radarController.SimTimeSeconds);
+            var targetPosition = new Vector3(
+                (float)predictedPosition.x,
+                (float)predictedPosition.y,
+                (float)predictedPosition.z);
+            var targetVelocity = new Vector3(
+                (float)pointDefenseTarget.Velocity.x,
+                (float)pointDefenseTarget.Velocity.y,
+                (float)pointDefenseTarget.Velocity.z);
+            var shooterVelocity =
+                flightMotion != null
+                    ? flightMotion.Velocity
+                    : Vector3.zero;
+            var relativePosition =
+                targetPosition - shooterPosition;
+            if (relativePosition.sqrMagnitude >
+                pointDefenseMaximumRangeMeters *
+                pointDefenseMaximumRangeMeters)
+            {
+                return false;
+            }
+
+            if (!TrySolveInterceptTime(
+                    relativePosition,
+                    targetVelocity - shooterVelocity,
+                    projectileSpeed,
+                    pointDefenseMaximumLeadSeconds,
+                    out var interceptTime))
+            {
+                return false;
+            }
+
+            aimPoint =
+                targetPosition +
+                targetVelocity * interceptTime;
+            return true;
+        }
+
+        private static bool TrySolveInterceptTime(
+            Vector3 relativePosition,
+            Vector3 targetVelocity,
+            float projectileSpeed,
+            float maximumLeadSeconds,
+            out float interceptTime)
+        {
+            interceptTime = 0f;
+            if (projectileSpeed <= 0.01f)
+            {
+                return false;
+            }
+
+            var a =
+                Vector3.Dot(targetVelocity, targetVelocity) -
+                projectileSpeed * projectileSpeed;
+            var b =
+                2f * Vector3.Dot(relativePosition, targetVelocity);
+            var c = Vector3.Dot(relativePosition, relativePosition);
+            const float epsilon = 0.0001f;
+            if (Mathf.Abs(a) <= epsilon)
+            {
+                if (Mathf.Abs(b) <= epsilon)
+                {
+                    return false;
+                }
+
+                interceptTime = -c / b;
+            }
+            else
+            {
+                var discriminant = b * b - 4f * a * c;
+                if (discriminant < 0f)
+                {
+                    return false;
+                }
+
+                var root = Mathf.Sqrt(discriminant);
+                var first = (-b - root) / (2f * a);
+                var second = (-b + root) / (2f * a);
+                interceptTime = first > epsilon &&
+                                (second <= epsilon || first < second)
+                    ? first
+                    : second;
+            }
+
+            return interceptTime > epsilon &&
+                   interceptTime <= maximumLeadSeconds;
+        }
+
+        private static void ConfigureMissileHitbox(
+            Collider collider,
+            Vector3 projectileScale,
+            MechPartSlot sourceSlot)
+        {
+            if (collider == null)
+            {
+                return;
+            }
+
+            collider.isTrigger = true;
+            if (collider is not BoxCollider box)
+            {
+                return;
+            }
+
+            const float hitboxDiameterMeters = 0.5f;
+            var missileLengthMeters =
+                sourceSlot == MechPartSlot.LeftBackWeapon
+                    ? LeftMissileVisualLengthMeters
+                    : RightMissileVisualLengthMeters;
+            box.center = Vector3.zero;
+            box.size = new Vector3(
+                hitboxDiameterMeters /
+                Mathf.Max(Mathf.Abs(projectileScale.x), 0.001f),
+                hitboxDiameterMeters /
+                Mathf.Max(Mathf.Abs(projectileScale.y), 0.001f),
+                missileLengthMeters /
+                Mathf.Max(Mathf.Abs(projectileScale.z), 0.001f));
         }
 
         private Ray GetAimRay()
@@ -612,12 +1636,56 @@ namespace ACunicombat.Mechs
 
         private MissileKinematicProfile BuildMissileKinematics()
         {
+            var profile = airToAirMissileProfile;
             return new MissileKinematicProfile
             {
-                EjectionSpeed = missileEjectionSpeedMps,
-                BoostAcceleration = missileBoostAccelerationMps2,
-                MotorBurnDuration = missileMotorBurnSeconds,
+                EjectionSpeed = profile.EjectionSpeedMps,
+                InertMass =
+                    profile.DryMassKg +
+                    profile.RcsPropellantMassKg,
+                MainPropellantMass =
+                    profile.MainPropellantMassKg,
+                MainEngineThrust =
+                    profile.MainEngineThrustNewtons,
+                MainMassFlow =
+                    profile.MainMassFlowKgPerSecond,
             };
+        }
+
+        private MissileKinematicProfile BuildInterceptorKinematics()
+        {
+            var profile = interceptorMissileProfile;
+            return new MissileKinematicProfile
+            {
+                EjectionSpeed = profile.EjectionSpeedMps,
+                InertMass =
+                    profile.DryMassKg +
+                    profile.RcsPropellantMassKg,
+                MainPropellantMass =
+                    profile.MainPropellantMassKg,
+                MainEngineThrust =
+                    profile.MainEngineThrustNewtons,
+                MainMassFlow =
+                    profile.MainMassFlowKgPerSecond,
+            };
+        }
+
+        private static double3 ToDouble3(Vector3 value) =>
+            new double3(value.x, value.y, value.z);
+
+        private static Vector3 ToVector3(double3 value) =>
+            new Vector3(
+                (float)value.x,
+                (float)value.y,
+                (float)value.z);
+
+        private static MissileFlightProfile ResolveProfile(
+            MissileFlightProfile serializedProfile,
+            MissileFlightProfile fallback)
+        {
+            return serializedProfile.IsConfigured
+                ? serializedProfile.Sanitized()
+                : fallback.Sanitized();
         }
 
         public static void SpawnImpact(
@@ -749,6 +1817,381 @@ namespace ACunicombat.Mechs
             trailMaterial ??= CreateRuntimeMaterial("Test Projectile Trail", Color.white);
         }
 
+        private static void TryAttachMissileVisual(
+            Transform projectile,
+            Renderer placeholderRenderer,
+            Camera presentationCamera,
+            MechPartSlot sourceSlot)
+        {
+            var useLeftMissile =
+                sourceSlot == MechPartSlot.LeftBackWeapon;
+            var resourcePath = useLeftMissile
+                ? LeftMissileVisualResourcePath
+                : RightMissileVisualResourcePath;
+            var editorAssetPath = useLeftMissile
+                ? LeftMissileVisualEditorAssetPath
+                : RightMissileVisualEditorAssetPath;
+            var visualLength = useLeftMissile
+                ? LeftMissileVisualLengthMeters
+                : RightMissileVisualLengthMeters;
+            var missileName = useLeftMissile
+                ? "R-27"
+                : "R-77";
+            var missileVisualPrefab = useLeftMissile
+                ? leftMissileVisualPrefab
+                : rightMissileVisualPrefab;
+            if (missileVisualPrefab == null)
+            {
+                missileVisualPrefab = LoadMissileVisualPrefab(
+                    resourcePath,
+                    editorAssetPath);
+                if (useLeftMissile)
+                {
+                    leftMissileVisualPrefab = missileVisualPrefab;
+                }
+                else
+                {
+                    rightMissileVisualPrefab = missileVisualPrefab;
+                }
+            }
+
+            if (missileVisualPrefab == null)
+            {
+                if (missileVisualLoadFailures.Add(resourcePath))
+                {
+                    Debug.LogError(
+                        $"[MissileVisual] Failed to load {missileName} " +
+                        $"from Resources path '{resourcePath}'.");
+                }
+                return;
+            }
+
+            var holder = new GameObject(
+                $"{missileName}_MissileVisual");
+            holder.transform.SetParent(projectile, false);
+            holder.transform.localScale = ReciprocalScale(
+                projectile.localScale);
+            var visual = Instantiate(
+                missileVisualPrefab,
+                holder.transform,
+                false);
+            visual.name = $"{missileName}_MissileModel";
+            visual.transform.SetLocalPositionAndRotation(
+                Vector3.zero,
+                Quaternion.Euler(-90f, 0f, 0f));
+            visual.transform.localScale = Vector3.one;
+
+            var colliders = visual.GetComponentsInChildren<Collider>(true);
+            for (var i = 0; i < colliders.Length; i++)
+            {
+                Destroy(colliders[i]);
+            }
+
+            var renderers = BakeRigidMissileRenderers(visual);
+            if (renderers.Length == 0)
+            {
+                Destroy(holder);
+                Debug.LogError(
+                    $"[MissileVisual] The loaded {missileName} model " +
+                    "contains no " +
+                    "usable renderer.");
+                return;
+            }
+
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] is SkinnedMeshRenderer skinnedRenderer)
+                {
+                    skinnedRenderer.updateWhenOffscreen = true;
+                }
+            }
+            ApplyVisibleMissileMaterials(renderers);
+
+            if (TryCalculateLocalRendererBounds(
+                    holder.transform,
+                    renderers,
+                    out var bounds))
+            {
+                var longestAxis = Mathf.Max(
+                    bounds.size.x,
+                    bounds.size.y,
+                    bounds.size.z);
+                if (longestAxis > 0.0001f)
+                {
+                    visual.transform.localScale *=
+                        visualLength / longestAxis;
+                }
+
+                if (TryCalculateLocalRendererBounds(
+                        holder.transform,
+                        renderers,
+                        out bounds))
+                {
+                    visual.transform.localPosition -= bounds.center;
+                }
+            }
+
+            if (TryCalculateLocalRendererBounds(
+                    holder.transform,
+                    renderers,
+                    out var finalBounds))
+            {
+                holder.AddComponent<MechMissileVisualLod>().Configure(
+                    presentationCamera,
+                    GetCrossSectionDiameter(finalBounds.size),
+                    minimumScreenDiameterPixels: 8f,
+                    maximumVisualScale: 6f);
+
+                if (missileVisualLoadSuccesses.Add(resourcePath))
+                {
+                    Debug.Log(
+                        $"[MissileVisual] Loaded {missileName} " +
+                        $"'{missileVisualPrefab.name}', renderers=" +
+                        $"{renderers.Length}, size={finalBounds.size}.");
+                }
+            }
+
+            placeholderRenderer.enabled = false;
+        }
+
+        private static GameObject LoadMissileVisualPrefab(
+            string resourcePath,
+            string editorAssetPath)
+        {
+            var prefab =
+                Resources.Load<GameObject>(resourcePath);
+            if (prefab != null)
+            {
+                return prefab;
+            }
+
+            var assetName = System.IO.Path.GetFileName(resourcePath);
+            prefab = Resources.LoadAll<GameObject>(string.Empty)
+                .FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(
+                        candidate.name,
+                        assetName,
+                        StringComparison.OrdinalIgnoreCase));
+            if (prefab != null)
+            {
+                return prefab;
+            }
+
+#if UNITY_EDITOR
+            return UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
+                editorAssetPath);
+#else
+            return null;
+#endif
+        }
+
+        private static Renderer[] BakeRigidMissileRenderers(
+            GameObject visual)
+        {
+            var sourceRenderers =
+                visual.GetComponentsInChildren<Renderer>(true);
+            var renderers = new List<Renderer>(sourceRenderers.Length);
+            for (var i = 0; i < sourceRenderers.Length; i++)
+            {
+                if (sourceRenderers[i] is not SkinnedMeshRenderer skinned)
+                {
+                    renderers.Add(sourceRenderers[i]);
+                    continue;
+                }
+
+                var bakedMesh = new Mesh
+                {
+                    name = $"{skinned.sharedMesh.name}_MissileBaked",
+                };
+                skinned.BakeMesh(bakedMesh, false);
+                if (bakedMesh.vertexCount == 0)
+                {
+                    Destroy(bakedMesh);
+                    renderers.Add(skinned);
+                    continue;
+                }
+
+                var staticVisual = new GameObject(
+                    $"{skinned.gameObject.name}_Static");
+                staticVisual.transform.SetParent(
+                    skinned.transform.parent,
+                    false);
+                staticVisual.transform.SetLocalPositionAndRotation(
+                    skinned.transform.localPosition,
+                    skinned.transform.localRotation);
+                staticVisual.transform.localScale =
+                    skinned.transform.localScale;
+
+                staticVisual.AddComponent<MeshFilter>().sharedMesh =
+                    bakedMesh;
+                var staticRenderer =
+                    staticVisual.AddComponent<MeshRenderer>();
+                staticRenderer.sharedMaterials =
+                    skinned.sharedMaterials;
+                staticRenderer.shadowCastingMode =
+                    skinned.shadowCastingMode;
+                staticRenderer.receiveShadows =
+                    skinned.receiveShadows;
+                staticRenderer.renderingLayerMask =
+                    skinned.renderingLayerMask;
+                staticRenderer.lightProbeUsage =
+                    skinned.lightProbeUsage;
+                staticRenderer.reflectionProbeUsage =
+                    skinned.reflectionProbeUsage;
+                staticVisual.AddComponent<MechGeneratedMeshOwner>()
+                    .Configure(bakedMesh);
+
+                skinned.enabled = false;
+                renderers.Add(staticRenderer);
+            }
+
+            return renderers.ToArray();
+        }
+
+        private static void ApplyVisibleMissileMaterials(
+            IReadOnlyList<Renderer> renderers)
+        {
+            for (var rendererIndex = 0;
+                 rendererIndex < renderers.Count;
+                 rendererIndex++)
+            {
+                var renderer = renderers[rendererIndex];
+                var materials = renderer.sharedMaterials;
+                for (var materialIndex = 0;
+                     materialIndex < materials.Length;
+                     materialIndex++)
+                {
+                    var source = materials[materialIndex];
+                    if (source == null)
+                    {
+                        continue;
+                    }
+
+                    if (!missileUnlitMaterials.TryGetValue(
+                            source,
+                            out var visibleMaterial) ||
+                        visibleMaterial == null)
+                    {
+                        visibleMaterial =
+                            CreateVisibleMissileMaterial(source);
+                        missileUnlitMaterials[source] = visibleMaterial;
+                    }
+                    materials[materialIndex] = visibleMaterial;
+                }
+                renderer.sharedMaterials = materials;
+            }
+        }
+
+        private static Material CreateVisibleMissileMaterial(
+            Material source)
+        {
+            var shader =
+                Shader.Find("Universal Render Pipeline/Unlit") ??
+                Shader.Find("Unlit/Texture") ??
+                Shader.Find("Unlit/Color");
+            var material = new Material(shader)
+            {
+                name = $"{source.name}_MissileUnlit",
+            };
+            var albedo = source.HasProperty("_BaseMap")
+                ? source.GetTexture("_BaseMap")
+                : source.HasProperty("_MainTex")
+                    ? source.GetTexture("_MainTex")
+                    : null;
+            if (albedo != null)
+            {
+                if (material.HasProperty("_BaseMap"))
+                {
+                    material.SetTexture("_BaseMap", albedo);
+                }
+                if (material.HasProperty("_MainTex"))
+                {
+                    material.SetTexture("_MainTex", albedo);
+                }
+            }
+
+            var color = source.HasProperty("_BaseColor")
+                ? source.GetColor("_BaseColor")
+                : source.HasProperty("_Color")
+                    ? source.GetColor("_Color")
+                    : Color.white;
+            color.a = 1f;
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", color);
+            }
+            if (material.HasProperty("_Color"))
+            {
+                material.SetColor("_Color", color);
+            }
+            if (material.HasProperty("_Cull"))
+            {
+                material.SetFloat("_Cull", 0f);
+            }
+            return material;
+        }
+
+        private static Vector3 ReciprocalScale(Vector3 scale)
+        {
+            return new Vector3(
+                Mathf.Abs(scale.x) > 0.0001f ? 1f / scale.x : 1f,
+                Mathf.Abs(scale.y) > 0.0001f ? 1f / scale.y : 1f,
+                Mathf.Abs(scale.z) > 0.0001f ? 1f / scale.z : 1f);
+        }
+
+        private static float GetCrossSectionDiameter(Vector3 size)
+        {
+            var dimensions = new[] { size.x, size.y, size.z };
+            Array.Sort(dimensions);
+            return Mathf.Max(dimensions[1], 0.01f);
+        }
+
+        private static bool TryCalculateLocalRendererBounds(
+            Transform reference,
+            IReadOnlyList<Renderer> renderers,
+            out Bounds bounds)
+        {
+            bounds = default;
+            var initialized = false;
+            for (var i = 0; i < renderers.Count; i++)
+            {
+                var renderer = renderers[i];
+                if (renderer == null || !renderer.enabled)
+                {
+                    continue;
+                }
+
+                var worldBounds = renderer.bounds;
+                var center = worldBounds.center;
+                var extents = worldBounds.extents;
+                for (var x = -1; x <= 1; x += 2)
+                {
+                    for (var y = -1; y <= 1; y += 2)
+                    {
+                        for (var z = -1; z <= 1; z += 2)
+                        {
+                            var corner = center + Vector3.Scale(
+                                extents,
+                                new Vector3(x, y, z));
+                            var local = reference.InverseTransformPoint(corner);
+                            if (!initialized)
+                            {
+                                bounds = new Bounds(local, Vector3.zero);
+                                initialized = true;
+                            }
+                            else
+                            {
+                                bounds.Encapsulate(local);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return initialized;
+        }
+
         private static Material CreateRuntimeMaterial(string materialName, Color color)
         {
             var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
@@ -781,4 +2224,87 @@ namespace ACunicombat.Mechs
         }
     }
 
+    [DisallowMultipleComponent]
+    public sealed class MechMissileVisualLod : MonoBehaviour
+    {
+        private Camera presentationCamera;
+        private Vector3 baseLocalScale;
+        private float crossSectionDiameterMeters;
+        private float minimumScreenDiameterPixels;
+        private float maximumVisualScale;
+
+        public void Configure(
+            Camera camera,
+            float crossSectionDiameter,
+            float minimumScreenDiameterPixels,
+            float maximumVisualScale)
+        {
+            presentationCamera = camera;
+            baseLocalScale = transform.localScale;
+            crossSectionDiameterMeters =
+                Mathf.Max(crossSectionDiameter, 0.01f);
+            this.minimumScreenDiameterPixels =
+                Mathf.Max(minimumScreenDiameterPixels, 1f);
+            this.maximumVisualScale =
+                Mathf.Max(maximumVisualScale, 1f);
+            UpdateVisualScale();
+        }
+
+        private void LateUpdate()
+        {
+            UpdateVisualScale();
+        }
+
+        private void UpdateVisualScale()
+        {
+            if (presentationCamera == null)
+            {
+                presentationCamera = Camera.main;
+            }
+            if (presentationCamera == null ||
+                presentationCamera.pixelHeight <= 0)
+            {
+                transform.localScale = baseLocalScale;
+                return;
+            }
+
+            var distance = Vector3.Distance(
+                presentationCamera.transform.position,
+                transform.position);
+            var verticalSpanAtDistance =
+                2f * distance *
+                Mathf.Tan(
+                    presentationCamera.fieldOfView *
+                    0.5f * Mathf.Deg2Rad);
+            var metersPerPixel =
+                verticalSpanAtDistance / presentationCamera.pixelHeight;
+            var requiredDiameter =
+                metersPerPixel * minimumScreenDiameterPixels;
+            var visualScale = Mathf.Clamp(
+                requiredDiameter / crossSectionDiameterMeters,
+                1f,
+                maximumVisualScale);
+
+            transform.localScale = baseLocalScale * visualScale;
+        }
+    }
+
+    [DisallowMultipleComponent]
+    public sealed class MechGeneratedMeshOwner : MonoBehaviour
+    {
+        private Mesh ownedMesh;
+
+        public void Configure(Mesh mesh)
+        {
+            ownedMesh = mesh;
+        }
+
+        private void OnDestroy()
+        {
+            if (ownedMesh != null)
+            {
+                Destroy(ownedMesh);
+            }
+        }
+    }
 }

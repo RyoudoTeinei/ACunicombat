@@ -7,6 +7,32 @@ namespace ACunicombat.Tests.EditMode
     public class CpaSolverTests
     {
         [Test]
+        public void ProtectedCpaWindow_UsesPropagatedUncertainty()
+        {
+            Assert.That(
+                MissileEngagementMath.IntersectsProtectedCpaWindow(
+                    40f,
+                    1200f,
+                    650f,
+                    60f,
+                    180f),
+                Is.True);
+        }
+
+        [Test]
+        public void ProtectedCpaWindow_RejectsPreciseMiss()
+        {
+            Assert.That(
+                MissileEngagementMath.IntersectsProtectedCpaWindow(
+                    40f,
+                    1200f,
+                    100f,
+                    60f,
+                    180f),
+                Is.False);
+        }
+
+        [Test]
         public void LinearCrossing_FindsClosedFormCpa()
         {
             // 目标在 (1000, 100, 0)，相对速度 (-2000, 0, 0)：t* = 0.5，最近距离 100。
@@ -116,6 +142,39 @@ namespace ACunicombat.Tests.EditMode
                 new float3(0f, 0f, -200f));
 
             Assert.That(math.length(rate), Is.LessThan(1e-6f));
+        }
+
+        [Test]
+        public void MissileLeadPoint_AimsAheadOfCrossingTarget()
+        {
+            var leadTime = MissileEngagementMath.SolveLeadTime(
+                new float3(0f, 0f, 1000f),
+                new float3(100f, 0f, 0f),
+                500f,
+                10f);
+            var point = MissileEngagementMath.PredictLeadPoint(
+                float3.zero,
+                new float3(0f, 0f, 1000f),
+                new float3(100f, 0f, 0f),
+                500f,
+                10f);
+
+            Assert.That(leadTime, Is.GreaterThan(2f));
+            Assert.That(leadTime, Is.LessThan(2.1f));
+            Assert.That(point.x, Is.GreaterThan(200f));
+            Assert.That(point.z, Is.EqualTo(1000f).Within(1e-4f));
+        }
+
+        [Test]
+        public void MissileLeadTime_UsesBoundedFallbackForUnreachableTarget()
+        {
+            var leadTime = MissileEngagementMath.SolveLeadTime(
+                new float3(0f, 0f, 1000f),
+                new float3(900f, 0f, 0f),
+                300f,
+                4f);
+
+            Assert.That(leadTime, Is.EqualTo(4f).Within(1e-4f));
         }
     }
 }

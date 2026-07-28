@@ -63,6 +63,9 @@ namespace ACunicombat.Sensors
             cfg.BeamWidthRadians / (1.6f * math.sqrt(2f * math.max(snrLinear, 1e-6f)));
 
         public static float SigmaVelocity(in RadarDwellConfig cfg, float snrLinear) =>
-            cfg.VelocityResolutionMps / math.sqrt(2f * math.max(snrLinear, 1e-6f));
+            math.max(
+                cfg.VelocityResolutionMps /
+                math.sqrt(2f * math.max(snrLinear, 1e-6f)),
+                cfg.VelocityResolutionMps * 0.1f);
     }
 }

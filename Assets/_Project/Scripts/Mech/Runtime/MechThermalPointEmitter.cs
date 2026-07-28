@@ -19,6 +19,8 @@ namespace ACunicombat.Mechs
         [SerializeField] private float temperatureK = 330f;
 
         private MaterialPropertyBlock propertyBlock;
+        private readonly Dictionary<Renderer, MaterialPropertyBlock>
+            rendererPropertyBlockBackups = new();
         private bool applied;
 
         public float TemperatureK => temperatureK;
@@ -35,10 +37,28 @@ namespace ACunicombat.Mechs
             applied = false;
         }
 
-        private void OnDisable() => registry.Remove(this);
+        private void OnDisable()
+        {
+            registry.Remove(this);
+            if (applied)
+            {
+                ClearTemperatureOverrides();
+                applied = false;
+            }
+        }
 
         private void Update()
         {
+            if (!MechThermalSignature.RendererTemperatureOutputEnabled)
+            {
+                if (applied)
+                {
+                    ClearTemperatureOverrides();
+                    applied = false;
+                }
+                return;
+            }
+
             if (applied)
             {
                 return;
@@ -53,13 +73,35 @@ namespace ACunicombat.Mechs
                 {
                     continue;
                 }
+                if (!rendererPropertyBlockBackups.ContainsKey(renderer))
+                {
+                    var backup = new MaterialPropertyBlock();
+                    renderer.GetPropertyBlock(backup);
+                    rendererPropertyBlockBackups.Add(
+                        renderer,
+                        backup.isEmpty ? null : backup);
+                }
 
+                propertyBlock.Clear();
                 renderer.GetPropertyBlock(propertyBlock);
                 propertyBlock.SetFloat(ThermalTempId, temperatureK);
                 renderer.SetPropertyBlock(propertyBlock);
             }
 
             applied = true;
+        }
+
+        private void ClearTemperatureOverrides()
+        {
+            foreach (var pair in rendererPropertyBlockBackups)
+            {
+                if (pair.Key != null)
+                {
+                    pair.Key.SetPropertyBlock(pair.Value);
+                }
+            }
+
+            rendererPropertyBlockBackups.Clear();
         }
     }
 }

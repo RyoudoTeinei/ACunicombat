@@ -22,8 +22,12 @@ namespace ACunicombat.Mechs
     /// </summary>
     public sealed class MechThermalSignature : MonoBehaviour
     {
+        private const string Ac6PartsApproxShaderName =
+            "ACunicombat/AC6/Parts Approx";
+        private const float RendererIntegrityIntervalSeconds = 0.5f;
         private static readonly List<MechThermalSignature> registry = new();
         public static IReadOnlyList<MechThermalSignature> Registry => registry;
+        public static bool RendererTemperatureOutputEnabled { get; set; }
 
         private static readonly int ThermalTempId = Shader.PropertyToID("_ThermalTemp");
         private const int ChannelCount = 4;
@@ -59,11 +63,16 @@ namespace ACunicombat.Mechs
         {
             new List<Renderer>(), new List<Renderer>(), new List<Renderer>(), new List<Renderer>(),
         };
+        private readonly Dictionary<Renderer, MaterialPropertyBlock>
+            rendererPropertyBlockBackups = new();
 
         private MechRuntimeState runtimeState;
         private MaterialPropertyBlock propertyBlock;
         private int boundPartCount = -1;
         private bool previousQuickBoostActive;
+        private float nextRendererIntegrityCheckTime;
+        private bool loggedIncompatibleOverride;
+        private bool rendererOutputWasEnabled;
 
         public void Configure(MechFlightMotionController flightMotion)
         {
@@ -82,10 +91,9 @@ namespace ACunicombat.Mechs
 
         private void Awake()
         {
-            // AC6 multi-material renderers are incompatible with thermal values
-            // on their normal-rendering MPB path. Thermal vision reads this
-            // component's simulation state directly instead.
-            writeRendererTemperaturePropertyBlocks = false;
+            // RenderObjects override materials only inherit renderer-level
+            // MPBs reliably. Restore the previous blocks when thermal view ends.
+            writeRendererTemperaturePropertyBlocks = true;
             if (motion == null) motion = GetComponent<MechFlightMotionController>();
             runtimeState = GetComponent<MechRuntimeState>();
             propertyBlock = new MaterialPropertyBlock();
@@ -102,13 +110,19 @@ namespace ACunicombat.Mechs
 
         private void OnEnable() => registry.Add(this);
 
-        private void OnDisable() => registry.Remove(this);
+        private void OnDisable()
+        {
+            registry.Remove(this);
+            RestoreRendererTemperatureOverrides();
+            rendererOutputWasEnabled = false;
+        }
 
         private void Update()
         {
             EnsureBinding();
             Integrate(Time.deltaTime);
-            ApplyToRenderers();
+            UpdateRendererTemperatureOutput();
+            ProtectAc6RenderersFromPropertyBlocks();
         }
 
         private void Integrate(float dt)
@@ -231,11 +245,6 @@ namespace ACunicombat.Mechs
 
         private void ApplyToRenderers()
         {
-            if (!writeRendererTemperaturePropertyBlocks)
-            {
-                return;
-            }
-
             for (var c = 0; c < ChannelCount; c++)
             {
                 if (Mathf.Abs(temperatures[c] - appliedTemperatures[c]) < 0.25f)
@@ -254,11 +263,61 @@ namespace ACunicombat.Mechs
                     }
 
                     // 取回既有 block 再叠加，避免覆盖其他系统（涂装等）的 MPB 属性。
+                    if (!rendererPropertyBlockBackups.ContainsKey(renderer))
+                    {
+                        var backup = new MaterialPropertyBlock();
+                        renderer.GetPropertyBlock(backup);
+                        rendererPropertyBlockBackups.Add(
+                            renderer,
+                            backup.isEmpty ? null : backup);
+                    }
+
+                    propertyBlock.Clear();
                     renderer.GetPropertyBlock(propertyBlock);
                     propertyBlock.SetFloat(ThermalTempId, temperatures[c]);
                     renderer.SetPropertyBlock(propertyBlock);
                 }
             }
+        }
+
+        private void UpdateRendererTemperatureOutput()
+        {
+            var outputEnabled =
+                writeRendererTemperaturePropertyBlocks &&
+                RendererTemperatureOutputEnabled;
+            if (outputEnabled != rendererOutputWasEnabled)
+            {
+                rendererOutputWasEnabled = outputEnabled;
+                if (outputEnabled)
+                {
+                    for (var i = 0; i < ChannelCount; i++)
+                    {
+                        appliedTemperatures[i] = float.MinValue;
+                    }
+                }
+                else
+                {
+                    RestoreRendererTemperatureOverrides();
+                }
+            }
+
+            if (outputEnabled)
+            {
+                ApplyToRenderers();
+            }
+        }
+
+        private void RestoreRendererTemperatureOverrides()
+        {
+            foreach (var pair in rendererPropertyBlockBackups)
+            {
+                if (pair.Key != null)
+                {
+                    pair.Key.SetPropertyBlock(pair.Value);
+                }
+            }
+
+            rendererPropertyBlockBackups.Clear();
         }
 
         private void ClearLegacyRendererTemperatureOverrides()
@@ -278,6 +337,70 @@ namespace ACunicombat.Mechs
                 // API and a value of zero can itself black out legacy shaders.
                 renderer.SetPropertyBlock(null);
             }
+        }
+
+        private void ProtectAc6RenderersFromPropertyBlocks()
+        {
+            if (rendererOutputWasEnabled)
+            {
+                return;
+            }
+
+            if (Time.unscaledTime < nextRendererIntegrityCheckTime)
+            {
+                return;
+            }
+            nextRendererIntegrityCheckTime =
+                Time.unscaledTime + RendererIntegrityIntervalSeconds;
+
+            var clearedCount = 0;
+            var renderers = GetComponentsInChildren<Renderer>(true);
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                var renderer = renderers[i];
+                if (renderer == null ||
+                    !UsesAc6PartsApproxShader(renderer))
+                {
+                    continue;
+                }
+
+                propertyBlock.Clear();
+                renderer.GetPropertyBlock(propertyBlock);
+                if (propertyBlock.isEmpty)
+                {
+                    continue;
+                }
+
+                renderer.SetPropertyBlock(null);
+                clearedCount++;
+            }
+
+            if (clearedCount > 0 && !loggedIncompatibleOverride)
+            {
+                loggedIncompatibleOverride = true;
+                Debug.LogWarning(
+                    $"[MechThermalSignature] Cleared incompatible MPBs from " +
+                    $"{clearedCount} AC6 renderers on {name}.",
+                    this);
+            }
+        }
+
+        private static bool UsesAc6PartsApproxShader(Renderer renderer)
+        {
+            var materials = renderer.sharedMaterials;
+            for (var i = 0; i < materials.Length; i++)
+            {
+                var shader = materials[i] != null
+                    ? materials[i].shader
+                    : null;
+                if (shader != null &&
+                    shader.name == Ac6PartsApproxShaderName)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

@@ -51,6 +51,8 @@ namespace ACunicombat.Sensing.Contracts
         public float VelocityVar;
         public float LosRateVar;
         public float SnrDb;
+        public TrackObjectClass ObjectClass;
+        public float ClassificationConfidence;
         public MeasurementFlags Flags;
     }
 }

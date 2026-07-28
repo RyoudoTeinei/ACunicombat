@@ -27,10 +27,12 @@ namespace ACunicombat.Mechs
         [Header("Combat composition")]
         [SerializeField, Min(0f)] private float baseCameraHeightOffset = 3.6f;
         [SerializeField, Min(0f)] private float baseDistanceOffset = 3f;
-        [SerializeField, Min(0f)] private float sttShoulderOffset = 4.5f;
+        [SerializeField, Min(0f)] private float sttCruiseShoulderOffset = 3f;
         [SerializeField, Min(0f)] private float sttOcclusionPullback = 2.5f;
         [SerializeField, Min(0.01f)] private float compositionResponse = 5f;
-        [SerializeField, Min(0f)] private float shoulderHoldSeconds = 0.7f;
+        [SerializeField, Min(0f)] private float shoulderHoldSeconds = 3f;
+        [SerializeField, Min(0f)] private float shoulderReleaseSeconds = 1.5f;
+        [SerializeField, Range(0f, 0.2f)] private float shoulderSwitchDeadZone = 0.06f;
         [SerializeField, Range(0f, 0.2f)] private float occlusionViewportPadding = 0.025f;
         [SerializeField, Min(0.02f)] private float rendererBoundsRefreshSeconds = 0.12f;
         [SerializeField] private Vector3 fallbackOwnshipBoundsSize = new Vector3(14f, 18f, 10f);
@@ -80,6 +82,7 @@ namespace ACunicombat.Mechs
         private float shoulderSign = 1f;
         private float shoulderDecisionLockedUntil;
         private float shoulderAvoidanceUntil;
+        private float shoulderBiasUntil;
         private uint observedReferenceFrameVersion;
 
         public float PitchDegrees => pitchDegrees;
@@ -171,6 +174,7 @@ namespace ACunicombat.Mechs
             compositionTrackId = default;
             shoulderDecisionLockedUntil = 0f;
             shoulderAvoidanceUntil = 0f;
+            shoulderBiasUntil = 0f;
             fieldOfViewVelocity = 0f;
             var rotation = ComputeRotation();
             transform.SetPositionAndRotation(
@@ -337,16 +341,23 @@ namespace ACunicombat.Mechs
         {
             ResolveCombatReferences();
             var targetOffset = BaseCompositionOffset();
+            var now = Time.unscaledTime;
             if (radar == null ||
                 !radar.SttTrackId.IsValid ||
                 !radar.TryGetTrack(radar.SttTrackId, out var track))
             {
                 compositionTrackId = default;
-                shoulderAvoidanceUntil = 0f;
+                if (now < shoulderBiasUntil)
+                {
+                    targetOffset.x =
+                        shoulderSign * sttCruiseShoulderOffset;
+                }
+
                 return targetOffset;
             }
 
             var sttTrackId = track.TrackId;
+            var isNewTrack = !sttTrackId.Equals(compositionTrackId);
             if (!sttTrackId.Equals(compositionTrackId))
             {
                 compositionTrackId = sttTrackId;
@@ -355,31 +366,45 @@ namespace ACunicombat.Mechs
             }
 
             var targetPosition = radar.PredictTrackPosition(track);
-            var now = Time.unscaledTime;
-            if (IsTargetOccludedByOwnship(targetPosition, out var targetViewport, out var ownshipRect))
+            var occluded = IsTargetOccludedByOwnship(
+                targetPosition,
+                out var targetViewport,
+                out var ownshipRect);
+            var hasCompositionProjection =
+                targetViewport.z > 0f &&
+                ownshipRect.width > 0f;
+            var horizontalDelta = hasCompositionProjection
+                ? targetViewport.x - ownshipRect.center.x
+                : 0f;
+            var holdDuration = Mathf.Max(2.5f, shoulderHoldSeconds);
+            if ((isNewTrack || occluded) &&
+                now >= shoulderDecisionLockedUntil)
             {
-                if (now >= shoulderDecisionLockedUntil)
+                if (Mathf.Abs(horizontalDelta) >= shoulderSwitchDeadZone)
                 {
-                    var horizontalDelta = targetViewport.x - ownshipRect.center.x;
-                    if (Mathf.Abs(horizontalDelta) >= 0.02f)
-                    {
-                        shoulderSign = Mathf.Sign(horizontalDelta);
-                    }
-                    else if (Mathf.Abs(compositionLocalOffset.x) >= 0.1f)
-                    {
-                        shoulderSign = Mathf.Sign(compositionLocalOffset.x);
-                    }
-
-                    shoulderDecisionLockedUntil = now + shoulderHoldSeconds;
+                    shoulderSign = Mathf.Sign(horizontalDelta);
+                }
+                else if (Mathf.Abs(compositionLocalOffset.x) >= 0.1f)
+                {
+                    shoulderSign = Mathf.Sign(compositionLocalOffset.x);
                 }
 
-                shoulderAvoidanceUntil = now + shoulderHoldSeconds;
+                shoulderDecisionLockedUntil = now + holdDuration;
             }
 
-            if (now < shoulderAvoidanceUntil)
+            shoulderBiasUntil =
+                now + Mathf.Max(0.5f, shoulderReleaseSeconds);
+            targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
+            if (occluded)
             {
-                targetOffset.x = shoulderSign * sttShoulderOffset;
                 targetOffset.z -= sttOcclusionPullback;
+                shoulderAvoidanceUntil = now + holdDuration;
+            }
+            else if (now < shoulderAvoidanceUntil)
+            {
+                // Keep the selected shoulder after the target clears the silhouette. The offset
+                // remains fixed; only its persistence changes.
+                targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
             }
 
             return targetOffset;

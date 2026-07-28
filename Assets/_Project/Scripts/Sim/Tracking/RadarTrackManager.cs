@@ -25,6 +25,8 @@ namespace ACunicombat.Tracking
             public double LastUpdateTime;
             public TrackSourceMask SourceMask;
             public float Confidence;
+            public TrackObjectClass ObjectClass;
+            public float ClassificationConfidence;
             public float InterferenceScore;
         }
 
@@ -132,10 +134,17 @@ namespace ACunicombat.Tracking
                     out var cartesian,
                     out var cartesianCovariance);
 
-                var slotIndex = FindAssociation(cartesian, in cartesianCovariance);
+                var slotIndex = FindAssociation(
+                    cartesian,
+                    in cartesianCovariance,
+                    measurement.ObjectClass);
                 if (slotIndex < 0)
                 {
-                    slotIndex = AllocateTrack(cartesian, in cartesianCovariance, measurement.Timestamp);
+                    slotIndex = AllocateTrack(
+                        cartesian,
+                        in cartesianCovariance,
+                        in measurement,
+                        measurement.Timestamp);
                     if (slotIndex < 0)
                     {
                         continue;
@@ -168,6 +177,7 @@ namespace ACunicombat.Tracking
                 }
 
                 slot.Confidence = ComputeConfidence(slot.Lifecycle.State, measurement.SnrDb, slot.InterferenceScore);
+                UpdateClassification(ref slot, in measurement);
                 slots[slotIndex] = slot;
                 associated[slotIndex] = true;
             }
@@ -320,13 +330,28 @@ namespace ACunicombat.Tracking
             return count;
         }
 
-        private int FindAssociation(double3 position, in Matrix6 measurementCovariance)
+        private int FindAssociation(
+            double3 position,
+            in Matrix6 measurementCovariance,
+            TrackObjectClass measuredObjectClass)
         {
             var bestIndex = -1;
             var bestDistance = double.MaxValue;
             for (var i = 0; i < slots.Length; i++)
             {
                 if (!slots[i].Active)
+                {
+                    continue;
+                }
+
+                // A missile starts almost exactly on top of its launch aircraft. Position-only
+                // association would otherwise absorb the first missile returns into the aircraft
+                // track, preventing the defensive fusion layer from ever seeing a missile track.
+                // Unknown classifications remain eligible so weak/ambiguous returns can still
+                // mature normally.
+                if (measuredObjectClass != TrackObjectClass.Unknown &&
+                    slots[i].ObjectClass != TrackObjectClass.Unknown &&
+                    measuredObjectClass != slots[i].ObjectClass)
                 {
                     continue;
                 }
@@ -344,9 +369,12 @@ namespace ACunicombat.Tracking
                 // 本 tick 已吃到量测的槽门限收紧 4×：同目标重叠驻留的重复量测
                 // 归一化距离 ≪ 门限仍可合并，但近距编队的相邻目标不再被
                 // 已关联的航迹抢走（最近邻无排他性的最小缓解）。
-                var gate = associated[i]
-                    ? AssociationGateSquared * 0.25
-                    : AssociationGateSquared;
+                // Overlapping dwells may report the same small, fast target
+                // several times in one fusion tick. Lifecycle hits are
+                // already de-duplicated by associated[], so retaining the
+                // normal covariance gate prevents noisy missile returns from
+                // allocating a trail of duplicate tracks.
+                var gate = AssociationGateSquared;
                 if (normalizedDistance >= gate || normalizedDistance >= bestDistance)
                 {
                     continue;
@@ -359,7 +387,11 @@ namespace ACunicombat.Tracking
             return bestIndex;
         }
 
-        private int AllocateTrack(double3 position, in Matrix6 measurementCovariance, double timestamp)
+        private int AllocateTrack(
+            double3 position,
+            in Matrix6 measurementCovariance,
+            in Measurement measurement,
+            double timestamp)
         {
             for (var i = 0; i < slots.Length; i++)
             {
@@ -393,6 +425,10 @@ namespace ACunicombat.Tracking
                     LastUpdateTime = timestamp,
                     SourceMask = TrackSourceMask.Radar,
                     Confidence = 0.2f,
+                    ObjectClass = measurement.ObjectClass,
+                    ClassificationConfidence =
+                        math.saturate(
+                            measurement.ClassificationConfidence * 0.5f),
                 };
                 // The caller performs the first update and records exactly one lifecycle hit.
                 // Additional overlapping dwells in the same fusion tick may still refine this
@@ -420,6 +456,38 @@ namespace ACunicombat.Tracking
             return math.saturate(lifecycleWeight + snrWeight - interference * 0.2f);
         }
 
+        private static void UpdateClassification(
+            ref TrackSlot slot,
+            in Measurement measurement)
+        {
+            var evidence =
+                math.saturate(measurement.ClassificationConfidence);
+            if (measurement.ObjectClass == TrackObjectClass.Unknown ||
+                evidence <= 0f)
+            {
+                return;
+            }
+
+            if (slot.ObjectClass == TrackObjectClass.Unknown ||
+                slot.ObjectClass == measurement.ObjectClass)
+            {
+                slot.ObjectClass = measurement.ObjectClass;
+                slot.ClassificationConfidence = math.saturate(
+                    slot.ClassificationConfidence +
+                    (1f - slot.ClassificationConfidence) *
+                    evidence * 0.35f);
+                return;
+            }
+
+            slot.ClassificationConfidence =
+                math.max(0f, slot.ClassificationConfidence - evidence * 0.4f);
+            if (slot.ClassificationConfidence <= 0.2f)
+            {
+                slot.ObjectClass = measurement.ObjectClass;
+                slot.ClassificationConfidence = evidence * 0.35f;
+            }
+        }
+
         private static TrackSnapshot BuildSnapshot(in TrackSlot slot)
         {
             var snapshot = new TrackSnapshot
@@ -428,7 +496,8 @@ namespace ACunicombat.Tracking
                 Position = slot.Filter.Position,
                 Velocity = slot.Filter.Velocity,
                 Confidence = slot.Confidence,
-                Classification = 0f,
+                ObjectClass = slot.ObjectClass,
+                Classification = slot.ClassificationConfidence,
                 IdentityConfidence = 0f,
                 Affiliation = TrackAffiliation.Unknown,
                 LastUpdateTime = slot.LastUpdateTime,

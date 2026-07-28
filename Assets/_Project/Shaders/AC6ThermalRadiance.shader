@@ -2,7 +2,7 @@
 // override material 使用，把不透明场景按温度重画成灰度辐射亮度。
 // 温度来源：
 //   - 挂了 MechThermalSignature / MechThermalPointEmitter 的物体经
-//     MaterialPropertyBlock 注入逐 renderer 的 _ThermalTemp（开尔文）；
+//     热成像启用期间由 renderer MaterialPropertyBlock 注入 _ThermalTemp（开尔文）；
 //   - 未标记的物体落回材质默认值（环境冷物体）。
 // 亮度映射：L = ε·(T/1000)^4，窗口 _AC6ThermalWindow 由
 // MechThermalVisionController 在 CPU 端按当前场景温度域计算（AGC），
@@ -31,7 +31,10 @@ Shader "ACunicombat/AC6/Thermal Radiance"
             Name "AC6ThermalRadiance"
             ZTest LEqual
             ZWrite On
-            Cull Back
+            // AC6 FLVER surfaces contain reversed-winding and intentionally
+            // double-sided armor panels. Match the normal AC6 parts shader or
+            // the thermal override pass culls most of the mech.
+            Cull Off
 
             HLSLPROGRAM
             #pragma vertex Vert

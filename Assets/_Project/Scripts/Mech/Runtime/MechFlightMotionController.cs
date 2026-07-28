@@ -149,6 +149,7 @@ namespace ACunicombat.Mechs
         private float currentMomentumWheelTorqueNewtonMeters;
         private float aimPitchDegrees;
         private Quaternion referenceRotation = Quaternion.identity;
+        private Vector3 referencePlaneOrigin;
         private uint referenceFrameVersion;
         private Vector3 velocity;
         private float quickBoostRemaining;
@@ -268,7 +269,9 @@ namespace ACunicombat.Mechs
                         Vector3.Dot(
                             transform.position - sampledGroundPoint,
                             ReferenceUp))
-                    : 0f;
+                    : Vector3.Dot(
+                        transform.position - referencePlaneOrigin,
+                        ReferenceUp);
             }
         }
 
@@ -307,6 +310,7 @@ namespace ACunicombat.Mechs
         {
             massBody = GetComponent<Rigidbody>();
             runtimeState = GetComponent<MechRuntimeState>();
+            referencePlaneOrigin = transform.position;
             yawDegrees = Mathf.Repeat(transform.eulerAngles.y - modelForwardYawOffset, 360f);
             commandedYawDegrees = yawDegrees;
             pitchDegrees = 0f;
@@ -541,6 +545,7 @@ namespace ACunicombat.Mechs
             }
 
             referenceRotation = Quaternion.LookRotation(forward.normalized, up);
+            referencePlaneOrigin = transform.position;
             yawDegrees = 0f;
             commandedYawDegrees = 0f;
             yawAngularVelocityRadians = 0f;

@@ -94,6 +94,7 @@ namespace ACunicombat.Mechs
 
             mode = next;
             var on = mode != MechThermalVisionMode.Off;
+            MechThermalSignature.RendererTemperatureOutputEnabled = on;
             thermalObjectsFeature?.SetActive(on);
             thermalScreenFeature?.SetActive(on);
             if (on)
@@ -111,6 +112,7 @@ namespace ACunicombat.Mechs
         private void Awake()
         {
             ResolveFeatures();
+            MechThermalSignature.RendererTemperatureOutputEnabled = false;
             // 场景可能带着上次运行留下的激活状态；开局强制与 Off 一致。
             thermalObjectsFeature?.SetActive(false);
             thermalScreenFeature?.SetActive(false);
@@ -118,6 +120,7 @@ namespace ACunicombat.Mechs
 
         private void OnDisable()
         {
+            MechThermalSignature.RendererTemperatureOutputEnabled = false;
             thermalObjectsFeature?.SetActive(false);
             thermalScreenFeature?.SetActive(false);
         }

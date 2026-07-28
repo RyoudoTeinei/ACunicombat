@@ -55,6 +55,44 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void MissileSignatureEvidence_PropagatesWithoutEntityIdentity()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+
+            for (var i = 1; i <= 3; i++)
+            {
+                var measurement = MeasurementAt(i * 0.04);
+                measurement.ObjectClass =
+                    TrackObjectClass.Missile;
+                measurement.ClassificationConfidence = 0.8f;
+                measurements.Clear();
+                measurements.Add(measurement);
+                manager.Process(
+                    measurements,
+                    double3.zero,
+                    i * 0.04);
+            }
+
+            Assert.That(
+                manager.TryGetBestTrack(out var track),
+                Is.True);
+            Assert.That(
+                track.ObjectClass,
+                Is.EqualTo(TrackObjectClass.Missile));
+            Assert.That(
+                track.Classification,
+                Is.GreaterThan(0.5f));
+            Assert.That(
+                track.IdentityConfidence,
+                Is.Zero);
+            Assert.That(
+                track.Affiliation,
+                Is.EqualTo(TrackAffiliation.Unknown));
+        }
+
+        [Test]
         public void OverlappingDwellsInSameTick_RefineOneTrackAndCountOneHit()
         {
             var manager = new RadarTrackManager();
@@ -71,6 +109,72 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(track.HitCount, Is.EqualTo(1));
             Assert.That(track.Lifecycle, Is.EqualTo(TrackLifecycle.Tentative));
             Assert.That(track.Position.z, Is.EqualTo(1_000.5).Within(2.0));
+        }
+
+        [Test]
+        public void NoisyOverlappingMissileDwells_DoNotAllocateDuplicateTracks()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+            var velocity = new double3(0.0, 0.0, -350.0);
+            var first = MeasurementAtPosition(
+                0.04,
+                new double3(0.0, 0.0, 7_400.0),
+                velocity);
+            first.ObjectClass = TrackObjectClass.Missile;
+            first.ClassificationConfidence = 0.9f;
+            var overlappingDwell = MeasurementAtPosition(
+                0.04,
+                new double3(22.0, 0.0, 7_398.0),
+                velocity);
+            overlappingDwell.ObjectClass =
+                TrackObjectClass.Missile;
+            overlappingDwell.ClassificationConfidence = 0.9f;
+            measurements.Add(first);
+            measurements.Add(overlappingDwell);
+
+            manager.Process(
+                measurements,
+                double3.zero,
+                double3.zero,
+                0.04);
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+            Assert.That(
+                manager.TryGetBestTrack(out var track),
+                Is.True);
+            Assert.That(track.HitCount, Is.EqualTo(1));
+            Assert.That(
+                track.ObjectClass,
+                Is.EqualTo(TrackObjectClass.Missile));
+        }
+
+        [Test]
+        public void CoLocatedAircraftAndMissile_ReturnsRemainSeparateTracks()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+            var aircraft = MeasurementAt(0.04);
+            aircraft.ObjectClass = TrackObjectClass.AirVehicle;
+            aircraft.ClassificationConfidence = 0.85f;
+            var missile = MeasurementAt(0.04);
+            missile.ObjectClass = TrackObjectClass.Missile;
+            missile.ClassificationConfidence = 0.9f;
+            measurements.Add(aircraft);
+            measurements.Add(missile);
+
+            manager.Process(measurements, double3.zero, 0.04);
+
+            var tracks = new TrackSnapshot[4];
+            Assert.That(manager.CopyTracks(tracks), Is.EqualTo(2));
+            Assert.That(
+                new[] { tracks[0].ObjectClass, tracks[1].ObjectClass },
+                Does.Contain(TrackObjectClass.AirVehicle));
+            Assert.That(
+                new[] { tracks[0].ObjectClass, tracks[1].ObjectClass },
+                Does.Contain(TrackObjectClass.Missile));
         }
 
         [Test]

@@ -4,11 +4,8 @@ using UnityEngine;
 namespace ACunicombat.Mechs
 {
     /// <summary>
-    /// 上半身武器命令层（架构第 4 层；w0xx 武器行为图编译前的正式等价物，
-    /// 状态序列 = w020 官方图：待機→(抬臂)→射撃待機→射撃→射撃終了→待機）。
-    /// 与全身层并行：只经 MechBodyActionPlayer 的上半身遮罩层播放，不触碰第 0 层。
-    /// 左右手独立入口；同侧连发停留在 Hold，不重播抬臂。
-    /// 非循环动作结束与收枪超时自动回落，ClearUpperBody 交还基础姿态。
+    /// Independent right/left weapon animation state machines layered over locomotion.
+    /// Each hand owns its own raise, hold, fire and lower transitions.
     /// </summary>
     public sealed class MechWeaponArmLayer : MonoBehaviour
     {
@@ -26,32 +23,41 @@ namespace ACunicombat.Mechs
             public string raiseActionId;
             public string holdActionId;
             public string fireActionId;
-            [Tooltip("抬臂动作时长（秒）。TAE/clip 时长进 IR 后由数据替换。")]
-            public float raiseSeconds;
-            [Tooltip("开火/后坐动作时长（秒）。")]
-            public float fireSeconds;
+            [Min(0f)] public float raiseSeconds;
+            [Min(0f)] public float fireSeconds;
         }
 
-        [Tooltip("Right-hand action set. Bone-curve inspection proves 03002x/03003x drives the anatomical right arm.")]
-        [SerializeField] private ArmActionSet rightArm = CreateRightArmActionSet();
+        [Tooltip("Anatomical right-arm actions: 03002x/03003x.")]
+        [SerializeField] private ArmActionSet rightArm =
+            CreateRightArmActionSet();
 
-        [Tooltip("Left-hand action set. Bone-curve inspection proves 03004x/03005x drives the anatomical left arm.")]
-        [SerializeField] private ArmActionSet leftArm = CreateLeftArmActionSet();
+        [Tooltip("Anatomical left-arm actions: 03004x/03005x.")]
+        [SerializeField] private ArmActionSet leftArm =
+            CreateLeftArmActionSet();
 
-        [Tooltip("无开火输入后收枪的超时（秒）。")]
-        [SerializeField] private float lowerTimeoutSeconds = 1.5f;
+        [Tooltip("Delay after releasing an arm before it smoothly lowers.")]
+        [SerializeField, Min(0f)] private float lowerTimeoutSeconds = 1.5f;
 
+        private readonly ArmRuntimeState rightState = new ArmRuntimeState();
+        private readonly ArmRuntimeState leftState = new ArmRuntimeState();
         private MechBodyActionPlayer player;
-        private ArmPhase phase;
         private bool activeSideIsRight = true;
-        private float phaseElapsed;
-        private float idleElapsed;
 
-        public ArmPhase Phase => phase;
+        public ArmPhase Phase =>
+            activeSideIsRight ? rightState.Phase : leftState.Phase;
+
+        public ArmPhase RightPhase => rightState.Phase;
+
+        public ArmPhase LeftPhase => leftState.Phase;
 
         public bool ActiveSideIsRight => activeSideIsRight;
 
-        public string CurrentActionId => player != null ? player.ActiveUpperBodyActionId : string.Empty;
+        public string CurrentActionId =>
+            player == null
+                ? string.Empty
+                : activeSideIsRight
+                    ? player.ActiveRightArmActionId
+                    : player.ActiveLeftArmActionId;
 
         public string RightFireActionId => rightArm.fireActionId;
 
@@ -65,11 +71,7 @@ namespace ACunicombat.Mechs
             leftArm.holdActionId == "a200_030042" &&
             leftArm.fireActionId == "a200_030050";
 
-        private void Awake()
-        {
-            // Serialized action sets in already-generated scenes may contain the old reversed mapping.
-            ApplyVerifiedSideMapping();
-        }
+        private void Awake() => ApplyVerifiedSideMapping();
 
         public void ApplyVerifiedSideMapping()
         {
@@ -79,70 +81,104 @@ namespace ACunicombat.Mechs
 
         public void Configure(MechBodyActionPlayer actionPlayer)
         {
-            // Upgrade stale generated scenes whose serialized action sets predate the verified mapping.
             ApplyVerifiedSideMapping();
             player = actionPlayer;
-            phase = ArmPhase.Lowered;
+            rightState.Reset();
+            leftState.Reset();
         }
 
-        /// <summary>suppress = 行为图裁决当前全身状态禁用上半身（QB/硬直等，由 Rig 判定传入）。</summary>
-        public void Tick(in MechPlayerInputFrame frame, bool suppress, float deltaTime)
+        public void Tick(
+            in MechPlayerInputFrame frame,
+            bool suppress,
+            float deltaTime)
         {
             if (player == null)
             {
                 return;
             }
 
-            phaseElapsed += deltaTime;
-
             if (suppress)
             {
-                if (phase != ArmPhase.Lowered)
-                {
-                    SetPhase(ArmPhase.Lowered);
-                    player.ClearUpperBody();
-                }
-
+                SuppressArm(rightState, true);
+                SuppressArm(leftState, false);
                 return;
             }
 
-            var wantFire = frame.PrimaryFireHeld || frame.SecondaryFireHeld;
-            var fireEdge = frame.PrimaryFireEdge || frame.SecondaryFireEdge;
-            if (wantFire)
+            if (frame.SecondaryFireEdge)
             {
-                idleElapsed = 0f;
-                // 左右手独立入口：以本帧边沿侧优先，否则保持当前侧。
-                if (frame.SecondaryFireEdge)
-                {
-                    activeSideIsRight = true;
-                }
-                else if (frame.PrimaryFireEdge)
-                {
-                    activeSideIsRight = false;
-                }
+                activeSideIsRight = true;
             }
-            else
+            else if (frame.PrimaryFireEdge)
             {
-                idleElapsed += deltaTime;
+                activeSideIsRight = false;
             }
 
-            ref readonly var set = ref activeSideIsRight ? ref rightArm : ref leftArm;
-            switch (phase)
+            TickArm(
+                rightState,
+                in rightArm,
+                true,
+                frame.SecondaryFireHeld,
+                frame.SecondaryFireEdge,
+                deltaTime);
+            TickArm(
+                leftState,
+                in leftArm,
+                false,
+                frame.PrimaryFireHeld,
+                frame.PrimaryFireEdge,
+                deltaTime);
+        }
+
+        private void SuppressArm(ArmRuntimeState state, bool isRight)
+        {
+            if (state.Phase == ArmPhase.Lowered)
+            {
+                return;
+            }
+
+            state.Reset();
+            ClearArm(isRight);
+        }
+
+        private void TickArm(
+            ArmRuntimeState state,
+            in ArmActionSet set,
+            bool isRight,
+            bool fireHeld,
+            bool fireEdge,
+            float deltaTime)
+        {
+            state.PhaseElapsed += deltaTime;
+            state.IdleElapsed = fireHeld
+                ? 0f
+                : state.IdleElapsed + deltaTime;
+            state.FireQueued |= fireEdge;
+
+            switch (state.Phase)
             {
                 case ArmPhase.Lowered:
-                    if (wantFire)
+                    if (fireHeld || fireEdge)
                     {
-                        PlayUpper(set.raiseActionId);
-                        SetPhase(ArmPhase.Raising);
+                        PlayArm(isRight, set.raiseActionId);
+                        SetPhase(state, ArmPhase.Raising);
                     }
 
                     break;
 
                 case ArmPhase.Raising:
-                    if (phaseElapsed >= set.raiseSeconds)
+                    if (state.PhaseElapsed >= set.raiseSeconds)
                     {
-                        PlayUpper(set.holdActionId);
-                        SetPhase(ArmPhase.Holding);
+                        if (fireHeld || state.FireQueued)
+                        {
+                            state.FireQueued = false;
+                            PlayArm(isRight, set.fireActionId);
+                            SetPhase(state, ArmPhase.Firing);
+                        }
+                        else
+                        {
+                            PlayArm(isRight, set.holdActionId);
+                            SetPhase(state, ArmPhase.Holding);
+                        }
                     }
 
                     break;
@@ -150,41 +186,66 @@ namespace ACunicombat.Mechs
                 case ArmPhase.Holding:
                     if (fireEdge)
                     {
-                        PlayUpper(set.fireActionId);
-                        SetPhase(ArmPhase.Firing);
+                        state.FireQueued = false;
+                        PlayArm(isRight, set.fireActionId);
+                        SetPhase(state, ArmPhase.Firing);
                     }
-                    else if (idleElapsed >= lowerTimeoutSeconds)
+                    else if (!fireHeld &&
+                             state.IdleElapsed >= lowerTimeoutSeconds)
                     {
-                        player.ClearUpperBody();
-                        SetPhase(ArmPhase.Lowered);
+                        ClearArm(isRight);
+                        state.Reset();
                     }
 
                     break;
 
                 case ArmPhase.Firing:
-                    if (phaseElapsed >= set.fireSeconds)
+                    if (state.PhaseElapsed >= set.fireSeconds)
                     {
-                        // 连发：仍按住则回 Hold 等下一次边沿；不重播抬臂。
-                        PlayUpper(set.holdActionId);
-                        SetPhase(ArmPhase.Holding);
+                        PlayArm(isRight, set.holdActionId);
+                        SetPhase(state, ArmPhase.Holding);
                     }
 
                     break;
             }
         }
 
-        private void PlayUpper(string actionId)
+        private void PlayArm(bool isRight, string actionId)
         {
-            if (!string.IsNullOrEmpty(actionId) && player.HasAction(actionId))
+            if (string.IsNullOrEmpty(actionId) ||
+                !player.HasAction(actionId))
             {
-                player.PlayUpperBody(actionId);
+                return;
+            }
+
+            if (isRight)
+            {
+                player.PlayRightArm(actionId);
+            }
+            else
+            {
+                player.PlayLeftArm(actionId);
             }
         }
 
-        private void SetPhase(ArmPhase next)
+        private void ClearArm(bool isRight)
         {
-            phase = next;
-            phaseElapsed = 0f;
+            if (isRight)
+            {
+                player.ClearRightArm(0.25f);
+            }
+            else
+            {
+                player.ClearLeftArm(0.25f);
+            }
+        }
+
+        private static void SetPhase(
+            ArmRuntimeState state,
+            ArmPhase next)
+        {
+            state.Phase = next;
+            state.PhaseElapsed = 0f;
         }
 
         private static ArmActionSet CreateRightArmActionSet()
@@ -209,6 +270,22 @@ namespace ACunicombat.Mechs
                 raiseSeconds = 0.5f,
                 fireSeconds = 0.4f,
             };
+        }
+
+        private sealed class ArmRuntimeState
+        {
+            public ArmPhase Phase;
+            public float PhaseElapsed;
+            public float IdleElapsed;
+            public bool FireQueued;
+
+            public void Reset()
+            {
+                Phase = ArmPhase.Lowered;
+                PhaseElapsed = 0f;
+                IdleElapsed = 0f;
+                FireQueued = false;
+            }
         }
     }
 }

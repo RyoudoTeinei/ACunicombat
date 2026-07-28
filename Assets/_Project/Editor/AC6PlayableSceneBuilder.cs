@@ -1124,13 +1124,6 @@ public static class AC6PlayableSceneBuilder
             $"{LoadoutRoot}/AC6_AI_Target_A.asset",
             "ac6_ai_target_a",
             "AI Target A");
-        var variantB = BuildAiVariantLoadout(
-            playerLoadout,
-            $"{LoadoutRoot}/AC6_Skinned_MixedB.asset",
-            $"{LoadoutRoot}/AC6_AI_Target_B.asset",
-            "ac6_ai_target_b",
-            "AI Target B");
-
         var first = BuildAiCombatMech(
             playerMech,
             playerTarget,
@@ -1138,15 +1131,7 @@ public static class AC6PlayableSceneBuilder
             firstTargetName,
             "AI-MECH-A",
             new Vector3(0f, 11f, 150f),
-            new Color(0.58f, 0.10f, 0.06f, 1f));
-        BuildAiCombatMech(
-            playerMech,
-            playerTarget,
-            variantB,
-            secondTargetName,
-            "AI-MECH-B",
-            new Vector3(0f, 120f, 150f),
-            new Color(0.10f, 0.28f, 0.62f, 1f));
+            new Color(0.96f, 0.97f, 0.98f, 1f));
         return first;
     }
 
@@ -1186,12 +1171,18 @@ public static class AC6PlayableSceneBuilder
         {
             UnityEngine.Object.DestroyImmediate(warningHud);
         }
+        var trajectoryPredictor = root.GetComponent<MechTrajectoryPredictor>();
+        if (trajectoryPredictor != null)
+        {
+            trajectoryPredictor.enabled = false;
+            EditorUtility.SetDirty(trajectoryPredictor);
+        }
 
         var input = Ensure<MechPlayerInputAdapter>(root);
         input.SetExternalControl(true);
         var rig = Ensure<MechPlayerRig>(root);
         rig.ConfigureAiControl();
-        rig.enabled = false;
+        rig.enabled = true;
 
         var aimPoint = root.transform.Find("TargetAimPoint");
         var target = Ensure<CombatTestTarget>(root);
@@ -1215,16 +1206,18 @@ public static class AC6PlayableSceneBuilder
             playerTarget,
             AC6FxrEffectFactory.BuildLibrary());
         weaponSystem.ConfigureAimViewport(new Vector2(0.5f, 0.5f));
-        weaponSystem.enabled = false;
+        weaponSystem.enabled = true;
         if (weaponSystem.RadarController != null)
         {
             weaponSystem.RadarController.enabled = false;
             EditorUtility.SetDirty(weaponSystem.RadarController);
         }
 
+        Ensure<MechTestRadarEmitter>(root);
         var ai = Ensure<MechAiTargetController>(root);
         ai.Configure(playerTarget, sensorCamera);
-        ai.enabled = false;
+        ai.ConfigureCombatBehavior(3000f, 5000f, 8f);
+        ai.enabled = true;
 
         var aiSo = new SerializedObject(ai);
         var tintProperty = aiSo.FindProperty("identificationTint");

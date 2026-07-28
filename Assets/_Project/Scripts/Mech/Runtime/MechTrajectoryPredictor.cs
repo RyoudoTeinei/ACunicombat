@@ -275,6 +275,10 @@ namespace ACunicombat.Mechs
         private void OnDisable()
         {
             visualStateInitialized = false;
+            if (line != null)
+            {
+                line.positionCount = 0;
+            }
         }
 
         private static float ExponentialSmoothingFactor(

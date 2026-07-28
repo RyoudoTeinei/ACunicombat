@@ -19,6 +19,9 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class CombatTestTarget : MonoBehaviour
     {
+        private const string Ac6PartsApproxShaderName =
+            "ACunicombat/AC6/Parts Approx";
+
         [SerializeField] private string targetId = "SIM-TGT-01";
         [SerializeField] private int teamId = 2;
         [SerializeField] private float maxHealth = 2400f;
@@ -248,11 +251,31 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < renderers.Length; i++)
             {
                 var renderer = renderers[i];
-                if (renderer == null) continue;
+                if (renderer == null ||
+                    UsesAc6PartsApproxShader(renderer))
+                {
+                    continue;
+                }
+
                 renderer.GetPropertyBlock(propertyBlock);
                 propertyBlock.SetColor("_EmissionColor", emission);
                 renderer.SetPropertyBlock(propertyBlock);
             }
+        }
+
+        private static bool UsesAc6PartsApproxShader(Renderer renderer)
+        {
+            var materials = renderer.sharedMaterials;
+            for (var i = 0; i < materials.Length; i++)
+            {
+                var shader = materials[i] != null ? materials[i].shader : null;
+                if (shader != null && shader.name == Ac6PartsApproxShaderName)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }
