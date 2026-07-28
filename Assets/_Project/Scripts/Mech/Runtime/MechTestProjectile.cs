@@ -30,7 +30,7 @@ namespace ACunicombat.Mechs
         private const float SeekerScanIntervalSeconds = 0.05f;
         private const float SeekerLockMemorySeconds = 0.35f;
         private const float InterceptorSeekerLockMemorySeconds = 0.65f;
-        private const float InterceptorFuseEstimateMemorySeconds = 0.8f;
+        private const float InterceptorFuseEstimateMemorySeconds = 4f;
         private const float InterceptorFuseLookAheadSeconds = 0.06f;
         private const float InterceptorFuseUncertaintyAllowanceMeters = 8f;
         private const float DefaultMissileInterceptionHealth = 80f;
@@ -776,6 +776,11 @@ namespace ACunicombat.Mechs
 
         private void UpdateMissile(float deltaTime)
         {
+            if (terminalFuseEstimateMemoryRemaining > 0f)
+            {
+                terminalFuseEstimatedPosition +=
+                    terminalFuseEstimatedVelocity * deltaTime;
+            }
             terminalFuseEstimateMemoryRemaining = Mathf.Max(
                 0f,
                 terminalFuseEstimateMemoryRemaining - deltaTime);
@@ -826,6 +831,7 @@ namespace ACunicombat.Mechs
             Vector3 targetPosition;
             Vector3 targetVelocity;
             var hasGuidance = false;
+            var refreshesTerminalEstimate = false;
             var seekerActive = missileFlightTime >= seekerActivationDelay;
             var directVehicleTargetAlive =
                 directGuidanceTarget != null &&
@@ -877,6 +883,7 @@ namespace ACunicombat.Mechs
                 seekerLocked =
                     seekerActive && directSeekerHasTrack;
                 hasGuidance = true;
+                refreshesTerminalEstimate = true;
             }
             else if (seekerLocked)
             {
@@ -884,6 +891,7 @@ namespace ACunicombat.Mechs
                 targetPosition = seekerEstimatedPosition;
                 targetVelocity = seekerEstimatedVelocity;
                 hasGuidance = true;
+                refreshesTerminalEstimate = true;
                 ReleaseGuidanceChannel();
             }
             else if (TryUpdateDatalinkTrack(deltaTime, out var track))
@@ -899,6 +907,17 @@ namespace ACunicombat.Mechs
                     (float)track.Velocity.y,
                     (float)track.Velocity.z);
                 hasGuidance = true;
+                refreshesTerminalEstimate = true;
+            }
+            else if (interceptorMissile &&
+                     terminalFuseEstimateMemoryRemaining > 0f)
+            {
+                missilePhase = motorActive
+                    ? MissileFlightPhase.Boost
+                    : MissileFlightPhase.MidcourseCoast;
+                targetPosition = terminalFuseEstimatedPosition;
+                targetVelocity = terminalFuseEstimatedVelocity;
+                hasGuidance = true;
             }
             else
             {
@@ -913,10 +932,13 @@ namespace ACunicombat.Mechs
 
             if (hasGuidance)
             {
-                terminalFuseEstimatedPosition = targetPosition;
-                terminalFuseEstimatedVelocity = targetVelocity;
-                terminalFuseEstimateMemoryRemaining =
-                    InterceptorFuseEstimateMemorySeconds;
+                if (refreshesTerminalEstimate)
+                {
+                    terminalFuseEstimatedPosition = targetPosition;
+                    terminalFuseEstimatedVelocity = targetVelocity;
+                    terminalFuseEstimateMemoryRemaining =
+                        InterceptorFuseEstimateMemorySeconds;
+                }
                 var toTarget = targetPosition - transform.position;
                 var terminalGuidance =
                     seekerLocked || directSeekerHasTrack;
@@ -1504,13 +1526,22 @@ namespace ACunicombat.Mechs
                     fuseLookAhead,
                     effectiveFuseRadius,
                     out var timeToClosestApproach,
-                    out _))
+                    out var predictedMissDistance))
             {
                 return false;
             }
 
             var detonationPoint =
                 transform.position + velocity * timeToClosestApproach;
+            if (interceptorMissile)
+            {
+                Debug.Log(
+                    $"[Interceptor] Proximity fuze triggered: " +
+                    $"CPA={timeToClosestApproach:0.000}s, " +
+                    $"miss={predictedMissDistance:0.0}m, " +
+                    $"radius={effectiveFuseRadius:0.0}m, " +
+                    $"seeker={(seekerLocked ? "locked" : "inertial")}.");
+            }
             DetonateWarhead(
                 detonationPoint,
                 interceptorMissile
@@ -1666,7 +1697,9 @@ namespace ACunicombat.Mechs
                     0.45f,
                     1f,
                     1f - distance / warheadLethalRadius);
-                candidate.ApplyPointDefenseDamage(
+                var healthBefore = candidate.interceptionHealth;
+                var damageApplied =
+                    candidate.ApplyPointDefenseDamage(
                     damage * falloff,
                     detonationPoint,
                     velocity.sqrMagnitude > 0.001f
@@ -1675,11 +1708,26 @@ namespace ACunicombat.Mechs
                     TestWeaponKind.Missile,
                     effectLibrary,
                     impactFfxId);
+                if (!damageApplied)
+                {
+                    continue;
+                }
+
                 damagedAnyMissile = true;
+                Debug.Log(
+                    $"[Interceptor] Warhead damaged missile: " +
+                    $"range={distance:0.0}m, " +
+                    $"damage={damage * falloff:0.0}, " +
+                    $"health={healthBefore:0.0}->" +
+                    $"{candidate.interceptionHealth:0.0}, " +
+                    $"destroyed={!candidate.IsInterceptableMissile}.");
             }
 
             if (!damagedAnyMissile)
             {
+                Debug.LogWarning(
+                    $"[Interceptor] Warhead detonated without a missile " +
+                    $"inside lethal radius {warheadLethalRadius:0.0}m.");
                 MechTestWeaponSystem.SpawnImpact(
                     detonationPoint,
                     velocity.sqrMagnitude > 0.001f
