@@ -1667,9 +1667,11 @@ namespace ACunicombat.Mechs
         {
             var damagedAnyMissile = false;
             DamagedProjectileScratch.Clear();
-            var predictionTime = Mathf.Max(
-                0f,
+            var predictionWindow = Mathf.Max(
+                Time.fixedDeltaTime,
                 predictionSeconds);
+            var eligibleMissileCount = 0;
+            var nearestPhysicalMissDistance = float.PositiveInfinity;
             for (var i = 0; i < registry.Count; i++)
             {
                 var candidate = registry[i];
@@ -1682,17 +1684,37 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                var candidatePosition =
-                    candidate.transform.position +
-                    candidate.velocity * predictionTime;
-                var distance = Vector3.Distance(
-                    detonationPoint,
-                    candidatePosition);
+                eligibleMissileCount++;
+                var relativePosition =
+                    candidate.transform.position - transform.position;
+                var relativeVelocity =
+                    candidate.velocity - velocity;
+                var relativeSpeedSquared =
+                    relativeVelocity.sqrMagnitude;
+                var physicalCpaTime = relativeSpeedSquared > 0.001f
+                    ? Mathf.Clamp(
+                        -Vector3.Dot(
+                            relativePosition,
+                            relativeVelocity) /
+                        relativeSpeedSquared,
+                        0f,
+                        predictionWindow)
+                    : 0f;
+                var separationAtCpa =
+                    relativePosition +
+                    relativeVelocity * physicalCpaTime;
+                var distance = separationAtCpa.magnitude;
+                nearestPhysicalMissDistance = Mathf.Min(
+                    nearestPhysicalMissDistance,
+                    distance);
                 if (distance > warheadLethalRadius)
                 {
                     continue;
                 }
 
+                var physicalDetonationPoint =
+                    transform.position +
+                    velocity * physicalCpaTime;
                 var falloff = Mathf.Lerp(
                     0.45f,
                     1f,
@@ -1701,7 +1723,7 @@ namespace ACunicombat.Mechs
                 var damageApplied =
                     candidate.ApplyPointDefenseDamage(
                     damage * falloff,
-                    detonationPoint,
+                    physicalDetonationPoint,
                     velocity.sqrMagnitude > 0.001f
                         ? velocity.normalized
                         : transform.forward,
@@ -1716,7 +1738,8 @@ namespace ACunicombat.Mechs
                 damagedAnyMissile = true;
                 Debug.Log(
                     $"[Interceptor] Warhead damaged missile: " +
-                    $"range={distance:0.0}m, " +
+                    $"CPA={physicalCpaTime:0.000}s, " +
+                    $"miss={distance:0.0}m, " +
                     $"damage={damage * falloff:0.0}, " +
                     $"health={healthBefore:0.0}->" +
                     $"{candidate.interceptionHealth:0.0}, " +
@@ -1727,7 +1750,9 @@ namespace ACunicombat.Mechs
             {
                 Debug.LogWarning(
                     $"[Interceptor] Warhead detonated without a missile " +
-                    $"inside lethal radius {warheadLethalRadius:0.0}m.");
+                    $"inside lethal radius {warheadLethalRadius:0.0}m; " +
+                    $"eligible={eligibleMissileCount}, nearest=" +
+                    $"{nearestPhysicalMissDistance:0.0}m.");
                 MechTestWeaponSystem.SpawnImpact(
                     detonationPoint,
                     velocity.sqrMagnitude > 0.001f
