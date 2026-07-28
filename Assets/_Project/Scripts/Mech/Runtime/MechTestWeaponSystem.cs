@@ -50,6 +50,11 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0.1f)] private float interceptorPredictionHorizonSeconds = 60f;
         [SerializeField, Min(0f)] private float interceptorLockHoldSeconds = 0.5f;
         [SerializeField, Min(0f)] private float interceptorResponseReserveSeconds = 0.2f;
+        [Header("Interceptor cold launch")]
+        [SerializeField, Min(0f)] private float interceptorSafeSeparationSeconds = 0.12f;
+        [SerializeField, Min(0f)] private float interceptorSafeSeparationMeters = 5f;
+        [SerializeField, Range(0.5f, 45f)] private float interceptorIgnitionAlignmentDegrees = 8f;
+        [SerializeField, Min(0.05f)] private float interceptorAlignmentTimeoutSeconds = 0.6f;
         [Header("Air-to-air missile")]
         [SerializeField] private MissileFlightProfile airToAirMissileProfile =
             MissileFlightProfile.AirToAirDefault;
@@ -460,16 +465,11 @@ namespace ACunicombat.Mechs
             }
 
             interceptorSolution = launchSolution;
-            var clearanceDirection =
-                ResolveMissileLaunchDirection(muzzle);
             var launchDirection =
-                ResolveGuidedMissileLaunchDirection(
-                    muzzle,
-                    ToVector3(launchSolution.InterceptPoint),
-                    80f);
+                ResolveMissileLaunchDirection(muzzle);
             var launchPosition =
                 muzzle.position +
-                clearanceDirection * missileLaunchClearanceMeters;
+                launchDirection * missileLaunchClearanceMeters;
             var inheritedVelocity =
                 flightMotion != null
                     ? flightMotion.Velocity
@@ -515,7 +515,16 @@ namespace ACunicombat.Mechs
                 initialGuidanceUncertaintyMeters:
                     incomingTrack.PositionUncertaintyMeters,
                 prelaunchInterceptPoint: ToVector3(
-                    launchSolution.InterceptPoint));
+                    launchSolution.InterceptPoint),
+                coldLaunch: true,
+                coldLaunchSafeSeparationSeconds:
+                    interceptorSafeSeparationSeconds,
+                coldLaunchSafeSeparationMeters:
+                    interceptorSafeSeparationMeters,
+                coldLaunchIgnitionAlignmentDegrees:
+                    interceptorIgnitionAlignmentDegrees,
+                coldLaunchAlignmentTimeoutSeconds:
+                    interceptorAlignmentTimeoutSeconds);
 
             Debug.Log(
                 $"[MechTestWeaponSystem] Interceptor launched at " +
@@ -720,10 +729,6 @@ namespace ACunicombat.Mechs
             {
                 launchSolution = refinedSolution;
             }
-            launchDirection = ResolveGuidedMissileLaunchDirection(
-                muzzle,
-                ToVector3(launchSolution.InterceptPoint),
-                80f);
             var simulationRadar = FindObjectsByType<MechRadarController>(
                     FindObjectsInactive.Exclude)
                 .FirstOrDefault(candidate =>
@@ -756,7 +761,16 @@ namespace ACunicombat.Mechs
                 initialGuidanceVelocity:
                     incomingMissile.Velocity,
                 prelaunchInterceptPoint:
-                    ToVector3(launchSolution.InterceptPoint));
+                    ToVector3(launchSolution.InterceptPoint),
+                coldLaunch: true,
+                coldLaunchSafeSeparationSeconds:
+                    interceptorSafeSeparationSeconds,
+                coldLaunchSafeSeparationMeters:
+                    interceptorSafeSeparationMeters,
+                coldLaunchIgnitionAlignmentDegrees:
+                    interceptorIgnitionAlignmentDegrees,
+                coldLaunchAlignmentTimeoutSeconds:
+                    interceptorAlignmentTimeoutSeconds);
         }
 
         private void FireDirectMissileSalvo(
@@ -1186,7 +1200,12 @@ namespace ACunicombat.Mechs
             Vector3 initialGuidancePosition = default,
             Vector3 initialGuidanceVelocity = default,
             float initialGuidanceUncertaintyMeters = 0f,
-            Vector3 prelaunchInterceptPoint = default)
+            Vector3 prelaunchInterceptPoint = default,
+            bool coldLaunch = false,
+            float coldLaunchSafeSeparationSeconds = 0f,
+            float coldLaunchSafeSeparationMeters = 0f,
+            float coldLaunchIgnitionAlignmentDegrees = 8f,
+            float coldLaunchAlignmentTimeoutSeconds = 0.6f)
         {
             EnsureMaterials();
             SpawnNativeOneShot(
@@ -1287,7 +1306,13 @@ namespace ACunicombat.Mechs
                 initialGuidancePosition,
                 initialGuidanceVelocity,
                 initialGuidanceUncertaintyMeters,
-                prelaunchInterceptPoint);
+                prelaunchInterceptPoint,
+                coldLaunch,
+                inheritedVelocity,
+                coldLaunchSafeSeparationSeconds,
+                coldLaunchSafeSeparationMeters,
+                coldLaunchIgnitionAlignmentDegrees,
+                coldLaunchAlignmentTimeoutSeconds);
         }
 
         private bool TryGetAimPoint(

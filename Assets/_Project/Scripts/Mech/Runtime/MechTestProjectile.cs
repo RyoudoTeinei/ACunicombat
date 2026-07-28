@@ -15,6 +15,8 @@ namespace ACunicombat.Mechs
         SeekerAcquisition = 3,
         TerminalGuidance = 4,
         Ballistic = 5,
+        ColdEjection = 6,
+        AttitudeAlignment = 7,
     }
 
     [DisallowMultipleComponent]
@@ -88,6 +90,8 @@ namespace ACunicombat.Mechs
         private float seekerHalfAngleRadians;
         private float seekerGimbalRadians;
         private Vector3 rcsAccelerationWorld;
+        private Vector3 rcsAttitudeTorqueLocal;
+        private float rcsAttitudeThrottle;
         private float proximityFuseRadius;
         private float proximityFuseArmTime;
         private float proximityFuseSafeDistance;
@@ -104,6 +108,18 @@ namespace ACunicombat.Mechs
         private float terminalFuseEstimateUncertaintyMeters;
         private Vector3 prelaunchInterceptPoint;
         private float prelaunchSteeringRemaining;
+        private bool coldLaunchEnabled;
+        private bool coldLaunchMotorIgnited;
+        private Vector3 coldLaunchAxis;
+        private Vector3 coldLaunchInheritedVelocity;
+        private Vector3 coldLaunchPreviousPosition;
+        private Vector3 coldLaunchCarrierPreviousPosition;
+        private float coldLaunchElapsedSeconds;
+        private float coldLaunchRelativeDistanceMeters;
+        private float coldLaunchSafeSeparationSeconds;
+        private float coldLaunchSafeSeparationMeters;
+        private float coldLaunchIgnitionAlignmentRadians;
+        private float coldLaunchAlignmentTimeoutRemaining;
         private double seekerLastMeasurementTime = -1.0;
         private ulong seekerDwellSequence;
         private MechRadarController.MissileSeekerHandle seekerHandle;
@@ -122,6 +138,7 @@ namespace ACunicombat.Mechs
         private bool motorVisualActive;
         private ParticleSystem[] rcsParticles = Array.Empty<ParticleSystem>();
         private Vector3[] rcsExhaustDirectionsLocal = Array.Empty<Vector3>();
+        private Vector3[] rcsTorqueAxesLocal = Array.Empty<Vector3>();
         private static Material rcsParticleMaterial;
         private float interceptionHealth;
         private bool interceptionResolved;
@@ -271,7 +288,13 @@ namespace ACunicombat.Mechs
             Vector3 initialGuidancePosition = default,
             Vector3 initialGuidanceVelocity = default,
             float initialGuidanceUncertaintyMeters = 0f,
-            Vector3 newPrelaunchInterceptPoint = default)
+            Vector3 newPrelaunchInterceptPoint = default,
+            bool newColdLaunch = false,
+            Vector3 newColdLaunchInheritedVelocity = default,
+            float newColdLaunchSafeSeparationSeconds = 0f,
+            float newColdLaunchSafeSeparationMeters = 0f,
+            float newColdLaunchIgnitionAlignmentDegrees = 8f,
+            float newColdLaunchAlignmentTimeoutSeconds = 0.6f)
         {
             owner = newOwner;
             radarController = newRadarController;
@@ -321,6 +344,37 @@ namespace ACunicombat.Mechs
                     .sqrMagnitude > 0.001f
                     ? 0.6f
                     : 0f;
+            coldLaunchEnabled =
+                weaponKind == TestWeaponKind.Missile &&
+                newColdLaunch;
+            coldLaunchMotorIgnited = !coldLaunchEnabled;
+            coldLaunchAxis = transform.forward.sqrMagnitude > 0.001f
+                ? transform.forward.normalized
+                : initialVelocity.sqrMagnitude > 0.001f
+                    ? initialVelocity.normalized
+                    : Vector3.forward;
+            coldLaunchInheritedVelocity =
+                newColdLaunchInheritedVelocity;
+            coldLaunchPreviousPosition = transform.position;
+            coldLaunchCarrierPreviousPosition = owner != null
+                ? owner.position
+                : Vector3.zero;
+            coldLaunchElapsedSeconds = 0f;
+            coldLaunchRelativeDistanceMeters = 0f;
+            coldLaunchSafeSeparationSeconds = Mathf.Max(
+                0f,
+                newColdLaunchSafeSeparationSeconds);
+            coldLaunchSafeSeparationMeters = Mathf.Max(
+                0f,
+                newColdLaunchSafeSeparationMeters);
+            coldLaunchIgnitionAlignmentRadians = Mathf.Clamp(
+                    newColdLaunchIgnitionAlignmentDegrees,
+                    0.5f,
+                    45f) *
+                Mathf.Deg2Rad;
+            coldLaunchAlignmentTimeoutRemaining = Mathf.Max(
+                0.05f,
+                newColdLaunchAlignmentTimeoutSeconds);
             damage = newDamage;
             collisionRadius = Mathf.Max(0.01f, newCollisionRadius);
             lifeRemaining = Mathf.Max(0.1f, lifetimeSeconds);
@@ -399,12 +453,15 @@ namespace ACunicombat.Mechs
                     irMotorStateRegistered = false;
                 }
             }
-            missilePhase = launchDelay > 0f
-                ? MissileFlightPhase.LaunchDelay
-                : MissileFlightPhase.Boost;
+            missilePhase = coldLaunchEnabled
+                ? MissileFlightPhase.ColdEjection
+                : launchDelay > 0f
+                    ? MissileFlightPhase.LaunchDelay
+                    : MissileFlightPhase.Boost;
             if (weaponKind == TestWeaponKind.Missile)
             {
                 var motorStartsImmediately =
+                    !coldLaunchEnabled &&
                     launchDelay <= 0f;
                 motorVisualActive = !motorStartsImmediately;
                 SetMotorVisual(motorStartsImmediately);
@@ -565,9 +622,27 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var motorIgnited = launchDelay <= 0f;
+            if (weaponKind == TestWeaponKind.Missile)
+            {
+                rcsAccelerationWorld = Vector3.zero;
+                rcsAttitudeTorqueLocal = Vector3.zero;
+                rcsAttitudeThrottle = 0f;
+            }
+
+            var coldLaunchAttitudeUpdated = false;
+            var motorIgnited = coldLaunchEnabled
+                ? coldLaunchMotorIgnited
+                : launchDelay <= 0f;
             if (weaponKind == TestWeaponKind.Missile &&
-                launchDelay > 0f)
+                coldLaunchEnabled &&
+                !coldLaunchMotorIgnited)
+            {
+                coldLaunchAttitudeUpdated =
+                    UpdateColdLaunchSequence(dt);
+                motorIgnited = coldLaunchMotorIgnited;
+            }
+            else if (weaponKind == TestWeaponKind.Missile &&
+                     launchDelay > 0f)
             {
                 launchDelay = Mathf.Max(0f, launchDelay - dt);
                 motorIgnited = launchDelay <= 0f;
@@ -581,12 +656,14 @@ namespace ACunicombat.Mechs
             var proximityDetonated = false;
             if (weaponKind == TestWeaponKind.Missile)
             {
-                rcsAccelerationWorld = Vector3.zero;
                 missileFlightTime += dt;
                 if (motorIgnited)
                 {
                     UpdateMissile(dt);
-                    UpdateMissileAttitude(dt);
+                    if (!coldLaunchAttitudeUpdated)
+                    {
+                        UpdateMissileAttitude(dt);
+                    }
                 }
                 else
                 {
@@ -630,6 +707,71 @@ namespace ACunicombat.Mechs
                     velocity.normalized,
                     transform.up);
             }
+        }
+
+        private bool UpdateColdLaunchSequence(float deltaTime)
+        {
+            coldLaunchElapsedSeconds += deltaTime;
+            var projectileDisplacement =
+                transform.position - coldLaunchPreviousPosition;
+            var carrierDisplacement = owner != null
+                ? owner.position - coldLaunchCarrierPreviousPosition
+                : coldLaunchInheritedVelocity * deltaTime;
+            var relativeDisplacement =
+                projectileDisplacement - carrierDisplacement;
+            coldLaunchRelativeDistanceMeters += Mathf.Max(
+                    0f,
+                    Vector3.Dot(
+                        relativeDisplacement,
+                        coldLaunchAxis));
+            coldLaunchPreviousPosition = transform.position;
+            if (owner != null)
+            {
+                coldLaunchCarrierPreviousPosition = owner.position;
+            }
+
+            if (missilePhase == MissileFlightPhase.ColdEjection)
+            {
+                desiredAttitudeForward = coldLaunchAxis;
+                if (coldLaunchElapsedSeconds <
+                        coldLaunchSafeSeparationSeconds ||
+                    coldLaunchRelativeDistanceMeters <
+                        coldLaunchSafeSeparationMeters)
+                {
+                    return false;
+                }
+
+                missilePhase =
+                    MissileFlightPhase.AttitudeAlignment;
+                currentAngularRateRadians = 0f;
+            }
+
+            var toIntercept =
+                prelaunchInterceptPoint - transform.position;
+            if (toIntercept.sqrMagnitude > 0.001f)
+            {
+                desiredAttitudeForward =
+                    toIntercept.normalized;
+            }
+
+            UpdateMissileAttitude(deltaTime);
+            coldLaunchAlignmentTimeoutRemaining = Mathf.Max(
+                0f,
+                coldLaunchAlignmentTimeoutRemaining - deltaTime);
+            var alignmentRadians = Vector3.Angle(
+                    transform.forward,
+                    desiredAttitudeForward) *
+                Mathf.Deg2Rad;
+            if (alignmentRadians <=
+                    coldLaunchIgnitionAlignmentRadians ||
+                coldLaunchAlignmentTimeoutRemaining <= 0f)
+            {
+                coldLaunchMotorIgnited = true;
+                missilePhase = MissileFlightPhase.Boost;
+                SetMotorVisual(true);
+            }
+
+            return true;
         }
 
         private void UpdateMissile(float deltaTime)
@@ -887,6 +1029,24 @@ namespace ACunicombat.Mechs
                 Mathf.Max(
                     angularAcceleration * deltaTime,
                     0.001f));
+            var rotationAxisWorld =
+                Vector3.Cross(transform.forward, forward);
+            var angularRateDelta =
+                currentAngularRateRadians - previousAngularRate;
+            if (rcsThrottle > 0.001f &&
+                rotationAxisWorld.sqrMagnitude > 0.000001f &&
+                Mathf.Abs(angularRateDelta) > 0.000001f)
+            {
+                var torqueDirectionWorld =
+                    rotationAxisWorld.normalized *
+                    Mathf.Sign(angularRateDelta);
+                rcsAttitudeTorqueLocal =
+                    transform.InverseTransformDirection(
+                        torqueDirectionWorld);
+                rcsAttitudeThrottle = Mathf.Max(
+                    rcsAttitudeThrottle,
+                    rcsThrottle);
+            }
             ConsumeRcsPropellant(rcsThrottle, deltaTime);
         }
 
@@ -1758,6 +1918,8 @@ namespace ACunicombat.Mechs
                 new ParticleSystem[ringCount * nozzlesPerRing];
             rcsExhaustDirectionsLocal =
                 new Vector3[rcsParticles.Length];
+            rcsTorqueAxesLocal =
+                new Vector3[rcsParticles.Length];
             var particleMaterial = GetRcsParticleMaterial();
             var nozzleIndex = 0;
             for (var ring = 0; ring < ringCount; ring++)
@@ -1793,6 +1955,14 @@ namespace ACunicombat.Mechs
                     rcsParticles[nozzleIndex] = particles;
                     rcsExhaustDirectionsLocal[nozzleIndex] =
                         exhaustDirection;
+                    var momentArmDirection = ring == 0
+                        ? Vector3.forward
+                        : Vector3.back;
+                    rcsTorqueAxesLocal[nozzleIndex] =
+                        Vector3.Cross(
+                                momentArmDirection,
+                                -exhaustDirection)
+                            .normalized;
                     nozzleIndex++;
                 }
             }
@@ -1868,13 +2038,17 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var hasCommand =
+            var hasTranslationCommand =
                 rcsAccelerationWorld.sqrMagnitude > 0.01f &&
                 rcsPropellantMassRemainingKg > 0f;
-            var exhaustDirectionWorld = hasCommand
+            var hasAttitudeCommand =
+                rcsAttitudeTorqueLocal.sqrMagnitude > 0.01f &&
+                rcsAttitudeThrottle > 0.001f &&
+                rcsPropellantMassRemainingKg > 0f;
+            var exhaustDirectionWorld = hasTranslationCommand
                 ? -rcsAccelerationWorld.normalized
                 : Vector3.zero;
-            var accelerationFraction = hasCommand
+            var accelerationFraction = hasTranslationCommand
                 ? Mathf.Clamp01(
                     rcsAccelerationWorld.magnitude /
                     Mathf.Max(
@@ -1894,17 +2068,42 @@ namespace ACunicombat.Mechs
                 var nozzleDirectionWorld =
                     transform.TransformDirection(
                         rcsExhaustDirectionsLocal[i]);
-                var alignment = hasCommand
+                var translationAlignment = hasTranslationCommand
                     ? Mathf.Max(
                         0f,
                         Vector3.Dot(
                             nozzleDirectionWorld,
                             exhaustDirectionWorld))
                     : 0f;
-                var output = alignment > 0.12f
-                    ? Mathf.InverseLerp(0.12f, 1f, alignment) *
+                var translationOutput =
+                    translationAlignment > 0.12f
+                    ? Mathf.InverseLerp(
+                          0.12f,
+                          1f,
+                          translationAlignment) *
                       Mathf.Lerp(0.55f, 1f, accelerationFraction)
                     : 0f;
+                var attitudeAlignment = hasAttitudeCommand &&
+                                        i < rcsTorqueAxesLocal.Length
+                    ? Mathf.Max(
+                        0f,
+                        Vector3.Dot(
+                            rcsTorqueAxesLocal[i],
+                            rcsAttitudeTorqueLocal.normalized))
+                    : 0f;
+                var attitudeOutput = attitudeAlignment > 0.12f
+                    ? Mathf.InverseLerp(
+                          0.12f,
+                          1f,
+                          attitudeAlignment) *
+                      Mathf.Lerp(
+                          0.55f,
+                          1f,
+                          rcsAttitudeThrottle)
+                    : 0f;
+                var output = Mathf.Max(
+                    translationOutput,
+                    attitudeOutput);
                 var emission = particles.emission;
                 emission.rateOverTime = output * 120f;
             }
