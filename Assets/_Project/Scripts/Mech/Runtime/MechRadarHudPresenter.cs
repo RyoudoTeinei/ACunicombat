@@ -1122,10 +1122,8 @@ namespace ACunicombat.Mechs
                 var distanceKilometers =
                     relative.magnitude / 1000f;
                 var distanceText = distanceKilometers < 10f
-                    ? $"{(weaponsQuality ? "确认" : "告警")} " +
-                      $"{distanceKilometers:0.00} km"
-                    : $"{(weaponsQuality ? "确认" : "告警")} " +
-                      $"{distanceKilometers:0.0} km";
+                    ? $"导弹 {distanceKilometers:0.00} km"
+                    : $"导弹 {distanceKilometers:0.0} km";
                 var labelCenter = new Vector2(
                     screen.x,
                     Screen.height - screen.y +
