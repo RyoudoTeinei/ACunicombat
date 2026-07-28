@@ -51,8 +51,8 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0f)] private float interceptorLockHoldSeconds = 0.5f;
         [SerializeField, Min(0f)] private float interceptorResponseReserveSeconds = 0.2f;
         [Header("Interceptor cold launch")]
-        [SerializeField, Min(0f)] private float interceptorSafeSeparationSeconds = 0.12f;
-        [SerializeField, Min(0f)] private float interceptorSafeSeparationMeters = 5f;
+        [SerializeField, Min(0f)] private float interceptorSafeSeparationSeconds = 0.25f;
+        [SerializeField, Min(0f)] private float interceptorSafeSeparationMeters = 8f;
         [SerializeField, Range(0.5f, 45f)] private float interceptorIgnitionAlignmentDegrees = 8f;
         [SerializeField, Min(0.05f)] private float interceptorAlignmentTimeoutSeconds = 0.6f;
         [Header("Air-to-air missile")]
@@ -466,7 +466,7 @@ namespace ACunicombat.Mechs
 
             interceptorSolution = launchSolution;
             var launchDirection =
-                ResolveMissileLaunchDirection(muzzle);
+                ResolveInterceptorColdLaunchDirection(muzzle);
             var launchPosition =
                 muzzle.position +
                 launchDirection * missileLaunchClearanceMeters;
@@ -496,7 +496,7 @@ namespace ACunicombat.Mechs
                 interceptorMissileProfile.MaximumFlightTimeSeconds,
                 homingTrack: incomingTrack.TrackId,
                 launchDelay: 0f,
-                launchFfxId: 6082100,
+                launchFfxId: 0,
                 projectileFfxId: 6082101,
                 launchAnchor: muzzle,
                 maximumTravelDistance:
@@ -653,7 +653,7 @@ namespace ACunicombat.Mechs
             }
 
             var launchDirection =
-                ResolveMissileLaunchDirection(muzzle);
+                ResolveInterceptorColdLaunchDirection(muzzle);
             var launchPosition =
                 muzzle.position +
                 launchDirection * missileLaunchClearanceMeters;
@@ -714,7 +714,8 @@ namespace ACunicombat.Mechs
                         .MaximumFlightTimeSeconds,
                     interceptorMissileProfile
                         .MaximumRangeMeters,
-                    interceptorResponseReserveSeconds);
+                    interceptorResponseReserveSeconds,
+                    EstimateInterceptorColdLaunchDelaySeconds());
             if (!launchSolution.Reachable)
             {
                 return;
@@ -744,7 +745,7 @@ namespace ACunicombat.Mechs
                 0.22f,
                 interceptorMissileProfile.MaximumFlightTimeSeconds,
                 launchDelay: 0f,
-                launchFfxId: 6082100,
+                launchFfxId: 0,
                 projectileFfxId: 6082101,
                 launchAnchor: muzzle,
                 maximumTravelDistance:
@@ -1015,7 +1016,7 @@ namespace ACunicombat.Mechs
             }
 
             var launchDirection =
-                ResolveMissileLaunchDirection(muzzle);
+                ResolveInterceptorColdLaunchDirection(muzzle);
             var launchPosition =
                 muzzle.position +
                 launchDirection * missileLaunchClearanceMeters;
@@ -1055,7 +1056,8 @@ namespace ACunicombat.Mechs
                 interceptorMissileProfile
                     .MaximumFlightTimeSeconds,
                 interceptorMissileProfile.MaximumRangeMeters,
-                interceptorResponseReserveSeconds);
+                interceptorResponseReserveSeconds,
+                EstimateInterceptorColdLaunchDelaySeconds());
         }
 
         private static Vector3 ResolveDirectMissileLaunchDirection(
@@ -1113,6 +1115,55 @@ namespace ACunicombat.Mechs
             }
 
             return launchDirection.normalized;
+        }
+
+        private Vector3 ResolveInterceptorColdLaunchDirection(
+            Transform muzzle)
+        {
+            var bodyUp = flightMotion != null
+                ? flightMotion.LogicalRotation * Vector3.up
+                : transform.up;
+            if (bodyUp.sqrMagnitude <= 0.001f)
+            {
+                bodyUp = Vector3.up;
+            }
+            bodyUp.Normalize();
+
+            if (muzzle == null)
+            {
+                return bodyUp;
+            }
+
+            var candidates = new[]
+            {
+                muzzle.forward, -muzzle.forward,
+                muzzle.up, -muzzle.up,
+                muzzle.right, -muzzle.right,
+            };
+            var launchDirection = bodyUp;
+            var bestAlignment = float.NegativeInfinity;
+            for (var i = 0; i < candidates.Length; i++)
+            {
+                var candidate = candidates[i].normalized;
+                var alignment = Vector3.Dot(candidate, bodyUp);
+                if (alignment > bestAlignment)
+                {
+                    bestAlignment = alignment;
+                    launchDirection = candidate;
+                }
+            }
+
+            return launchDirection.normalized;
+        }
+
+        private float EstimateInterceptorColdLaunchDelaySeconds()
+        {
+            var ejectionSpeed = Mathf.Max(
+                interceptorMissileProfile.EjectionSpeedMps,
+                0.01f);
+            return Mathf.Max(
+                interceptorSafeSeparationSeconds,
+                interceptorSafeSeparationMeters / ejectionSpeed);
         }
 
         private Vector3 ResolveGuidedMissileLaunchDirection(
@@ -1216,7 +1267,14 @@ namespace ACunicombat.Mechs
             var projectile = GameObject.CreatePrimitive(
                 kind == TestWeaponKind.Missile ? PrimitiveType.Cube : PrimitiveType.Sphere);
             projectile.name = $"Test_{kind}_Projectile";
-            projectile.transform.SetPositionAndRotation(position, Quaternion.LookRotation(direction, Vector3.up));
+            var upReference =
+                Mathf.Abs(Vector3.Dot(direction.normalized, Vector3.up)) >
+                0.95f
+                    ? Vector3.forward
+                    : Vector3.up;
+            projectile.transform.SetPositionAndRotation(
+                position,
+                Quaternion.LookRotation(direction, upReference));
             projectile.transform.localScale = kind switch
             {
                 TestWeaponKind.Rifle => Vector3.one * 0.12f,

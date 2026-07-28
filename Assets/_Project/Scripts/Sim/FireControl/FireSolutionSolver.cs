@@ -240,7 +240,8 @@ namespace ACunicombat.FireControl
             float maximumAngularRateDegreesPerSecond,
             float maximumFlightTimeSeconds,
             float maximumTravelDistanceMeters,
-            float responseReserveSeconds = 0.2f)
+            float responseReserveSeconds = 0.2f,
+            float minimumMainEngineIgnitionDelaySeconds = 0f)
         {
             var solution = default(InterceptorEngagementSolution);
             if (!track.IsWeaponsQuality ||
@@ -298,6 +299,7 @@ namespace ACunicombat.FireControl
                         angularRateRadians,
                         maximumTravelDistanceMeters,
                         uncertaintyAllowance,
+                        minimumMainEngineIgnitionDelaySeconds,
                         sampleTime) <= 0.0)
                 {
                     low = previousTime;
@@ -325,6 +327,7 @@ namespace ACunicombat.FireControl
                         angularRateRadians,
                         maximumTravelDistanceMeters,
                         uncertaintyAllowance,
+                        minimumMainEngineIgnitionDelaySeconds,
                         middle) > 0.0)
                 {
                     low = middle;
@@ -522,6 +525,7 @@ namespace ACunicombat.FireControl
             float maximumAngularRateRadians,
             float maximumTravelDistanceMeters,
             float uncertaintyAllowanceMeters,
+            float minimumMainEngineIgnitionDelaySeconds,
             double flightTime)
         {
             var relativeIntercept =
@@ -541,15 +545,34 @@ namespace ACunicombat.FireControl
             var turnTime = maximumAngularRateRadians > 0f
                 ? turnRadians / maximumAngularRateRadians
                 : double.PositiveInfinity;
-            // The missile keeps translating while it slews, but only part of
-            // its axial acceleration contributes to closing the intercept
-            // geometry during that maneuver.
-            var effectiveClosingTime =
-                math.max(0.0, flightTime - turnTime * 0.55);
-            var availableDistance = math.min(
+            double availableDistance;
+            if (minimumMainEngineIgnitionDelaySeconds > 0f)
+            {
+                var ignitionDelay = math.max(
+                    minimumMainEngineIgnitionDelaySeconds,
+                    turnTime);
+                var ballisticEjectionTime = math.min(
+                    flightTime,
+                    ignitionDelay);
+                var poweredFlightTime = math.max(
+                    0.0,
+                    flightTime - ignitionDelay);
+                availableDistance =
+                    kinematics.EjectionSpeed * ballisticEjectionTime +
+                    kinematics.RelativeTravelDistance(poweredFlightTime);
+            }
+            else
+            {
+                // Legacy direct-launch interceptors accelerate while slewing.
+                var effectiveClosingTime =
+                    math.max(0.0, flightTime - turnTime * 0.55);
+                availableDistance =
+                    kinematics.RelativeTravelDistance(
+                        effectiveClosingTime);
+            }
+            availableDistance = math.min(
                 maximumTravelDistanceMeters,
-                kinematics.RelativeTravelDistance(
-                    effectiveClosingTime));
+                availableDistance);
             return requiredDistance - availableDistance;
         }
     }

@@ -236,6 +236,60 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(solution.ThreatTimeMarginSeconds, Is.GreaterThan(0f));
         }
 
+        [Test]
+        public void InterceptorSolution_ColdLaunchDelayIncreasesFlightTime()
+        {
+            var track = new MissileTrackSnapshot
+            {
+                TrackId = new TrackId(new Handle(3, 1)),
+                Position = new double3(0.0, 0.0, 8_000.0),
+                Velocity = new double3(0.0, 0.0, -900.0),
+                Confidence = 1f,
+                Quality = MissileTrackQuality.WeaponsQuality,
+                Confirmed = true,
+                Incoming = true,
+                TimeToClosestApproachSeconds = 8.8f,
+                LastEvidenceTime = 1.0,
+                LastUpdateTime = 1.0,
+            };
+            var kinematics = new MissileKinematicProfile
+            {
+                EjectionSpeed = 55.0,
+                InertMass = 58.0,
+                MainPropellantMass = 32.0,
+                MainEngineThrust = 48_000.0,
+                MainMassFlow = 16.0,
+            };
+
+            var direct = FireSolutionSolver.SolveInterceptor(
+                track,
+                double3.zero,
+                double3.zero,
+                new float3(0f, 0f, 1f),
+                kinematics,
+                requestTime: 1.0,
+                maximumAngularRateDegreesPerSecond: 600f,
+                maximumFlightTimeSeconds: 40f,
+                maximumTravelDistanceMeters: 15_000f);
+            var coldLaunch = FireSolutionSolver.SolveInterceptor(
+                track,
+                double3.zero,
+                double3.zero,
+                new float3(0f, 0f, 1f),
+                kinematics,
+                requestTime: 1.0,
+                maximumAngularRateDegreesPerSecond: 600f,
+                maximumFlightTimeSeconds: 40f,
+                maximumTravelDistanceMeters: 15_000f,
+                minimumMainEngineIgnitionDelaySeconds: 0.25f);
+
+            Assert.That(direct.Reachable, Is.True);
+            Assert.That(coldLaunch.Reachable, Is.True);
+            Assert.That(
+                coldLaunch.FlightTimeSeconds,
+                Is.GreaterThan(direct.FlightTimeSeconds));
+        }
+
         private static MissileKinematicProfile StandardMissileKinematics()
         {
             return new MissileKinematicProfile

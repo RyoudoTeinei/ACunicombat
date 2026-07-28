@@ -1511,16 +1511,24 @@ namespace ACunicombat.Mechs
 
             var detonationPoint =
                 transform.position + velocity * timeToClosestApproach;
-            DetonateWarhead(detonationPoint);
+            DetonateWarhead(
+                detonationPoint,
+                interceptorMissile
+                    ? timeToClosestApproach
+                    : 0f);
             Destroy(gameObject);
             return true;
         }
 
-        private void DetonateWarhead(Vector3 detonationPoint)
+        private void DetonateWarhead(
+            Vector3 detonationPoint,
+            float predictionSeconds = 0f)
         {
             if (interceptorMissile)
             {
-                DetonateInterceptorWarhead(detonationPoint);
+                DetonateInterceptorWarhead(
+                    detonationPoint,
+                    predictionSeconds);
                 return;
             }
 
@@ -1623,21 +1631,17 @@ namespace ACunicombat.Mechs
         }
 
         private void DetonateInterceptorWarhead(
-            Vector3 detonationPoint)
+            Vector3 detonationPoint,
+            float predictionSeconds)
         {
-            var colliderCount = Physics.OverlapSphereNonAlloc(
-                detonationPoint,
-                warheadLethalRadius,
-                OverlapScratch,
-                Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.Collide);
             var damagedAnyMissile = false;
             DamagedProjectileScratch.Clear();
-            for (var i = 0; i < colliderCount; i++)
+            var predictionTime = Mathf.Max(
+                0f,
+                predictionSeconds);
+            for (var i = 0; i < registry.Count; i++)
             {
-                var candidate =
-                    OverlapScratch[i]
-                        .GetComponentInParent<MechTestProjectile>();
+                var candidate = registry[i];
                 if (candidate == null ||
                     candidate == this ||
                     candidate.IsOwnedBy(owner) ||
@@ -1647,9 +1651,12 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
+                var candidatePosition =
+                    candidate.transform.position +
+                    candidate.velocity * predictionTime;
                 var distance = Vector3.Distance(
                     detonationPoint,
-                    candidate.transform.position);
+                    candidatePosition);
                 if (distance > warheadLethalRadius)
                 {
                     continue;
