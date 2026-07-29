@@ -13,6 +13,9 @@ namespace ACunicombat.Mechs
     /// </summary>
     public sealed class MechFlightMotionController : MonoBehaviour
     {
+        private const float LegacyManeuverEnergyCapacity = 100f;
+        private const float DefaultManeuverEnergyCapacity = 1000f;
+
         [Header("推进力模型")]
         [Tooltip("优先读取当前换装的总质量与推进器主推/侧推/反推数据。关闭后使用下方测试回退值。")]
         [SerializeField] private bool useLoadoutPropulsionStats = true;
@@ -74,7 +77,8 @@ namespace ACunicombat.Mechs
 
         [Header("机动能量")]
         [Tooltip("供普通推进、制动、轨道同步、AB 与 QB 共用的原型机动能量容量。")]
-        [SerializeField, Min(1f)] private float maximumManeuverEnergy = 1000f;
+        [SerializeField, Min(1f)] private float maximumManeuverEnergy =
+            DefaultManeuverEnergyCapacity;
         [Tooltip("普通平移、升降、制动与轨道同步在满指令下每秒消耗的能量。")]
         [SerializeField, Min(0f)] private float movementEnergyDrainPerSecond = 8f;
         [Tooltip("AB 工作时每秒消耗的能量。")]
@@ -171,6 +175,7 @@ namespace ACunicombat.Mechs
         private float maneuverEnergyRechargeDelayRemaining;
         private bool maneuverEnergyDepleted;
         private bool maneuverEnergyInitialized;
+        private bool maneuverEnergyConfiguredAtRuntime;
         private bool braking;
         private float mainThrottle;
         private bool inertialThrustLockActive;
@@ -655,6 +660,7 @@ namespace ACunicombat.Mechs
             maneuverEnergyRechargeDelayRemaining = 0f;
             maneuverEnergyDepleted = false;
             maneuverEnergyInitialized = true;
+            maneuverEnergyConfiguredAtRuntime = true;
         }
 
         public void ConfigurePropulsionForceModel(
@@ -2510,6 +2516,7 @@ namespace ACunicombat.Mechs
 
         private void EnsureManeuverEnergyInitialized()
         {
+            UpgradeLegacyManeuverEnergyCapacity();
             if (maneuverEnergyInitialized)
             {
                 return;
@@ -2524,6 +2531,29 @@ namespace ACunicombat.Mechs
             maneuverEnergyRechargeDelayRemaining = 0f;
             maneuverEnergyDepleted = false;
             maneuverEnergyInitialized = true;
+        }
+
+        private void UpgradeLegacyManeuverEnergyCapacity()
+        {
+            if (maneuverEnergyConfiguredAtRuntime ||
+                !Mathf.Approximately(
+                    maximumManeuverEnergy,
+                    LegacyManeuverEnergyCapacity))
+            {
+                return;
+            }
+
+            var normalizedEnergy = maneuverEnergyInitialized
+                ? Mathf.Clamp01(
+                    currentManeuverEnergy /
+                    LegacyManeuverEnergyCapacity)
+                : 1f;
+            maximumManeuverEnergy = DefaultManeuverEnergyCapacity;
+            if (maneuverEnergyInitialized)
+            {
+                currentManeuverEnergy =
+                    DefaultManeuverEnergyCapacity * normalizedEnergy;
+            }
         }
 
         private void UpdateManeuverEnergyRecovery(float deltaTime)
