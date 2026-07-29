@@ -21,7 +21,6 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(100f)] private float minimumCombatRangeMeters = 3000f;
         [SerializeField, Min(100f)] private float maximumCombatRangeMeters = 5000f;
         [SerializeField, Min(1000f)] private float radarTrackingRangeMeters = 50000f;
-        [SerializeField, Min(1000f)] private float missileEngagementRangeMeters = 30000f;
         [SerializeField] private float handWeaponIntervalSeconds = 1.4f;
         [SerializeField, Min(1f)] private float missileCooldownSeconds = 8f;
         [SerializeField, Min(0.5f)] private float interceptorCooldownSeconds = 4f;
@@ -202,8 +201,7 @@ namespace ACunicombat.Mechs
                     Time.time + handWeaponIntervalSeconds;
             }
 
-            if (Time.time >= nextMissileTime &&
-                range <= missileEngagementRangeMeters)
+            if (Time.time >= nextMissileTime)
             {
                 weapons.CommandFireMissileAt(
                     MechPartSlot.RightBackWeapon,
