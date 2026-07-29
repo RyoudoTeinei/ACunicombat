@@ -72,6 +72,22 @@ namespace ACunicombat.Mechs
         [Tooltip("AB 在背部主推之外附加的固定推力。")]
         [SerializeField] private float assaultBoostThrustKn = 3500f;
 
+        [Header("机动能量")]
+        [Tooltip("供普通推进、制动、轨道同步、AB 与 QB 共用的原型机动能量容量。")]
+        [SerializeField, Min(1f)] private float maximumManeuverEnergy = 100f;
+        [Tooltip("普通平移、升降、制动与轨道同步在满指令下每秒消耗的能量。")]
+        [SerializeField, Min(0f)] private float movementEnergyDrainPerSecond = 8f;
+        [Tooltip("AB 工作时每秒消耗的能量。")]
+        [SerializeField, Min(0f)] private float assaultBoostEnergyDrainPerSecond = 22f;
+        [Tooltip("每次成功启动 QB 立即消耗的能量。")]
+        [SerializeField, Min(0f)] private float quickBoostEnergyCost = 25f;
+        [Tooltip("停止消耗并经过恢复延迟后，每秒恢复的能量。")]
+        [SerializeField, Min(0f)] private float maneuverEnergyRechargePerSecond = 24f;
+        [Tooltip("最后一次消耗后开始恢复前的等待时间。")]
+        [SerializeField, Min(0f)] private float maneuverEnergyRechargeDelay = 0.75f;
+        [Tooltip("能量耗尽后，至少恢复到该比例才重新允许普通推进。")]
+        [SerializeField, Range(0f, 1f)] private float maneuverEnergyRestartFraction = 0.2f;
+
         [Header("地面制动")]
         [Tooltip("接地且没有移动输入时的水平减速度。太空中不使用该阻力。")]
         [SerializeField] private float groundBrakingAcceleration = 90f;
@@ -151,6 +167,10 @@ namespace ACunicombat.Mechs
         private float quickBoostRemaining;
         private Vector3 quickBoostDirection;
         private bool assaultBoostActive;
+        private float currentManeuverEnergy;
+        private float maneuverEnergyRechargeDelayRemaining;
+        private bool maneuverEnergyDepleted;
+        private bool maneuverEnergyInitialized;
         private bool braking;
         private float mainThrottle;
         private bool inertialThrustLockActive;
@@ -204,6 +224,32 @@ namespace ACunicombat.Mechs
         public float MainThrottle => mainThrottle;
 
         public float TechnicalSafetySpeed => technicalSafetySpeed;
+
+        public float CurrentManeuverEnergy
+        {
+            get
+            {
+                EnsureManeuverEnergyInitialized();
+                return currentManeuverEnergy;
+            }
+        }
+
+        public float MaximumManeuverEnergy => Mathf.Max(1f, maximumManeuverEnergy);
+
+        public float ManeuverEnergyNormalized =>
+            CurrentManeuverEnergy / MaximumManeuverEnergy;
+
+        public bool ManeuverEnergyDepleted => maneuverEnergyDepleted;
+
+        public bool CanQuickBoost
+        {
+            get
+            {
+                EnsureManeuverEnergyInitialized();
+                return !maneuverEnergyDepleted &&
+                       currentManeuverEnergy + 0.0001f >= quickBoostEnergyCost;
+            }
+        }
 
         public float GravityAcceleration => gravityAcceleration;
 
@@ -298,6 +344,7 @@ namespace ACunicombat.Mechs
         {
             massBody = GetComponent<Rigidbody>();
             runtimeState = GetComponent<MechRuntimeState>();
+            EnsureManeuverEnergyInitialized();
             referencePlaneOrigin = transform.position;
             yawDegrees = Mathf.Repeat(transform.eulerAngles.y - modelForwardYawOffset, 360f);
             commandedYawDegrees = yawDegrees;
@@ -562,8 +609,10 @@ namespace ACunicombat.Mechs
 
         public void SetAssaultBoostActive(bool active)
         {
-            assaultBoostActive = active;
-            if (active)
+            EnsureManeuverEnergyInitialized();
+            assaultBoostActive = active && !maneuverEnergyDepleted &&
+                                  currentManeuverEnergy > 0f;
+            if (assaultBoostActive)
             {
                 quickBoostRemaining = 0f;
             }
@@ -580,6 +629,32 @@ namespace ACunicombat.Mechs
                 ? Mathf.Max(0f, targetVelocityChange) * ResolveMassKg() / duration / 1000f
                 : 0f;
             quickBoostDuration = Mathf.Max(0f, duration);
+        }
+
+        public void ConfigureManeuverEnergy(
+            float capacity,
+            float movementDrainPerSecond,
+            float assaultBoostDrainPerSecond,
+            float quickBoostCost,
+            float rechargePerSecond,
+            float rechargeDelay,
+            float restartFraction)
+        {
+            maximumManeuverEnergy = Mathf.Max(1f, capacity);
+            movementEnergyDrainPerSecond = Mathf.Max(0f, movementDrainPerSecond);
+            assaultBoostEnergyDrainPerSecond =
+                Mathf.Max(0f, assaultBoostDrainPerSecond);
+            quickBoostEnergyCost = Mathf.Clamp(
+                quickBoostCost,
+                0f,
+                maximumManeuverEnergy);
+            maneuverEnergyRechargePerSecond = Mathf.Max(0f, rechargePerSecond);
+            maneuverEnergyRechargeDelay = Mathf.Max(0f, rechargeDelay);
+            maneuverEnergyRestartFraction = Mathf.Clamp01(restartFraction);
+            currentManeuverEnergy = maximumManeuverEnergy;
+            maneuverEnergyRechargeDelayRemaining = 0f;
+            maneuverEnergyDepleted = false;
+            maneuverEnergyInitialized = true;
         }
 
         public void ConfigurePropulsionForceModel(
@@ -717,6 +792,8 @@ namespace ACunicombat.Mechs
         public void Tick(in MechPlayerInputFrame frame, float deltaTime)
         {
             EnsureThrusterLayout();
+            EnsureManeuverEnergyInitialized();
+            UpdateManeuverEnergyRecovery(deltaTime);
             ClearThrusterForces();
             currentMassKg = ResolveMassKg();
             currentControlForceNewtons = Vector3.zero;
@@ -834,10 +911,16 @@ namespace ACunicombat.Mechs
 
             // 节流是持久的前向推力命令。W/S 在该命令上临时加减，A/D 仍是侧向推进。
             var forwardCommand = Mathf.Clamp(frame.MoveLocal.y + mainThrottle, -1f, 1f);
+            var movementEnergyScale = ConsumeMovementEnergy(
+                ResolveMovementEnergyDrainRate(in frame, forwardCommand),
+                deltaTime);
             ResolveThrusterForces(
                 out var mainThrustNewtons,
                 out var lateralThrustNewtons,
                 out var reverseThrustNewtons);
+            mainThrustNewtons *= movementEnergyScale;
+            lateralThrustNewtons *= movementEnergyScale;
+            reverseThrustNewtons *= movementEnergyScale;
 
             // 每一组喷口独立贡献力。斜向输入会同时点燃主推和侧推，不再把合力归一化。
             var propulsionForce = Vector3.zero;
@@ -901,6 +984,9 @@ namespace ACunicombat.Mechs
                 out var requestedShoulderLiftForce,
                 out var requestedLegLiftForce,
                 out var requestedDescentForce);
+            requestedShoulderLiftForce *= movementEnergyScale;
+            requestedLegLiftForce *= movementEnergyScale;
+            requestedDescentForce *= movementEnergyScale;
             var shoulderCapacity = verticalThrustKn * 1000f
                                    * Mathf.Clamp01(shoulderLiftFraction)
                                    * (1f + liftCompensationReserve);
@@ -945,7 +1031,8 @@ namespace ACunicombat.Mechs
                     var lateralVelocity = velocity
                                           - Vector3.Project(velocity, commandDirection);
                     var assistAcceleration = flightAssistThrustKn * 1000f
-                                             / currentMassKg * flightAssist;
+                                             / currentMassKg * flightAssist
+                                             * movementEnergyScale;
                     var requestedAssistDeltaVelocity = Vector3.ClampMagnitude(
                         -lateralVelocity,
                         assistAcceleration * deltaTime);
@@ -2421,9 +2508,138 @@ namespace ACunicombat.Mechs
             return foundGround;
         }
 
-        /// <summary>启动固定方向的 QB 高加速度窗口，与 QB 动作状态同步触发。</summary>
-        public void BeginQuickBoost(Vector2 moveLocal)
+        private void EnsureManeuverEnergyInitialized()
         {
+            if (maneuverEnergyInitialized)
+            {
+                return;
+            }
+
+            maximumManeuverEnergy = Mathf.Max(1f, maximumManeuverEnergy);
+            quickBoostEnergyCost = Mathf.Clamp(
+                quickBoostEnergyCost,
+                0f,
+                maximumManeuverEnergy);
+            currentManeuverEnergy = maximumManeuverEnergy;
+            maneuverEnergyRechargeDelayRemaining = 0f;
+            maneuverEnergyDepleted = false;
+            maneuverEnergyInitialized = true;
+        }
+
+        private void UpdateManeuverEnergyRecovery(float deltaTime)
+        {
+            var step = Mathf.Max(0f, deltaTime);
+            if (maneuverEnergyRechargeDelayRemaining > 0f)
+            {
+                maneuverEnergyRechargeDelayRemaining = Mathf.Max(
+                    0f,
+                    maneuverEnergyRechargeDelayRemaining - step);
+                return;
+            }
+
+            currentManeuverEnergy = Mathf.Min(
+                maximumManeuverEnergy,
+                currentManeuverEnergy +
+                maneuverEnergyRechargePerSecond * step);
+            if (maneuverEnergyDepleted &&
+                currentManeuverEnergy >=
+                maximumManeuverEnergy * maneuverEnergyRestartFraction)
+            {
+                maneuverEnergyDepleted = false;
+            }
+        }
+
+        private float ResolveMovementEnergyDrainRate(
+            in MechPlayerInputFrame frame,
+            float forwardCommand)
+        {
+            var verticalCommand = Mathf.Abs(
+                (frame.RiseHeld ? 1f : 0f) -
+                (frame.DescendHeld ? 1f : 0f));
+            var manualDemand = Mathf.Clamp01(Mathf.Max(
+                Mathf.Abs(frame.MoveLocal.x),
+                Mathf.Abs(forwardCommand),
+                verticalCommand));
+            var automaticDemand = trajectorySyncCommandActive
+                ? Mathf.Clamp01(trajectorySyncAccelerationCommand.magnitude / 20f)
+                : 0f;
+            var brakingDemand = braking &&
+                                (!isGrounded || HorizontalSpeed > groundStopSpeed)
+                ? 1f
+                : 0f;
+            var demand = Mathf.Max(
+                manualDemand,
+                automaticDemand,
+                brakingDemand);
+            var regularDrain = movementEnergyDrainPerSecond * demand;
+            return AssaultBoostActive
+                ? Mathf.Max(regularDrain, assaultBoostEnergyDrainPerSecond)
+                : regularDrain;
+        }
+
+        private float ConsumeMovementEnergy(float drainPerSecond, float deltaTime)
+        {
+            var requestedEnergy = Mathf.Max(0f, drainPerSecond) *
+                                  Mathf.Max(0f, deltaTime);
+            if (requestedEnergy <= Mathf.Epsilon)
+            {
+                return 1f;
+            }
+
+            if (maneuverEnergyDepleted || currentManeuverEnergy <= 0f)
+            {
+                assaultBoostActive = false;
+                return 0f;
+            }
+
+            var availableFraction = Mathf.Clamp01(
+                currentManeuverEnergy / requestedEnergy);
+            currentManeuverEnergy = Mathf.Max(
+                0f,
+                currentManeuverEnergy - requestedEnergy);
+            maneuverEnergyRechargeDelayRemaining =
+                maneuverEnergyRechargeDelay;
+            if (currentManeuverEnergy <= 0.0001f)
+            {
+                currentManeuverEnergy = 0f;
+                maneuverEnergyDepleted = true;
+                assaultBoostActive = false;
+            }
+
+            return availableFraction;
+        }
+
+        private bool TrySpendQuickBoostEnergy()
+        {
+            EnsureManeuverEnergyInitialized();
+            if (!CanQuickBoost)
+            {
+                return false;
+            }
+
+            currentManeuverEnergy = Mathf.Max(
+                0f,
+                currentManeuverEnergy - quickBoostEnergyCost);
+            maneuverEnergyRechargeDelayRemaining =
+                maneuverEnergyRechargeDelay;
+            if (currentManeuverEnergy <= 0.0001f)
+            {
+                currentManeuverEnergy = 0f;
+                maneuverEnergyDepleted = true;
+                assaultBoostActive = false;
+            }
+
+            return true;
+        }
+
+        /// <summary>消耗一次能量并启动固定方向的 QB 高加速度窗口。</summary>
+        public bool BeginQuickBoost(Vector2 moveLocal)
+        {
+            if (!TrySpendQuickBoostEnergy())
+            {
+                return false;
+            }
+
             quickBoostRemaining = quickBoostDuration;
             var yawBasis = LogicalRotation;
             var forward = ResolveMainThrustDirection(yawBasis, Grounded);
@@ -2449,6 +2665,7 @@ namespace ACunicombat.Mechs
                 : 1f;
             quickBoostForceNewtons = quickBoostThrustKn * 1000f
                                      * Mathf.Max(0.05f, directionalScale);
+            return true;
         }
     }
 }

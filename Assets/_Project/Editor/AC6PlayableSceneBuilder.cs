@@ -393,6 +393,7 @@ public static class AC6PlayableSceneBuilder
         motion.ConfigureTranslationThrusterAssist(0.35f, 48f, 36f, 52f, 48f);
         motion.ConfigureTechnicalSafetySpeed(2000f);
         motion.ConfigureQuickBoost(90f, 0.28f);
+        motion.ConfigureManeuverEnergy(100f, 8f, 22f, 25f, 24f, 0.75f, 0.2f);
         motion.ConfigureGravity(0.2f);
         thrustVisualizer.Configure(motion);
         trajectoryPredictor.Configure(motion);
@@ -486,6 +487,8 @@ public static class AC6PlayableSceneBuilder
         var sustainedThrustGo = new GameObject("MotionSmoke_SustainedThrust");
         var brakeGo = new GameObject("MotionSmoke_Brake");
         var airBrakeGo = new GameObject("MotionSmoke_AirBrake");
+        var energyGo = new GameObject("MotionSmoke_Energy");
+        var quickBoostEnergyGo = new GameObject("MotionSmoke_QBEnergy");
         try
         {
             var climb = climbGo.AddComponent<MechFlightMotionController>();
@@ -575,6 +578,54 @@ public static class AC6PlayableSceneBuilder
             var airBrakeAltitudeError = Mathf.Abs(airBrakeGo.transform.position.y - airBrakeStartY);
             var airBrakePass = airBrakeSpeed <= 0.01f && airBrakeAltitudeError <= 0.001f;
 
+            var energy = energyGo.AddComponent<MechFlightMotionController>();
+            energy.ConfigureModelForwardYawOffset(0f);
+            energy.ConfigureManeuverEnergy(
+                100f,
+                100f,
+                150f,
+                30f,
+                50f,
+                0.25f,
+                0.2f);
+            for (var i = 0; i < 61; i++)
+            {
+                energy.Tick(in forward, dt);
+            }
+            var movementEnergyDepleted = energy.ManeuverEnergyDepleted &&
+                                         energy.CurrentManeuverEnergy <= 0.001f;
+            for (var i = 0; i < 60; i++)
+            {
+                energy.Tick(in noInput, dt);
+            }
+            var movementEnergyRecovered = !energy.ManeuverEnergyDepleted &&
+                                          energy.CurrentManeuverEnergy >= 20f;
+
+            var quickBoostEnergy =
+                quickBoostEnergyGo.AddComponent<MechFlightMotionController>();
+            quickBoostEnergy.ConfigureModelForwardYawOffset(0f);
+            quickBoostEnergy.ConfigureManeuverEnergy(
+                100f,
+                0f,
+                0f,
+                30f,
+                0f,
+                0.25f,
+                0.2f);
+            var firstQuickBoost = quickBoostEnergy.BeginQuickBoost(Vector2.up);
+            var secondQuickBoost = quickBoostEnergy.BeginQuickBoost(Vector2.up);
+            var thirdQuickBoost = quickBoostEnergy.BeginQuickBoost(Vector2.up);
+            var rejectedQuickBoost = !quickBoostEnergy.BeginQuickBoost(Vector2.up);
+            var quickBoostEnergyPass =
+                firstQuickBoost &&
+                secondQuickBoost &&
+                thirdQuickBoost &&
+                rejectedQuickBoost &&
+                Mathf.Abs(quickBoostEnergy.CurrentManeuverEnergy - 10f) <= 0.001f;
+            var energyPass = movementEnergyDepleted &&
+                             movementEnergyRecovered &&
+                             quickBoostEnergyPass;
+
             report = $"pitched-forward={(pitchedForwardPass ? "PASS" : "FAIL")} "
                      + $"(vy={climb.Velocity.y:F2}), "
                      + $"AB={(assaultBoostPass ? "PASS" : "FAIL")} "
@@ -586,9 +637,12 @@ public static class AC6PlayableSceneBuilder
                      + $"ground-brake={(groundBrakePass ? "PASS" : "FAIL")} "
                      + $"({impulseSpeed:F2}->{stoppedSpeed:F2} m/s), "
                      + $"air-brake={(airBrakePass ? "PASS" : "FAIL")} "
-                     + $"(horizontal={airBrakeSpeed:F3} m/s, altitude-error={airBrakeAltitudeError:F4} m)";
+                     + $"(horizontal={airBrakeSpeed:F3} m/s, altitude-error={airBrakeAltitudeError:F4} m), "
+                     + $"energy={(energyPass ? "PASS" : "FAIL")} "
+                     + $"(recovered={energy.CurrentManeuverEnergy:F1}, "
+                     + $"qb-left={quickBoostEnergy.CurrentManeuverEnergy:F1})";
             return pitchedForwardPass && assaultBoostPass && quickBoostPass && sustainedThrustPass
-                   && groundBrakePass && airBrakePass;
+                   && groundBrakePass && airBrakePass && energyPass;
         }
         finally
         {
@@ -598,6 +652,8 @@ public static class AC6PlayableSceneBuilder
             UnityEngine.Object.DestroyImmediate(sustainedThrustGo);
             UnityEngine.Object.DestroyImmediate(brakeGo);
             UnityEngine.Object.DestroyImmediate(airBrakeGo);
+            UnityEngine.Object.DestroyImmediate(energyGo);
+            UnityEngine.Object.DestroyImmediate(quickBoostEnergyGo);
         }
     }
 

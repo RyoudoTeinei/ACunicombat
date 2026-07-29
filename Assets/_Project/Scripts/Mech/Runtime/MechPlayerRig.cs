@@ -81,6 +81,7 @@ namespace ACunicombat.Mechs
         private GUIStyle instrumentCaptionStyle;
         private GUIStyle instrumentValueStyle;
         private GUIStyle instrumentUnitStyle;
+        private GUIStyle instrumentEnergyStyle;
 
         private bool[] stateIsQuickBoost = new bool[0];
         private int idleState = -1;
@@ -345,15 +346,17 @@ namespace ACunicombat.Mechs
             if (lastFrame.QuickBoostEdge)
             {
                 var groundedAtTrigger = motion.Grounded;
-                motion.BeginQuickBoost(lastFrame.MoveLocal);
                 quickBoostActivationConsumed = true;
-                var actionId = groundedAtTrigger
-                    ? SelectGroundQuickBoostAction(lastFrame.MoveLocal)
-                    : SelectAirQuickBoostAction(lastFrame.MoveLocal);
-                var state = groundedAtTrigger ? quickBoostState : airQuickBoostState;
-                if (!BeginFullBodyOverride(FullBodyOverrideKind.QuickBoost, state, actionId))
+                if (motion.BeginQuickBoost(lastFrame.MoveLocal))
                 {
-                    graphRunner.TryEnterState(state);
+                    var actionId = groundedAtTrigger
+                        ? SelectGroundQuickBoostAction(lastFrame.MoveLocal)
+                        : SelectAirQuickBoostAction(lastFrame.MoveLocal);
+                    var state = groundedAtTrigger ? quickBoostState : airQuickBoostState;
+                    if (!BeginFullBodyOverride(FullBodyOverrideKind.QuickBoost, state, actionId))
+                    {
+                        graphRunner.TryEnterState(state);
+                    }
                 }
             }
 
@@ -373,13 +376,18 @@ namespace ACunicombat.Mechs
 
             var grounded = motion.Grounded;
             var ccf = graphRunner.StateElapsedSeconds >= cancelFlagUnlockSeconds ? 0x1Fu : 0u;
+            var graphFrame = lastFrame;
+            if (!motion.CanQuickBoost)
+            {
+                graphFrame.QuickBoostEdge = false;
+            }
             var ctx = new MechGraphContext
             {
-                PadBits = input.BuildPadBits(in lastFrame, !grounded),
+                PadBits = input.BuildPadBits(in graphFrame, !grounded),
                 CharControlFlags = ccf,
                 Grounded = grounded,
                 Airborne = !grounded,
-                EnergyEmpty = false,
+                EnergyEmpty = motion.ManeuverEnergyDepleted,
                 LockedOn = false,
                 TargetAttacking = false,
                 Guarding = false,
@@ -940,6 +948,10 @@ namespace ACunicombat.Mechs
                 sb.AppendLine($"速度: {motion.Velocity.magnitude:F1} m/s {motion.Velocity}");
                 sb.AppendLine($"Yaw: {motion.YawDegrees:F1}°  接地: {motion.Grounded}  AB: {motion.AssaultBoostActive}");
                 sb.AppendLine($"节流: {motion.MainThrottle:P0}  技术安全速度: {motion.TechnicalSafetySpeed:F0} m/s");
+                sb.AppendLine(
+                    $"机动能量: {motion.CurrentManeuverEnergy:F1}/" +
+                    $"{motion.MaximumManeuverEnergy:F1}  " +
+                    $"耗尽: {motion.ManeuverEnergyDepleted}");
                 sb.AppendLine($"肩部上推: {motion.CurrentShoulderLiftForceNewtons.magnitude / 1000f:F0} kN " +
                               $"{motion.CurrentShoulderLiftForceNewtons.normalized}  " +
                               $"腿部上推: {motion.CurrentLegLiftForceNewtons.magnitude / 1000f:F0} kN " +
@@ -1014,6 +1026,50 @@ namespace ACunicombat.Mechs
                 FormatInstrumentValue(motion.Altitude),
                 "m",
                 false);
+            DrawManeuverEnergyGauge();
+        }
+
+        private void DrawManeuverEnergyGauge()
+        {
+            var width = Mathf.Clamp(Screen.width * 0.24f, 220f, 360f);
+            const float height = 12f;
+            var rect = new Rect(
+                Screen.width * 0.5f - width * 0.5f,
+                Screen.height - 54f,
+                width,
+                height);
+            var normalized = Mathf.Clamp01(motion.ManeuverEnergyNormalized);
+            var color = motion.ManeuverEnergyDepleted
+                ? new Color(1f, 0.2f, 0.14f, 0.98f)
+                : normalized <= 0.3f
+                    ? new Color(1f, 0.72f, 0.18f, 0.98f)
+                    : new Color(0.38f, 1f, 0.56f, 0.98f);
+
+            DrawInstrumentRect(
+                new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f),
+                new Color(0.01f, 0.05f, 0.035f, 0.86f));
+            DrawInstrumentRect(
+                new Rect(rect.x, rect.y, rect.width * normalized, rect.height),
+                color);
+            for (var i = 1; i < 10; i++)
+            {
+                var x = rect.x + rect.width * i / 10f;
+                DrawInstrumentRect(
+                    new Rect(x - 0.5f, rect.y, 1f, rect.height),
+                    new Color(0.01f, 0.08f, 0.05f, 0.72f));
+            }
+
+            instrumentEnergyStyle.normal.textColor = color;
+            instrumentEnergyStyle.alignment = TextAnchor.MiddleLeft;
+            GUI.Label(
+                new Rect(rect.x, rect.y - 24f, 90f, 20f),
+                motion.ManeuverEnergyDepleted ? "EN EMPTY" : "EN",
+                instrumentEnergyStyle);
+            instrumentEnergyStyle.alignment = TextAnchor.MiddleRight;
+            GUI.Label(
+                new Rect(rect.x + rect.width - 130f, rect.y - 24f, 130f, 20f),
+                $"{motion.CurrentManeuverEnergy:0} / {motion.MaximumManeuverEnergy:0}",
+                instrumentEnergyStyle);
         }
 
         private void DrawFlightReadout(
@@ -1084,6 +1140,14 @@ namespace ACunicombat.Mechs
             GUI.color = previousColor;
         }
 
+        private static void DrawInstrumentRect(Rect rect, Color color)
+        {
+            var previousColor = GUI.color;
+            GUI.color = color;
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = previousColor;
+        }
+
         private void EnsureInstrumentStyles()
         {
             if (instrumentCaptionStyle != null)
@@ -1118,6 +1182,14 @@ namespace ACunicombat.Mechs
             instrumentUnitStyle.normal.textColor =
                 new Color(0.28f, 0.9f, 0.46f, 0.88f);
 
+            instrumentEnergyStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 14,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleLeft,
+            };
+            instrumentEnergyStyle.normal.textColor =
+                new Color(0.38f, 1f, 0.56f, 0.96f);
         }
     }
 }
