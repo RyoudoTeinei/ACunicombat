@@ -74,7 +74,7 @@ namespace ACunicombat.Mechs
 
         [Header("机动能量")]
         [Tooltip("供普通推进、制动、轨道同步、AB 与 QB 共用的原型机动能量容量。")]
-        [SerializeField, Min(1f)] private float maximumManeuverEnergy = 100f;
+        [SerializeField, Min(1f)] private float maximumManeuverEnergy = 1000f;
         [Tooltip("普通平移、升降、制动与轨道同步在满指令下每秒消耗的能量。")]
         [SerializeField, Min(0f)] private float movementEnergyDrainPerSecond = 8f;
         [Tooltip("AB 工作时每秒消耗的能量。")]
