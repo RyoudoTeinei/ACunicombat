@@ -25,6 +25,7 @@ namespace ACunicombat.Mechs
             public string fireActionId;
             [Min(0f)] public float raiseSeconds;
             [Min(0f)] public float fireSeconds;
+            public bool repeatFireWhileHeld;
         }
 
         [Tooltip("Anatomical right-arm actions: 03002x/03003x.")]
@@ -202,8 +203,18 @@ namespace ACunicombat.Mechs
                 case ArmPhase.Firing:
                     if (state.PhaseElapsed >= set.fireSeconds)
                     {
-                        PlayArm(isRight, set.holdActionId);
-                        SetPhase(state, ArmPhase.Holding);
+                        if ((fireHeld && set.repeatFireWhileHeld) ||
+                            state.FireQueued)
+                        {
+                            state.FireQueued = false;
+                            ReplayArm(isRight, set.fireActionId);
+                            SetPhase(state, ArmPhase.Firing);
+                        }
+                        else
+                        {
+                            PlayArm(isRight, set.holdActionId);
+                            SetPhase(state, ArmPhase.Holding);
+                        }
                     }
 
                     break;
@@ -240,6 +251,24 @@ namespace ACunicombat.Mechs
             }
         }
 
+        private void ReplayArm(bool isRight, string actionId)
+        {
+            if (string.IsNullOrEmpty(actionId) ||
+                !player.HasAction(actionId))
+            {
+                return;
+            }
+
+            if (isRight)
+            {
+                player.ReplayRightArm(actionId);
+            }
+            else
+            {
+                player.ReplayLeftArm(actionId);
+            }
+        }
+
         private static void SetPhase(
             ArmRuntimeState state,
             ArmPhase next)
@@ -257,6 +286,7 @@ namespace ACunicombat.Mechs
                 fireActionId = "a200_030030",
                 raiseSeconds = 0.5f,
                 fireSeconds = 0.4f,
+                repeatFireWhileHeld = true,
             };
         }
 
@@ -269,6 +299,7 @@ namespace ACunicombat.Mechs
                 fireActionId = "a200_030050",
                 raiseSeconds = 0.5f,
                 fireSeconds = 0.4f,
+                repeatFireWhileHeld = false,
             };
         }
 

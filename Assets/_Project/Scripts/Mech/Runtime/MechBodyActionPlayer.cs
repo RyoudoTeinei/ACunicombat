@@ -222,9 +222,29 @@ namespace ACunicombat.Mechs
         public bool PlayRightArm(string actionId) =>
             Play(actionId, MechBodyActionLayer.UpperBody, RightArmLayerIndex, false);
 
+        /// <summary>
+        /// Replays the active right-arm action through the spare slot so sustained fire can
+        /// crossfade back to the recoil segment without exposing the clip's lowering tail.
+        /// </summary>
+        public bool ReplayRightArm(string actionId) =>
+            Play(
+                actionId,
+                MechBodyActionLayer.UpperBody,
+                RightArmLayerIndex,
+                false,
+                true);
+
         /// <summary>Plays a left-arm action independently of the right arm.</summary>
         public bool PlayLeftArm(string actionId) =>
             Play(actionId, MechBodyActionLayer.UpperBody, LeftArmLayerIndex, false);
+
+        public bool ReplayLeftArm(string actionId) =>
+            Play(
+                actionId,
+                MechBodyActionLayer.UpperBody,
+                LeftArmLayerIndex,
+                false,
+                true);
 
         public void ClearUpperBody(float fadeOutSeconds = -1f)
         {
@@ -359,7 +379,8 @@ namespace ACunicombat.Mechs
             string actionId,
             MechBodyActionLayer definitionLayer,
             int runtimeLayerIndex,
-            bool autoFade)
+            bool autoFade,
+            bool replayIfActive = false)
         {
             if (registry == null || !registry.TryGetAction(actionId, out var definition) ||
                 definition.layer != definitionLayer || !graph.IsValid())
@@ -368,7 +389,9 @@ namespace ACunicombat.Mechs
             }
 
             var layer = layers[runtimeLayerIndex];
-            if (layer.Active == definition && layer.Fade >= 1f)
+            if (layer.Active == definition &&
+                layer.Fade >= 1f &&
+                !replayIfActive)
             {
                 if (runtimeLayerIndex != FullBodyLayerIndex)
                 {
