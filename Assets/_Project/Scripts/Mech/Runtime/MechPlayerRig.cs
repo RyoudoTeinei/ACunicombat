@@ -1031,7 +1031,7 @@ namespace ACunicombat.Mechs
 
         private void DrawManeuverEnergyGauge()
         {
-            var width = Mathf.Clamp(Screen.width * 0.24f, 220f, 360f);
+            var width = Mathf.Clamp(Screen.width * 0.34f, 300f, 520f);
             const float height = 12f;
             var rect = new Rect(
                 Screen.width * 0.5f - width * 0.5f,

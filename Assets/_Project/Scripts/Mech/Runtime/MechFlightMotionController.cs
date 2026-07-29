@@ -13,8 +13,14 @@ namespace ACunicombat.Mechs
     /// </summary>
     public sealed class MechFlightMotionController : MonoBehaviour
     {
-        private const float LegacyManeuverEnergyCapacity = 100f;
-        private const float DefaultManeuverEnergyCapacity = 1000f;
+        private const float LegacyManeuverEnergyCapacity = 1000f;
+        private const float DefaultManeuverEnergyCapacity = 100f;
+        private const float LegacyMovementEnergyDrainPerSecond = 8f;
+        private const float DefaultMovementEnergyDrainPerSecond = 4f;
+        private const float LegacyAssaultBoostEnergyDrainPerSecond = 22f;
+        private const float DefaultAssaultBoostEnergyDrainPerSecond = 15f;
+        private const float LegacyQuickBoostEnergyCost = 25f;
+        private const float DefaultQuickBoostEnergyCost = 18f;
 
         [Header("推进力模型")]
         [Tooltip("优先读取当前换装的总质量与推进器主推/侧推/反推数据。关闭后使用下方测试回退值。")]
@@ -80,11 +86,14 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(1f)] private float maximumManeuverEnergy =
             DefaultManeuverEnergyCapacity;
         [Tooltip("普通平移、升降、制动与轨道同步在满指令下每秒消耗的能量。")]
-        [SerializeField, Min(0f)] private float movementEnergyDrainPerSecond = 8f;
+        [SerializeField, Min(0f)] private float movementEnergyDrainPerSecond =
+            DefaultMovementEnergyDrainPerSecond;
         [Tooltip("AB 工作时每秒消耗的能量。")]
-        [SerializeField, Min(0f)] private float assaultBoostEnergyDrainPerSecond = 22f;
+        [SerializeField, Min(0f)] private float assaultBoostEnergyDrainPerSecond =
+            DefaultAssaultBoostEnergyDrainPerSecond;
         [Tooltip("每次成功启动 QB 立即消耗的能量。")]
-        [SerializeField, Min(0f)] private float quickBoostEnergyCost = 25f;
+        [SerializeField, Min(0f)] private float quickBoostEnergyCost =
+            DefaultQuickBoostEnergyCost;
         [Tooltip("停止消耗并经过恢复延迟后，每秒恢复的能量。")]
         [SerializeField, Min(0f)] private float maneuverEnergyRechargePerSecond = 24f;
         [Tooltip("最后一次消耗后开始恢复前的等待时间。")]
@@ -2516,7 +2525,7 @@ namespace ACunicombat.Mechs
 
         private void EnsureManeuverEnergyInitialized()
         {
-            UpgradeLegacyManeuverEnergyCapacity();
+            UpgradeLegacyManeuverEnergyConfiguration();
             if (maneuverEnergyInitialized)
             {
                 return;
@@ -2533,22 +2542,43 @@ namespace ACunicombat.Mechs
             maneuverEnergyInitialized = true;
         }
 
-        private void UpgradeLegacyManeuverEnergyCapacity()
+        private void UpgradeLegacyManeuverEnergyConfiguration()
         {
-            if (maneuverEnergyConfiguredAtRuntime ||
-                !Mathf.Approximately(
-                    maximumManeuverEnergy,
-                    LegacyManeuverEnergyCapacity))
+            if (maneuverEnergyConfiguredAtRuntime)
             {
                 return;
             }
 
+            var hasLegacyCapacity = Mathf.Approximately(
+                maximumManeuverEnergy,
+                LegacyManeuverEnergyCapacity);
+            var hasLegacyRates =
+                Mathf.Approximately(
+                    movementEnergyDrainPerSecond,
+                    LegacyMovementEnergyDrainPerSecond) ||
+                Mathf.Approximately(
+                    assaultBoostEnergyDrainPerSecond,
+                    LegacyAssaultBoostEnergyDrainPerSecond) ||
+                Mathf.Approximately(
+                    quickBoostEnergyCost,
+                    LegacyQuickBoostEnergyCost);
+            if (!hasLegacyCapacity && !hasLegacyRates)
+            {
+                return;
+            }
+
+            var previousCapacity = Mathf.Max(1f, maximumManeuverEnergy);
             var normalizedEnergy = maneuverEnergyInitialized
                 ? Mathf.Clamp01(
                     currentManeuverEnergy /
-                    LegacyManeuverEnergyCapacity)
+                    previousCapacity)
                 : 1f;
             maximumManeuverEnergy = DefaultManeuverEnergyCapacity;
+            movementEnergyDrainPerSecond =
+                DefaultMovementEnergyDrainPerSecond;
+            assaultBoostEnergyDrainPerSecond =
+                DefaultAssaultBoostEnergyDrainPerSecond;
+            quickBoostEnergyCost = DefaultQuickBoostEnergyCost;
             if (maneuverEnergyInitialized)
             {
                 currentManeuverEnergy =
