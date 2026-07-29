@@ -49,7 +49,7 @@ public static class AC6PlayerControlRigBuilder
         // MechFlightMotionController keeps it out of logical movement/camera yaw.
         motion.ConfigureModelForwardYawOffset(180f);
         motion.ConfigurePropulsionForceModel(true, true, 35f);
-        motion.ConfigureFlightEnvelope(250f, 2000f, 40f);
+        motion.ConfigureTechnicalSafetySpeed(2000f);
         motion.ConfigureQuickBoost(90f, 0.28f);
         motion.ConfigureGravity(0.2f);
         thrustVisualizer.Configure(motion);

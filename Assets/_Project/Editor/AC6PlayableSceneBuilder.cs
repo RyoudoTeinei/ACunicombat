@@ -391,7 +391,7 @@ public static class AC6PlayableSceneBuilder
         motion.ConfigureModelForwardYawOffset(180f);
         motion.ConfigurePropulsionForceModel(true, true, 35f);
         motion.ConfigureTranslationThrusterAssist(0.35f, 48f, 36f, 52f, 48f);
-        motion.ConfigureFlightEnvelope(250f, 2000f, 40f);
+        motion.ConfigureTechnicalSafetySpeed(2000f);
         motion.ConfigureQuickBoost(90f, 0.28f);
         motion.ConfigureGravity(0.2f);
         thrustVisualizer.Configure(motion);
@@ -483,7 +483,7 @@ public static class AC6PlayableSceneBuilder
         var climbGo = new GameObject("MotionSmoke_Climb");
         var abGo = new GameObject("MotionSmoke_AB");
         var qbGo = new GameObject("MotionSmoke_QB");
-        var envelopeGo = new GameObject("MotionSmoke_Envelope");
+        var sustainedThrustGo = new GameObject("MotionSmoke_SustainedThrust");
         var brakeGo = new GameObject("MotionSmoke_Brake");
         var airBrakeGo = new GameObject("MotionSmoke_AirBrake");
         try
@@ -523,32 +523,21 @@ public static class AC6PlayableSceneBuilder
                                  && quickBoostSpeed > quickBoostFirstStepSpeed
                                  && quickBoostSpeed > 80f;
 
-            var envelope = envelopeGo.AddComponent<MechFlightMotionController>();
-            envelope.ConfigureModelForwardYawOffset(0f);
-            envelope.ConfigureFlightEnvelope(20f, 200f, 5f);
-            envelopeGo.transform.position = Vector3.zero;
+            var sustainedThrust =
+                sustainedThrustGo.AddComponent<MechFlightMotionController>();
+            sustainedThrust.ConfigureModelForwardYawOffset(0f);
+            sustainedThrust.ConfigureTechnicalSafetySpeed(200f);
+            sustainedThrustGo.transform.position = Vector3.zero;
             var fullThrottle = new MechPlayerInputFrame { MainThrottle = 1f };
             for (var i = 0; i < 600; i++)
             {
-                envelope.Tick(in fullThrottle, dt);
+                sustainedThrust.Tick(in fullThrottle, dt);
             }
 
-            var envelopeSpeed = envelope.HorizontalSpeed;
-            var envelopeLimited = envelope.FlightEnvelopeLimiting;
-            var overrideThrottle = new MechPlayerInputFrame
-            {
-                MainThrottle = 1f,
-                FlightEnvelopeOverrideHeld = true,
-            };
-            for (var i = 0; i < 60; i++)
-            {
-                envelope.Tick(in overrideThrottle, dt);
-            }
-
-            var overrideSpeed = envelope.HorizontalSpeed;
-            var envelopePass = envelopeSpeed >= 19f && envelopeSpeed <= 20.5f
-                               && envelopeLimited
-                               && overrideSpeed > envelopeSpeed + 20f;
+            var sustainedThrustSpeed = sustainedThrust.HorizontalSpeed;
+            var sustainedThrustPass =
+                sustainedThrustSpeed > 100f &&
+                sustainedThrustSpeed <= 200.01f;
 
             var brake = brakeGo.AddComponent<MechFlightMotionController>();
             brake.ConfigureModelForwardYawOffset(0f);
@@ -592,13 +581,13 @@ public static class AC6PlayableSceneBuilder
                      + $"(speed={assaultBoost.Velocity.magnitude:F2}, vy={assaultBoost.Velocity.y:F2}), "
                      + $"QB-overspeed={(quickBoostPass ? "PASS" : "FAIL")} "
                      + $"({quickBoostFirstStepSpeed:F2}->{quickBoostSpeed:F2} m/s), "
-                     + $"throttle-envelope={(envelopePass ? "PASS" : "FAIL")} "
-                     + $"({envelopeSpeed:F2}->{overrideSpeed:F2} m/s), "
+                     + $"sustained-thrust={(sustainedThrustPass ? "PASS" : "FAIL")} "
+                     + $"({sustainedThrustSpeed:F2} m/s), "
                      + $"ground-brake={(groundBrakePass ? "PASS" : "FAIL")} "
                      + $"({impulseSpeed:F2}->{stoppedSpeed:F2} m/s), "
                      + $"air-brake={(airBrakePass ? "PASS" : "FAIL")} "
                      + $"(horizontal={airBrakeSpeed:F3} m/s, altitude-error={airBrakeAltitudeError:F4} m)";
-            return pitchedForwardPass && assaultBoostPass && quickBoostPass && envelopePass
+            return pitchedForwardPass && assaultBoostPass && quickBoostPass && sustainedThrustPass
                    && groundBrakePass && airBrakePass;
         }
         finally
@@ -606,7 +595,7 @@ public static class AC6PlayableSceneBuilder
             UnityEngine.Object.DestroyImmediate(climbGo);
             UnityEngine.Object.DestroyImmediate(abGo);
             UnityEngine.Object.DestroyImmediate(qbGo);
-            UnityEngine.Object.DestroyImmediate(envelopeGo);
+            UnityEngine.Object.DestroyImmediate(sustainedThrustGo);
             UnityEngine.Object.DestroyImmediate(brakeGo);
             UnityEngine.Object.DestroyImmediate(airBrakeGo);
         }

@@ -8,8 +8,8 @@ namespace ACunicombat.Mechs
     /// 物理/运动层（架构第 2 层）：消费输入快照，计算推力、速度与无滚转朝向。
     /// 不选择动画；动画根运动关闭，本组件是世界位移与 Yaw 的唯一权威。
     /// 太空机动原则：无空气阻力、有惯性、转身不等于改变速度方向——
-    /// 作战速度包线只限制继续增速的推力分量，不回收已有动量；辅助飞控只用有限反推
-    /// 修正侧向漂移。assist=0 时退化为纯牛顿推力积分。
+    /// 持续推力会持续增加速度；辅助飞控只用有限反推修正侧向漂移。
+    /// assist=0 时退化为纯牛顿推力积分。
     /// </summary>
     public sealed class MechFlightMotionController : MonoBehaviour
     {
@@ -47,10 +47,6 @@ namespace ACunicombat.Mechs
         [SerializeField] private bool vectorThrustEnabled = true;
         [Tooltip("主推矢量喷口相对机体纵轴允许的最大俯仰偏角。")]
         [Range(0f, 89f)] [SerializeField] private float maximumVectorPitchDegrees = 35f;
-        [Tooltip("相对于任务局部参考系的常规作战速度包线。它限制继续增速的推力，不截断已有速度。")]
-        [SerializeField] private float operationalSpeedEnvelope = 250f;
-        [Tooltip("开始逐渐削弱向外加速分量的速度区间宽度。")]
-        [SerializeField] private float envelopeResponseBand = 40f;
         [Tooltip("仅用于防止 Unity 数值和碰撞失稳的极高技术安全上限，不属于玩法速度上限。")]
         [SerializeField] private float technicalSafetySpeed = 2000f;
         [Tooltip("辅助飞控强度 [0,1]：0=纯惯性；1=以最大辅助反推修正侧向漂移。")]
@@ -157,8 +153,6 @@ namespace ACunicombat.Mechs
         private bool assaultBoostActive;
         private bool braking;
         private float mainThrottle;
-        private bool flightEnvelopeLimiting;
-        private bool flightEnvelopeOverrideActive;
         private bool inertialThrustLockActive;
         private Vector3 inertialThrustLockForward = Vector3.forward;
         private bool trajectorySyncCommandActive;
@@ -209,8 +203,6 @@ namespace ACunicombat.Mechs
 
         public float MainThrottle => mainThrottle;
 
-        public float OperationalSpeedEnvelope => operationalSpeedEnvelope;
-
         public float TechnicalSafetySpeed => technicalSafetySpeed;
 
         public float GravityAcceleration => gravityAcceleration;
@@ -240,7 +232,7 @@ namespace ACunicombat.Mechs
 
         public bool VectorThrustEnabled => vectorThrustEnabled;
 
-        /// <summary>当前帧经速度包线处理后的持续推进加速度，不含重力与短时 QB。</summary>
+        /// <summary>当前帧的持续推进加速度，不含重力与短时 QB。</summary>
         public Vector3 CurrentControlAcceleration => currentControlAcceleration;
 
         /// <summary>当前 QB 窗口的世界空间加速度；窗口结束后返回零。</summary>
@@ -249,10 +241,6 @@ namespace ACunicombat.Mechs
         public float CurrentQuickBoostRemaining => quickBoostRemaining;
 
         public float AirCoastingDragAcceleration => airCoastingDragAcceleration;
-
-        public bool FlightEnvelopeLimiting => flightEnvelopeLimiting;
-
-        public bool FlightEnvelopeOverrideActive => flightEnvelopeOverrideActive;
 
         public bool InertialThrustLockActive => inertialThrustLockActive;
 
@@ -581,15 +569,9 @@ namespace ACunicombat.Mechs
             }
         }
 
-        public void ConfigureFlightEnvelope(
-            float operationalEnvelope,
-            float safetySpeed,
-            float responseBand)
+        public void ConfigureTechnicalSafetySpeed(float safetySpeed)
         {
-            operationalSpeedEnvelope = Mathf.Max(0f, operationalEnvelope);
-            technicalSafetySpeed = Mathf.Max(operationalSpeedEnvelope, safetySpeed);
-            envelopeResponseBand = Mathf.Clamp(
-                responseBand, 0f, operationalSpeedEnvelope);
+            technicalSafetySpeed = Mathf.Max(0f, safetySpeed);
         }
 
         public void ConfigureQuickBoost(float targetVelocityChange, float duration)
@@ -947,18 +929,8 @@ namespace ACunicombat.Mechs
                                + currentDescentForceNewtons;
 
             var hasPropulsionCommand = propulsionForce.sqrMagnitude > 0.0001f;
-            flightEnvelopeOverrideActive = frame.FlightEnvelopeOverrideHeld
-                                           || AssaultBoostActive
-                                           || quickBoostApplying;
-            flightEnvelopeLimiting = false;
-
             if (!braking && hasPropulsionCommand)
             {
-                propulsionForce = ApplyFlightEnvelopeToThrusterForces(
-                    propulsionForce, flightEnvelopeOverrideActive);
-                currentShoulderLiftForceNewtons = SumThrusterForce(MechThrusterRole.ShoulderLift);
-                currentLegLiftForceNewtons = SumThrusterForce(MechThrusterRole.LegLift);
-                currentDescentForceNewtons = SumThrusterForce(MechThrusterRole.Descent);
                 var propulsionAcceleration = propulsionForce / currentMassKg;
                 currentControlForceNewtons = propulsionForce;
                 currentControlAcceleration = propulsionAcceleration;
@@ -996,9 +968,6 @@ namespace ACunicombat.Mechs
             {
                 var requestedSyncForce =
                     trajectorySyncAccelerationCommand * currentMassKg;
-                requestedSyncForce = ApplyFlightEnvelopeToForce(
-                    requestedSyncForce,
-                    flightEnvelopeOverrideActive);
                 currentTrajectorySyncForceNewtons = AllocateAvailableDirectionalForce(
                     requestedSyncForce,
                     attitudeBasis,
@@ -1841,97 +1810,6 @@ namespace ACunicombat.Mechs
                 ? bodyForward.normalized
                 : LogicalRotation * Vector3.forward;
             inertialThrustLockActive = true;
-        }
-
-        private Vector3 ApplyFlightEnvelopeToThrusterForces(
-            Vector3 totalForce,
-            bool bypass)
-        {
-            if (bypass || operationalSpeedEnvelope <= 0f ||
-                totalForce.sqrMagnitude <= 0.0001f || velocity.sqrMagnitude <= 0.0001f)
-            {
-                return totalForce;
-            }
-
-            var speed = velocity.magnitude;
-            var responseStart = Mathf.Max(0f, operationalSpeedEnvelope - envelopeResponseBand);
-            if (speed <= responseStart)
-            {
-                return totalForce;
-            }
-
-            var velocityDirection = velocity / speed;
-            if (Vector3.Dot(totalForce, velocityDirection) <= 0f)
-            {
-                return totalForce;
-            }
-
-            var outwardScale = speed >= operationalSpeedEnvelope
-                ? 0f
-                : Mathf.InverseLerp(operationalSpeedEnvelope, responseStart, speed);
-            flightEnvelopeLimiting = outwardScale < 0.999f;
-
-            var limitedTotal = Vector3.zero;
-            for (var i = 0; i < thrusterChannels.Count; i++)
-            {
-                if (IsAttitudeThrusterRole(thrusterChannels[i].Role))
-                {
-                    continue;
-                }
-
-                var channelForce = thrusterChannels[i].CurrentForceNewtons;
-                var outwardForce = Vector3.Dot(channelForce, velocityDirection);
-                if (outwardForce > 0f)
-                {
-                    channelForce -= velocityDirection * outwardForce * (1f - outwardScale);
-                    thrusterChannels[i].SetForce(channelForce);
-                }
-
-                limitedTotal += channelForce;
-            }
-
-            return limitedTotal;
-        }
-
-        private Vector3 ApplyFlightEnvelopeToForce(Vector3 force, bool bypass)
-        {
-            if (bypass || operationalSpeedEnvelope <= 0f ||
-                force.sqrMagnitude <= 0.0001f ||
-                velocity.sqrMagnitude <= 0.0001f)
-            {
-                return force;
-            }
-
-            var speed = velocity.magnitude;
-            var responseStart = Mathf.Max(
-                0f,
-                operationalSpeedEnvelope - envelopeResponseBand);
-            if (speed <= responseStart)
-            {
-                return force;
-            }
-
-            var velocityDirection = velocity / speed;
-            var outwardForce = Vector3.Dot(force, velocityDirection);
-            if (outwardForce <= 0f)
-            {
-                return force;
-            }
-
-            var outwardScale = speed >= operationalSpeedEnvelope
-                ? 0f
-                : Mathf.InverseLerp(
-                    operationalSpeedEnvelope,
-                    responseStart,
-                    speed);
-            flightEnvelopeLimiting |= outwardScale < 0.999f;
-            return force -
-                   velocityDirection * outwardForce * (1f - outwardScale);
-        }
-
-        private static bool IsAttitudeThrusterRole(MechThrusterRole role)
-        {
-            return role == MechThrusterRole.ShoulderRcs || role == MechThrusterRole.LegRcs;
         }
 
         private Vector3 SumThrusterForce(MechThrusterRole role)

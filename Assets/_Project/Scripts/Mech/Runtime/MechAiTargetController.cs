@@ -423,7 +423,6 @@ namespace ACunicombat.Mechs
                     longitudinalCommand),
                 MainThrottle = 0f,
                 BrakeHeld = false,
-                FlightEnvelopeOverrideHeld = false,
             };
         }
 

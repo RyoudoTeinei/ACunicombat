@@ -27,8 +27,6 @@ namespace ACunicombat.Mechs
         public float MainThrottle;
         /// <summary>本帧节流杆相对上一帧的变化量；轨道同步飞控将其解释为沿轨速度设定变化。</summary>
         public float MainThrottleDelta;
-        /// <summary>按住时临时解除作战速度包线；技术安全上限仍然生效。</summary>
-        public bool FlightEnvelopeOverrideHeld;
         /// <summary>按住 F 时冻结当前水平推力参考；机体仍可随鼠标转向。</summary>
         public bool InertialThrustLockHeld;
         /// <summary>Primary fire is the left mouse button and commands the anatomical left hand.</summary>
@@ -154,7 +152,6 @@ namespace ACunicombat.Mechs
             frame.QuickBoostEdge = keyboard.leftShiftKey.wasPressedThisFrame;
             frame.DescendHeld = keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed;
             frame.BrakeHeld = keyboard.xKey.isPressed;
-            frame.FlightEnvelopeOverrideHeld = keyboard.leftAltKey.isPressed || keyboard.rightAltKey.isPressed;
             frame.InertialThrustLockHeld = keyboard.fKey.isPressed;
             frame.LeftShoulderFireHeld = keyboard.qKey.isPressed;
             frame.LeftShoulderFireEdge = keyboard.qKey.wasPressedThisFrame;

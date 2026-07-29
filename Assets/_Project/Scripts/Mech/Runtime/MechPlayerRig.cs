@@ -939,8 +939,7 @@ namespace ACunicombat.Mechs
             {
                 sb.AppendLine($"速度: {motion.Velocity.magnitude:F1} m/s {motion.Velocity}");
                 sb.AppendLine($"Yaw: {motion.YawDegrees:F1}°  接地: {motion.Grounded}  AB: {motion.AssaultBoostActive}");
-                sb.AppendLine($"节流: {motion.MainThrottle:P0}  包线: {motion.OperationalSpeedEnvelope:F0} m/s  " +
-                              $"限制: {motion.FlightEnvelopeLimiting}  越权: {motion.FlightEnvelopeOverrideActive}");
+                sb.AppendLine($"节流: {motion.MainThrottle:P0}  技术安全速度: {motion.TechnicalSafetySpeed:F0} m/s");
                 sb.AppendLine($"肩部上推: {motion.CurrentShoulderLiftForceNewtons.magnitude / 1000f:F0} kN " +
                               $"{motion.CurrentShoulderLiftForceNewtons.normalized}  " +
                               $"腿部上推: {motion.CurrentLegLiftForceNewtons.magnitude / 1000f:F0} kN " +
