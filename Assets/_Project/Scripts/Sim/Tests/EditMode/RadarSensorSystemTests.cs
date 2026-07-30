@@ -104,6 +104,66 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(radar.Detections.Length, Is.Zero);
         }
 
+        [Test]
+        public void NarrowDwellBeam_ReducesAngularMeasurementVariance()
+        {
+            using var world = new SimWorld();
+            using var grid =
+                new SpatialHashGrid(SimWorld.MaxEntities * 2);
+            using var scheduler = new DwellScheduler(32);
+            using var radar =
+                new RadarSensorSystem(world, grid, scheduler)
+                {
+                    SessionSeed = 1234u,
+                };
+
+            var sensorEntity =
+                world.Register(State(double3.zero, double3.zero));
+            var targetEntity = world.Register(State(
+                new double3(0.0, 0.0, 1_000.0),
+                double3.zero));
+            var sensorId = new SensorId(new Handle(0, 1));
+            radar.RegisterSensor(TestSensor(sensorId, sensorEntity));
+            radar.RegisterTarget(new RadarTargetProfile
+            {
+                EntityId = targetEntity,
+                RadarCrossSectionSquareMeters = 1f,
+            });
+
+            radar.ScheduleDwell(new Dwell
+            {
+                SensorId = sensorId,
+                DueTime = 0.04,
+                DwellTimeSeconds = 0.02f,
+                BeamDirection = new float3(0f, 0f, 1f),
+                BeamWidthRadians = math.radians(20f),
+                Priority = DwellPriority.TrackWhileScan,
+                Sequence = 1,
+            });
+            radar.Tick(0.04);
+            Assert.That(radar.Detections.Length, Is.EqualTo(1));
+            var wideAngleVariance = radar.Detections[0].AngleVar;
+
+            radar.ScheduleDwell(new Dwell
+            {
+                SensorId = sensorId,
+                DueTime = 0.08,
+                DwellTimeSeconds = 0.02f,
+                BeamDirection = new float3(0f, 0f, 1f),
+                BeamWidthRadians = math.radians(5f),
+                Priority = DwellPriority.SingleTargetTrack,
+                Sequence = 2,
+            });
+            radar.Tick(0.08);
+            Assert.That(radar.Detections.Length, Is.EqualTo(1));
+            var narrowAngleVariance = radar.Detections[0].AngleVar;
+
+            Assert.That(
+                narrowAngleVariance,
+                Is.EqualTo(wideAngleVariance / 16f)
+                    .Within(wideAngleVariance * 0.001f));
+        }
+
         private static RadarSensorProfile TestSensor(SensorId sensorId, SimEntityId owner)
         {
             return new RadarSensorProfile

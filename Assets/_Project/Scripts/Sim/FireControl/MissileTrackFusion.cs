@@ -23,6 +23,10 @@ namespace ACunicombat.FireControl
         public double StateRetentionSeconds;
         public float DuplicatePositionGateMeters;
         public float DuplicateVelocityGateMetersPerSecond;
+        public float MaximumTrackAccelerationMetersPerSecondSquared;
+        public float AccelerationFilterTimeSeconds;
+        public float MaximumTrackJerkMetersPerSecondCubed;
+        public float JerkFilterTimeSeconds;
 
         public static MissileTrackFusionConfig Default =>
             new MissileTrackFusionConfig
@@ -43,6 +47,10 @@ namespace ACunicombat.FireControl
                 StateRetentionSeconds = 5.0,
                 DuplicatePositionGateMeters = 300f,
                 DuplicateVelocityGateMetersPerSecond = 250f,
+                MaximumTrackAccelerationMetersPerSecondSquared = 600f,
+                AccelerationFilterTimeSeconds = 0.04f,
+                MaximumTrackJerkMetersPerSecondCubed = 2_000f,
+                JerkFilterTimeSeconds = 0.12f,
             };
     }
 
@@ -58,6 +66,13 @@ namespace ACunicombat.FireControl
             public double LastSeenTime;
             public double LastEvidenceTime;
             public MissileTrackSourceMask CorroboratingSources;
+            public double3 PreviousVelocity;
+            public double PreviousVelocityTime;
+            public double3 FilteredAcceleration;
+            public double3 FilteredJerk;
+            public double3 PreviousRawAcceleration;
+            public bool HasVelocitySample;
+            public bool HasAccelerationSample;
         }
 
         internal readonly Dictionary<TrackId, Entry> Entries =
@@ -283,10 +298,17 @@ namespace ACunicombat.FireControl
                     radarFireControlUsable &&
                     confidence >=
                         config.MinimumConfirmationConfidence;
+                var estimatedAcceleration = double3.zero;
+                var estimatedJerk = double3.zero;
 
                 if (state != null)
                 {
                     var entry = state.GetOrCreate(track.TrackId);
+                    UpdateAccelerationEstimate(
+                        in config,
+                        entry,
+                        track.Velocity,
+                        track.LastUpdateTime);
                     entry.LastSeenTime = now;
                     entry.LastEvidenceTime = math.max(
                         entry.LastEvidenceTime,
@@ -349,6 +371,9 @@ namespace ACunicombat.FireControl
                     confirmed = entry.WeaponsQuality;
                     incoming = entry.Incoming;
                     lastEvidenceTime = entry.LastEvidenceTime;
+                    estimatedAcceleration =
+                        entry.FilteredAcceleration;
+                    estimatedJerk = entry.FilteredJerk;
                 }
 
                 if (confirmed)
@@ -362,6 +387,8 @@ namespace ACunicombat.FireControl
                         TrackId = track.TrackId,
                         Position = estimatedPosition,
                         Velocity = track.Velocity,
+                        Acceleration = estimatedAcceleration,
+                        Jerk = estimatedJerk,
                         PositionUncertaintyMeters =
                             CalculatePositionUncertainty(in track) *
                             (opticalConfirmed ? 0.7f : 1f),
@@ -402,6 +429,85 @@ namespace ACunicombat.FireControl
             }
 
             return writeCount;
+        }
+
+        private static void UpdateAccelerationEstimate(
+            in MissileTrackFusionConfig config,
+            MissileTrackFusionState.Entry entry,
+            double3 velocity,
+            double sampleTime)
+        {
+            if (!entry.HasVelocitySample)
+            {
+                entry.PreviousVelocity = velocity;
+                entry.PreviousVelocityTime = sampleTime;
+                entry.HasVelocitySample = true;
+                return;
+            }
+
+            var elapsed = sampleTime - entry.PreviousVelocityTime;
+            if (elapsed <= 1e-4)
+            {
+                return;
+            }
+
+            var rawAcceleration =
+                (velocity - entry.PreviousVelocity) / elapsed;
+            var maximumAcceleration = math.max(
+                0.0,
+                config.MaximumTrackAccelerationMetersPerSecondSquared);
+            var magnitude = math.length(rawAcceleration);
+            if (maximumAcceleration > 0.0 &&
+                magnitude > maximumAcceleration)
+            {
+                rawAcceleration *= maximumAcceleration / magnitude;
+            }
+
+            var filterTime = math.max(
+                0.0,
+                config.AccelerationFilterTimeSeconds);
+            var blend = filterTime <= 1e-4
+                ? 1.0
+                : 1.0 - math.exp(-elapsed / filterTime);
+            entry.FilteredAcceleration = math.lerp(
+                entry.FilteredAcceleration,
+                rawAcceleration,
+                blend);
+            if (entry.HasAccelerationSample)
+            {
+                var rawJerk =
+                    (rawAcceleration -
+                     entry.PreviousRawAcceleration) / elapsed;
+                var maximumJerk = math.max(
+                    0.0,
+                    config.MaximumTrackJerkMetersPerSecondCubed);
+                var jerkMagnitude = math.length(rawJerk);
+                if (maximumJerk > 0.0 &&
+                    jerkMagnitude > maximumJerk)
+                {
+                    rawJerk *= maximumJerk / jerkMagnitude;
+                }
+
+                var jerkFilterTime = math.max(
+                    0.0,
+                    config.JerkFilterTimeSeconds);
+                var jerkBlend = jerkFilterTime <= 1e-4
+                    ? 1.0
+                    : 1.0 -
+                      math.exp(-elapsed / jerkFilterTime);
+                entry.FilteredJerk = math.lerp(
+                    entry.FilteredJerk,
+                    rawJerk,
+                    jerkBlend);
+            }
+            else
+            {
+                entry.HasAccelerationSample = true;
+            }
+
+            entry.PreviousRawAcceleration = rawAcceleration;
+            entry.PreviousVelocity = velocity;
+            entry.PreviousVelocityTime = sampleTime;
         }
 
         private static int FindDuplicate(

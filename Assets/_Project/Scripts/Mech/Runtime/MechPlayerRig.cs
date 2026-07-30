@@ -67,6 +67,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechWeaponArmLayer weaponLayer;
         [SerializeField] private MechThermalSignature thermalSignature;
         [SerializeField] private MechThermalVisionController thermalVision;
+        [SerializeField] private CombatTestTarget combatTarget;
 
         [Tooltip("キャラ制御フラグ近似：状态进入该秒数后视为全部取消窗口开放。TAE 旗标窗进 IR 后由数据替换。")]
         [SerializeField] private float cancelFlagUnlockSeconds = 0.15f;
@@ -130,6 +131,10 @@ namespace ACunicombat.Mechs
             if (graphRunner == null) graphRunner = GetComponent<MechBehaviorGraphRunner>();
             runtimeState = GetComponent<MechRuntimeState>();
             radar = GetComponent<MechRadarController>();
+            if (combatTarget == null)
+            {
+                combatTarget = GetComponent<CombatTestTarget>();
+            }
             if (!aiControlled &&
                 radar != null &&
                 GetComponent<MechThreatWarningPresenter>() == null)
@@ -1026,7 +1031,76 @@ namespace ACunicombat.Mechs
                 FormatInstrumentValue(motion.Altitude),
                 "m",
                 false);
+            DrawHealthGauge();
             DrawManeuverEnergyGauge();
+        }
+
+        private void DrawHealthGauge()
+        {
+            if (combatTarget == null)
+            {
+                combatTarget = GetComponent<CombatTestTarget>();
+                if (combatTarget == null)
+                {
+                    return;
+                }
+            }
+
+            var width = Mathf.Clamp(
+                Screen.width * 0.34f,
+                300f,
+                520f);
+            const float height = 14f;
+            var rect = new Rect(
+                Screen.width * 0.5f - width * 0.5f,
+                Screen.height - 126f,
+                width,
+                height);
+            var normalized = combatTarget.HealthFraction;
+            var color = normalized <= 0.2f
+                ? new Color(1f, 0.2f, 0.14f, 0.98f)
+                : normalized <= 0.5f
+                    ? new Color(1f, 0.72f, 0.18f, 0.98f)
+                    : new Color(0.34f, 0.94f, 0.82f, 0.98f);
+
+            DrawInstrumentRect(
+                new Rect(
+                    rect.x - 2f,
+                    rect.y - 2f,
+                    rect.width + 4f,
+                    rect.height + 4f),
+                new Color(0.01f, 0.05f, 0.045f, 0.9f));
+            DrawInstrumentRect(
+                new Rect(
+                    rect.x,
+                    rect.y,
+                    rect.width * normalized,
+                    rect.height),
+                color);
+            for (var i = 1; i < 10; i++)
+            {
+                var x = rect.x + rect.width * i / 10f;
+                DrawInstrumentRect(
+                    new Rect(x - 0.5f, rect.y, 1f, rect.height),
+                    new Color(0.01f, 0.08f, 0.065f, 0.72f));
+            }
+
+            instrumentEnergyStyle.normal.textColor = color;
+            instrumentEnergyStyle.alignment = TextAnchor.MiddleLeft;
+            GUI.Label(
+                new Rect(rect.x, rect.y - 24f, 90f, 20f),
+                combatTarget.IsAlive ? "AP" : "AP LOST",
+                instrumentEnergyStyle);
+            instrumentEnergyStyle.alignment = TextAnchor.MiddleRight;
+            GUI.Label(
+                new Rect(
+                    rect.x + rect.width - 160f,
+                    rect.y - 24f,
+                    160f,
+                    20f),
+                $"{combatTarget.Health:0} / " +
+                $"{combatTarget.MaxHealth:0}",
+                instrumentEnergyStyle);
         }
 
         private void DrawManeuverEnergyGauge()

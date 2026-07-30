@@ -665,15 +665,6 @@ namespace ACunicombat.Mechs
                         UpdateMissileAttitude(dt);
                     }
                 }
-                else
-                {
-                    // Cold ejection still moves ballistically; only motor,
-                    // seeker and guidance wait for safe separation.
-                    radarController?.UpdateMissileSeekerState(
-                        seekerHandle,
-                        transform.position,
-                        velocity);
-                }
                 UpdateRcsThrusterVisuals();
                 proximityDetonated = TryDetonateProximity(dt);
             }
@@ -699,6 +690,15 @@ namespace ACunicombat.Mechs
             }
 
             transform.position += travel;
+            if (weaponKind == TestWeaponKind.Missile)
+            {
+                // The radar driver runs before projectiles on the next fixed
+                // tick, so publish the fully integrated state here.
+                radarController?.UpdateMissileSeekerState(
+                    seekerHandle,
+                    transform.position,
+                    velocity);
+            }
             distanceTravelled += travel.magnitude;
             if (weaponKind != TestWeaponKind.Missile &&
                 velocity.sqrMagnitude > 0.001f)
@@ -792,10 +792,6 @@ namespace ACunicombat.Mechs
                 mainEngineThrustNewtons > 0f &&
                 mainMassFlowKgPerSecond > 0f;
             SetMotorVisual(motorActive);
-            radarController?.UpdateMissileSeekerState(
-                seekerHandle,
-                transform.position,
-                velocity);
             if (irSourceRegistered && motorActive != irMotorStateRegistered)
             {
                 // 燃烧段羽焰强度高一个量级；燃尽滑翔段 MAW 告警可能中断（真实行为）。
@@ -1571,39 +1567,19 @@ namespace ACunicombat.Mechs
                 QueryTriggerInteraction.Collide);
             var damagedAnyTarget = false;
             DamagedScratch.Clear();
+            if (directGuidanceTarget != null)
+            {
+                damagedAnyTarget = TryDamageCombatTarget(
+                    directGuidanceTarget,
+                    detonationPoint);
+            }
             for (var i = 0; i < colliderCount; i++)
             {
                 var candidate =
                     OverlapScratch[i].GetComponentInParent<CombatTestTarget>();
-                if (candidate == null ||
-                    !candidate.IsAlive ||
-                    !DamagedScratch.Add(candidate))
-                {
-                    continue;
-                }
-
-                var distance = Vector3.Distance(
-                    detonationPoint,
-                    candidate.AimPoint.position);
-                if (distance > warheadLethalRadius)
-                {
-                    continue;
-                }
-
-                var falloff = Mathf.Lerp(
-                    0.25f,
-                    1f,
-                    1f - distance / warheadLethalRadius);
-                candidate.ApplyDamage(
-                    damage * falloff,
-                    detonationPoint,
-                    velocity.sqrMagnitude > 0.001f
-                        ? velocity.normalized
-                        : transform.forward,
-                    weaponKind,
-                    effectLibrary,
-                    impactFfxId);
-                damagedAnyTarget = true;
+                damagedAnyTarget |= TryDamageCombatTarget(
+                    candidate,
+                    detonationPoint);
             }
 
             if (!damagedAnyTarget)
@@ -1617,6 +1593,41 @@ namespace ACunicombat.Mechs
                     effectLibrary,
                     impactFfxId);
             }
+        }
+
+        private bool TryDamageCombatTarget(
+            CombatTestTarget candidate,
+            Vector3 detonationPoint)
+        {
+            if (candidate == null ||
+                !candidate.IsAlive ||
+                !DamagedScratch.Add(candidate))
+            {
+                return false;
+            }
+
+            var distance = Vector3.Distance(
+                detonationPoint,
+                candidate.AimPoint.position);
+            if (distance > warheadLethalRadius)
+            {
+                return false;
+            }
+
+            var falloff = Mathf.Lerp(
+                0.25f,
+                1f,
+                1f - distance / warheadLethalRadius);
+            candidate.ApplyDamage(
+                damage * falloff,
+                detonationPoint,
+                velocity.sqrMagnitude > 0.001f
+                    ? velocity.normalized
+                    : transform.forward,
+                weaponKind,
+                effectLibrary,
+                impactFfxId);
+            return true;
         }
 
         private bool UpdateDirectGuidanceSeekerEmission(

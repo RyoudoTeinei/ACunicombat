@@ -211,6 +211,76 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void BallisticIntercept_LeadsAnAcceleratingTarget()
+        {
+            var relativePosition =
+                new double3(0.0, 0.0, 1_500.0);
+            var relativeVelocity =
+                new double3(0.0, 0.0, -300.0);
+            var acceleration =
+                new double3(200.0, 0.0, 0.0);
+
+            var solved =
+                FireSolutionSolver.TrySolveBallisticIntercept(
+                    relativePosition,
+                    relativeVelocity,
+                    acceleration,
+                    projectileSpeed: 1_500.0,
+                    maximumFlightTime: 6.0,
+                    out var flightTime,
+                    out var relativeInterceptPoint);
+
+            Assert.That(solved, Is.True);
+            Assert.That(flightTime, Is.GreaterThan(0.7));
+            Assert.That(relativeInterceptPoint.x, Is.GreaterThan(50.0));
+            Assert.That(
+                math.length(relativeInterceptPoint),
+                Is.EqualTo(1_500.0 * flightTime)
+                    .Within(0.001));
+        }
+
+        [Test]
+        public void BallisticIntercept_AccountsForGrowingRocketAcceleration()
+        {
+            var relativePosition =
+                new double3(0.0, 0.0, 2_500.0);
+            var relativeVelocity =
+                new double3(0.0, 0.0, -500.0);
+            var acceleration =
+                new double3(257.0, 0.0, 0.0);
+
+            FireSolutionSolver.TrySolveBallisticIntercept(
+                relativePosition,
+                relativeVelocity,
+                acceleration,
+                projectileSpeed: 1_500.0,
+                maximumFlightTime: 6.0,
+                out _,
+                out var constantAccelerationPoint);
+            var solved =
+                FireSolutionSolver.TrySolveBallisticIntercept(
+                    relativePosition,
+                    relativeVelocity,
+                    acceleration,
+                    new double3(20.0, 0.0, 0.0),
+                    maximumTargetAcceleration: 600.0,
+                    jerkProjectionTime: 0.6,
+                    projectileSpeed: 1_500.0,
+                    maximumFlightTime: 6.0,
+                    out var flightTime,
+                    out var growingAccelerationPoint);
+
+            Assert.That(solved, Is.True);
+            Assert.That(
+                growingAccelerationPoint.x,
+                Is.GreaterThan(constantAccelerationPoint.x));
+            Assert.That(
+                math.length(growingAccelerationPoint),
+                Is.EqualTo(1_500.0 * flightTime)
+                    .Within(0.001));
+        }
+
+        [Test]
         public void InterceptorSolution_CanAuthorizeBeforeTwelveKilometers()
         {
             var track = new MissileTrackSnapshot

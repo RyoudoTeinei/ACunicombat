@@ -507,6 +507,218 @@ namespace ACunicombat.FireControl
             return solution;
         }
 
+        // Bracket the first physical crossing, then refine it without
+        // depending on a fragile closed-form quartic implementation.
+        public static bool TrySolveBallisticIntercept(
+            double3 relativePosition,
+            double3 relativeVelocity,
+            double3 targetAcceleration,
+            double projectileSpeed,
+            double maximumFlightTime,
+            out double flightTime,
+            out double3 relativeInterceptPoint) =>
+            TrySolveBallisticIntercept(
+                relativePosition,
+                relativeVelocity,
+                targetAcceleration,
+                double3.zero,
+                double.MaxValue,
+                0.0,
+                projectileSpeed,
+                maximumFlightTime,
+                out flightTime,
+                out relativeInterceptPoint);
+
+        public static bool TrySolveBallisticIntercept(
+            double3 relativePosition,
+            double3 relativeVelocity,
+            double3 targetAcceleration,
+            double3 targetJerk,
+            double maximumTargetAcceleration,
+            double jerkProjectionTime,
+            double projectileSpeed,
+            double maximumFlightTime,
+            out double flightTime,
+            out double3 relativeInterceptPoint)
+        {
+            flightTime = 0.0;
+            relativeInterceptPoint = double3.zero;
+            if (math.lengthsq(relativePosition) <= 1e-8 ||
+                projectileSpeed <= 1e-3 ||
+                maximumFlightTime <= 1e-4)
+            {
+                return false;
+            }
+
+            var jerkHorizon = math.clamp(
+                jerkProjectionTime,
+                0.0,
+                maximumFlightTime);
+            var effectiveJerk = LimitProjectedJerk(
+                targetAcceleration,
+                targetJerk,
+                maximumTargetAcceleration,
+                jerkHorizon);
+            const int bracketSamples = 192;
+            var previousTime = 0.0;
+            var previousGap = EvaluateBallisticInterceptGap(
+                relativePosition,
+                relativeVelocity,
+                targetAcceleration,
+                effectiveJerk,
+                jerkHorizon,
+                projectileSpeed,
+                previousTime);
+            for (var sample = 1;
+                 sample <= bracketSamples;
+                 sample++)
+            {
+                var currentTime =
+                    maximumFlightTime * sample /
+                    bracketSamples;
+                var currentGap = EvaluateBallisticInterceptGap(
+                    relativePosition,
+                    relativeVelocity,
+                    targetAcceleration,
+                    effectiveJerk,
+                    jerkHorizon,
+                    projectileSpeed,
+                    currentTime);
+                if (currentGap <= 0.0 &&
+                    previousGap > 0.0)
+                {
+                    var lower = previousTime;
+                    var upper = currentTime;
+                    for (var iteration = 0;
+                         iteration < 32;
+                         iteration++)
+                    {
+                        var midpoint = (lower + upper) * 0.5;
+                        var midpointGap =
+                            EvaluateBallisticInterceptGap(
+                                relativePosition,
+                                relativeVelocity,
+                                targetAcceleration,
+                                effectiveJerk,
+                                jerkHorizon,
+                                projectileSpeed,
+                                midpoint);
+                        if (midpointGap > 0.0)
+                        {
+                            lower = midpoint;
+                        }
+                        else
+                        {
+                            upper = midpoint;
+                        }
+                    }
+
+                    flightTime = (lower + upper) * 0.5;
+                    relativeInterceptPoint =
+                        PredictRelativePosition(
+                            relativePosition,
+                            relativeVelocity,
+                            targetAcceleration,
+                            effectiveJerk,
+                            jerkHorizon,
+                            flightTime);
+                    return true;
+                }
+
+                previousTime = currentTime;
+                previousGap = currentGap;
+            }
+
+            return false;
+        }
+
+        private static double EvaluateBallisticInterceptGap(
+            double3 relativePosition,
+            double3 relativeVelocity,
+            double3 targetAcceleration,
+            double3 targetJerk,
+            double jerkHorizon,
+            double projectileSpeed,
+            double time)
+        {
+            var targetDisplacement = PredictRelativePosition(
+                relativePosition,
+                relativeVelocity,
+                targetAcceleration,
+                targetJerk,
+                jerkHorizon,
+                time);
+            var projectileDistance = projectileSpeed * time;
+            return math.lengthsq(targetDisplacement) -
+                   projectileDistance * projectileDistance;
+        }
+
+        private static double3 PredictRelativePosition(
+            double3 relativePosition,
+            double3 relativeVelocity,
+            double3 targetAcceleration,
+            double3 targetJerk,
+            double jerkHorizon,
+            double time)
+        {
+            var jerkTime = math.min(
+                math.max(0.0, jerkHorizon),
+                time);
+            var positionAtJerkEnd =
+                relativePosition +
+                relativeVelocity * jerkTime +
+                0.5 * targetAcceleration *
+                jerkTime * jerkTime +
+                (1.0 / 6.0) * targetJerk *
+                jerkTime * jerkTime * jerkTime;
+            if (time <= jerkTime)
+            {
+                return positionAtJerkEnd;
+            }
+
+            var velocityAtJerkEnd =
+                relativeVelocity +
+                targetAcceleration * jerkTime +
+                0.5 * targetJerk *
+                jerkTime * jerkTime;
+            var accelerationAtJerkEnd =
+                targetAcceleration +
+                targetJerk * jerkTime;
+            var coastTime = time - jerkTime;
+            return positionAtJerkEnd +
+                   velocityAtJerkEnd * coastTime +
+                   0.5 * accelerationAtJerkEnd *
+                   coastTime * coastTime;
+        }
+
+        private static double3 LimitProjectedJerk(
+            double3 acceleration,
+            double3 jerk,
+            double maximumAcceleration,
+            double jerkHorizon)
+        {
+            if (jerkHorizon <= 1e-6 ||
+                math.lengthsq(jerk) <= 1e-12)
+            {
+                return double3.zero;
+            }
+
+            var projectedAcceleration =
+                acceleration + jerk * jerkHorizon;
+            var projectedMagnitude =
+                math.length(projectedAcceleration);
+            if (maximumAcceleration > 0.0 &&
+                projectedMagnitude > maximumAcceleration)
+            {
+                projectedAcceleration *=
+                    maximumAcceleration /
+                    projectedMagnitude;
+            }
+
+            return (projectedAcceleration - acceleration) /
+                   jerkHorizon;
+        }
+
         // 直线相对运动假设：不计导弹转弯/追击几何，大离轴发射时 TOF 偏乐观、
         // 中段瞄准点偏前。首版可接受；引入机动模型时替换本可达性判据。
         private static double ReachabilityGap(

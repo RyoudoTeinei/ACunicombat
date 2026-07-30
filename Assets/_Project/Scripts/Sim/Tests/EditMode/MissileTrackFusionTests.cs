@@ -280,6 +280,90 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void StatefulFusion_EstimatesAccelerationFromNewVelocityEvidence()
+        {
+            var config = MissileTrackFusionConfig.Default;
+            config.AccelerationFilterTimeSeconds = 0f;
+            config.JerkFilterTimeSeconds = 0f;
+            var state = new MissileTrackFusionState();
+            var output = new MissileTrackSnapshot[1];
+            var track = IncomingRadarTrack();
+
+            MissileTrackFusion.Fuse(
+                config,
+                state,
+                new[] { track },
+                1,
+                new ThreatSnapshot[0],
+                0,
+                new ElectroOpticalObservation[0],
+                0,
+                double3.zero,
+                double3.zero,
+                10.0,
+                output);
+
+            track.Velocity =
+                new double3(0.0, 0.0, -125.0);
+            track.LastUpdateTime = 10.1;
+            track.LastPredictTime = 10.1;
+            MissileTrackFusion.Fuse(
+                config,
+                state,
+                new[] { track },
+                1,
+                new ThreatSnapshot[0],
+                0,
+                new ElectroOpticalObservation[0],
+                0,
+                double3.zero,
+                double3.zero,
+                10.1,
+                output);
+
+            Assert.That(
+                output[0].Acceleration.z,
+                Is.EqualTo(-250.0).Within(0.01));
+            Assert.That(
+                output[0].PredictPosition(10.2).z,
+                Is.EqualTo(
+                    output[0].Position.z -
+                    12.5 -
+                    1.25).Within(0.01));
+
+            track.Velocity =
+                new double3(0.0, 0.0, -155.0);
+            track.LastUpdateTime = 10.2;
+            track.LastPredictTime = 10.2;
+            MissileTrackFusion.Fuse(
+                config,
+                state,
+                new[] { track },
+                1,
+                new ThreatSnapshot[0],
+                0,
+                new ElectroOpticalObservation[0],
+                0,
+                double3.zero,
+                double3.zero,
+                10.2,
+                output);
+
+            Assert.That(
+                output[0].Acceleration.z,
+                Is.EqualTo(-300.0).Within(0.01));
+            Assert.That(
+                output[0].Jerk.z,
+                Is.EqualTo(-500.0).Within(0.01));
+            Assert.That(
+                output[0].PredictVelocity(10.3).z,
+                Is.EqualTo(-187.5).Within(0.01));
+            Assert.That(
+                output[0].PredictAcceleration(10.3).z,
+                Is.EqualTo(-350.0).Within(0.01));
+        }
+
+        [Test]
         public void CorroboratedUnknownRadarTrack_IsWarningOnly()
         {
             var track = IncomingRadarTrack();

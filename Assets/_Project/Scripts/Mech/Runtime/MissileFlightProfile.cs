@@ -111,7 +111,7 @@ namespace ACunicombat.Mechs
             {
                 DryMassKg = 120f,
                 MainPropellantMassKg = 90f,
-                MainEngineThrustNewtons = 63_000f,
+                MainEngineThrustNewtons = 58_000f,
                 MainMassFlowKgPerSecond = 15f,
                 RcsPropellantMassKg = 16f,
                 RcsThrustNewtons = 14_000f,

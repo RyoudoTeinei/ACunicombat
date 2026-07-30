@@ -45,6 +45,9 @@ namespace ACunicombat.Mechs
         private const float MissileCueMaximumAgeSeconds = 0.45f;
         private const float MissileCueBeamWidthDegrees = 20f;
         private const int MissileCueDwellsPerTick = 4;
+        private const float PointDefenseRevisitIntervalSeconds = 0.04f;
+        private const float PointDefenseBeamWidthDegrees = 4f;
+        private const float PointDefenseCueHoldSeconds = 0.3f;
         private const float RadarRangeMeters = 100_000f;
         private const float DesignationBaseSeconds = 0.3f;
         private const float DesignationCaptureBoxPixels = 54f;
@@ -132,9 +135,13 @@ namespace ACunicombat.Mechs
         private double nextSearchDwellTime;
         private double nextSttDwellTime;
         private double nextMissileCueDwellTime;
+        private double nextPointDefenseDwellTime;
+        private double pointDefenseCueUntilTime =
+            double.NegativeInfinity;
         private ulong dwellSequence;
         private TrackId candidateTrackId;
         private TrackId sttTrackId;
+        private TrackId pointDefenseCueTrackId;
         private float designationProgress;
         private bool trackOperationMode;
         private float beamAzimuthDegrees;
@@ -151,6 +158,14 @@ namespace ACunicombat.Mechs
         public TrackId SttTrackId => sttTrackId;
         public bool HasStt => sttTrackId.IsValid && TryGetTrack(sttTrackId, out _);
         public float DesignationProgress => designationProgress;
+
+        public void CuePointDefenseTrack(TrackId trackId)
+        {
+            pointDefenseCueTrackId = trackId;
+            pointDefenseCueUntilTime = trackId.IsValid
+                ? SimTimeSeconds + PointDefenseCueHoldSeconds
+                : double.NegativeInfinity;
+        }
 
         public readonly struct MissileSeekerHandle
         {
@@ -1051,6 +1066,7 @@ namespace ACunicombat.Mechs
             }
 
             ScheduleMissileWarningCues(now);
+            SchedulePointDefenseRevisit(now);
             ScheduleTwsRevisits(now, hasStt);
 
             if (!hasStt || now + 1e-6 < nextSttDwellTime ||
@@ -1130,6 +1146,49 @@ namespace ACunicombat.Mechs
                 });
                 scheduled++;
             }
+        }
+
+        private void SchedulePointDefenseRevisit(double now)
+        {
+            if (!pointDefenseCueTrackId.IsValid ||
+                now > pointDefenseCueUntilTime ||
+                now + 1e-6 < nextPointDefenseDwellTime)
+            {
+                return;
+            }
+
+            if (!TryGetTrack(
+                    pointDefenseCueTrackId,
+                    out var pointDefenseTrack))
+            {
+                pointDefenseCueTrackId = default;
+                pointDefenseCueUntilTime = double.NegativeInfinity;
+                return;
+            }
+
+            var trackedPosition =
+                PredictTrackPosition(pointDefenseTrack);
+            var direction =
+                (trackedPosition - transform.position).normalized;
+            if (direction.sqrMagnitude < 0.5f ||
+                !IsWithinBodyRadarFrame(direction))
+            {
+                return;
+            }
+
+            driver.ScheduleRadarDwell(new Dwell
+            {
+                SensorId = sensorId,
+                DueTime = now,
+                DwellTimeSeconds = 0.024f,
+                BeamDirection = direction,
+                BeamWidthRadians =
+                    PointDefenseBeamWidthDegrees * Mathf.Deg2Rad,
+                Priority = DwellPriority.SingleTargetTrack,
+                Sequence = ++dwellSequence,
+            });
+            nextPointDefenseDwellTime =
+                now + PointDefenseRevisitIntervalSeconds;
         }
 
         private void ScheduleSearchBatch(double now, Ray aimRay, int dwellCount)

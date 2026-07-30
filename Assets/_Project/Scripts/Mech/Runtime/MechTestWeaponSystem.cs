@@ -1424,6 +1424,8 @@ namespace ACunicombat.Mechs
                 pointDefenseTarget = candidate;
                 pointDefenseLockUntil =
                     Time.unscaledTime + pointDefenseLockHoldSeconds;
+                radarController.CuePointDefenseTrack(
+                    candidate.TrackId);
                 return;
             }
 
@@ -1437,10 +1439,13 @@ namespace ACunicombat.Mechs
                 Time.unscaledTime >= pointDefenseLockUntil)
             {
                 pointDefenseTarget = default;
+                radarController?.CuePointDefenseTrack(default);
                 return;
             }
 
             pointDefenseTarget = retainedTrack;
+            radarController.CuePointDefenseTrack(
+                retainedTrack.TrackId);
         }
 
         private bool TryFindBestPointDefenseTarget(
@@ -1522,23 +1527,33 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
+            var solutionTime =
+                radarController.SimTimeSeconds;
             var predictedPosition =
                 pointDefenseTarget.PredictPosition(
-                    radarController.SimTimeSeconds);
+                    solutionTime);
+            var predictedVelocity =
+                pointDefenseTarget.PredictVelocity(
+                    solutionTime);
+            var predictedAcceleration =
+                pointDefenseTarget.PredictAcceleration(
+                    solutionTime);
             var targetPosition = new Vector3(
                 (float)predictedPosition.x,
                 (float)predictedPosition.y,
                 (float)predictedPosition.z);
             var targetVelocity = new Vector3(
-                (float)pointDefenseTarget.Velocity.x,
-                (float)pointDefenseTarget.Velocity.y,
-                (float)pointDefenseTarget.Velocity.z);
+                (float)predictedVelocity.x,
+                (float)predictedVelocity.y,
+                (float)predictedVelocity.z);
             var shooterVelocity =
                 flightMotion != null
                     ? flightMotion.Velocity
                     : Vector3.zero;
             var relativePosition =
                 targetPosition - shooterPosition;
+            var relativeVelocity =
+                targetVelocity - shooterVelocity;
             if (relativePosition.sqrMagnitude >
                 pointDefenseMaximumRangeMeters *
                 pointDefenseMaximumRangeMeters)
@@ -1546,71 +1561,36 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            if (!TrySolveInterceptTime(
-                    relativePosition,
-                    targetVelocity - shooterVelocity,
+            var hasIntercept =
+                FireSolutionSolver.TrySolveBallisticIntercept(
+                    ToDouble3(relativePosition),
+                    ToDouble3(relativeVelocity),
+                    predictedAcceleration,
+                    pointDefenseTarget.Jerk,
+                    MissileTrackFusionConfig.Default
+                        .MaximumTrackAccelerationMetersPerSecondSquared,
+                    0.6,
                     projectileSpeed,
                     pointDefenseMaximumLeadSeconds,
-                    out var interceptTime))
+                    out _,
+                    out var relativeInterceptPoint);
+            if (!hasIntercept &&
+                !FireSolutionSolver.TrySolveBallisticIntercept(
+                    ToDouble3(relativePosition),
+                    ToDouble3(relativeVelocity),
+                    double3.zero,
+                    projectileSpeed,
+                    pointDefenseMaximumLeadSeconds,
+                    out _,
+                    out relativeInterceptPoint))
             {
                 return false;
             }
 
             aimPoint =
-                targetPosition +
-                (targetVelocity - shooterVelocity) *
-                interceptTime;
+                shooterPosition +
+                ToVector3(relativeInterceptPoint);
             return true;
-        }
-
-        private static bool TrySolveInterceptTime(
-            Vector3 relativePosition,
-            Vector3 targetVelocity,
-            float projectileSpeed,
-            float maximumLeadSeconds,
-            out float interceptTime)
-        {
-            interceptTime = 0f;
-            if (projectileSpeed <= 0.01f)
-            {
-                return false;
-            }
-
-            var a =
-                Vector3.Dot(targetVelocity, targetVelocity) -
-                projectileSpeed * projectileSpeed;
-            var b =
-                2f * Vector3.Dot(relativePosition, targetVelocity);
-            var c = Vector3.Dot(relativePosition, relativePosition);
-            const float epsilon = 0.0001f;
-            if (Mathf.Abs(a) <= epsilon)
-            {
-                if (Mathf.Abs(b) <= epsilon)
-                {
-                    return false;
-                }
-
-                interceptTime = -c / b;
-            }
-            else
-            {
-                var discriminant = b * b - 4f * a * c;
-                if (discriminant < 0f)
-                {
-                    return false;
-                }
-
-                var root = Mathf.Sqrt(discriminant);
-                var first = (-b - root) / (2f * a);
-                var second = (-b + root) / (2f * a);
-                interceptTime = first > epsilon &&
-                                (second <= epsilon || first < second)
-                    ? first
-                    : second;
-            }
-
-            return interceptTime > epsilon &&
-                   interceptTime <= maximumLeadSeconds;
         }
 
         private static void ConfigureMissileHitbox(

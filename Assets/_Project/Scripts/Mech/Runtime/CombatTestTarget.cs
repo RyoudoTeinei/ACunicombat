@@ -21,6 +21,8 @@ namespace ACunicombat.Mechs
     {
         private const string Ac6PartsApproxShaderName =
             "ACunicombat/AC6/Parts Approx";
+        private const string DamageHitboxName =
+            "Combat Target Damage Hitbox";
 
         [SerializeField] private string targetId = "SIM-TGT-01";
         [SerializeField] private int teamId = 2;
@@ -41,6 +43,7 @@ namespace ACunicombat.Mechs
 
         private Renderer[] renderers;
         private Collider[] colliders;
+        private BoxCollider damageHitbox;
         private MaterialPropertyBlock propertyBlock;
         private Vector3 origin;
         private Quaternion originRotation;
@@ -219,8 +222,101 @@ namespace ACunicombat.Mechs
         private void CacheComponents()
         {
             renderers = GetComponentsInChildren<Renderer>(true);
+            EnsureDamageHitbox();
             colliders = GetComponentsInChildren<Collider>(true);
             propertyBlock ??= new MaterialPropertyBlock();
+        }
+
+        private void EnsureDamageHitbox()
+        {
+            var hitboxTransform = transform.Find(DamageHitboxName);
+            if (hitboxTransform == null)
+            {
+                hitboxTransform =
+                    new GameObject(DamageHitboxName).transform;
+                hitboxTransform.SetParent(transform, false);
+            }
+
+            damageHitbox =
+                hitboxTransform.GetComponent<BoxCollider>();
+            if (damageHitbox == null)
+            {
+                damageHitbox =
+                    hitboxTransform.gameObject.AddComponent<BoxCollider>();
+            }
+
+            hitboxTransform.localPosition = Vector3.zero;
+            hitboxTransform.localRotation = Quaternion.identity;
+            hitboxTransform.localScale = Vector3.one;
+            damageHitbox.isTrigger = true;
+
+            if (!TryCalculateLocalRenderBounds(
+                    out var center,
+                    out var size))
+            {
+                center = new Vector3(0f, 5f, 0f);
+                size = new Vector3(8f, 12f, 6f);
+            }
+
+            const float paddingMeters = 0.5f;
+            damageHitbox.center = center;
+            damageHitbox.size = new Vector3(
+                Mathf.Max(1f, size.x + paddingMeters),
+                Mathf.Max(1f, size.y + paddingMeters),
+                Mathf.Max(1f, size.z + paddingMeters));
+        }
+
+        private bool TryCalculateLocalRenderBounds(
+            out Vector3 center,
+            out Vector3 size)
+        {
+            var minimum = new Vector3(
+                float.PositiveInfinity,
+                float.PositiveInfinity,
+                float.PositiveInfinity);
+            var maximum = new Vector3(
+                float.NegativeInfinity,
+                float.NegativeInfinity,
+                float.NegativeInfinity);
+            var found = false;
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                var renderer = renderers[i];
+                if (renderer == null ||
+                    renderer is ParticleSystemRenderer ||
+                    renderer is TrailRenderer ||
+                    renderer is LineRenderer)
+                {
+                    continue;
+                }
+
+                var bounds = renderer.bounds;
+                var boundsCenter = bounds.center;
+                var extents = bounds.extents;
+                for (var corner = 0; corner < 8; corner++)
+                {
+                    var worldCorner = boundsCenter + new Vector3(
+                        (corner & 1) == 0 ? -extents.x : extents.x,
+                        (corner & 2) == 0 ? -extents.y : extents.y,
+                        (corner & 4) == 0 ? -extents.z : extents.z);
+                    var localCorner =
+                        transform.InverseTransformPoint(worldCorner);
+                    minimum = Vector3.Min(minimum, localCorner);
+                    maximum = Vector3.Max(maximum, localCorner);
+                    found = true;
+                }
+            }
+
+            if (!found)
+            {
+                center = default;
+                size = default;
+                return false;
+            }
+
+            center = (minimum + maximum) * 0.5f;
+            size = maximum - minimum;
+            return true;
         }
 
         private void SetVisibleAndCollidable(bool value)

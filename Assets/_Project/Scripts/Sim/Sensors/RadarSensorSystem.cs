@@ -143,6 +143,8 @@ namespace ACunicombat.Sensors
             var beamWidth = dwell.BeamWidthRadians > 0f
                 ? dwell.BeamWidthRadians
                 : profile.DwellConfig.BeamWidthRadians;
+            var measurementConfig = profile.DwellConfig;
+            measurementConfig.BeamWidthRadians = beamWidth;
             emissionRing.Add(new EmissionEvent
             {
                 EmitterId = profile.EmitterId,
@@ -216,9 +218,15 @@ namespace ACunicombat.Sensors
 
                 var rng = new SimRng(SimHash.Combine(seed, 0xA17E39B1u));
                 var snrLinear = RadarMath.LinearFromDb(snrDb);
-                var sigmaRange = RadarMath.SigmaRange(profile.DwellConfig, snrLinear);
-                var sigmaAngle = RadarMath.SigmaAngle(profile.DwellConfig, snrLinear);
-                var sigmaVelocity = RadarMath.SigmaVelocity(profile.DwellConfig, snrLinear);
+                var sigmaRange = RadarMath.SigmaRange(
+                    measurementConfig,
+                    snrLinear);
+                var sigmaAngle = RadarMath.SigmaAngle(
+                    measurementConfig,
+                    snrLinear);
+                var sigmaVelocity = RadarMath.SigmaVelocity(
+                    measurementConfig,
+                    snrLinear);
                 BuildPerpendicularBasis(trueDirection, out var tangentA, out var tangentB);
                 var noisyDirection = math.normalizesafe(
                     trueDirection

@@ -30,6 +30,8 @@ namespace ACunicombat.Sensing.Contracts
         public TrackId TrackId;
         public double3 Position;
         public double3 Velocity;
+        public double3 Acceleration;
+        public double3 Jerk;
         public float PositionUncertaintyMeters;
         public float CpaUncertaintyMeters;
         public float Confidence;
@@ -51,7 +53,24 @@ namespace ACunicombat.Sensing.Contracts
         public double3 PredictPosition(double time)
         {
             var age = math.max(0.0, time - LastUpdateTime);
-            return Position + Velocity * age;
+            return Position +
+                   Velocity * age +
+                   0.5 * Acceleration * age * age +
+                   (1.0 / 6.0) * Jerk * age * age * age;
+        }
+
+        public double3 PredictVelocity(double time)
+        {
+            var age = math.max(0.0, time - LastUpdateTime);
+            return Velocity +
+                   Acceleration * age +
+                   0.5 * Jerk * age * age;
+        }
+
+        public double3 PredictAcceleration(double time)
+        {
+            var age = math.max(0.0, time - LastUpdateTime);
+            return Acceleration + Jerk * age;
         }
     }
 }
