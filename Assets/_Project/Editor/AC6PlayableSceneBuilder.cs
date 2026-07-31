@@ -905,8 +905,19 @@ public static class AC6PlayableSceneBuilder
         RenderSettings.ambientSkyColor = new Color(0.16f, 0.19f, 0.24f, 1f);
         RenderSettings.ambientEquatorColor = new Color(0.085f, 0.10f, 0.13f, 1f);
         RenderSettings.ambientGroundColor = new Color(0.035f, 0.04f, 0.055f, 1f);
-        RenderSettings.ambientIntensity = 0.85f;
-        RenderSettings.reflectionIntensity = 0.32f;
+        // 0.85 was propping the dark side up while the all-black-mech bug was being chased. In
+        // vacuum there is no atmospheric scattering, so anything not facing the sun or the planet
+        // should genuinely fall away. This is the main knob for "deep space" - push it lower for
+        // more depth, at the cost of readability on the unlit side.
+        RenderSettings.ambientIntensity = 0.42f;
+        // Only meaningful now that the panorama is HDR. Against the old LDR sky the probe had no
+        // value brighter than white, so raising this just lifted a flat grey.
+        RenderSettings.reflectionIntensity = 0.7f;
+        RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
+        // Smoothness selects the probe mip via PerceptualRoughnessToMipmapLevel, so probe
+        // resolution is what decides whether a high-smoothness zone gets a crisp sun glint or a
+        // smear. 128 (the default) is not enough for the per-zone metallic pass to read.
+        RenderSettings.defaultReflectionResolution = 256;
 
         var playerCamera = GameObject.Find("AC6PlayerCamera");
         var camera = playerCamera != null ? playerCamera.GetComponent<Camera>() : null;
@@ -932,7 +943,13 @@ public static class AC6PlayableSceneBuilder
         {
             keyLight.type = LightType.Directional;
             keyLight.color = new Color(1f, 0.965f, 0.9f, 1f);
-            keyLight.intensity = 2.35f;
+            // 2.35 was a "can see the mech" value. Sunlight in vacuum is not subtle, and with ACES
+            // now in the chain the mid tones need to sit high enough to reach the shoulder: a 0.42
+            // albedo zone lands near 4.2 in the HDR buffer here, which is where the curve starts
+            // rolling off. Deliberately NOT pushed to 30-50 - that shoves the whole mech into the
+            // shoulder and flattens it. The glare comes from the sun disc in the panorama (220
+            // linear) plus Bloom, not from cranking this.
+            keyLight.intensity = 10f;
             keyLight.shadows = LightShadows.Soft;
             keyLight.transform.rotation = Quaternion.Euler(31f, -32f, 0f);
             RenderSettings.sun = keyLight;
@@ -958,7 +975,10 @@ public static class AC6PlayableSceneBuilder
         }
         fillLight.type = LightType.Directional;
         fillLight.color = new Color(0.46f, 0.58f, 0.72f, 1f);
-        fillLight.intensity = 0.9f;
+        // Stands in for planetshine off the surface below. Scaled down with the ambient so the
+        // contrast ratio against the new key light stays in the same territory instead of the
+        // unlit side quietly becoming a second key.
+        fillLight.intensity = 0.5f;
         fillLight.shadows = LightShadows.None;
         fillLight.transform.rotation = Quaternion.Euler(24f, 148f, 0f);
         EditorUtility.SetDirty(fillLight);
