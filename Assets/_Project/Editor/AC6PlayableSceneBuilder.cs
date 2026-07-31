@@ -7,6 +7,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 
 /// <summary>
@@ -47,6 +48,12 @@ public static class AC6PlayableSceneBuilder
     private const string LegacyDeepSpaceSkyTexturePath =
         GeneratedMaterialsRoot + "/AC6SparseDeepSpacePanorama.png";
     private const string DeepSpaceSkyTextureVersion = "3-hdr-sun";
+    private const string RenderingRoot = "Assets/_Project/Rendering";
+    private const string CombatVolumeProfilePath =
+        RenderingRoot + "/AC6SpaceCombatVolume.asset";
+    private const string ThermalVolumeProfilePath =
+        RenderingRoot + "/AC6ThermalVolume.asset";
+    private const string CombatVolumeObjectName = "AC6 Combat Post";
     // Linear radiance, authored directly (the EXR is not sRGB encoded).
     private const float SunDiskRadiance = 220f;
     private const float SunCoronaRadiance = 6.5f;
@@ -907,6 +914,15 @@ public static class AC6PlayableSceneBuilder
         {
             camera.clearFlags = CameraClearFlags.Skybox;
             camera.backgroundColor = Color.black;
+            // Without this the Volume stack is evaluated and then thrown away - no tonemapping,
+            // no bloom, and the HDR sun stays a flat clipped white disc.
+            var cameraData = camera.GetUniversalAdditionalCameraData();
+            if (cameraData != null)
+            {
+                cameraData.renderPostProcessing = true;
+                EditorUtility.SetDirty(cameraData);
+            }
+
             EditorUtility.SetDirty(camera);
         }
 
@@ -956,6 +972,148 @@ public static class AC6PlayableSceneBuilder
             rimLight.intensity = Mathf.Min(rimLight.intensity, 5f);
             EditorUtility.SetDirty(rimLight);
         }
+
+        ConfigurePostProcessing();
+    }
+
+    /// <summary>
+    /// Two global Volumes, not one. The thermal screen pass injects at
+    /// BeforeRenderingPostProcessing, so ACES and any exposure or saturation grading would land on
+    /// top of the thermal image and re-map the very grey levels the AGC window was calibrated
+    /// against. The thermal Volume sits at a higher priority and counter-overrides everything the
+    /// combat Volume sets, so toggling modes swaps the whole display chain instead of layering a
+    /// film look over an instrument readout.
+    ///
+    /// Priority beats a volumeLayerMask here purely because it costs no layer: layers are a
+    /// 32-slot global project resource and a scene builder has no business spending one.
+    /// </summary>
+    private static void ConfigurePostProcessing()
+    {
+        var combatProfile = GetOrCreateVolumeProfile(CombatVolumeProfilePath);
+        ConfigureCombatVolumeProfile(combatProfile);
+
+        var thermalProfile = GetOrCreateVolumeProfile(ThermalVolumeProfilePath);
+        ConfigureThermalVolumeProfile(thermalProfile);
+
+        GetOrCreateGlobalVolume(CombatVolumeObjectName, 0f, combatProfile).enabled = true;
+
+        var thermalVolume = GetOrCreateGlobalVolume(
+            MechThermalVisionController.ThermalVolumeObjectName,
+            100f,
+            thermalProfile);
+        // Starts off; MechThermalVisionController.SetMode owns it from here.
+        thermalVolume.enabled = false;
+
+        var controller = UnityEngine.Object.FindFirstObjectByType<MechThermalVisionController>();
+        if (controller != null)
+        {
+            controller.BindThermalVolume(thermalVolume);
+            EditorUtility.SetDirty(controller);
+        }
+    }
+
+    private static void ConfigureCombatVolumeProfile(VolumeProfile profile)
+    {
+        var tonemapping = GetOrAddVolumeComponent<Tonemapping>(profile);
+        tonemapping.active = true;
+        tonemapping.mode.overrideState = true;
+        tonemapping.mode.value = TonemappingMode.ACES;
+
+        var bloom = GetOrAddVolumeComponent<Bloom>(profile);
+        bloom.active = true;
+        bloom.threshold.overrideState = true;
+        // Above the brightest star (the panorama authors every star below 1.0 linear) and far
+        // below the sun disc, so the sun and hot speculars bloom while the star field stays
+        // as points rather than becoming a field of competing glare sources.
+        bloom.threshold.value = 1.1f;
+        bloom.intensity.overrideState = true;
+        bloom.intensity.value = 0.85f;
+        bloom.scatter.overrideState = true;
+        bloom.scatter.value = 0.62f;
+        bloom.highQualityFiltering.overrideState = true;
+        bloom.highQualityFiltering.value = true;
+
+        var colorAdjustments = GetOrAddVolumeComponent<ColorAdjustments>(profile);
+        colorAdjustments.active = true;
+        // Present but neutral on purpose. ACES should be judged on its own before grading gets
+        // layered over it; these are the two knobs to reach for once it has been.
+        colorAdjustments.postExposure.overrideState = true;
+        colorAdjustments.postExposure.value = 0f;
+        colorAdjustments.saturation.overrideState = true;
+        colorAdjustments.saturation.value = 0f;
+
+        EditorUtility.SetDirty(profile);
+    }
+
+    private static void ConfigureThermalVolumeProfile(VolumeProfile profile)
+    {
+        var tonemapping = GetOrAddVolumeComponent<Tonemapping>(profile);
+        tonemapping.active = true;
+        tonemapping.mode.overrideState = true;
+        // No S-curve over an instrument readout. The AGC maps radiance to grey levels linearly
+        // and ACES would redistribute exactly those levels - which is how the mech went invisible
+        // against the sky the first time, just via a different mechanism.
+        tonemapping.mode.value = TonemappingMode.None;
+
+        var bloom = GetOrAddVolumeComponent<Bloom>(profile);
+        bloom.active = true;
+        bloom.threshold.overrideState = true;
+        bloom.threshold.value = 1f;
+        bloom.intensity.overrideState = true;
+        // Weak but non-zero, so sources the AGC pushes past the top of its window still burn.
+        bloom.intensity.value = 0.25f;
+        bloom.scatter.overrideState = true;
+        bloom.scatter.value = 0.5f;
+        bloom.highQualityFiltering.overrideState = true;
+        bloom.highQualityFiltering.value = true;
+
+        var colorAdjustments = GetOrAddVolumeComponent<ColorAdjustments>(profile);
+        colorAdjustments.active = true;
+        colorAdjustments.postExposure.overrideState = true;
+        colorAdjustments.postExposure.value = 0f;
+        colorAdjustments.saturation.overrideState = true;
+        colorAdjustments.saturation.value = 0f;
+
+        EditorUtility.SetDirty(profile);
+    }
+
+    private static VolumeProfile GetOrCreateVolumeProfile(string path)
+    {
+        var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(path);
+        if (profile != null)
+        {
+            return profile;
+        }
+
+        profile = ScriptableObject.CreateInstance<VolumeProfile>();
+        AssetDatabase.CreateAsset(profile, path);
+        return profile;
+    }
+
+    private static T GetOrAddVolumeComponent<T>(VolumeProfile profile)
+        where T : VolumeComponent
+    {
+        return profile.TryGet<T>(out var component) ? component : profile.Add<T>(true);
+    }
+
+    private static Volume GetOrCreateGlobalVolume(
+        string objectName,
+        float priority,
+        VolumeProfile profile)
+    {
+        var volumeObject = GameObject.Find(objectName) ?? new GameObject(objectName);
+        var volume = volumeObject.GetComponent<Volume>();
+        if (volume == null)
+        {
+            volume = volumeObject.AddComponent<Volume>();
+        }
+
+        volume.isGlobal = true;
+        volume.priority = priority;
+        volume.weight = 1f;
+        volume.sharedProfile = profile;
+        EditorUtility.SetDirty(volume);
+        return volume;
     }
 
     private static Texture2D GetOrCreateDeepSpacePanorama()

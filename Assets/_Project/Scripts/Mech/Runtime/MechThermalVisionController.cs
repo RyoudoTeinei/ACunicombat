@@ -26,6 +26,12 @@ namespace ACunicombat.Mechs
     {
         private const string ObjectsFeatureName = "AC6ThermalObjects";
         private const string ScreenFeatureName = "AC6ThermalScreen";
+
+        /// <summary>
+        /// 场景构建器与运行时共用的名字，供 serialized 引用为空时按名查找。
+        /// </summary>
+        public const string ThermalVolumeObjectName = "AC6 Thermal Post";
+
         private static readonly int WindowId = Shader.PropertyToID("_AC6ThermalWindow");
         private static readonly int ScreenParamsId = Shader.PropertyToID("_AC6ThermalScreenParams");
         private static readonly int ClarityParamsId = Shader.PropertyToID("_AC6ThermalClarityParams");
@@ -33,6 +39,12 @@ namespace ACunicombat.Mechs
         [Tooltip("Installer 会把两个 feature 资产引用填进来；为空时按名字反射查找激活管线。")]
         [SerializeField] private ScriptableRendererFeature thermalObjectsFeature;
         [SerializeField] private ScriptableRendererFeature thermalScreenFeature;
+
+        [Tooltip(
+            "观瞄模式专用后处理 Volume（高 priority，反盖战斗 Volume）。" +
+            "热像屏幕 pass 注入在后处理之前，若让 ACES 与调色作用其上，" +
+            "AGC 标定好的灰阶会被重新映射。为空时按名字查找。")]
+        [SerializeField] private Volume thermalVolume;
 
         [Header("AGC / 显示映射")]
         [Tooltip("未挂热源物体的默认温度，须与 AC6ThermalRadiance 材质的 _ThermalTemp 默认值一致。")]
@@ -123,6 +135,13 @@ namespace ACunicombat.Mechs
             MechThermalSignature.RendererTemperatureOutputEnabled = on;
             thermalObjectsFeature?.SetActive(on);
             thermalScreenFeature?.SetActive(on);
+
+            // 观瞄显示链路整体切换，而不是在仪表读数上叠一层电影调色。
+            ResolveThermalVolume();
+            if (thermalVolume != null)
+            {
+                thermalVolume.enabled = on;
+            }
             if (on)
             {
                 AutoTagUntaggedHeatSources();
@@ -384,6 +403,28 @@ namespace ACunicombat.Mechs
             }
 
             go.AddComponent<MechThermalPointEmitter>().SetTemperature(temperatureK);
+        }
+
+        /// <summary>
+        /// 由场景构建器在生成观瞄 Volume 后回填引用，避免运行时依赖按名查找。
+        /// </summary>
+        public void BindThermalVolume(Volume volume)
+        {
+            thermalVolume = volume;
+        }
+
+        private void ResolveThermalVolume()
+        {
+            if (thermalVolume != null)
+            {
+                return;
+            }
+
+            var volumeObject = GameObject.Find(ThermalVolumeObjectName);
+            if (volumeObject != null)
+            {
+                thermalVolume = volumeObject.GetComponent<Volume>();
+            }
         }
 
         /// <summary>
