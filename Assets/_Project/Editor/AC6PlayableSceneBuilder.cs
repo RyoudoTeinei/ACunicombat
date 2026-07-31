@@ -1060,8 +1060,11 @@ public static class AC6PlayableSceneBuilder
         bloom.threshold.overrideState = true;
         bloom.threshold.value = 1f;
         bloom.intensity.overrideState = true;
-        // Weak but non-zero, so sources the AGC pushes past the top of its window still burn.
-        bloom.intensity.value = 0.25f;
+        // Zero, and not merely low. Black-hot inverts the image, so hot sources are dark and the
+        // brightest thing on screen is the inverted cold background at roughly 0.975 - nothing
+        // ever crosses the threshold. URP's Bloom.IsActive() tests intensity > 0, so this skips
+        // the entire downsample/upsample chain rather than running it for no output.
+        bloom.intensity.value = 0f;
         bloom.scatter.overrideState = true;
         bloom.scatter.value = 0.5f;
         bloom.highQualityFiltering.overrideState = true;

@@ -61,7 +61,7 @@ public static class AC6ThermalVisionInstaller
         return $"完成：renderer={rendererData.name}, " +
                $"{ObjectsFeatureName}={(addedObjects ? "新增" : "已存在,已更新")}, " +
                $"{ScreenFeatureName}={(addedScreen ? "新增" : "已存在,已更新")}。" +
-               "运行时用 `~ 键循环 关闭→白热→黑热。";
+               "运行时用 `~ 键在 关闭↔黑热 之间切换。";
     }
 
     private static void EnsureFolder()
