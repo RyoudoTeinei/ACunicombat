@@ -1190,16 +1190,20 @@ public static class AC6PlayableSceneBuilder
         const int width = 4096;
         const int height = 2048;
         var pixels = new Color[width * height];
-        for (var y = 0; y < height; y++)
+
+        // Flat, and near neutral. The old version ramped the blue channel by latitude, but
+        // latitude IS the pole axis of an equirectangular map, so a latitude ramp can only ever
+        // produce a cap at the zenith and another at the nadir. Equirect also converges every
+        // pixel of the top row onto a single point, which wipes out star detail there - so the cap
+        // read as a smooth starless blue patch overhead. Any large-scale variation has to come
+        // from an actual sky feature, never from the map's v coordinate.
+        //
+        // Neutral rather than blue: a blue night sky is an atmospheric convention. Vacuum has no
+        // Rayleigh scattering, and the old (1, 2, 6) ratio made blue five times red.
+        var background = SrgbByteToLinear(3f, 3f, 4f);
+        for (var i = 0; i < pixels.Length; i++)
         {
-            var latitude = Mathf.Abs((y / (height - 1f)) * 2f - 1f);
-            var blue = Mathf.Lerp(5f, 8f, latitude * 0.35f);
-            var background = SrgbByteToLinear(1f, 2f, blue);
-            var rowStart = y * width;
-            for (var x = 0; x < width; x++)
-            {
-                pixels[rowStart + x] = background;
-            }
+            pixels[i] = background;
         }
 
         var random = new System.Random(0xAC6006);
