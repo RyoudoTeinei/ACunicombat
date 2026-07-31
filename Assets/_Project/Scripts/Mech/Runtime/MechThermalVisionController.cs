@@ -10,13 +10,15 @@ namespace ACunicombat.Mechs
     {
         Off = 0,
 
-        // 1 曾是 WhiteHot，已移除。刻意留空不复用：旧场景里序列化的 1 会落在这个洞里，
-        // SetMode/Awake 统一归一到 BlackHot，而不是被误读成另一个有效模式。
-        BlackHot = 2,
+        /// <summary>热源显示为白，冷背景为黑。物体 pass 的原生映射，屏幕 pass 不反相。</summary>
+        WhiteHot = 1,
+
+        // 2 曾是 BlackHot（背景白、热源黑），已移除。刻意留空不复用：旧场景里序列化的 2
+        // 会落在这个洞里，SetMode/Awake 统一归一到 WhiteHot，而不是被误读成另一个有效模式。
     }
 
     /// <summary>
-    /// 热成像视野编排（`~ 键在 关闭↔黑热 之间切换）：
+    /// 热成像视野编排（`~ 键在 关闭↔白热 之间切换，热源为白）：
     ///   - 开关渲染侧的两个 URP feature（AC6ThermalObjects 重画 + AC6ThermalScreen 后处理），
     ///     feature 由 AC6ThermalVisionInstaller 一次性装进激活的 Renderer 资产；
     ///   - CPU 端 AGC：遍历 MechThermalSignature/MechThermalPointEmitter 注册表求当前
@@ -108,16 +110,16 @@ namespace ACunicombat.Mechs
         {
             SetMode(
                 mode == MechThermalVisionMode.Off
-                    ? MechThermalVisionMode.BlackHot
+                    ? MechThermalVisionMode.WhiteHot
                     : MechThermalVisionMode.Off);
         }
 
         public void SetMode(MechThermalVisionMode next)
         {
-            // 只剩黑热一种显示模式；任何非 Off 的取值（含旧场景残留的 WhiteHot=1）都归一到它。
+            // 只剩白热一种显示模式；任何非 Off 的取值（含旧场景残留的 BlackHot=2）都归一到它。
             if (next != MechThermalVisionMode.Off)
             {
-                next = MechThermalVisionMode.BlackHot;
+                next = MechThermalVisionMode.WhiteHot;
             }
 
             ResolveFeatures();
@@ -180,10 +182,10 @@ namespace ACunicombat.Mechs
 
         private void Awake()
         {
-            // 未经 SetMode 就直接进场的旧序列化值在这里归一，避免 PushGlobals 推出白热符号。
+            // 未经 SetMode 就直接进场的旧序列化值在这里归一，避免 PushGlobals 推出黑热符号。
             if (mode != MechThermalVisionMode.Off)
             {
-                mode = MechThermalVisionMode.BlackHot;
+                mode = MechThermalVisionMode.WhiteHot;
             }
 
             if (startupClip == null)
@@ -383,9 +385,9 @@ namespace ACunicombat.Mechs
                 detectorPixelSize,
                 noiseAmplitude,
                 backgroundLevel,
-                // AC6ThermalScreen 用 w 的符号选择极性，负号即黑热。shader 仍保留两种极性，
-                // 但白热被砍掉后这里只可能推负号（PushGlobals 只在开启时到达）。
-                -1f));
+                // AC6ThermalScreen 用 w 的符号选择极性，正号即白热（不反相，热源为白）。
+                // shader 仍保留两种极性，但黑热被砍掉后这里只可能推正号。
+                1f));
             Shader.SetGlobalVector(ClarityParamsId, new Vector4(
                 sharpness,
                 contrast,

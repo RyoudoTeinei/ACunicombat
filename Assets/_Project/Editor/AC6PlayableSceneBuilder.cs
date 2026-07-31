@@ -1058,13 +1058,14 @@ public static class AC6PlayableSceneBuilder
         var bloom = GetOrAddVolumeComponent<Bloom>(profile);
         bloom.active = true;
         bloom.threshold.overrideState = true;
-        bloom.threshold.value = 1f;
+        // Just under white rather than at it. AC6ThermalRadiance's exponential rolloff is tuned so
+        // ordinary armour stays below pure white while thrusters and missile motors roll into
+        // saturation, so a threshold here selects exactly those and nothing else - the cold
+        // background sits near 0.025 and never comes close. This is what makes hot sources burn
+        // without needing the screen pass to emit above-white HDR values.
+        bloom.threshold.value = 0.9f;
         bloom.intensity.overrideState = true;
-        // Zero, and not merely low. Black-hot inverts the image, so hot sources are dark and the
-        // brightest thing on screen is the inverted cold background at roughly 0.975 - nothing
-        // ever crosses the threshold. URP's Bloom.IsActive() tests intensity > 0, so this skips
-        // the entire downsample/upsample chain rather than running it for no output.
-        bloom.intensity.value = 0f;
+        bloom.intensity.value = 0.35f;
         bloom.scatter.overrideState = true;
         bloom.scatter.value = 0.5f;
         bloom.highQualityFiltering.overrideState = true;

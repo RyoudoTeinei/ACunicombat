@@ -25,8 +25,8 @@ Shader "Hidden/ACunicombat/AC6/Thermal Screen"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
 
             // x = 探测器像素块边长(屏幕像素), y = 噪声幅度, z = 背景冷底灰度,
-            // w = 极性（>0 白热，<0 黑热）。shader 两种都支持，但白热模式已从玩法中移除，
-            // MechThermalVisionController 只会推负号；保留正号分支是为了不锁死后续调整。
+            // w = 极性（>0 白热，<0 黑热）。shader 两种都支持，但黑热模式已从玩法中移除，
+            // MechThermalVisionController 只会推正号；保留负号分支是为了不锁死后续调整。
             float4 _AC6ThermalScreenParams;
             // x = 锐化强度, y = 对比度, z = 太空背景噪声比例。
             float4 _AC6ThermalClarityParams;
