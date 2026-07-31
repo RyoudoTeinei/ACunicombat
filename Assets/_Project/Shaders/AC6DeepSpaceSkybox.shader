@@ -238,7 +238,17 @@ Shader "AC6/Deep Space Skybox"
 
             half3 Sun(float3 dir, float pixelAngle)
             {
-                float cosAngle = clamp(dot(dir, normalize(_SunDirection.xyz)), -1.0, 1.0);
+                // 方向为零向量时 normalize 会产生 NaN，而 NaN 会顺着加法污染整个像素、
+                // 通常表现为纯白。材质属性丢失时这是很容易踩到的一种失效方式。
+                float3 sunDir = _SunDirection.xyz;
+                float sunLengthSq = dot(sunDir, sunDir);
+                if (sunLengthSq < 1e-8)
+                {
+                    return half3(0.0, 0.0, 0.0);
+                }
+                sunDir *= rsqrt(sunLengthSq);
+
+                float cosAngle = clamp(dot(dir, sunDir), -1.0, 1.0);
                 float angle = acos(cosAngle);
 
                 float diskRadius = radians(_SunAngularRadius);
@@ -250,9 +260,12 @@ Shader "AC6/Deep Space Skybox"
                 float normalised = saturate(angle / max(diskRadius, 1e-6));
                 float limb = lerp(1.0, 0.72, normalised * normalised);
 
-                float coronaRadius = radians(_SunCoronaRadius);
-                float coronaFade = saturate(1.0 - angle / max(coronaRadius, 1e-6));
-                float corona = pow(coronaFade, _SunCoronaFalloff);
+                float coronaRadius = radians(max(_SunCoronaRadius, 1e-4));
+                float coronaFade = saturate(1.0 - angle / coronaRadius);
+                // 指数必须夹到 1 以上。pow(x, 0) 在 HLSL 里对 x = 0 也返回 1，所以一个为零的
+                // 指数会把日冕变成覆盖全天的常数项，整片天空被顶成纯白——材质属性没拿到
+                // shader 默认值时就是这个后果。
+                float corona = pow(coronaFade, max(_SunCoronaFalloff, 1.0));
 
                 return _SunColor.rgb *
                     (disk * limb * _SunDiskRadiance + corona * _SunCoronaRadiance);

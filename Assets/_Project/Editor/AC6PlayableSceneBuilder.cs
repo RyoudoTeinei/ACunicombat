@@ -853,13 +853,39 @@ public static class AC6PlayableSceneBuilder
         }
 
         skybox.shader = skyboxShader;
+
+        // Every property is written explicitly, not just the few that differ from the shader's
+        // defaults. Assigning a new shader to an existing material does not reliably seed the
+        // incoming properties with that shader's defaults - this material was authored against
+        // Skybox/Panoramic, so the entire procedural parameter set arrives unset. A zero
+        // _SunCoronaFalloff is the worst of those: pow(x, 0) is 1 even at x = 0, which turns the
+        // corona into a sky-wide constant and renders the whole background solid white.
+        skybox.SetColor("_BackgroundRadiance", new Color(0.0008f, 0.0008f, 0.0011f, 1f));
+
+        skybox.SetFloat("_StarDensity", 0.35f);
+        skybox.SetFloat("_StarBrightness", 1f);
+        skybox.SetFloat("_StarMagnitudeBias", 3.6f);
+        skybox.SetFloat("_StarColorSpread", 0.55f);
+        skybox.SetFloat("_StarCoarseCells", 22f);
+        skybox.SetFloat("_StarFineCells", 92f);
+        skybox.SetFloat("_StarRadius", 0.035f);
+
         // The sun is drawn analytically from this direction, so it has to be the exact inverse of
-        // the key light's forward or the visible disc and the shading will disagree. Both read
+        // the key light's forward or the visible disc and the shading disagree. Both read
         // KeyLightEuler rather than repeating the numbers.
-        var sunDirection = -(Quaternion.Euler(KeyLightEuler) * Vector3.forward);
-        skybox.SetVector("_SunDirection", sunDirection);
+        skybox.SetVector("_SunDirection", -(Quaternion.Euler(KeyLightEuler) * Vector3.forward));
+        skybox.SetColor("_SunColor", new Color(1f, 0.972f, 0.863f, 1f));
         skybox.SetFloat("_SunDiskRadiance", SunDiskRadiance);
+        skybox.SetFloat("_SunAngularRadius", 0.72f);
         skybox.SetFloat("_SunCoronaRadiance", SunCoronaRadiance);
+        skybox.SetFloat("_SunCoronaRadius", 7f);
+        skybox.SetFloat("_SunCoronaFalloff", 2.6f);
+
+        skybox.SetFloat("_NebulaStrength", 0.4f);
+        skybox.SetFloat("_NebulaScale", 1.6f);
+        skybox.SetColor("_NebulaColorA", new Color(0.055f, 0.075f, 0.135f, 1f));
+        skybox.SetColor("_NebulaColorB", new Color(0.115f, 0.050f, 0.070f, 1f));
+
         EditorUtility.SetDirty(skybox);
 
         // The old panorama asset is no longer referenced by anything. Left on disk it would keep
