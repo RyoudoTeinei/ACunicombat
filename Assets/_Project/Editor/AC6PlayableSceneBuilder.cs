@@ -950,7 +950,11 @@ public static class AC6PlayableSceneBuilder
             // shoulder and flattens it. The glare comes from the sun disc in the panorama (220
             // linear) plus Bloom, not from cranking this.
             keyLight.intensity = 10f;
-            keyLight.shadows = LightShadows.Soft;
+            // Hard, not Soft. Vacuum has no atmosphere to scatter light around the terminator, and
+            // the sun subtends only about 0.53 degrees from here, so the penumbra it casts is a
+            // few centimetres at mech scale - visually a knife edge. Soft shadows were inventing a
+            // gradient that physically is not there, and single-tap is cheaper besides.
+            keyLight.shadows = LightShadows.Hard;
             keyLight.transform.rotation = Quaternion.Euler(31f, -32f, 0f);
             RenderSettings.sun = keyLight;
             EditorUtility.SetDirty(keyLight);
@@ -985,13 +989,44 @@ public static class AC6PlayableSceneBuilder
         EditorUtility.SetDirty(fillLightObject);
 
         var rimLightObject = GameObject.Find("Rim Light");
-        var rimLight = rimLightObject != null ? rimLightObject.GetComponent<Light>() : null;
-        if (rimLight != null)
+        if (rimLightObject == null)
         {
-            rimLight.color = new Color(0.48f, 0.62f, 0.85f, 1f);
-            rimLight.intensity = Mathf.Min(rimLight.intensity, 5f);
-            EditorUtility.SetDirty(rimLight);
+            rimLightObject = new GameObject("Rim Light");
+            if (keyLightObject != null)
+            {
+                rimLightObject.transform.SetParent(
+                    keyLightObject.transform.parent,
+                    false);
+            }
         }
+
+        var rimLight = rimLightObject.GetComponent<Light>();
+        if (rimLight == null)
+        {
+            rimLight = rimLightObject.AddComponent<Light>();
+        }
+
+        // Was a Point light with a 45 m range, which only ever reached the mech near spawn - and
+        // it could not reach it at all until the _CLUSTER_LIGHT_LOOP keyword fix, since the mech
+        // shader was dropping every non-directional light. Directional works at any distance and
+        // costs nothing extra.
+        //
+        // Safe to add as a second directional: URP's GetBrightestDirectionalLightIndex returns
+        // RenderSettings.sun outright when it is set, and that is the key light, so the main
+        // light slot does not change hands on intensity.
+        rimLight.type = LightType.Directional;
+        rimLight.color = new Color(0.48f, 0.62f, 0.85f, 1f);
+        // Roughly a fifth of the key. A rim separates the silhouette from black; push it much
+        // past this and it stops reading as an edge and becomes a second key.
+        rimLight.intensity = 2.2f;
+        rimLight.shadows = LightShadows.None;
+        // Pitch sign follows the same convention PaintDistantSun relies on: positive pitch puts
+        // the source above. Negative here means it comes from slightly below, on an azimuth
+        // roughly perpendicular to the key/fill axis, so it contributes an edge neither of the
+        // other two can.
+        rimLight.transform.rotation = Quaternion.Euler(-16f, 62f, 0f);
+        EditorUtility.SetDirty(rimLight);
+        EditorUtility.SetDirty(rimLightObject);
 
         ConfigurePostProcessing();
     }
