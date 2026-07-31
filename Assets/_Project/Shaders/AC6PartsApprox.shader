@@ -58,10 +58,27 @@ Shader "ACunicombat/AC6/Parts Approx"
             #pragma fragment Frag
             #pragma shader_feature_local _NORMALMAP
             #pragma shader_feature_local _EMISSION
+            // Keyword set mirrors URP 17.5 Lit.shader's ForwardLit pass. Anything missing here is
+            // not "slightly wrong lighting" - the branch is compiled out and the feature is dropped
+            // silently. _CLUSTER_LIGHT_LOOP is the load-bearing one: Core.hlsl gates
+            // USE_CLUSTER_LIGHT_LOOP purely on this keyword, and ForwardLights.cs skips per-object
+            // light index setup entirely under Forward+, so without it GetAdditionalLightsCount()
+            // reads an index list nobody populated and every point/spot light is discarded.
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
-            #pragma multi_compile _ _ADDITIONAL_LIGHT_SHADOWS
-            #pragma multi_compile _ _SHADOWS_SOFT
+            // No EVALUATE_SH_MIXED/EVALUATE_SH_VERTEX on purpose: those select a split
+            // vertex/pixel SH path that needs a vertexSH interpolator and OUTPUT_SH4 in Vert().
+            // BuildInputData does a full per-pixel SampleSH instead, which is the higher quality
+            // path and the right trade for a hero mech. Declaring the keywords without the
+            // plumbing would triple the variant count and change nothing.
+            #pragma multi_compile _ _CLUSTER_LIGHT_LOOP
+            #pragma multi_compile _ _LIGHT_LAYERS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_ATLAS
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BLENDING
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BOX_PROJECTION
+            #pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
             #pragma multi_compile_fog
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -224,6 +241,9 @@ Shader "ACunicombat/AC6/Parts Approx"
                 inputData.viewDirectionWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
                 inputData.shadowCoord = TransformWorldToShadowCoord(input.positionWS);
                 inputData.fogCoord = input.fogFactor;
+                // Safe only while the RP asset keeps m_AdditionalLightsRenderingMode = PerPixel (1).
+                // Switching it to PerVertex (2) would make URP expect additional lights here and
+                // this hardcoded zero would silently drop every one of them.
                 inputData.vertexLighting = half3(0, 0, 0);
                 inputData.bakedGI = SampleSH(inputData.normalWS);
                 inputData.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(input.positionCS);
