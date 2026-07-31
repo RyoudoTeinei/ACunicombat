@@ -52,8 +52,13 @@ public static class AC6PlayableSceneBuilder
         RenderingRoot + "/AC6ThermalVolume.asset";
     private const string CombatVolumeObjectName = "AC6 Combat Post";
     // Linear radiance, pushed into the skybox material so C# stays the single source of truth.
-    private const float SunDiskRadiance = 220f;
-    private const float SunCoronaRadiance = 6.5f;
+    // The disc is deliberately far past anything a display can show: it should read as a hole
+    // punched in the image, and it is also what drives the bloom and the lens flare downstream.
+    private const float SunDiskRadiance = 400f;
+    // Higher than before despite the corona being much tighter - the same energy concentrated
+    // into a fifth of the angular width has to be brighter per unit area to still sear.
+    private const float SunCoronaRadiance = 14f;
+    private const string SunLensFlareDataPath = RenderingRoot + "/AC6SunLensFlare.asset";
     // Shared by the key light's rotation and the skybox's analytic sun direction. These two must
     // not be allowed to drift apart, or the visible disc stops agreeing with the shading.
     private static readonly Vector3 KeyLightEuler = new(31f, -32f, 0f);
@@ -877,9 +882,15 @@ public static class AC6PlayableSceneBuilder
         skybox.SetColor("_SunColor", new Color(1f, 0.972f, 0.863f, 1f));
         skybox.SetFloat("_SunDiskRadiance", SunDiskRadiance);
         skybox.SetFloat("_SunAngularRadius", 0.72f);
+        // The corona was 7 degrees wide with a gentle 2.6 exponent, which is why the sun read as
+        // one big soft ball: at a 60 degree FOV a 7 degree corona is a tenth of the screen, so the
+        // 0.72 degree disc was buried inside its own glow and never registered as a core at all.
+        // Pulled in to roughly three disc radii and steepened, so it hugs the disc as glare rather
+        // than replacing it. The wide, structured part of the effect is the lens flare's job, not
+        // the corona's - a real corona is not what makes a photographed sun look photographed.
         skybox.SetFloat("_SunCoronaRadiance", SunCoronaRadiance);
-        skybox.SetFloat("_SunCoronaRadius", 7f);
-        skybox.SetFloat("_SunCoronaFalloff", 2.6f);
+        skybox.SetFloat("_SunCoronaRadius", 2.2f);
+        skybox.SetFloat("_SunCoronaFalloff", 5.5f);
 
         skybox.SetFloat("_NebulaStrength", 0.4f);
         skybox.SetFloat("_NebulaScale", 1.6f);
@@ -960,6 +971,7 @@ public static class AC6PlayableSceneBuilder
             keyLight.shadows = LightShadows.Hard;
             keyLight.transform.rotation = Quaternion.Euler(KeyLightEuler);
             RenderSettings.sun = keyLight;
+            ConfigureSunLensFlare(keyLight);
             EditorUtility.SetDirty(keyLight);
         }
 
@@ -1045,6 +1057,116 @@ public static class AC6PlayableSceneBuilder
     /// Priority beats a volumeLayerMask here purely because it costs no layer: layers are a
     /// 32-slot global project resource and a scene builder has no business spending one.
     /// </summary>
+    /// <summary>
+    /// Authored lens flare on the sun. The screen-space flare in the volume reacts to whatever is
+    /// over-bright, which is useful but generic - it cannot produce the structure that reads as a
+    /// photographed sun: one long anamorphic streak, a halo ring, and a line of ghosts marching
+    /// across the optical axis. Those are discrete elements and have to be placed.
+    ///
+    /// Everything here is a starting point meant to be tuned in the Inspector; the asset is a
+    /// normal LensFlareDataSRP and every element is editable.
+    /// </summary>
+    private static void ConfigureSunLensFlare(Light keyLight)
+    {
+        var flareData = AssetDatabase.LoadAssetAtPath<LensFlareDataSRP>(SunLensFlareDataPath);
+        if (flareData == null)
+        {
+            flareData = ScriptableObject.CreateInstance<LensFlareDataSRP>();
+            AssetDatabase.CreateAsset(flareData, SunLensFlareDataPath);
+        }
+
+        var warmWhite = new Color(1f, 0.94f, 0.84f, 1f);
+        var coolWhite = new Color(0.82f, 0.90f, 1f, 1f);
+
+        flareData.elements = new[]
+        {
+            // Tight glow welded to the disc. Steep falloff so it reads as the core searing rather
+            // than as a second, larger sun.
+            BuildFlareElement(
+                SRPLensFlareType.Circle, 0f, Vector2.one, 0.5f, 1.5f, warmWhite, fallOff: 3.2f),
+
+            // The long anamorphic bar. This single element is most of what separates "a bright
+            // blob" from "a sun seen through a lens".
+            BuildFlareElement(
+                SRPLensFlareType.Circle, 0f, new Vector2(18f, 0.05f), 1f, 0.95f, coolWhite,
+                fallOff: 4.5f),
+
+            // A wider, fainter companion streak so the bar has falloff rather than a hard end.
+            BuildFlareElement(
+                SRPLensFlareType.Circle, 0f, new Vector2(34f, 0.018f), 1f, 0.4f, coolWhite,
+                fallOff: 5.5f),
+
+            // Halo ring further down the optical axis.
+            BuildFlareElement(
+                SRPLensFlareType.Ring, 0.62f, Vector2.one, 1.7f, 0.13f, coolWhite,
+                ringThickness: 0.06f),
+
+            // Ghosts. Deliberately dim and slightly different in tint and shape - a row of
+            // identical dots reads as a decal, an uneven row reads as glass.
+            BuildFlareElement(
+                SRPLensFlareType.Polygon, 0.32f, Vector2.one, 0.28f, 0.1f, warmWhite,
+                sideCount: 6),
+            BuildFlareElement(
+                SRPLensFlareType.Circle, 0.78f, Vector2.one, 0.16f, 0.08f, coolWhite),
+            BuildFlareElement(
+                SRPLensFlareType.Polygon, 1.15f, Vector2.one, 0.4f, 0.06f, warmWhite,
+                sideCount: 6),
+        };
+        EditorUtility.SetDirty(flareData);
+
+        var flare = keyLight.GetComponent<LensFlareComponentSRP>();
+        if (flare == null)
+        {
+            flare = keyLight.gameObject.AddComponent<LensFlareComponentSRP>();
+        }
+
+        flare.lensFlareData = flareData;
+        flare.intensity = 1f;
+        flare.scale = 1f;
+        // Off for a directional light: there is no light shape to attenuate by, and leaving it on
+        // makes the flare's strength depend on something meaningless here.
+        flare.attenuationByLightShape = false;
+        // The flare should die when the mech or the platform passes in front of the sun. Without
+        // this it punches through solid geometry, which is the single most fake-looking failure
+        // this effect has.
+        flare.useOcclusion = true;
+        flare.occlusionRadius = 0.15f;
+        flare.allowOffScreen = false;
+        EditorUtility.SetDirty(flare);
+    }
+
+    private static LensFlareDataElementSRP BuildFlareElement(
+        SRPLensFlareType flareType,
+        float position,
+        Vector2 sizeXY,
+        float uniformScale,
+        float localIntensity,
+        Color tint,
+        float fallOff = 1f,
+        float ringThickness = 0.25f,
+        int sideCount = 6)
+    {
+        return new LensFlareDataElementSRP
+        {
+            visible = true,
+            flareType = flareType,
+            position = position,
+            sizeXY = sizeXY,
+            uniformScale = uniformScale,
+            localIntensity = localIntensity,
+            tint = tint,
+            fallOff = fallOff,
+            ringThickness = ringThickness,
+            sideCount = sideCount,
+            // Required for the streak elements: with aspect preservation on, a 18 x 0.05 size is
+            // squashed back to square and the bar never appears.
+            preserveAspectRatio = false,
+            blendMode = SRPLensFlareBlendMode.Additive,
+            modulateByLightColor = true,
+            autoRotate = false,
+        };
+    }
+
     private static void ConfigurePostProcessing()
     {
         var combatProfile = GetOrCreateVolumeProfile(CombatVolumeProfilePath);
@@ -1087,7 +1209,10 @@ public static class AC6PlayableSceneBuilder
         bloom.intensity.overrideState = true;
         bloom.intensity.value = 0.85f;
         bloom.scatter.overrideState = true;
-        bloom.scatter.value = 0.62f;
+        // Tightened from 0.62. Scatter weights the upsample toward the coarser mips, so a high
+        // value spreads the glow into a wide soft halo - which, stacked on the old wide corona,
+        // was most of why the sun looked like a diffuse ball instead of a searing point.
+        bloom.scatter.value = 0.45f;
         bloom.highQualityFiltering.overrideState = true;
         bloom.highQualityFiltering.value = true;
 
@@ -1107,7 +1232,10 @@ public static class AC6PlayableSceneBuilder
         var lensFlare = GetOrAddVolumeComponent<ScreenSpaceLensFlare>(profile);
         lensFlare.active = true;
         lensFlare.intensity.overrideState = true;
-        lensFlare.intensity.value = 0.35f;
+        // Pulled back now that the data-driven flare on the key light carries the sun. This one
+        // stays on at a low level because it reacts to anything over-bright, not just the sun -
+        // which is what will make thruster plumes and missile motors streak later.
+        lensFlare.intensity.value = 0.18f;
         lensFlare.bloomMip.overrideState = true;
         lensFlare.bloomMip.value = 1;
         // The anamorphic streak is most of what reads as "looking at a sun through a lens".
