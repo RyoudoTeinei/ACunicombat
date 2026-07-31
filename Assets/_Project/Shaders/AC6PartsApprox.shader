@@ -26,6 +26,31 @@ Shader "ACunicombat/AC6/Parts Approx"
         _AlbedoDetailStrength("Albedo Detail Strength", Range(0, 1)) = 0.22
         _Metallic("Base Metallic", Range(0, 1)) = 0.38
         _Smoothness("Base Smoothness", Range(0, 1)) = 0.38
+
+        // Per-zone surface response. A single global metallic/smoothness makes the whole mech
+        // respond to the sun as one surface, which is what flattens it - the shimmer comes from
+        // different zones catching the light at different angles as the mech rotates.
+        //
+        // Smoothness does most of that work, not metallic: it selects the reflection probe mip
+        // through PerceptualRoughnessToMipmapLevel, so it decides tight glint versus broad sheen.
+        // Metallic mostly decides whether a zone keeps any diffuse at all, and it is a trap on
+        // dark zones - albedo doubles as F0 for metals, so pushing Zone 4 (0.091, near black)
+        // to high metallic yields a very dark mirror, i.e. darker, not shinier. Dark zones get
+        // moderate metallic plus high smoothness instead.
+        _Zone1Metallic("Zone 1 Metallic", Range(0, 1)) = 0.1
+        _Zone1Smoothness("Zone 1 Smoothness", Range(0, 1)) = 0.32
+        _Zone2Metallic("Zone 2 Metallic", Range(0, 1)) = 0.35
+        _Zone2Smoothness("Zone 2 Smoothness", Range(0, 1)) = 0.45
+        _Zone3Metallic("Zone 3 Metallic", Range(0, 1)) = 0.1
+        _Zone3Smoothness("Zone 3 Smoothness", Range(0, 1)) = 0.38
+        _Zone4Metallic("Zone 4 Metallic", Range(0, 1)) = 0.55
+        _Zone4Smoothness("Zone 4 Smoothness", Range(0, 1)) = 0.62
+        _Zone5Metallic("Zone 5 Metallic", Range(0, 1)) = 0.5
+        _Zone5Smoothness("Zone 5 Smoothness", Range(0, 1)) = 0.5
+        _Zone6Metallic("Zone 6 Metallic", Range(0, 1)) = 0.45
+        _Zone6Smoothness("Zone 6 Smoothness", Range(0, 1)) = 0.42
+        _Zone7Metallic("Zone 7 / Dust Metallic", Range(0, 1)) = 0
+        _Zone7Smoothness("Zone 7 / Dust Smoothness", Range(0, 1)) = 0.2
         [HideInInspector] _OcclusionStrength("Legacy Mask Occlusion", Range(0, 1)) = 0
         [HideInInspector] _MaskMetallicInfluence("Legacy Mask Metallic Influence", Range(0, 1)) = 0
         [HideInInspector] _MaskSmoothnessInfluence("Legacy Mask Smoothness Influence", Range(0, 1)) = 0
@@ -111,6 +136,20 @@ Shader "ACunicombat/AC6/Parts Approx"
             half _AlbedoDetailStrength;
             half _Metallic;
             half _Smoothness;
+            half _Zone1Metallic;
+            half _Zone1Smoothness;
+            half _Zone2Metallic;
+            half _Zone2Smoothness;
+            half _Zone3Metallic;
+            half _Zone3Smoothness;
+            half _Zone4Metallic;
+            half _Zone4Smoothness;
+            half _Zone5Metallic;
+            half _Zone5Smoothness;
+            half _Zone6Metallic;
+            half _Zone6Smoothness;
+            half _Zone7Metallic;
+            half _Zone7Smoothness;
             half _OcclusionStrength;
             half _MaskMetallicInfluence;
             half _MaskSmoothnessInfluence;
@@ -206,11 +245,10 @@ Shader "ACunicombat/AC6/Parts Approx"
                 return saturate(half3(redBand, greenBand, 0.0h) * _ZoneMaskStrength);
             }
 
-            half3 BuildAc6ZoneAlbedo(half3 sourceAlbedo, half3 mask, float2 uv)
+            // Masks are built once by the caller now: both the albedo chain and the surface
+            // response chain consume them, and rebuilding them twice per pixel would be pure waste.
+            half3 BuildAc6ZoneAlbedo(half3 sourceAlbedo, half3 mask0, half3 mask1)
             {
-                half3 mask0 = BuildAc6Mask0(mask.r);
-                half3 mask1 = BuildAc6Mask1(mask.r, mask.g);
-
                 half3 albedo = _Zone1Color.rgb;
                 albedo = lerp(albedo, _Zone2Color.rgb, mask0.r);
                 albedo = lerp(albedo, _Zone3Color.rgb, mask0.g);
@@ -222,6 +260,20 @@ Shader "ACunicombat/AC6/Parts Approx"
                 half sourceLuma = dot(sourceAlbedo, half3(0.299h, 0.587h, 0.114h));
                 half panelDetail = lerp(0.94h, 1.06h, saturate(sourceLuma));
                 return albedo * lerp(1.0h, panelDetail, _AlbedoDetailStrength);
+            }
+
+            // Mirrors the albedo lerp chain exactly, so a zone's surface response lands on the
+            // same pixels as its colour. x = metallic, y = smoothness.
+            half2 BuildAc6ZoneMetallicSmoothness(half3 mask0, half3 mask1)
+            {
+                half2 response = half2(_Zone1Metallic, _Zone1Smoothness);
+                response = lerp(response, half2(_Zone2Metallic, _Zone2Smoothness), mask0.r);
+                response = lerp(response, half2(_Zone3Metallic, _Zone3Smoothness), mask0.g);
+                response = lerp(response, half2(_Zone4Metallic, _Zone4Smoothness), mask0.b);
+                response = lerp(response, half2(_Zone5Metallic, _Zone5Smoothness), mask1.r);
+                response = lerp(response, half2(_Zone6Metallic, _Zone6Smoothness), mask1.g);
+                response = lerp(response, half2(_Zone7Metallic, _Zone7Smoothness), mask1.b);
+                return saturate(response);
             }
 
             InputData BuildInputData(Varyings input, half3 normalTS)
@@ -260,21 +312,35 @@ Shader "ACunicombat/AC6/Parts Approx"
                 half3 maskSample = SAMPLE_TEXTURE2D(_Mask3Map, sampler_Mask3Map, input.uv).rgb;
 
                 SurfaceData surfaceData = (SurfaceData)0;
+                // Falls back to the single global pair unless the zone path actually runs, so
+                // source-albedo parts and non-zone materials behave exactly as before.
+                half surfaceMetallic = saturate(_Metallic);
+                half surfaceSmoothness = saturate(_Smoothness);
                 if (_UseSourceAlbedo > 0.5h)
                 {
                     surfaceData.albedo = baseSample.rgb * _BaseColor.rgb;
                 }
+                else if (_ZoneMode > 0.5h)
+                {
+                    half3 zoneMask0 = BuildAc6Mask0(maskSample.r);
+                    half3 zoneMask1 = BuildAc6Mask1(maskSample.r, maskSample.g);
+                    surfaceData.albedo =
+                        BuildAc6ZoneAlbedo(baseSample.rgb, zoneMask0, zoneMask1);
+                    half2 zoneResponse =
+                        BuildAc6ZoneMetallicSmoothness(zoneMask0, zoneMask1);
+                    surfaceMetallic = zoneResponse.x;
+                    surfaceSmoothness = zoneResponse.y;
+                }
                 else
                 {
-                    surfaceData.albedo = _ZoneMode > 0.5h
-                        ? BuildAc6ZoneAlbedo(baseSample.rgb, maskSample, input.uv)
-                        : BuildStableArmorAlbedo(baseSample.rgb, maskSample, input.uv);
+                    surfaceData.albedo =
+                        BuildStableArmorAlbedo(baseSample.rgb, maskSample, input.uv);
                 }
                 surfaceData.alpha = 1.0h;
                 // MATBIN names this texture Mask3Map and routes it through the AC6
                 // color-material graph. It is not a metallic/smoothness/AO packing.
-                surfaceData.metallic = saturate(_Metallic);
-                surfaceData.smoothness = saturate(_Smoothness);
+                surfaceData.metallic = surfaceMetallic;
+                surfaceData.smoothness = surfaceSmoothness;
                 surfaceData.occlusion = 1.0h;
                 surfaceData.normalTS = SampleNormal(input.uv, TEXTURE2D_ARGS(_BumpMap, sampler_BumpMap), _BumpScale);
                 #if defined(_EMISSION)
