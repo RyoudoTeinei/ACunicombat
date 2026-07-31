@@ -39,24 +39,24 @@ public static class AC6PlayableSceneBuilder
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Materials";
     private const string DeepSpaceSkyboxMaterialPath =
         GeneratedMaterialsRoot + "/AC6SparseDeepSpaceSkybox.mat";
-    private const string DeepSpaceSkyTexturePath =
-        GeneratedMaterialsRoot + "/AC6SparseDeepSpacePanorama.exr";
-    // The 8-bit PNG this replaces capped every pixel at 1.0, which blocked two separate things:
-    // the sun could never cross a bloom threshold of 1.0, and the skybox reflection probe had no
-    // value brighter than white for metal to reflect. Metals have almost no diffuse term, so
-    // raising metallic against an LDR probe darkens the mech instead of making it shine.
-    private const string LegacyDeepSpaceSkyTexturePath =
+    private const string DeepSpaceSkyboxShaderName = "AC6/Deep Space Skybox";
+    // Both panorama generations are dead: the sky is produced per pixel in the shader now.
+    private const string LegacyDeepSpacePanoramaPngPath =
         GeneratedMaterialsRoot + "/AC6SparseDeepSpacePanorama.png";
-    private const string DeepSpaceSkyTextureVersion = "3-hdr-sun";
+    private const string LegacyDeepSpacePanoramaExrPath =
+        GeneratedMaterialsRoot + "/AC6SparseDeepSpacePanorama.exr";
     private const string RenderingRoot = "Assets/_Project/Rendering";
     private const string CombatVolumeProfilePath =
         RenderingRoot + "/AC6SpaceCombatVolume.asset";
     private const string ThermalVolumeProfilePath =
         RenderingRoot + "/AC6ThermalVolume.asset";
     private const string CombatVolumeObjectName = "AC6 Combat Post";
-    // Linear radiance, authored directly (the EXR is not sRGB encoded).
+    // Linear radiance, pushed into the skybox material so C# stays the single source of truth.
     private const float SunDiskRadiance = 220f;
     private const float SunCoronaRadiance = 6.5f;
+    // Shared by the key light's rotation and the skybox's analytic sun direction. These two must
+    // not be allowed to drift apart, or the visible disc stops agreeing with the shading.
+    private static readonly Vector3 KeyLightEuler = new(31f, -32f, 0f);
     private const string PoseRoot = "Tools/LocalOut/actions";
     private const string LoadoutRoot =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Loadouts";
@@ -837,17 +837,11 @@ public static class AC6PlayableSceneBuilder
 
     private static void ConfigureDeepSpaceEnvironment()
     {
-        var skyboxShader = Shader.Find("Skybox/Panoramic");
+        var skyboxShader = Shader.Find(DeepSpaceSkyboxShaderName);
         if (skyboxShader == null)
         {
-            Debug.LogWarning("[AC6PlayableScene] Unity panoramic skybox shader is unavailable.");
-            return;
-        }
-
-        var panorama = GetOrCreateDeepSpacePanorama();
-        if (panorama == null)
-        {
-            Debug.LogWarning("[AC6PlayableScene] Failed to generate the deep-space panorama.");
+            Debug.LogWarning(
+                $"[AC6PlayableScene] Skybox shader '{DeepSpaceSkyboxShaderName}' is unavailable.");
             return;
         }
 
@@ -859,45 +853,28 @@ public static class AC6PlayableSceneBuilder
         }
 
         skybox.shader = skyboxShader;
-        skybox.SetTexture("_MainTex", panorama);
-        if (skybox.HasProperty("_Tint"))
-        {
-            skybox.SetColor("_Tint", Color.white);
-        }
-
-        if (skybox.HasProperty("_Exposure"))
-        {
-            // 1.12 was compensating for the old LDR panorama. The EXR carries absolute linear
-            // radiance, so leave it at unity and tune brightness where it is authored instead.
-            skybox.SetFloat("_Exposure", 1f);
-        }
-
-        if (skybox.HasProperty("_Rotation"))
-        {
-            skybox.SetFloat("_Rotation", 0f);
-        }
-
-        if (skybox.HasProperty("_Mapping"))
-        {
-            skybox.SetFloat("_Mapping", 1f);
-        }
-
-        if (skybox.HasProperty("_ImageType"))
-        {
-            skybox.SetFloat("_ImageType", 0f);
-        }
-
-        if (skybox.HasProperty("_MirrorOnBack"))
-        {
-            skybox.SetFloat("_MirrorOnBack", 0f);
-        }
-
-        if (skybox.GetTexture("_MainTex") != panorama)
-        {
-            Debug.LogError("[AC6PlayableScene] Deep-space panorama was not bound to the skybox material.");
-            return;
-        }
+        // The sun is drawn analytically from this direction, so it has to be the exact inverse of
+        // the key light's forward or the visible disc and the shading will disagree. Both read
+        // KeyLightEuler rather than repeating the numbers.
+        var sunDirection = -(Quaternion.Euler(KeyLightEuler) * Vector3.forward);
+        skybox.SetVector("_SunDirection", sunDirection);
+        skybox.SetFloat("_SunDiskRadiance", SunDiskRadiance);
+        skybox.SetFloat("_SunCoronaRadiance", SunCoronaRadiance);
         EditorUtility.SetDirty(skybox);
+
+        // The old panorama asset is no longer referenced by anything. Left on disk it would keep
+        // showing up in searches as though it were still the sky.
+        foreach (var stalePath in new[]
+                 {
+                     LegacyDeepSpacePanoramaPngPath,
+                     LegacyDeepSpacePanoramaExrPath,
+                 })
+        {
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(stalePath) != null)
+            {
+                AssetDatabase.DeleteAsset(stalePath);
+            }
+        }
 
         RenderSettings.skybox = skybox;
         RenderSettings.fog = false;
@@ -955,7 +932,7 @@ public static class AC6PlayableSceneBuilder
             // few centimetres at mech scale - visually a knife edge. Soft shadows were inventing a
             // gradient that physically is not there, and single-tap is cheaper besides.
             keyLight.shadows = LightShadows.Hard;
-            keyLight.transform.rotation = Quaternion.Euler(31f, -32f, 0f);
+            keyLight.transform.rotation = Quaternion.Euler(KeyLightEuler);
             RenderSettings.sun = keyLight;
             EditorUtility.SetDirty(keyLight);
         }
@@ -1020,8 +997,8 @@ public static class AC6PlayableSceneBuilder
         // past this and it stops reading as an edge and becomes a second key.
         rimLight.intensity = 2.2f;
         rimLight.shadows = LightShadows.None;
-        // Pitch sign follows the same convention PaintDistantSun relies on: positive pitch puts
-        // the source above. Negative here means it comes from slightly below, on an azimuth
+        // Pitch sign follows the same convention KeyLightEuler does: positive pitch puts the
+        // source above. Negative here means it comes from slightly below, on an azimuth
         // roughly perpendicular to the key/fill axis, so it contributes an edge neither of the
         // other two can.
         rimLight.transform.rotation = Quaternion.Euler(-16f, 62f, 0f);
@@ -1097,6 +1074,26 @@ public static class AC6PlayableSceneBuilder
         colorAdjustments.saturation.overrideState = true;
         colorAdjustments.saturation.value = 0f;
 
+        // Lens artefacts off the sun. This reads a bloom mip rather than tracing light sources,
+        // so it costs almost nothing and keys off whatever is genuinely over-bright - which, with
+        // the analytic 220-radiance disc, is the sun and hot speculars and nothing else. It needs
+        // Bloom active to have a mip to read; the combat profile enables it above.
+        var lensFlare = GetOrAddVolumeComponent<ScreenSpaceLensFlare>(profile);
+        lensFlare.active = true;
+        lensFlare.intensity.overrideState = true;
+        lensFlare.intensity.value = 0.35f;
+        lensFlare.bloomMip.overrideState = true;
+        lensFlare.bloomMip.value = 1;
+        // The anamorphic streak is most of what reads as "looking at a sun through a lens".
+        lensFlare.streaksIntensity.overrideState = true;
+        lensFlare.streaksIntensity.value = 1.2f;
+        lensFlare.streaksLength.overrideState = true;
+        lensFlare.streaksLength.value = 0.5f;
+        lensFlare.streaksThreshold.overrideState = true;
+        lensFlare.streaksThreshold.value = 0.5f;
+        lensFlare.chromaticAbberationIntensity.overrideState = true;
+        lensFlare.chromaticAbberationIntensity.value = 0.3f;
+
         EditorUtility.SetDirty(profile);
     }
 
@@ -1132,6 +1129,14 @@ public static class AC6PlayableSceneBuilder
         colorAdjustments.postExposure.value = 0f;
         colorAdjustments.saturation.overrideState = true;
         colorAdjustments.saturation.value = 0f;
+
+        // Counter-overridden to zero for the same reason everything else here is: a thermal
+        // imager has no camera lens in the visible path to throw flares, and the AGC grey levels
+        // are a readout, not a photograph.
+        var lensFlare = GetOrAddVolumeComponent<ScreenSpaceLensFlare>(profile);
+        lensFlare.active = true;
+        lensFlare.intensity.overrideState = true;
+        lensFlare.intensity.value = 0f;
 
         EditorUtility.SetDirty(profile);
     }
@@ -1173,227 +1178,6 @@ public static class AC6PlayableSceneBuilder
         volume.sharedProfile = profile;
         EditorUtility.SetDirty(volume);
         return volume;
-    }
-
-    private static Texture2D GetOrCreateDeepSpacePanorama()
-    {
-        var panorama = AssetDatabase.LoadAssetAtPath<Texture2D>(DeepSpaceSkyTexturePath);
-        var existingImporter =
-            AssetImporter.GetAtPath(DeepSpaceSkyTexturePath) as TextureImporter;
-        if (panorama != null &&
-            existingImporter != null &&
-            existingImporter.userData == DeepSpaceSkyTextureVersion)
-        {
-            return panorama;
-        }
-
-        const int width = 4096;
-        const int height = 2048;
-        var pixels = new Color[width * height];
-
-        // Flat, and near neutral. The old version ramped the blue channel by latitude, but
-        // latitude IS the pole axis of an equirectangular map, so a latitude ramp can only ever
-        // produce a cap at the zenith and another at the nadir. Equirect also converges every
-        // pixel of the top row onto a single point, which wipes out star detail there - so the cap
-        // read as a smooth starless blue patch overhead. Any large-scale variation has to come
-        // from an actual sky feature, never from the map's v coordinate.
-        //
-        // Neutral rather than blue: a blue night sky is an atmospheric convention. Vacuum has no
-        // Rayleigh scattering, and the old (1, 2, 6) ratio made blue five times red.
-        var background = SrgbByteToLinear(3f, 3f, 4f);
-        for (var i = 0; i < pixels.Length; i++)
-        {
-            pixels[i] = background;
-        }
-
-        var random = new System.Random(0xAC6006);
-        const int starCount = 2100;
-        for (var starIndex = 0; starIndex < starCount; starIndex++)
-        {
-            var longitude = random.NextDouble();
-            var latitude = Math.Asin(random.NextDouble() * 2.0 - 1.0) / Math.PI + 0.5;
-            var centerX = Mathf.Clamp((int)(longitude * width), 0, width - 1);
-            var centerY = Mathf.Clamp((int)(latitude * height), 0, height - 1);
-
-            var tier = random.NextDouble();
-            var radius = tier > 0.985 ? 2 : tier > 0.88 ? 1 : 0;
-            var brightness = tier > 0.985
-                ? random.Next(205, 256)
-                : tier > 0.88
-                    ? random.Next(125, 205)
-                    : random.Next(58, 126);
-            var temperature = random.NextDouble();
-            var red = temperature < 0.18 ? brightness : Mathf.RoundToInt(brightness * 0.82f);
-            var green = Mathf.RoundToInt(brightness * (temperature > 0.82 ? 0.82f : 0.9f));
-            var blue = temperature > 0.82 ? brightness : Mathf.RoundToInt(brightness * 0.92f);
-
-            for (var offsetY = -radius; offsetY <= radius; offsetY++)
-            {
-                var y = centerY + offsetY;
-                if (y < 0 || y >= height)
-                {
-                    continue;
-                }
-
-                for (var offsetX = -radius; offsetX <= radius; offsetX++)
-                {
-                    var x = (centerX + offsetX + width) % width;
-                    var distance = Mathf.Sqrt(offsetX * offsetX + offsetY * offsetY);
-                    var falloff = radius == 0 ? 1f : Mathf.Clamp01(1.2f - distance / (radius + 0.35f));
-                    if (falloff <= 0f)
-                    {
-                        continue;
-                    }
-
-                    var index = y * width + x;
-                    var existing = pixels[index];
-                    // Star tiers stay below 1.0 linear on purpose: they should read as points,
-                    // not as a field of bloom sources competing with the sun.
-                    var star = SrgbByteToLinear(
-                        red * falloff,
-                        green * falloff,
-                        blue * falloff);
-                    pixels[index] = new Color(
-                        Mathf.Max(existing.r, star.r),
-                        Mathf.Max(existing.g, star.g),
-                        Mathf.Max(existing.b, star.b),
-                        1f);
-                }
-            }
-        }
-
-        PaintDistantSun(pixels, width, height);
-
-        // Half-float linear, written straight out as EXR. SetPixels (not SetPixels32) so the
-        // above-white sun survives; RGBA32 would have clipped it back to the old LDR behaviour.
-        var texture = new Texture2D(width, height, TextureFormat.RGBAHalf, false, true);
-        texture.SetPixels(pixels);
-        texture.Apply(false, false);
-
-        var absolutePath = Path.Combine(
-            Directory.GetParent(Application.dataPath)?.FullName ?? string.Empty,
-            DeepSpaceSkyTexturePath);
-        File.WriteAllBytes(absolutePath, texture.EncodeToEXR(Texture2D.EXRFlags.None));
-        UnityEngine.Object.DestroyImmediate(texture);
-
-        // The 8-bit panorama and its .meta would otherwise linger next to the EXR and keep
-        // showing up in asset searches as the "real" sky.
-        if (AssetDatabase.LoadAssetAtPath<Texture2D>(LegacyDeepSpaceSkyTexturePath) != null)
-        {
-            AssetDatabase.DeleteAsset(LegacyDeepSpaceSkyTexturePath);
-        }
-
-        AssetDatabase.ImportAsset(DeepSpaceSkyTexturePath, ImportAssetOptions.ForceSynchronousImport);
-        if (AssetImporter.GetAtPath(DeepSpaceSkyTexturePath) is TextureImporter importer)
-        {
-            importer.textureType = TextureImporterType.Default;
-            // The EXR already holds linear radiance. Leaving sRGB on would apply a second
-            // decode and crush the star field toward black.
-            importer.sRGBTexture = false;
-            importer.mipmapEnabled = true;
-            importer.wrapMode = TextureWrapMode.Repeat;
-            importer.filterMode = FilterMode.Bilinear;
-            // Uncompressed while the radiance values are still being tuned, so nothing gets
-            // misread as a BC6H block artifact. Switch to CompressedHQ (BC6H) once locked.
-            importer.textureCompression = TextureImporterCompression.Uncompressed;
-            importer.maxTextureSize = width;
-            importer.userData = DeepSpaceSkyTextureVersion;
-            importer.SaveAndReimport();
-        }
-
-        return AssetDatabase.LoadAssetAtPath<Texture2D>(DeepSpaceSkyTexturePath);
-    }
-
-    private static void PaintDistantSun(
-        Color[] pixels,
-        int width,
-        int height)
-    {
-        // Matches the scene's Key Light: the visible sun lies opposite the
-        // direction in which the directional light rays travel.
-        var lightRotation = Quaternion.Euler(31f, -32f, 0f);
-        var sunDirection = -(lightRotation * Vector3.forward);
-        var longitude = Mathf.Atan2(sunDirection.z, sunDirection.x);
-        var latitude = Mathf.Asin(Mathf.Clamp(sunDirection.y, -1f, 1f));
-        var centerX = (0.5f - longitude / (2f * Mathf.PI)) * width;
-        var centerY = (0.5f + latitude / Mathf.PI) * height;
-        var latitudeScale = Mathf.Max(0.1f, Mathf.Cos(latitude));
-        const float diskRadiusDegrees = 0.72f;
-        const float coronaRadiusDegrees = 3.2f;
-        var coronaPixels = Mathf.CeilToInt(
-            coronaRadiusDegrees / 180f * height);
-
-        for (var offsetY = -coronaPixels; offsetY <= coronaPixels; offsetY++)
-        {
-            var y = Mathf.RoundToInt(centerY) + offsetY;
-            if (y < 0 || y >= height)
-            {
-                continue;
-            }
-
-            for (var offsetX = -coronaPixels * 2;
-                 offsetX <= coronaPixels * 2;
-                 offsetX++)
-            {
-                var x = (Mathf.RoundToInt(centerX) + offsetX + width) % width;
-                var longitudeDegrees =
-                    offsetX / (float)width * 360f * latitudeScale;
-                var latitudeDegrees =
-                    offsetY / (float)height * 180f;
-                var angularDistance = Mathf.Sqrt(
-                    longitudeDegrees * longitudeDegrees +
-                    latitudeDegrees * latitudeDegrees);
-                if (angularDistance > coronaRadiusDegrees)
-                {
-                    continue;
-                }
-
-                var index = y * width + x;
-                var existing = pixels[index];
-                if (angularDistance <= diskRadiusDegrees)
-                {
-                    var edge = Mathf.SmoothStep(
-                        1f,
-                        0.82f,
-                        angularDistance / diskRadiusDegrees);
-                    // (255, 248, 220) is kept only as a chromaticity ratio now; the magnitude
-                    // comes from SunDiskRadiance so the disk lands far above any bloom threshold.
-                    var disk = new Color(1f, 0.9725f, 0.8627f) * (SunDiskRadiance * edge);
-                    disk.a = 1f;
-                    pixels[index] = disk;
-                    continue;
-                }
-
-                var corona = 1f -
-                    Mathf.InverseLerp(
-                        diskRadiusDegrees,
-                        coronaRadiusDegrees,
-                        angularDistance);
-                corona = corona * corona;
-                // Deliberately far dimmer than the disk. In vacuum most of the glare a viewer
-                // perceives is a camera artefact, so it belongs to Bloom rather than the texture.
-                var halo = new Color(1f, 0.8039f, 0.4902f) * (SunCoronaRadiance * corona);
-                pixels[index] = new Color(
-                    existing.r + halo.r,
-                    existing.g + halo.g,
-                    existing.b + halo.b,
-                    1f);
-            }
-        }
-    }
-
-    /// <summary>
-    /// The star field and background were authored as 0-255 sRGB values against the old 8-bit
-    /// panorama. The EXR stores linear radiance, so those values have to be decoded rather than
-    /// copied, or the sky comes out far brighter than it was tuned to be.
-    /// </summary>
-    private static Color SrgbByteToLinear(float red, float green, float blue)
-    {
-        return new Color(
-            Mathf.GammaToLinearSpace(Mathf.Clamp01(red / 255f)),
-            Mathf.GammaToLinearSpace(Mathf.Clamp01(green / 255f)),
-            Mathf.GammaToLinearSpace(Mathf.Clamp01(blue / 255f)),
-            1f);
     }
 
     private static CombatTestTarget BuildCombatTestTarget(GameObject playerMech)
