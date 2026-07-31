@@ -26,7 +26,14 @@ namespace ACunicombat.Mechs
         public static System.Collections.Generic.IReadOnlyList<MechTestProjectile> Registry => registry;
 
         private const float GuidanceMemorySeconds = 4f;
+        private const float InterceptorGuidanceMemorySeconds = 0.8f;
         private const float ReacquisitionGateMeters = 350f;
+        private const float InterceptorReacquisitionGateMeters = 100f;
+        private const float InterceptorAcquisitionGateMinimumMeters = 80f;
+        private const float InterceptorAcquisitionGateMaximumMeters = 300f;
+        private const float InterceptorVelocityAssociationGateMps = 300f;
+        private const float InterceptorSeekerPositionBlend = 0.35f;
+        private const float InterceptorSeekerVelocityBlend = 0.2f;
         private const float SeekerScanIntervalSeconds = 0.05f;
         private const float SeekerLockMemorySeconds = 0.35f;
         private const float InterceptorSeekerLockMemorySeconds = 0.65f;
@@ -52,6 +59,7 @@ namespace ACunicombat.Mechs
         private CombatTestTarget directGuidanceTarget;
         private MechTestProjectile directProjectileTarget;
         private bool interceptorMissile;
+        private bool interceptorTargetCommitted;
         private Vector3 directTargetPreviousPosition;
         private Vector3 directTargetVelocity;
         private TrackId targetTrackId;
@@ -136,6 +144,7 @@ namespace ACunicombat.Mechs
         private ParticleSystem[] propulsionParticles = Array.Empty<ParticleSystem>();
         private TrailRenderer projectileTrail;
         private bool motorVisualActive;
+        private MechMissileAudioController missileAudio;
         private ParticleSystem[] rcsParticles = Array.Empty<ParticleSystem>();
         private Vector3[] rcsExhaustDirectionsLocal = Array.Empty<Vector3>();
         private Vector3[] rcsTorqueAxesLocal = Array.Empty<Vector3>();
@@ -294,13 +303,19 @@ namespace ACunicombat.Mechs
             float newColdLaunchSafeSeparationSeconds = 0f,
             float newColdLaunchSafeSeparationMeters = 0f,
             float newColdLaunchIgnitionAlignmentDegrees = 8f,
-            float newColdLaunchAlignmentTimeoutSeconds = 0.6f)
+            float newColdLaunchAlignmentTimeoutSeconds = 0.6f,
+            bool newOwnshipMissileAudio = false)
         {
             owner = newOwner;
             radarController = newRadarController;
             directGuidanceTarget = newDirectGuidanceTarget;
             directProjectileTarget = newDirectProjectileTarget;
             interceptorMissile = newInterceptorMissile;
+            interceptorTargetCommitted =
+                newInterceptorMissile &&
+                (newTargetTrackId.IsValid ||
+                 newDirectProjectileTarget != null ||
+                 hasInitialGuidanceEstimate);
             if (directGuidanceTarget != null)
             {
                 directTargetPreviousPosition =
@@ -330,7 +345,7 @@ namespace ACunicombat.Mechs
                 terminalFuseEstimatedVelocity =
                     initialGuidanceVelocity;
                 terminalFuseEstimateMemoryRemaining =
-                    InterceptorFuseEstimateMemorySeconds;
+                    GetTerminalEstimateMemorySeconds();
                 terminalFuseEstimateUncertaintyMeters =
                     Mathf.Max(
                         0f,
@@ -415,7 +430,9 @@ namespace ACunicombat.Mechs
                     targetTrackId,
                     out cachedGuidanceTrack);
             guidanceMemoryRemaining =
-                hasCachedGuidanceTrack ? GuidanceMemorySeconds : 0f;
+                hasCachedGuidanceTrack
+                    ? GetGuidanceMemorySeconds()
+                    : 0f;
 
             projectileTrail = GetComponent<TrailRenderer>();
             propulsionParticles = GetComponentsInChildren<ParticleSystem>(true);
@@ -444,7 +461,10 @@ namespace ACunicombat.Mechs
                             in seekerHandle, out linkTerminal) &&
                         targetTrackId.IsValid)
                     {
-                        radarController.BeginGuidanceUplink(linkTerminal, targetTrackId);
+                        radarController.BeginGuidanceUplink(
+                            linkTerminal,
+                            targetTrackId,
+                            allowTrackReacquisition: !interceptorMissile);
                     }
 
                     // 红外点源（MAW 数据源）：发动机状态决定强度。
@@ -460,6 +480,17 @@ namespace ACunicombat.Mechs
                     : MissileFlightPhase.Boost;
             if (weaponKind == TestWeaponKind.Missile)
             {
+                missileAudio =
+                    GetComponent<MechMissileAudioController>();
+                if (missileAudio == null)
+                {
+                    missileAudio =
+                        gameObject.AddComponent<MechMissileAudioController>();
+                }
+                missileAudio.Configure(
+                    coldLaunchEnabled,
+                    newOwnshipMissileAudio);
+
                 var motorStartsImmediately =
                     !coldLaunchEnabled &&
                     launchDelay <= 0f;
@@ -835,6 +866,10 @@ namespace ACunicombat.Mechs
             var directMissileTargetAlive =
                 directProjectileTarget != null &&
                 directProjectileTarget.IsInterceptableMissile;
+            var committedDirectMissileTargetLost =
+                interceptorTargetCommitted &&
+                directProjectileTarget != null &&
+                !directMissileTargetAlive;
             var hasDirectTarget =
                 directVehicleTargetAlive ||
                 directMissileTargetAlive;
@@ -853,9 +888,16 @@ namespace ACunicombat.Mechs
                         deltaTime,
                         directTargetPosition);
             }
-            else if (seekerActive)
+            else if (seekerActive && !committedDirectMissileTargetLost)
             {
                 UpdateSeeker(deltaTime);
+            }
+            else if (committedDirectMissileTargetLost)
+            {
+                // An interceptor is a one-target weapon. Once its explicitly
+                // assigned threat is gone, retain the last inertial estimate
+                // instead of allowing the seeker to capture another missile.
+                seekerLocked = false;
             }
 
             if (hasDirectTarget)
@@ -933,7 +975,7 @@ namespace ACunicombat.Mechs
                     terminalFuseEstimatedPosition = targetPosition;
                     terminalFuseEstimatedVelocity = targetVelocity;
                     terminalFuseEstimateMemoryRemaining =
-                        InterceptorFuseEstimateMemorySeconds;
+                        GetTerminalEstimateMemorySeconds();
                 }
                 var toTarget = targetPosition - transform.position;
                 var terminalGuidance =
@@ -1318,11 +1360,26 @@ namespace ACunicombat.Mechs
             var bestMeasurement = default(Measurement);
             var hasMeasurement = false;
             var hasHandoff = hasCachedGuidanceTrack;
+            var hasInterceptorEstimate =
+                interceptorTargetCommitted &&
+                terminalFuseEstimateMemoryRemaining > 0f;
             var referencePosition = seekerLocked
                 ? seekerEstimatedPosition
                 : hasHandoff && radarController != null
                 ? radarController.PredictTrackPosition(cachedGuidanceTrack)
+                : hasInterceptorEstimate
+                    ? terminalFuseEstimatedPosition
                 : transform.position + transform.forward * seekerMaximumRange;
+            var referenceVelocity = seekerLocked
+                ? seekerEstimatedVelocity
+                : hasHandoff
+                    ? new Vector3(
+                        (float)cachedGuidanceTrack.Velocity.x,
+                        (float)cachedGuidanceTrack.Velocity.y,
+                        (float)cachedGuidanceTrack.Velocity.z)
+                    : hasInterceptorEstimate
+                        ? terminalFuseEstimatedVelocity
+                        : velocity;
 
             for (var i = 0; i < measurementCount; i++)
             {
@@ -1366,17 +1423,42 @@ namespace ACunicombat.Mechs
                 var associationError = Vector3.Distance(
                     measuredPosition,
                     referencePosition);
-                var gate = seekerLocked
-                    ? ReacquisitionGateMeters
-                    : ReacquisitionGateMeters * 4f;
-                if ((hasHandoff || seekerLocked) &&
+                var gate = interceptorTargetCommitted
+                    ? seekerLocked
+                        ? InterceptorReacquisitionGateMeters
+                        : Mathf.Clamp(
+                            terminalFuseEstimateUncertaintyMeters * 2f +
+                            InterceptorAcquisitionGateMinimumMeters,
+                            InterceptorAcquisitionGateMinimumMeters,
+                            InterceptorAcquisitionGateMaximumMeters)
+                    : seekerLocked
+                        ? ReacquisitionGateMeters
+                        : ReacquisitionGateMeters * 4f;
+                if ((hasHandoff || seekerLocked ||
+                     hasInterceptorEstimate) &&
                     associationError > gate)
                 {
                     continue;
                 }
 
+                var candidateTargetVelocity =
+                    EstimateSeekerTargetVelocity(
+                        in measurement,
+                        velocity);
+                var velocityAssociationError = Vector3.Distance(
+                    candidateTargetVelocity,
+                    referenceVelocity);
+                if (interceptorTargetCommitted &&
+                    (!IsFinite(candidateTargetVelocity) ||
+                     velocityAssociationError >
+                         InterceptorVelocityAssociationGateMps))
+                {
+                    continue;
+                }
+
                 var score =
-                    associationError * 2f -
+                    associationError * 2f +
+                    velocityAssociationError * 0.35f -
                     measurement.SnrDb * 4f;
                 if (score >= bestScore)
                 {
@@ -1397,19 +1479,10 @@ namespace ACunicombat.Mechs
                 ToVector3(bestMeasurement.Direction).normalized;
             var relativePosition =
                 direction * bestMeasurement.Range;
-            var radialVelocity =
-                float.IsFinite(bestMeasurement.RadialVelocity)
-                    ? bestMeasurement.RadialVelocity
-                    : 0f;
-            var losRate = math.all(
-                math.isfinite(bestMeasurement.LosRate))
-                ? ToVector3(bestMeasurement.LosRate)
-                : Vector3.zero;
-            var relativeVelocity =
-                direction * radialVelocity +
-                Vector3.Cross(losRate, relativePosition);
-            seekerEstimatedVelocity =
-                velocity + relativeVelocity;
+            var measuredTargetVelocity =
+                EstimateSeekerTargetVelocity(
+                    in bestMeasurement,
+                    velocity);
             var selectedMeasurementAge = Mathf.Max(
                 0f,
                 (float)(radarController.SimTimeSeconds -
@@ -1417,17 +1490,59 @@ namespace ACunicombat.Mechs
             var selectedSensorPosition =
                 transform.position -
                 velocity * selectedMeasurementAge;
-            seekerEstimatedPosition =
+            var measuredPositionNow =
                 selectedSensorPosition +
                 relativePosition +
-                seekerEstimatedVelocity *
+                measuredTargetVelocity *
                 selectedMeasurementAge;
+            if (interceptorTargetCommitted)
+            {
+                seekerEstimatedPosition = Vector3.Lerp(
+                    referencePosition,
+                    measuredPositionNow,
+                    InterceptorSeekerPositionBlend);
+                seekerEstimatedVelocity = Vector3.Lerp(
+                    referenceVelocity,
+                    measuredTargetVelocity,
+                    InterceptorSeekerVelocityBlend);
+            }
+            else
+            {
+                seekerEstimatedPosition = measuredPositionNow;
+                seekerEstimatedVelocity = measuredTargetVelocity;
+            }
             seekerLastMeasurementTime = bestMeasurement.Timestamp;
             seekerLocked = true;
             seekerLockMemoryRemaining = interceptorMissile
                 ? InterceptorSeekerLockMemorySeconds
                 : SeekerLockMemorySeconds;
         }
+
+        private static Vector3 EstimateSeekerTargetVelocity(
+            in Measurement measurement,
+            Vector3 sensorVelocity)
+        {
+            var direction =
+                ToVector3(measurement.Direction).normalized;
+            var relativePosition =
+                direction * measurement.Range;
+            var radialVelocity =
+                float.IsFinite(measurement.RadialVelocity)
+                    ? measurement.RadialVelocity
+                    : 0f;
+            var losRate = math.all(
+                math.isfinite(measurement.LosRate))
+                    ? ToVector3(measurement.LosRate)
+                    : Vector3.zero;
+            return sensorVelocity +
+                   direction * radialVelocity +
+                   Vector3.Cross(losRate, relativePosition);
+        }
+
+        private static bool IsFinite(Vector3 value) =>
+            float.IsFinite(value.x) &&
+            float.IsFinite(value.y) &&
+            float.IsFinite(value.z);
 
         /// <summary>
         /// 中段修正 = 消费经物理链路投递的 GuidanceUpdate 报文（发射端泵按周期
@@ -1459,10 +1574,20 @@ namespace ACunicombat.Mechs
                         continue; // 投递箱按 Tick 清空但轮询更频繁：Sequence 去重。
                     }
 
+                    if (interceptorTargetCommitted &&
+                        targetTrackId.IsValid &&
+                        !message.TrackPayload.TrackId.Equals(targetTrackId))
+                    {
+                        // Defensive interceptors must not accept a newly
+                        // associated threat from the carrier uplink.
+                        continue;
+                    }
+
                     lastLinkSequence = message.Sequence;
                     cachedGuidanceTrack = message.TrackPayload;
                     hasCachedGuidanceTrack = true;
-                    guidanceMemoryRemaining = GuidanceMemorySeconds;
+                    guidanceMemoryRemaining =
+                        GetGuidanceMemorySeconds();
                 }
             }
 
@@ -1476,6 +1601,16 @@ namespace ACunicombat.Mechs
             track = cachedGuidanceTrack;
             return true;
         }
+
+        private float GetGuidanceMemorySeconds() =>
+            interceptorTargetCommitted
+                ? InterceptorGuidanceMemorySeconds
+                : GuidanceMemorySeconds;
+
+        private float GetTerminalEstimateMemorySeconds() =>
+            interceptorTargetCommitted
+                ? InterceptorGuidanceMemorySeconds
+                : InterceptorFuseEstimateMemorySeconds;
 
         private bool TryDetonateProximity(float deltaTime)
         {
@@ -1957,6 +2092,7 @@ namespace ACunicombat.Mechs
                 return;
             }
             motorVisualActive = active;
+            missileAudio?.SetMotorActive(active);
 
             if (projectileTrail != null)
             {

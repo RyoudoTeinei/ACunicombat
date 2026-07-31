@@ -1,4 +1,5 @@
 using System.Text;
+using ACunicombat.Sensing.Contracts;
 using UnityEngine;
 
 namespace ACunicombat.Mechs
@@ -21,6 +22,7 @@ namespace ACunicombat.Mechs
         private const string BackwardAirQuickBoostActionId = "a000_122411";
         private const string LeftAirQuickBoostActionId = "a000_122412";
         private const string RightAirQuickBoostActionId = "a000_122413";
+        private const string SpaceFlightCruiseActionId = "a000_100002";
         private const string AssaultBoostCruiseActionId = "a000_120200";
         private const string ShoulderRestActionId = "a000_800000";
         private const string ShoulderDeployActionId = "a000_800110";
@@ -275,7 +277,8 @@ namespace ACunicombat.Mechs
             EnsureActionPlayer();
             TryInitializeShoulderLaunchers();
             var hasStt = HasSttTrack();
-            UpdateShoulderLauncher(leftShoulderLauncher, hasStt);
+            var interceptorReady = hasStt || HasRwrLockWarning();
+            UpdateShoulderLauncher(leftShoulderLauncher, interceptorReady);
             UpdateShoulderLauncher(rightShoulderLauncher, hasStt);
             lastFrame = input.Sample();
             quickBoostActivationConsumed = false;
@@ -428,19 +431,27 @@ namespace ACunicombat.Mechs
             }
             else if (motion.AssaultBoostActive)
             {
-                graphRunner.TryEnterState(flightState);
+                BeginAssaultBoostCruise();
             }
             else if (currentIsQuickBoost && graphRunner.StateElapsedSeconds >= quickBoostStateMaxSeconds)
             {
-                graphRunner.TryEnterState(grounded
-                    ? (lastFrame.MoveLocal.sqrMagnitude > 0.0001f ? groundBoostState : idleState)
-                    : flightState);
+                if (grounded)
+                {
+                    graphRunner.TryEnterState(
+                        lastFrame.MoveLocal.sqrMagnitude > 0.0001f
+                            ? groundBoostState
+                            : idleState);
+                }
+                else
+                {
+                    EnterSpaceFlightCruise();
+                }
             }
             else if (!grounded && !currentIsQuickBoost)
             {
                 // 太空中即使松开推进输入仍处于飞行姿态；速度由物理层保持惯性。
                 // 不允许行为图退回起跳/受击候选并反复播放。
-                graphRunner.TryEnterState(flightState);
+                EnterSpaceFlightCruise();
             }
             else if (grounded && !currentIsQuickBoost && !motion.AssaultBoostActive)
             {
@@ -572,14 +583,44 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var target = grounded
-                ? (lastFrame.MoveLocal.sqrMagnitude > 0.0001f ? groundBoostState : idleState)
-                : flightState;
-            graphRunner.TryEnterState(target);
             fullBodyOverrideKind = FullBodyOverrideKind.None;
             fullBodyOverrideActionId = string.Empty;
             fullBodyOverrideElapsed = 0f;
             graphRunner.SetActionPlaybackSuppressed(false);
+
+            if (grounded)
+            {
+                graphRunner.TryEnterState(
+                    lastFrame.MoveLocal.sqrMagnitude > 0.0001f
+                        ? groundBoostState
+                        : idleState);
+            }
+            else
+            {
+                EnterSpaceFlightCruise();
+            }
+        }
+
+        private void EnterSpaceFlightCruise()
+        {
+            if (graphRunner == null || flightState < 0)
+            {
+                return;
+            }
+
+            if (actionPlayer != null &&
+                graphRunner.CurrentStateIndex == flightState &&
+                actionPlayer.ActiveFullBodyActionId == SpaceFlightCruiseActionId)
+            {
+                return;
+            }
+
+            if (!graphRunner.TryEnterStateWithActionOverride(
+                    flightState,
+                    SpaceFlightCruiseActionId))
+            {
+                graphRunner.TryEnterState(flightState);
+            }
         }
 
         private void BeginAssaultBoostCruise()
@@ -701,6 +742,18 @@ namespace ACunicombat.Mechs
             }
 
             return radar != null && radar.HasStt;
+        }
+
+        private bool HasRwrLockWarning()
+        {
+            if (radar == null)
+            {
+                radar = GetComponent<MechRadarController>();
+            }
+
+            return radar != null &&
+                   radar.TryGetHighestThreat(out var threat) &&
+                   threat.Level >= EsmThreatLevel.Locked;
         }
 
         private void RequestShoulderFire(ShoulderLauncherState launcher)

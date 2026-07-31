@@ -23,6 +23,7 @@ namespace ACunicombat.Mechs
         private const float OperationRingTextureRadiusFraction = 0.46f;
         private const int SoftLineTextureHeight = 7;
         private const int TacticalBackgroundTextureSize = 1024;
+        private const double MissileMarkerEvidenceHoldSeconds = 0.6;
 
         [SerializeField] private MechRadarController radar;
         [SerializeField] private Camera viewCamera;
@@ -31,6 +32,13 @@ namespace ACunicombat.Mechs
         [SerializeField] private Key operationModeKey = Key.Tab;
         [SerializeField] private Key breakLockKey = Key.T;
         [SerializeField] private Key cycleTargetKey = Key.G;
+        [Header("Radar operator audio")]
+        [Tooltip("Tab 雷达操作界面开启且未进入 STT 时循环播放。")]
+        [SerializeField] private AudioClip operationScanLoopClip;
+        [SerializeField, Range(0f, 1f)] private float operationScanLoopVolume = 0.0578f;
+        [Tooltip("Tab 雷达操作界面开启且进入 STT 时替换扫描底噪循环播放。")]
+        [SerializeField] private AudioClip sttLockLoopClip;
+        [SerializeField, Range(0f, 1f)] private float sttLockLoopVolume = 0.10115f;
         [Header("Friendly missile cue")]
         [SerializeField, Min(3f)] private float friendlyMissileMarkerRadius = 7f;
         [Header("Track readout")]
@@ -65,6 +73,7 @@ namespace ACunicombat.Mechs
         private MechThirdPersonCamera aimController;
         private MechFlightMotionController motion;
         private MechTestWeaponSystem weaponSystem;
+        private AudioSource radarOperatorAudioSource;
         private Texture2D operationRingTexture;
         private Texture2D tacticalBackgroundTexture;
         private static Texture2D softLineTexture;
@@ -122,6 +131,30 @@ namespace ACunicombat.Mechs
             {
                 aimController = viewCamera.GetComponent<MechThirdPersonCamera>();
             }
+
+            if (operationScanLoopClip == null)
+            {
+                operationScanLoopClip = Resources.Load<AudioClip>(
+                    "Audio/Radar/radar_operation_scan_loop");
+            }
+            if (sttLockLoopClip == null)
+            {
+                sttLockLoopClip = Resources.Load<AudioClip>(
+                    "Audio/Radar/radar_stt_lock_loop");
+            }
+            operationScanLoopClip?.LoadAudioData();
+            sttLockLoopClip?.LoadAudioData();
+
+            radarOperatorAudioSource = gameObject.AddComponent<AudioSource>();
+            radarOperatorAudioSource.playOnAwake = false;
+            radarOperatorAudioSource.loop = true;
+            radarOperatorAudioSource.spatialBlend = 0f;
+        }
+
+        private void OnDisable()
+        {
+            radarOperatorAudioSource?.Stop();
+            radar?.SetTrackOperationMode(false);
         }
 
         private void OnDestroy()
@@ -174,6 +207,47 @@ namespace ACunicombat.Mechs
             displayTrackCount = CountDisplayTracks();
             echoCount = radar.CopyEchoes(echoes);
             radarStatus = radar.GetStatusSnapshot();
+            UpdateRadarOperatorAudio();
+        }
+
+        private void UpdateRadarOperatorAudio()
+        {
+            if (radarOperatorAudioSource == null)
+            {
+                return;
+            }
+
+            AudioClip desiredClip = null;
+            var desiredVolume = 0f;
+            if (radar.TrackOperationMode)
+            {
+                if (radar.HasStt)
+                {
+                    desiredClip = sttLockLoopClip;
+                    desiredVolume = sttLockLoopVolume;
+                }
+                else
+                {
+                    desiredClip = operationScanLoopClip;
+                    desiredVolume = operationScanLoopVolume;
+                }
+            }
+
+            if (radarOperatorAudioSource.clip != desiredClip)
+            {
+                radarOperatorAudioSource.Stop();
+                radarOperatorAudioSource.clip = desiredClip;
+            }
+            radarOperatorAudioSource.volume = desiredVolume;
+
+            if (desiredClip != null && !radarOperatorAudioSource.isPlaying)
+            {
+                radarOperatorAudioSource.Play();
+            }
+            else if (desiredClip == null && radarOperatorAudioSource.isPlaying)
+            {
+                radarOperatorAudioSource.Stop();
+            }
         }
 
         private void OnGUI()
@@ -193,12 +267,12 @@ namespace ACunicombat.Mechs
             {
                 DrawTransientEchoes();
                 DrawTrackOperationOverlay();
-                DrawWorldTrackMarkers();
             }
             else
             {
                 DrawLegacyReticle();
             }
+            DrawWorldTrackMarkers();
         }
 
         private void DrawTacticalPlot()
@@ -330,7 +404,7 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < missileTrackCount; i++)
             {
                 var track = missileTracks[i];
-                if (!track.IsWarning || !track.Incoming)
+                if (!ShouldDisplayIncomingMissile(in track))
                 {
                     continue;
                 }
@@ -1062,7 +1136,7 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < missileTrackCount; i++)
             {
                 var track = missileTracks[i];
-                if (!track.IsWarning || !track.Incoming)
+                if (!ShouldDisplayIncomingMissile(in track))
                 {
                     continue;
                 }
@@ -1190,6 +1264,20 @@ namespace ACunicombat.Mechs
             projectile != null &&
             projectile.IsMissile &&
             projectile.IsOwnedBy(transform);
+
+        private bool ShouldDisplayIncomingMissile(
+            in MissileTrackSnapshot track)
+        {
+            if (!track.IsWarning || !track.Incoming)
+            {
+                return false;
+            }
+
+            var evidenceAge =
+                radar.SimTimeSeconds - track.LastEvidenceTime;
+            return evidenceAge >= -0.05 &&
+                   evidenceAge <= MissileMarkerEvidenceHoldSeconds;
+        }
 
         private static bool IsInsideScreen(Vector2 point, float margin) =>
             point.x >= margin &&

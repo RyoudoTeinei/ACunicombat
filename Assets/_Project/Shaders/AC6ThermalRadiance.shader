@@ -47,7 +47,9 @@ Shader "ACunicombat/AC6/Thermal Radiance"
                 float _GrazingFalloff;
             CBUFFER_END
 
-            // x = 窗口下限辐射亮度, y = 1 / (上限 − 下限)。CPU 端 AGC 每帧更新。
+            // x = 窗口下限辐射亮度, y = 1 / (上限 - 下限),
+            // z = 归一化辐射暗部软压缩强度, w = 高光响应。
+            // CPU 端 AGC 每帧更新。
             float4 _AC6ThermalWindow;
 
             struct Attributes
@@ -81,7 +83,18 @@ Shader "ACunicombat/AC6/Thermal Radiance"
 
                 float t = _ThermalTemp * 0.001;
                 float radiance = emissivity * t * t * t * t;
-                float g = saturate((radiance - _AC6ThermalWindow.x) * _AC6ThermalWindow.y);
+                float g = max(
+                    0.0,
+                    (radiance - _AC6ThermalWindow.x) * _AC6ThermalWindow.y);
+                float compression = max(0.0, _AC6ThermalWindow.z);
+                if (compression > 1.0e-4)
+                {
+                    g = log2(1.0 + compression * g) / log2(1.0 + compression);
+                }
+                // Keep ordinary armor below pure white while allowing strongly
+                // over-range thrusters and missile motors to roll into saturation.
+                g = 1.0 - exp(-max(0.01, _AC6ThermalWindow.w) * pow(g, 1.2));
+                g = saturate(g);
                 return half4(g, g, g, 1);
             }
             ENDHLSL

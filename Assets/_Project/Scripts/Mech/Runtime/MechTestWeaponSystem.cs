@@ -78,6 +78,7 @@ namespace ACunicombat.Mechs
         private MissileTrackSnapshot interceptorTarget;
         private InterceptorEngagementSolution interceptorSolution;
         private float interceptorLockUntil;
+        private MechMissileLaunchAudio missileLaunchAudio;
         private readonly MissileTrackSnapshot[] interceptorTrackScratch =
             new MissileTrackSnapshot[MechRadarController.MaximumPublicTracks];
 
@@ -1275,6 +1276,22 @@ namespace ACunicombat.Mechs
             float coldLaunchAlignmentTimeoutSeconds = 0.6f)
         {
             EnsureMaterials();
+            var ownshipMissileAudio =
+                kind == TestWeaponKind.Missile &&
+                input != null &&
+                GetComponent<MechAiTargetController>() == null;
+            if (ownshipMissileAudio)
+            {
+                missileLaunchAudio ??=
+                    GetComponent<MechMissileLaunchAudio>();
+                if (missileLaunchAudio == null)
+                {
+                    missileLaunchAudio =
+                        gameObject.AddComponent<MechMissileLaunchAudio>();
+                }
+                missileLaunchAudio.PlayRelease(coldLaunch);
+            }
+
             SpawnNativeOneShot(
                 launchFfxId,
                 launchAnchor,
@@ -1386,7 +1403,8 @@ namespace ACunicombat.Mechs
                 coldLaunchSafeSeparationSeconds,
                 coldLaunchSafeSeparationMeters,
                 coldLaunchIgnitionAlignmentDegrees,
-                coldLaunchAlignmentTimeoutSeconds);
+                coldLaunchAlignmentTimeoutSeconds,
+                ownshipMissileAudio);
         }
 
         private bool TryGetAimPoint(

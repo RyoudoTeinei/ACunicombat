@@ -93,6 +93,7 @@ namespace ACunicombat.Mechs
         private struct UplinkSubscription
         {
             public bool Active;
+            public bool AllowTrackReacquisition;
             public LinkTerminalId MissileTerminal;
             public TrackId TrackId;
             public TrackSnapshot LastSent;
@@ -201,8 +202,7 @@ namespace ACunicombat.Mechs
             trackOperationMode = enabled;
             if (!enabled)
             {
-                candidateTrackId = default;
-                designationProgress = 0f;
+                BreakSingleTargetTrack();
             }
         }
 
@@ -1626,7 +1626,10 @@ namespace ACunicombat.Mechs
             }
         }
 
-        public bool BeginGuidanceUplink(LinkTerminalId missileTerminal, TrackId trackId)
+        public bool BeginGuidanceUplink(
+            LinkTerminalId missileTerminal,
+            TrackId trackId,
+            bool allowTrackReacquisition = true)
         {
             if (!missileTerminal.IsValid || !trackId.IsValid)
             {
@@ -1643,6 +1646,7 @@ namespace ACunicombat.Mechs
                 var subscription = new UplinkSubscription
                 {
                     Active = true,
+                    AllowTrackReacquisition = allowTrackReacquisition,
                     MissileTerminal = missileTerminal,
                     TrackId = trackId,
                     NextSendTime = 0.0,
@@ -1699,8 +1703,8 @@ namespace ACunicombat.Mechs
         }
 
         /// <summary>
-        /// 制导上行泵：按周期把航迹快照经物理链路发往在飞导弹。原航迹丢失时
-        /// 在发射端做再捕获（导弹端只消费报文，不再直读航迹库）。
+        /// 制导上行泵：按周期把航迹快照经物理链路发往在飞导弹。允许换目标的
+        /// 攻击弹在原航迹丢失时可由发射端再捕获；单目标拦截弹保持原航迹承诺。
         /// </summary>
         private void PumpGuidanceUplinks(double now)
         {
@@ -1716,10 +1720,13 @@ namespace ACunicombat.Mechs
                 var haveTrack =
                     subscription.TrackId.IsValid &&
                     TryGetTrack(subscription.TrackId, out track) &&
-                    IsFireControlUsable(track.Lifecycle);
+                    IsFireControlUsable(track.Lifecycle) &&
+                    (subscription.AllowTrackReacquisition ||
+                     track.Lifecycle == TrackLifecycle.Confirmed);
                 if (!haveTrack)
                 {
-                    if (subscription.LastSent.TrackId.IsValid &&
+                    if (subscription.AllowTrackReacquisition &&
+                        subscription.LastSent.TrackId.IsValid &&
                         TryReacquireTrack(
                             subscription.LastSent,
                             GuidanceReacquisitionGateMeters,
