@@ -1078,39 +1078,69 @@ public static class AC6PlayableSceneBuilder
         var warmWhite = new Color(1f, 0.94f, 0.84f, 1f);
         var coolWhite = new Color(0.82f, 0.90f, 1f, 1f);
 
+        // NOTE on units: sizeXY is in half-screen NDC (the screen edge sits at 1.0), and the
+        // falloff gradient spans the element's own normalized 0-1 radius - it is NOT a fixed
+        // screen-space width. A streak with sizeXY.x = 18 has its zero-intensity point 18 screen-
+        // widths past the light; the visible frame only ever samples the flat top of that curve,
+        // which is why the previous version rendered as a hard-edged bar clear across the screen
+        // instead of a tapered streak. Keeping sizeXY.x in the 1-2 range lets the taper actually
+        // land inside the frame.
+        //
+        // NOTE on falloff: LensFlareDataElementSRP.fallOff is [Range(0,1)] and its setter clamps
+        // with Mathf.Clamp01 - the earlier 3.2/4.5/5.5 values here were silently clamped to 1.0,
+        // which is the *softest* curve the field supports (pow(x, 1) - linear), not a steep one.
+        // Low values (~0.1-0.3) read as a hard, sharp-edged core; values near 1 read as a long
+        // soft taper. Pick per-element accordingly rather than reasoning about it as an exponent
+        // that can exceed 1.
+
+        var primaryStreak = BuildFlareElement(
+            SRPLensFlareType.Circle, 0f, new Vector2(1.3f, 0.018f), 1f, 0.8f, coolWhite,
+            fallOff: 1f);
+
+        var secondaryStreak = BuildFlareElement(
+            SRPLensFlareType.Circle, 0f, new Vector2(2.1f, 0.008f), 1f, 0.28f, coolWhite,
+            fallOff: 1f);
+
+        // Halo ring: angular rainbow gradient instead of a flat tint. A ring with hue cycling
+        // around it is the recognizable "chromatic dispersion" halo from anamorphic/coated glass -
+        // a flat-tinted ring reads as a plain circle no matter how it's placed.
+        var halo = BuildFlareElement(
+            SRPLensFlareType.Ring, 0.55f, Vector2.one, 1.7f, 0.14f, Color.white,
+            fallOff: 0.6f, ringThickness: 0.1f);
+        halo.tintColorType = SRPLensFlareColorType.AngularGradient;
+        halo.tintGradient = BuildRainbowTextureGradient(0.6f);
+
+        // Ghosts: a single multi-instance element with random distribution instead of three
+        // hand-placed ones. allowMultipleElement + Random distribution is what URP's own system
+        // is built to do this with - it gives each ghost its own position/scale/rotation/intensity
+        // jitter along the light-to-center axis, which reads as glass rather than a placed decal
+        // in a way that a few manually-tuned instances don't. colorGradient tints each instance by
+        // its position along that axis, which both sells the "different ghost, different glass"
+        // read and gives the rainbow-across-the-chain look asked for.
+        var ghosts = BuildFlareElement(
+            SRPLensFlareType.Polygon, 0.3f, Vector2.one, 0.3f, 0.09f, Color.white,
+            fallOff: 0.35f, sideCount: 6);
+        ghosts.allowMultipleElement = true;
+        ghosts.count = 5;
+        ghosts.distribution = SRPLensFlareDistribution.Random;
+        ghosts.seed = 17;
+        ghosts.lengthSpread = 1.1f;
+        ghosts.positionVariation = new Vector2(0.9f, 0f);
+        ghosts.scaleVariation = 0.6f;
+        ghosts.intensityVariation = 0.7f;
+        ghosts.rotationVariation = 55f;
+        ghosts.colorGradient = BuildRainbowColorGradient(0.85f);
+
         flareData.elements = new[]
         {
-            // Tight glow welded to the disc. Steep falloff so it reads as the core searing rather
+            // Tight glow welded to the disc. Low falloff so it reads as the core searing rather
             // than as a second, larger sun.
             BuildFlareElement(
-                SRPLensFlareType.Circle, 0f, Vector2.one, 0.5f, 1.5f, warmWhite, fallOff: 3.2f),
-
-            // The long anamorphic bar. This single element is most of what separates "a bright
-            // blob" from "a sun seen through a lens".
-            BuildFlareElement(
-                SRPLensFlareType.Circle, 0f, new Vector2(18f, 0.05f), 1f, 0.95f, coolWhite,
-                fallOff: 4.5f),
-
-            // A wider, fainter companion streak so the bar has falloff rather than a hard end.
-            BuildFlareElement(
-                SRPLensFlareType.Circle, 0f, new Vector2(34f, 0.018f), 1f, 0.4f, coolWhite,
-                fallOff: 5.5f),
-
-            // Halo ring further down the optical axis.
-            BuildFlareElement(
-                SRPLensFlareType.Ring, 0.62f, Vector2.one, 1.7f, 0.13f, coolWhite,
-                ringThickness: 0.06f),
-
-            // Ghosts. Deliberately dim and slightly different in tint and shape - a row of
-            // identical dots reads as a decal, an uneven row reads as glass.
-            BuildFlareElement(
-                SRPLensFlareType.Polygon, 0.32f, Vector2.one, 0.28f, 0.1f, warmWhite,
-                sideCount: 6),
-            BuildFlareElement(
-                SRPLensFlareType.Circle, 0.78f, Vector2.one, 0.16f, 0.08f, coolWhite),
-            BuildFlareElement(
-                SRPLensFlareType.Polygon, 1.15f, Vector2.one, 0.4f, 0.06f, warmWhite,
-                sideCount: 6),
+                SRPLensFlareType.Circle, 0f, Vector2.one, 0.5f, 1.5f, warmWhite, fallOff: 0.12f),
+            primaryStreak,
+            secondaryStreak,
+            halo,
+            ghosts,
         };
         EditorUtility.SetDirty(flareData);
 
@@ -1165,6 +1195,52 @@ public static class AC6PlayableSceneBuilder
             modulateByLightColor = true,
             autoRotate = false,
         };
+    }
+
+    /// <summary>
+    /// Full-saturation hue wheel for an AngularGradient tint (e.g. the halo ring). Angle 0 and
+    /// angle 1 are the same point on the circle, so the first and last color keys must match or
+    /// the wheel shows a visible seam - HSVToRGB(0, ...) and HSVToRGB(1, ...) both give red, so a
+    /// plain 0..1 sweep is already seamless.
+    /// </summary>
+    private static TextureGradient BuildRainbowTextureGradient(float alpha)
+    {
+        const int keyCount = 7;
+        var colorKeys = new GradientColorKey[keyCount];
+        for (var i = 0; i < keyCount; i++)
+        {
+            var t = i / (float)(keyCount - 1);
+            colorKeys[i] = new GradientColorKey(Color.HSVToRGB(t, 0.55f, 1f), t);
+        }
+
+        var alphaKeys = new[]
+        {
+            new GradientAlphaKey(alpha, 0f),
+            new GradientAlphaKey(alpha, 1f),
+        };
+        return new TextureGradient(colorKeys, alphaKeys);
+    }
+
+    /// <summary>
+    /// Same hue wheel as <see cref="BuildRainbowTextureGradient"/> but as a plain Gradient, for
+    /// LensFlareDataElementSRP.colorGradient (the per-instance tint used when allowMultipleElement
+    /// + Random distribution spreads one element into several).
+    /// </summary>
+    private static Gradient BuildRainbowColorGradient(float saturation)
+    {
+        const int keyCount = 7;
+        var colorKeys = new GradientColorKey[keyCount];
+        for (var i = 0; i < keyCount; i++)
+        {
+            var t = i / (float)(keyCount - 1);
+            colorKeys[i] = new GradientColorKey(Color.HSVToRGB(t, saturation, 1f), t);
+        }
+
+        var gradient = new Gradient();
+        gradient.SetKeys(
+            colorKeys,
+            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) });
+        return gradient;
     }
 
     private static void ConfigurePostProcessing()
