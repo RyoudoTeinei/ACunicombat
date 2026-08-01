@@ -63,6 +63,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechFlightMotionController motion;
         [SerializeField] private MechThrustVisualizer thrustVisualizer;
         [SerializeField] private MechThirdPersonCamera cam;
+        [SerializeField] private MechSpaceDustField dustField;
         [SerializeField] private MechOrbitSynchronizer orbitSynchronizer;
         [SerializeField] private MechBehaviorGraphRunner graphRunner;
         [SerializeField] private MechBodyActionPlayer actionPlayer;
@@ -523,6 +524,8 @@ namespace ACunicombat.Mechs
             {
                 cam.Follow(Time.deltaTime);
             }
+
+            dustField?.Tick();
         }
 
         private bool BeginFullBodyOverride(

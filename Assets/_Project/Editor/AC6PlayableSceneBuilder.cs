@@ -112,6 +112,7 @@ public static class AC6PlayableSceneBuilder
         }
 
         BuildPlayerEnvironment();
+        EnsureSpaceDustFieldForCurrentPlayer();
         EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
         EditorSceneManager.SaveOpenScenes();
         // The scene save above only flushes the scene file. Everything this rebuild also touches
@@ -452,6 +453,8 @@ public static class AC6PlayableSceneBuilder
         cam.ConfigureHighSpeedFraming(8f, 0.26f, 0.18f, 0.45f);
         EditorUtility.SetDirty(cam);
 
+        var dustField = GetOrCreateSpaceDustField(cam);
+
         DisableShowcaseLabels(mech);
         BuildPlayerEnvironment();
         var combatTarget = BuildCombatTestTarget(mech);
@@ -479,6 +482,7 @@ public static class AC6PlayableSceneBuilder
         rigSo.FindProperty("motion").objectReferenceValue = motion;
         rigSo.FindProperty("thrustVisualizer").objectReferenceValue = thrustVisualizer;
         rigSo.FindProperty("cam").objectReferenceValue = cam;
+        rigSo.FindProperty("dustField").objectReferenceValue = dustField;
         rigSo.FindProperty("graphRunner").objectReferenceValue = runner;
         rigSo.FindProperty("weaponLayer").objectReferenceValue = weapon;
         rigSo.FindProperty("showFlightInstruments").boolValue = true;
@@ -509,6 +513,50 @@ public static class AC6PlayableSceneBuilder
 
         report = string.Join("\n", log);
         return graphSmoke && motionSmoke;
+    }
+
+    private static void EnsureSpaceDustFieldForCurrentPlayer()
+    {
+        var cameraObject = GameObject.Find("AC6PlayerCamera");
+        var playerObject = GameObject.Find("Player_Melander_1010");
+        var camera = cameraObject != null
+            ? cameraObject.GetComponent<MechThirdPersonCamera>()
+            : null;
+        var rig = playerObject != null
+            ? playerObject.GetComponent<MechPlayerRig>()
+            : null;
+
+        if (camera == null || rig == null)
+        {
+            Debug.LogWarning(
+                "[AC6PlayableScene] Space dust was not rebuilt because the player camera or rig is missing.");
+            return;
+        }
+
+        var dustField = GetOrCreateSpaceDustField(camera);
+        var rigSo = new SerializedObject(rig);
+        rigSo.FindProperty("dustField").objectReferenceValue = dustField;
+        rigSo.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    private static MechSpaceDustField GetOrCreateSpaceDustField(MechThirdPersonCamera camera)
+    {
+        const string objectName = "AC6SpaceDustField";
+        var dustFieldObject = GameObject.Find(objectName);
+        if (dustFieldObject == null)
+        {
+            dustFieldObject = new GameObject(objectName);
+        }
+
+        var dustField = dustFieldObject.GetComponent<MechSpaceDustField>();
+        if (dustField == null)
+        {
+            dustField = dustFieldObject.AddComponent<MechSpaceDustField>();
+        }
+
+        dustField.Configure(camera.transform);
+        EditorUtility.SetDirty(dustField);
+        return dustField;
     }
 
     private static bool RunMotionSmokeTest(out string report)
@@ -1171,11 +1219,9 @@ public static class AC6PlayableSceneBuilder
         ghosts.scaleVariation = 0.6f;
         ghosts.intensityVariation = 0.7f;
         ghosts.rotationVariation = 55f;
-        // Radial alpha-only fade layered on top of the SDF shape: adds the center-bright,
-        // edge-soft falloff a single fallOff/edgeOffset pair can't fully give a polygon, without
-        // touching hue (colors stay white so the per-instance rainbow colorGradient below is
-        // untouched - this gradient and colorGradient are independent systems, one a shader
-        // texture sampled per-pixel, the other a per-instance CPU-side tint).
+        // The flare uses Blend One One, so alpha-only fades do not attenuate its RGB output.
+        // Fade neutral RGB toward black instead: this softens the ghost without changing the hue
+        // supplied by the independent per-instance rainbow colorGradient below.
         ghosts.tintColorType = SRPLensFlareColorType.RadialGradient;
         ghosts.tintGradient = BuildGhostRadialFadeGradient();
         ghosts.colorGradient = BuildRainbowColorGradient(0.85f);
@@ -1276,22 +1322,21 @@ public static class AC6PlayableSceneBuilder
     }
 
     /// <summary>
-    /// Center-bright, edge-transparent alpha ramp with a neutral white color (so it only ever
-    /// subtracts opacity, never hue) - layered on the ghost polygon via RadialGradient tint to
-    /// give it a soft vignette on top of the SDF shape instead of one flat density.
+    /// Center-bright neutral luminance ramp for an additive ghost. Blend One One ignores alpha,
+    /// so the RGB channels themselves must approach black at the edge.
     /// </summary>
     private static TextureGradient BuildGhostRadialFadeGradient()
     {
         var colorKeys = new[]
         {
             new GradientColorKey(Color.white, 0f),
-            new GradientColorKey(Color.white, 1f),
+            new GradientColorKey(new Color(0.55f, 0.55f, 0.55f, 1f), 0.5f),
+            new GradientColorKey(new Color(0.05f, 0.05f, 0.05f, 1f), 1f),
         };
         var alphaKeys = new[]
         {
             new GradientAlphaKey(1f, 0f),
-            new GradientAlphaKey(0.55f, 0.5f),
-            new GradientAlphaKey(0.05f, 1f),
+            new GradientAlphaKey(1f, 1f),
         };
         return new TextureGradient(colorKeys, alphaKeys);
     }
