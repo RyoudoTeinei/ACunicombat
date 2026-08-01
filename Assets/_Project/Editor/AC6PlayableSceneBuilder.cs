@@ -114,6 +114,12 @@ public static class AC6PlayableSceneBuilder
         BuildPlayerEnvironment();
         EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
         EditorSceneManager.SaveOpenScenes();
+        // The scene save above only flushes the scene file. Everything this rebuild also touches
+        // that lives outside the scene - the lens flare data asset, volume profiles, materials -
+        // was only EditorUtility.SetDirty'd, which keeps it correct in the current Editor session
+        // but writes nothing to disk. Without this, those assets silently revert to their last
+        // truly-saved content the next time something forces them to reload from disk.
+        AssetDatabase.SaveAssets();
         Selection.activeGameObject = GameObject.Find("AC6PlayerEnvironment");
         Debug.Log("[AC6PlayableScene] Player environment rebuilt with finite structural platform.");
     }
@@ -164,6 +170,7 @@ public static class AC6PlayableSceneBuilder
                 EditorSceneManager.MarkSceneDirty(
                     SceneManager.GetActiveScene());
                 EditorSceneManager.SaveOpenScenes();
+                AssetDatabase.SaveAssets();
                 Debug.Log(
                     "[AC6PlayableScene] Deep-space skybox rebuilt with distant sun.");
                 return;
@@ -478,6 +485,11 @@ public static class AC6PlayableSceneBuilder
         rigSo.ApplyModifiedPropertiesWithoutUndo();
 
         EditorSceneManager.SaveScene(scene, PlayableScenePath);
+        // Same reasoning as the menu-driven rebuild: the scene save above does not flush the
+        // loose ScriptableObject assets (lens flare data, volume profiles, materials) that this
+        // pipeline also SetDirty's - those need their own explicit save or they revert on the
+        // next forced reload from disk.
+        AssetDatabase.SaveAssets();
         log.Add($"scene: {PlayableScenePath}");
 
         // 6. 无头冒烟：脚本化输入驱动图，断言轨迹离开待机并到达飞行系状态。
@@ -1101,6 +1113,23 @@ public static class AC6PlayableSceneBuilder
             SRPLensFlareType.Circle, 0f, new Vector2(2.1f, 0.008f), 1f, 0.28f, coolWhite,
             fallOff: 1f);
 
+        // A few faint off-axis streaks so the flare doesn't read as a single horizontal bar
+        // welded to the sun - real anamorphic/spherical combos always leak a little in other
+        // directions too (coating glints, aperture diffraction). rotation is in degrees and
+        // turns the whole element about the light's screen position; kept far below the
+        // horizontal streaks' intensity (0.8 / 0.28) so horizontal still dominates the read.
+        var verticalStreak = BuildFlareElement(
+            SRPLensFlareType.Circle, 0f, new Vector2(0.9f, 0.012f), 1f, 0.12f, coolWhite,
+            fallOff: 1f, rotation: 90f);
+
+        var diagonalStreakA = BuildFlareElement(
+            SRPLensFlareType.Circle, 0f, new Vector2(0.8f, 0.01f), 1f, 0.08f, coolWhite,
+            fallOff: 1f, rotation: 45f);
+
+        var diagonalStreakB = BuildFlareElement(
+            SRPLensFlareType.Circle, 0f, new Vector2(0.8f, 0.01f), 1f, 0.08f, coolWhite,
+            fallOff: 1f, rotation: 135f);
+
         // Halo ring: angular rainbow gradient instead of a flat tint. A ring with hue cycling
         // around it is the recognizable "chromatic dispersion" halo from anamorphic/coated glass -
         // a flat-tinted ring reads as a plain circle no matter how it's placed.
@@ -1139,6 +1168,9 @@ public static class AC6PlayableSceneBuilder
                 SRPLensFlareType.Circle, 0f, Vector2.one, 0.5f, 1.5f, warmWhite, fallOff: 0.12f),
             primaryStreak,
             secondaryStreak,
+            verticalStreak,
+            diagonalStreakA,
+            diagonalStreakB,
             halo,
             ghosts,
         };
@@ -1174,7 +1206,8 @@ public static class AC6PlayableSceneBuilder
         Color tint,
         float fallOff = 1f,
         float ringThickness = 0.25f,
-        int sideCount = 6)
+        int sideCount = 6,
+        float rotation = 0f)
     {
         return new LensFlareDataElementSRP
         {
@@ -1188,6 +1221,7 @@ public static class AC6PlayableSceneBuilder
             fallOff = fallOff,
             ringThickness = ringThickness,
             sideCount = sideCount,
+            rotation = rotation,
             // Required for the streak elements: with aspect preservation on, a 18 x 0.05 size is
             // squashed back to square and the bar never appears.
             preserveAspectRatio = false,
