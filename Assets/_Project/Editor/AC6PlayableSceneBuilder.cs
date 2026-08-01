@@ -1146,9 +1146,22 @@ public static class AC6PlayableSceneBuilder
         // in a way that a few manually-tuned instances don't. colorGradient tints each instance by
         // its position along that axis, which both sells the "different ghost, different glass"
         // read and gives the rainbow-across-the-chain look asked for.
+        //
+        // NOTE on the polygon shape softness: fallOff of 0.35 does NOT map to the shader's
+        // pow() exponent directly - LensFlareCommonSRP remaps it as
+        // exp(lerp(0, 4, 1-fallOff)), so 0.35 was actually exponent ~13.5. At that exponent the
+        // SDF sits near 1.0 (fully opaque) across almost the whole interior and only crashes to 0
+        // in the last sliver before the edge - a flat-bright disc with a razor cutoff, which is
+        // exactly the "hard edge, uniform interior" complaint. Raising it near 1.0 gives exponent
+        // ~1 (linear ramp start-to-edge). edgeOffset also widens/narrows that ramp for polygons
+        // specifically (it's exponentiated by 5 in C# before reaching the shader), and
+        // sdfRoundness blunts the hexagon's corners so it reads as an aberrated glass reflection
+        // rather than a stamped decal.
         var ghosts = BuildFlareElement(
-            SRPLensFlareType.Polygon, 0.3f, Vector2.one, 0.3f, 0.09f, Color.white,
-            fallOff: 0.35f, sideCount: 6);
+            SRPLensFlareType.Polygon, 0.3f, Vector2.one, 0.38f, 0.075f, Color.white,
+            fallOff: 0.88f, sideCount: 6);
+        ghosts.edgeOffset = 0.4f;
+        ghosts.sdfRoundness = 0.45f;
         ghosts.allowMultipleElement = true;
         ghosts.count = 5;
         ghosts.distribution = SRPLensFlareDistribution.Random;
@@ -1158,6 +1171,13 @@ public static class AC6PlayableSceneBuilder
         ghosts.scaleVariation = 0.6f;
         ghosts.intensityVariation = 0.7f;
         ghosts.rotationVariation = 55f;
+        // Radial alpha-only fade layered on top of the SDF shape: adds the center-bright,
+        // edge-soft falloff a single fallOff/edgeOffset pair can't fully give a polygon, without
+        // touching hue (colors stay white so the per-instance rainbow colorGradient below is
+        // untouched - this gradient and colorGradient are independent systems, one a shader
+        // texture sampled per-pixel, the other a per-instance CPU-side tint).
+        ghosts.tintColorType = SRPLensFlareColorType.RadialGradient;
+        ghosts.tintGradient = BuildGhostRadialFadeGradient();
         ghosts.colorGradient = BuildRainbowColorGradient(0.85f);
 
         flareData.elements = new[]
@@ -1251,6 +1271,27 @@ public static class AC6PlayableSceneBuilder
         {
             new GradientAlphaKey(alpha, 0f),
             new GradientAlphaKey(alpha, 1f),
+        };
+        return new TextureGradient(colorKeys, alphaKeys);
+    }
+
+    /// <summary>
+    /// Center-bright, edge-transparent alpha ramp with a neutral white color (so it only ever
+    /// subtracts opacity, never hue) - layered on the ghost polygon via RadialGradient tint to
+    /// give it a soft vignette on top of the SDF shape instead of one flat density.
+    /// </summary>
+    private static TextureGradient BuildGhostRadialFadeGradient()
+    {
+        var colorKeys = new[]
+        {
+            new GradientColorKey(Color.white, 0f),
+            new GradientColorKey(Color.white, 1f),
+        };
+        var alphaKeys = new[]
+        {
+            new GradientAlphaKey(1f, 0f),
+            new GradientAlphaKey(0.55f, 0.5f),
+            new GradientAlphaKey(0.05f, 1f),
         };
         return new TextureGradient(colorKeys, alphaKeys);
     }
