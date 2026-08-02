@@ -15,6 +15,9 @@ namespace ACunicombat.Tracking
 
         private const double AssociationGateSquared = 25.0;
         private const double InitialVelocitySigmaMetersPerSecond = 300.0;
+        private const double UnobservedMissAgeSeconds = 1.0;
+        private const double MaximumAssociationAgeSeconds = 1.0;
+        private const double MaximumTrackAgeSeconds = 3.0;
 
         private struct TrackSlot
         {
@@ -109,6 +112,12 @@ namespace ACunicombat.Tracking
                     Cmkf.PredictCv(ref slot.Filter, dt, 4.0, 16.0);
                 }
 
+                if (simTime - slot.LastUpdateTime >= MaximumTrackAgeSeconds)
+                {
+                    ReleaseTrack(i);
+                    continue;
+                }
+
                 slots[i] = slot;
             }
 
@@ -137,7 +146,8 @@ namespace ACunicombat.Tracking
                 var slotIndex = FindAssociation(
                     cartesian,
                     in cartesianCovariance,
-                    measurement.ObjectClass);
+                    measurement.ObjectClass,
+                    measurement.Timestamp);
                 if (slotIndex < 0)
                 {
                     slotIndex = AllocateTrack(
@@ -192,7 +202,8 @@ namespace ACunicombat.Tracking
                 var slot = slots[i];
                 if (!associated[i])
                 {
-                    if (observed[i])
+                    var trackAge = math.max(0.0, simTime - slot.LastUpdateTime);
+                    if (observed[i] || trackAge >= UnobservedMissAgeSeconds)
                     {
                         slot.Lifecycle.OnMiss();
                         slot.Confidence *= 0.85f;
@@ -333,13 +344,24 @@ namespace ACunicombat.Tracking
         private int FindAssociation(
             double3 position,
             in Matrix6 measurementCovariance,
-            TrackObjectClass measuredObjectClass)
+            TrackObjectClass measuredObjectClass,
+            double measurementTime)
         {
             var bestIndex = -1;
             var bestDistance = double.MaxValue;
             for (var i = 0; i < slots.Length; i++)
             {
                 if (!slots[i].Active)
+                {
+                    continue;
+                }
+
+                // A stale covariance ellipsoid can grow until it spans kilometres and then
+                // absorb a newly launched target of the same class. Keep the old track for
+                // display/coasting, but require fresh evidence before it can claim a return.
+                if (measurementTime - slots[i].LastUpdateTime >
+                        MaximumAssociationAgeSeconds ||
+                    slots[i].Lifecycle.State == TrackLifecycle.Degraded)
                 {
                     continue;
                 }

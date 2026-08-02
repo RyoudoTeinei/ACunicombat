@@ -204,6 +204,119 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void ConfirmedTrackWithoutObservation_AgesOutAndReleasesItsSlot()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(4, Allocator.Temp);
+
+            for (var i = 1; i <= 3; i++)
+            {
+                var time = i * 0.04;
+                measurements.Clear();
+                measurements.Add(MeasurementAt(time));
+                manager.Process(measurements, double3.zero, time);
+            }
+
+            measurements.Clear();
+            for (var i = 0; i < 3; i++)
+            {
+                var time = 1.12 + i * 0.04;
+                manager.Process(measurements, double3.zero, time);
+            }
+
+            Assert.That(manager.TryGetBestTrack(out var coastingTrack), Is.True);
+            Assert.That(
+                coastingTrack.Lifecycle,
+                Is.EqualTo(TrackLifecycle.Coasting).Or.EqualTo(TrackLifecycle.Degraded));
+
+            manager.Process(measurements, double3.zero, 3.20);
+
+            Assert.That(manager.Count, Is.Zero);
+            Assert.That(manager.TryGetBestTrack(out _), Is.False);
+        }
+
+        [Test]
+        public void StaleTrack_DoesNotAbsorbNewSameClassReturn()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(4, Allocator.Temp);
+
+            for (var i = 1; i <= 3; i++)
+            {
+                var measurement = MeasurementAt(i * 0.04);
+                measurement.ObjectClass = TrackObjectClass.Missile;
+                measurement.ClassificationConfidence = 0.9f;
+                measurements.Clear();
+                measurements.Add(measurement);
+                manager.Process(measurements, double3.zero, i * 0.04);
+            }
+
+            measurements.Clear();
+            manager.Process(measurements, double3.zero, 1.20);
+
+            var newMissile = MeasurementAtPosition(
+                1.24,
+                new double3(0.0, 0.0, 1_050.0),
+                double3.zero);
+            newMissile.ObjectClass = TrackObjectClass.Missile;
+            newMissile.ClassificationConfidence = 0.9f;
+            measurements.Add(newMissile);
+            manager.Process(measurements, double3.zero, 1.24);
+
+            Assert.That(manager.Count, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void LongSessionTimestamp_StillConfirmsAndMaintainsOneTrack()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(4, Allocator.Temp);
+            const double sessionTime = 6.0 * 60.0 * 60.0;
+
+            for (var i = 1; i <= 3; i++)
+            {
+                var time = sessionTime + i * 0.04;
+                measurements.Clear();
+                measurements.Add(MeasurementAt(time));
+                manager.Process(measurements, double3.zero, time);
+            }
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+            Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+            Assert.That(track.Lifecycle, Is.EqualTo(TrackLifecycle.Confirmed));
+            Assert.That(track.HitCount, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void RepeatedTransientTracks_DoNotExhaustTrackCapacity()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(4, Allocator.Temp);
+
+            for (var cycle = 0; cycle < RadarTrackManager.MaxTracks + 8; cycle++)
+            {
+                var startTime = cycle * 3.2;
+                for (var hit = 1; hit <= 3; hit++)
+                {
+                    var time = startTime + hit * 0.04;
+                    var measurement = MeasurementAt(time);
+                    measurement.ObjectClass = TrackObjectClass.Missile;
+                    measurement.ClassificationConfidence = 0.9f;
+                    measurements.Clear();
+                    measurements.Add(measurement);
+                    manager.Process(measurements, double3.zero, time);
+                }
+
+                measurements.Clear();
+                manager.Process(
+                    measurements,
+                    double3.zero,
+                    startTime + 3.16);
+                Assert.That(manager.Count, Is.Zero);
+            }
+        }
+
+        [Test]
         public void DwellPointingElsewhere_DoesNotCountAsTrackMiss()
         {
             var manager = new RadarTrackManager();
