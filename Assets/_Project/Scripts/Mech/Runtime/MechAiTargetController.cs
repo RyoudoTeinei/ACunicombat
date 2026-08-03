@@ -7,6 +7,16 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class MechAiTargetController : MonoBehaviour
     {
+        public enum CombatState : byte
+        {
+            Search = 0,
+            Intercept = 1,
+            Engage = 2,
+            Extend = 3,
+            Defensive = 4,
+            Disabled = 5,
+        }
+
         private const string Ac6PartsApproxShaderName =
             "ACunicombat/AC6/Parts Approx";
         private const float InterceptorRadarRevisitSeconds = 0.02f;
@@ -21,10 +31,20 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(100f)] private float minimumCombatRangeMeters = 3000f;
         [SerializeField, Min(100f)] private float maximumCombatRangeMeters = 5000f;
         [SerializeField, Min(1000f)] private float radarTrackingRangeMeters = 50000f;
-        [SerializeField] private float handWeaponIntervalSeconds = 1.4f;
         [SerializeField, Min(1f)] private float missileCooldownSeconds = 8f;
         [SerializeField, Min(0.5f)] private float interceptorCooldownSeconds = 4f;
         [SerializeField] private float lateralWeavePeriodSeconds = 5f;
+        [Header("Weapon doctrine")]
+        [SerializeField, Min(1)] private int rifleBurstSize = 4;
+        [SerializeField, Min(0.05f)] private float rifleShotIntervalSeconds = 0.1f;
+        [SerializeField, Min(0.1f)] private float rifleBurstCooldownSeconds = 1.15f;
+        [SerializeField, Min(100f)] private float rifleMaximumRangeMeters = 4500f;
+        [SerializeField, Min(100f)] private float cannonMaximumRangeMeters = 3500f;
+        [SerializeField, Min(100f)] private float missileMinimumRangeMeters = 2500f;
+        [SerializeField, Min(1000f)] private float missileMaximumRangeMeters = 20000f;
+        [Header("Defensive doctrine")]
+        [SerializeField, Min(0.5f)] private float defensiveThreatTimeSeconds = 8f;
+        [SerializeField, Min(0.1f)] private float defensiveQuickBoostCooldownSeconds = 1.2f;
         [SerializeField] private bool stationaryTestMode;
         [SerializeField] private Color identificationTint =
             new Color(0.96f, 0.97f, 0.98f, 1f);
@@ -37,24 +57,38 @@ namespace ACunicombat.Mechs
         private MechPlayerInputAdapter input;
         private MechPlayerRig rig;
         private MechFlightMotionController motion;
-        private MechFlightMotionController objectiveMotion;
         private MechRadarController radar;
         private MechTestRadarEmitter radarEmitter;
         private MechTestWeaponSystem weapons;
+        private MechAiSensorSuite sensorSuite;
+        private CombatTestTarget selfTarget;
         private float nextHandWeaponTime;
         private float nextMissileTime;
         private float nextInterceptorTime;
         private float nextInterceptorRadarSweepTime;
+        private float nextRifleShotTime;
+        private float nextRifleBurstTime;
+        private float nextDefensiveQuickBoostTime;
+        private float lastThreatSeenTime = float.NegativeInfinity;
+        private int rifleBurstShotsRemaining;
         private float longitudinalCommand;
-        private bool fireCannonNext;
+        private float defensiveDodgeSign = 1f;
+        private bool incomingThreat;
+        private float incomingThreatTime = float.PositiveInfinity;
+        private CombatState combatState;
+
+        public CombatState CurrentCombatState => combatState;
 
         public void Configure(CombatTestTarget newObjective, Camera newSensorCamera)
         {
             objective = newObjective;
             sensorCamera = newSensorCamera;
-            objectiveMotion = objective != null
-                ? objective.GetComponent<MechFlightMotionController>()
-                : null;
+            sensorSuite ??= GetComponent<MechAiSensorSuite>();
+            if (sensorSuite == null)
+            {
+                sensorSuite = gameObject.AddComponent<MechAiSensorSuite>();
+            }
+            sensorSuite.Configure(objective, sensorCamera);
             EnsureRadarEmitterConfigured();
         }
 
@@ -76,12 +110,16 @@ namespace ACunicombat.Mechs
             input = GetComponent<MechPlayerInputAdapter>();
             rig = GetComponent<MechPlayerRig>();
             motion = GetComponent<MechFlightMotionController>();
-            objectiveMotion = objective != null
-                ? objective.GetComponent<MechFlightMotionController>()
-                : null;
             radar = GetComponent<MechRadarController>();
             EnsureRadarEmitterConfigured();
             weapons = GetComponent<MechTestWeaponSystem>();
+            selfTarget = GetComponent<CombatTestTarget>();
+            sensorSuite = GetComponent<MechAiSensorSuite>();
+            if (sensorSuite == null)
+            {
+                sensorSuite = gameObject.AddComponent<MechAiSensorSuite>();
+            }
+            sensorSuite.Configure(objective, sensorCamera);
             var trajectoryPredictor = GetComponent<MechTrajectoryPredictor>();
             if (trajectoryPredictor != null)
             {
@@ -101,7 +139,8 @@ namespace ACunicombat.Mechs
                 body.linearVelocity = Vector3.zero;
                 body.angularVelocity = Vector3.zero;
             }
-            nextHandWeaponTime = Time.time + Random.Range(0.8f, 1.8f);
+            nextHandWeaponTime = Time.time + Random.Range(1.5f, 2.5f);
+            nextRifleBurstTime = Time.time + Random.Range(0.6f, 1.2f);
             if (Mathf.Abs(missileCooldownSeconds - 20f) < 0.01f)
             {
                 missileCooldownSeconds = 8f;
@@ -136,14 +175,44 @@ namespace ACunicombat.Mechs
 
         private void Update()
         {
-            if (input == null || motion == null || objective == null ||
-                !objective.IsAlive)
+            if (input == null || motion == null || objective == null)
             {
                 return;
             }
 
-            var aimPoint = objective.AimPoint.position;
-            var toTarget = aimPoint - transform.position;
+            if ((selfTarget != null && !selfTarget.IsAlive) ||
+                !objective.IsAlive)
+            {
+                combatState = CombatState.Disabled;
+                input.SubmitExternalFrame(default);
+                return;
+            }
+
+            sensorSuite ??= GetComponent<MechAiSensorSuite>();
+            sensorSuite?.Tick(Time.time);
+            UpdateMissileDefense();
+
+            if (sensorSuite == null ||
+                !sensorSuite.TryGetTrack(out var targetTrack))
+            {
+                combatState = incomingThreat
+                    ? CombatState.Defensive
+                    : CombatState.Search;
+                var searchDirection = GetSearchDirection();
+                UpdateSensorCamera(searchDirection);
+                if (!stationaryTestMode)
+                {
+                    CommandSearchAttitude();
+                }
+                var searchFrame = stationaryTestMode
+                    ? default
+                    : BuildSearchFrame();
+                input.SubmitExternalFrame(in searchFrame);
+                return;
+            }
+
+            var estimatedPosition = targetTrack.Predict(0.12f);
+            var toTarget = estimatedPosition - transform.position;
             var range = toTarget.magnitude;
             if (range <= 0.01f)
             {
@@ -152,62 +221,164 @@ namespace ACunicombat.Mechs
 
             var direction = toTarget / range;
             UpdateSensorCamera(direction);
+            combatState = SelectCombatState(range);
             if (!stationaryTestMode)
             {
                 CommandAttitude(direction);
             }
-
             var frame = stationaryTestMode
                 ? default
-                : BuildFlightFrame(range, direction);
+                : BuildFlightFrame(range, direction, combatState);
             input.SubmitExternalFrame(in frame);
-            UpdateMissileDefense();
 
-            if (radar != null &&
-                radar.isActiveAndEnabled &&
-                sensorCamera != null)
+            if (combatState != CombatState.Defensive)
             {
-                radar.UpdateDesignation(
-                    sensorCamera,
-                    new Vector2(0.5f, 0.5f),
-                    Time.deltaTime);
+                UpdateWeapons(in targetTrack, estimatedPosition, range);
+            }
+        }
+
+        private CombatState SelectCombatState(float range)
+        {
+            if (incomingThreat &&
+                incomingThreatTime <= defensiveThreatTimeSeconds)
+            {
+                return CombatState.Defensive;
             }
 
-            if (radarEmitter == null)
+            if (range > maximumCombatRangeMeters)
             {
-                EnsureRadarEmitterConfigured();
+                return CombatState.Intercept;
             }
-            var hasFireControlTrack =
-                radar != null &&
-                radar.isActiveAndEnabled &&
-                radar.HasStt;
-            var hasEmitterLock =
-                radarEmitter != null &&
-                radarEmitter.HasPlayerLock;
-            if (weapons == null ||
-                (!hasFireControlTrack && !hasEmitterLock))
+            if (range < minimumCombatRangeMeters)
             {
+                return CombatState.Extend;
+            }
+            return CombatState.Engage;
+        }
+
+        private void UpdateWeapons(
+            in MechAiSensorSuite.SensorTrack track,
+            Vector3 estimatedPosition,
+            float range)
+        {
+            if (weapons == null || sensorSuite == null ||
+                !sensorSuite.HasFireControlTrack)
+            {
+                rifleBurstShotsRemaining = 0;
                 return;
             }
 
-            if (Time.time >= nextHandWeaponTime && range <= 5000f)
+            var bodyForward = motion.LogicalRotation * Vector3.forward;
+            var toTarget = estimatedPosition - transform.position;
+            var angularError = toTarget.sqrMagnitude > 0.01f
+                ? Vector3.Angle(bodyForward, toTarget)
+                : 180f;
+
+            if (range <= rifleMaximumRangeMeters && angularError <= 6f)
             {
-                weapons.CommandFireHandWeapon(
-                    fireCannonNext
-                        ? TestWeaponKind.Cannon
-                        : TestWeaponKind.Rifle);
-                fireCannonNext = !fireCannonNext;
-                nextHandWeaponTime =
-                    Time.time + handWeaponIntervalSeconds;
+                if (rifleBurstShotsRemaining <= 0 &&
+                    Time.time >= nextRifleBurstTime)
+                {
+                    rifleBurstShotsRemaining = Mathf.Max(1, rifleBurstSize);
+                    nextRifleShotTime = Time.time;
+                }
+
+                if (rifleBurstShotsRemaining > 0 &&
+                    Time.time >= nextRifleShotTime)
+                {
+                    var fired = weapons.CommandFireHandWeaponAtEstimate(
+                        TestWeaponKind.Rifle,
+                        track.Position,
+                        track.Velocity);
+                    nextRifleShotTime = Time.time + rifleShotIntervalSeconds;
+                    if (fired)
+                    {
+                        rifleBurstShotsRemaining--;
+                    }
+                    else if (weapons.RifleReloading)
+                    {
+                        rifleBurstShotsRemaining = 0;
+                    }
+
+                    if (rifleBurstShotsRemaining <= 0)
+                    {
+                        nextRifleBurstTime =
+                            Time.time + rifleBurstCooldownSeconds;
+                    }
+                }
+            }
+            else
+            {
+                rifleBurstShotsRemaining = 0;
             }
 
-            if (Time.time >= nextMissileTime)
+            if (range <= cannonMaximumRangeMeters &&
+                angularError <= 8f &&
+                track.Confidence >= 0.66f &&
+                Time.time >= nextHandWeaponTime)
             {
-                weapons.CommandFireMissileAt(
+                var fired = weapons.CommandFireHandWeaponAtEstimate(
+                    TestWeaponKind.Cannon,
+                    track.Position,
+                    track.Velocity);
+                nextHandWeaponTime = Time.time + (fired ? 4.4f : 0.25f);
+            }
+
+            var missileUncertaintyLimit = Mathf.Max(120f, range * 0.025f);
+            if (range >= missileMinimumRangeMeters &&
+                range <= missileMaximumRangeMeters &&
+                angularError <= 24f &&
+                track.Confidence >= 0.72f &&
+                track.UncertaintyMeters <= missileUncertaintyLimit &&
+                Time.time >= nextMissileTime)
+            {
+                // Launch permission comes from the AI sensor track. The test
+                // missile's own active seeker handles terminal acquisition.
+                weapons.CommandFireMissileAtEstimate(
                     MechPartSlot.RightBackWeapon,
-                    objective);
+                    objective,
+                    track.Position,
+                    track.Velocity,
+                    track.UncertaintyMeters);
                 nextMissileTime = Time.time + missileCooldownSeconds;
             }
+        }
+
+        private Vector3 GetSearchDirection()
+        {
+            var referenceUp = motion.ReferenceUp;
+            var forward = motion.LogicalRotation * Vector3.forward;
+            var scanAngle = Mathf.Sin(Time.time * 0.55f) * 42f;
+            return Quaternion.AngleAxis(scanAngle, referenceUp) * forward;
+        }
+
+        private void CommandSearchAttitude()
+        {
+            motion.SetYawTurnInput(Mathf.Sin(Time.time * 0.38f) * 0.42f);
+            motion.SetAimPitch(Mathf.Sin(Time.time * 0.27f) * 12f);
+        }
+
+        private MechPlayerInputFrame BuildSearchFrame()
+        {
+            var defensive = combatState == CombatState.Defensive;
+            var quickBoost = defensive &&
+                             motion.CanQuickBoost &&
+                             Time.time >= nextDefensiveQuickBoostTime;
+            if (quickBoost)
+            {
+                nextDefensiveQuickBoostTime =
+                    Time.time + defensiveQuickBoostCooldownSeconds;
+            }
+            return new MechPlayerInputFrame
+            {
+                MoveLocal = defensive
+                    ? new Vector2(defensiveDodgeSign, -0.25f)
+                    : new Vector2(
+                        Mathf.Sin(Time.time * 0.7f) * 0.18f,
+                        0.18f),
+                QuickBoostEdge = quickBoost,
+                MainThrottle = 0f,
+            };
         }
 
         private void EnsureRadarEmitterConfigured()
@@ -229,6 +400,12 @@ namespace ACunicombat.Mechs
 
         private void UpdateMissileDefense()
         {
+            if (Time.time - lastThreatSeenTime >
+                InterceptorTrackMaximumAgeSeconds)
+            {
+                incomingThreat = false;
+                incomingThreatTime = float.PositiveInfinity;
+            }
             if (weapons == null ||
                 Time.time < nextInterceptorRadarSweepTime)
             {
@@ -255,8 +432,11 @@ namespace ACunicombat.Mechs
                     candidate.transform.position);
                 var direction =
                     candidate.transform.position - transform.position;
-                if (range > radarTrackingRangeMeters ||
-                    !IsWithinInterceptorRadarFrame(direction))
+                var radarObserved =
+                    range <= radarTrackingRangeMeters &&
+                    IsWithinInterceptorRadarFrame(direction);
+                var mawObserved = range <= InterceptorMawRangeMeters;
+                if (!radarObserved && !mawObserved)
                 {
                     continue;
                 }
@@ -282,20 +462,53 @@ namespace ACunicombat.Mechs
                     InterceptorConfirmationConfidence;
                 contact.RwrOrMawCorrelated |=
                     candidate.HasActiveGuidance ||
-                    range <= InterceptorMawRangeMeters;
+                    mawObserved;
                 contact.LastUpdateTime = Time.time;
 
-                if (Time.time < nextInterceptorTime ||
-                    !contact.ClassifiedAsMissile ||
+                if (!contact.HasKinematicEstimate)
+                {
+                    contact.EstimatedPosition =
+                        candidate.transform.position;
+                    contact.EstimatedVelocity = candidate.Velocity;
+                    contact.HasKinematicEstimate = true;
+                }
+                else
+                {
+                    contact.EstimatedPosition = Vector3.Lerp(
+                        contact.EstimatedPosition,
+                        candidate.transform.position,
+                        radarObserved ? 0.62f : 0.38f);
+                    contact.EstimatedVelocity = Vector3.Lerp(
+                        contact.EstimatedVelocity,
+                        candidate.Velocity,
+                        radarObserved ? 0.5f : 0.25f);
+                }
+
+                if (!contact.ClassifiedAsMissile ||
                     !contact.Confirmed ||
-                    !contact.RwrOrMawCorrelated ||
-                    !candidate.TryPredictThreatTo(
-                        transform,
-                        motion.Velocity,
-                        protectedRadius: 180f,
-                        predictionHorizon: 60f,
-                        out var timeToClosestApproach,
-                        out _))
+                    !contact.RwrOrMawCorrelated)
+                {
+                    continue;
+                }
+
+                var relativePosition =
+                    contact.EstimatedPosition - transform.position;
+                var relativeVelocity =
+                    contact.EstimatedVelocity - motion.Velocity;
+                var relativeSpeedSquared = relativeVelocity.sqrMagnitude;
+                if (relativeSpeedSquared <= 0.01f)
+                {
+                    continue;
+                }
+                var timeToClosestApproach = Mathf.Clamp(
+                    -Vector3.Dot(relativePosition, relativeVelocity) /
+                    relativeSpeedSquared,
+                    0f,
+                    60f);
+                var closestOffset = relativePosition +
+                                    relativeVelocity *
+                                    timeToClosestApproach;
+                if (closestOffset.magnitude > 180f)
                 {
                     continue;
                 }
@@ -309,6 +522,21 @@ namespace ACunicombat.Mechs
 
             RemoveStaleInterceptorContacts();
             if (bestThreat == null)
+            {
+                return;
+            }
+
+            incomingThreat = true;
+            incomingThreatTime = bestTime;
+            lastThreatSeenTime = Time.time;
+            var localThreat = transform.InverseTransformPoint(
+                bestThreat.transform.position);
+            if (Mathf.Abs(localThreat.x) > 0.1f)
+            {
+                defensiveDodgeSign = localThreat.x > 0f ? -1f : 1f;
+            }
+
+            if (Time.time < nextInterceptorTime)
             {
                 return;
             }
@@ -372,19 +600,24 @@ namespace ACunicombat.Mechs
             public bool ClassifiedAsMissile;
             public bool Confirmed;
             public bool RwrOrMawCorrelated;
+            public bool HasKinematicEstimate;
+            public Vector3 EstimatedPosition;
+            public Vector3 EstimatedVelocity;
         }
 
         private MechPlayerInputFrame BuildFlightFrame(
             float range,
-            Vector3 directionToTarget)
+            Vector3 directionToTarget,
+            CombatState state)
         {
             var relativeRangeRate = Vector3.Dot(
-                (objectiveMotion != null
-                    ? objectiveMotion.Velocity
-                    : Vector3.zero) - motion.Velocity,
+                sensorSuite != null &&
+                sensorSuite.TryGetTrack(out var track)
+                    ? track.Velocity - motion.Velocity
+                    : -motion.Velocity,
                 directionToTarget);
             float desiredLongitudinal;
-            if (range > maximumCombatRangeMeters)
+            if (state == CombatState.Intercept)
             {
                 desiredLongitudinal = Mathf.Clamp(
                     0.35f +
@@ -392,7 +625,7 @@ namespace ACunicombat.Mechs
                     0.35f,
                     1f);
             }
-            else if (range < minimumCombatRangeMeters)
+            else if (state == CombatState.Extend)
             {
                 desiredLongitudinal = -Mathf.Clamp(
                     0.35f +
@@ -416,11 +649,23 @@ namespace ACunicombat.Mechs
             var weave = Mathf.Sin(
                 Time.time * Mathf.PI * 2f /
                 Mathf.Max(1f, lateralWeavePeriodSeconds));
+            var defensive = state == CombatState.Defensive;
+            var quickBoost = defensive &&
+                             motion.CanQuickBoost &&
+                             Time.time >= nextDefensiveQuickBoostTime;
+            if (quickBoost)
+            {
+                nextDefensiveQuickBoostTime =
+                    Time.time + defensiveQuickBoostCooldownSeconds;
+            }
             return new MechPlayerInputFrame
             {
                 MoveLocal = new Vector2(
-                    weave * 0.24f,
-                    longitudinalCommand),
+                    defensive
+                        ? defensiveDodgeSign
+                        : weave * (state == CombatState.Engage ? 0.36f : 0.2f),
+                    defensive ? -0.2f : longitudinalCommand),
+                QuickBoostEdge = quickBoost,
                 MainThrottle = 0f,
                 BrakeHeld = false,
             };

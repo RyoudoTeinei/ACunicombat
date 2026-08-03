@@ -166,6 +166,57 @@ namespace ACunicombat.FireControl
             return targetPosition + targetVelocity * leadTime;
         }
 
+        public static bool HasReachableIntercept(
+            float3 relativeTargetPosition,
+            float3 targetVelocity,
+            float3 missileVelocity,
+            float remainingFlightTimeSeconds,
+            float remainingTravelDistanceMeters,
+            float availableDeltaVMetersPerSecond,
+            int sampleCount = 32)
+        {
+            var horizon = math.max(0f, remainingFlightTimeSeconds);
+            var travelBudget = math.max(
+                0f,
+                remainingTravelDistanceMeters);
+            var deltaVBudget = math.max(
+                0f,
+                availableDeltaVMetersPerSecond);
+            if (horizon <= 0.05f ||
+                travelBudget <= 0.1f ||
+                !math.all(math.isfinite(relativeTargetPosition)) ||
+                !math.all(math.isfinite(targetVelocity)) ||
+                !math.all(math.isfinite(missileVelocity)))
+            {
+                return false;
+            }
+
+            var samples = math.clamp(sampleCount, 4, 128);
+            for (var i = 1; i <= samples; i++)
+            {
+                var normalizedTime = i / (float)samples;
+                var time = math.max(
+                    0.05f,
+                    horizon * normalizedTime * normalizedTime);
+                var interceptOffset =
+                    relativeTargetPosition + targetVelocity * time;
+                if (math.length(interceptOffset) > travelBudget)
+                {
+                    continue;
+                }
+
+                var requiredVelocity = interceptOffset / time;
+                var requiredDeltaV = math.length(
+                    requiredVelocity - missileVelocity);
+                if (requiredDeltaV <= deltaVBudget)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public static bool TryGetProximityPass(
             float3 relativePosition,
             float3 relativeVelocity,

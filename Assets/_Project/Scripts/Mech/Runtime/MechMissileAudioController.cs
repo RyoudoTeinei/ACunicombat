@@ -35,7 +35,7 @@ namespace ACunicombat.Mechs
         [SerializeField, Range(0f, 1f)] private float coldIgnitionVolume = 0.32f;
         [SerializeField, Range(0f, 1f)] private float hotIgnitionVolume = 0.48f;
         [SerializeField, Range(0f, 1f)] private float motorLoopVolume = 0.2f;
-        [SerializeField, Range(0f, 1f)] private float flybyVolume = 0.08f;
+        [SerializeField, Range(0f, 1f)] private float flybyVolume = 0.16f;
 
         [Header("Limited external feedback")]
         [SerializeField, Min(0.1f)] private float minimumDistanceMeters = 10f;

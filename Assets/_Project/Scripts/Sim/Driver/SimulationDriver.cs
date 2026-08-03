@@ -42,6 +42,7 @@ namespace ACunicombat.Simulation.Driver
         private ElectroOpticalSensorSystem electroOpticalSensor;
         private ElectroOpticalReceiverProfile electroOpticalReceiver;
         private bool electroOpticalReceiverRegistered;
+        private LaserRangefinderSystem laserRangefinder;
         private DataLinkSystem dataLink;
         private SimEntityId trackOriginEntity;
         private SensorId trackSensorId;
@@ -72,6 +73,11 @@ namespace ACunicombat.Simulation.Driver
             mawSensor = new MawSensorSystem(world) { SessionSeed = sessionSeed };
             electroOpticalSensor =
                 new ElectroOpticalSensorSystem(world)
+                {
+                    SessionSeed = sessionSeed,
+                };
+            laserRangefinder =
+                new LaserRangefinderSystem(world)
                 {
                     SessionSeed = sessionSeed,
                 };
@@ -161,6 +167,42 @@ namespace ACunicombat.Simulation.Driver
             var count = math.min(
                 destination.Length,
                 source.Length);
+            for (var i = 0; i < count; i++)
+            {
+                destination[i] = source[i];
+            }
+
+            return count;
+        }
+
+        public void RegisterLaserRangefinder(
+            in LaserRangefinderProfile profile) =>
+            laserRangefinder.RegisterSensor(profile);
+
+        public void UnregisterLaserRangefinder(SensorId sensorId) =>
+            laserRangefinder.UnregisterSensor(sensorId);
+
+        public void RegisterLaserRangeTarget(
+            in LaserRangeTargetProfile profile) =>
+            laserRangefinder.RegisterTarget(profile);
+
+        public void UnregisterLaserRangeTarget(SimEntityId entityId) =>
+            laserRangefinder.UnregisterTarget(entityId);
+
+        public bool ScheduleLaserPulse(in LaserPulse pulse) =>
+            laserRangefinder != null &&
+            laserRangefinder.SchedulePulse(in pulse);
+
+        public int CopyLaserRangeObservations(
+            LaserRangeObservation[] destination)
+        {
+            if (destination == null || laserRangefinder == null)
+            {
+                return 0;
+            }
+
+            var source = laserRangefinder.Observations;
+            var count = math.min(destination.Length, source.Length);
             for (var i = 0; i < count; i++)
             {
                 destination[i] = source[i];
@@ -276,6 +318,7 @@ namespace ACunicombat.Simulation.Driver
                         in electroOpticalReceiver,
                         tickTime);
                 }
+                laserRangefinder.Tick(tickTime);
                 var sensorPosition = double3.zero;
                 var sensorVelocity = double3.zero;
                 if (trackOriginEntity.IsValid
@@ -310,6 +353,26 @@ namespace ACunicombat.Simulation.Driver
                     }
                 }
 
+                // 激光测距回波与雷达检测一起送进跟踪器，让滤波器的速度估计也受益于激光的
+                // 高测角精度——横向速度没有任何直接量测，只能由位置序列的斜率推出，因此位置
+                // 横向噪声（雷达约 9.3 m / 激光约 1.57 m @3 km）直接决定提前量误差。
+                // 标记为 RefinementOnly，孤立回波只会被丢弃而不会新建航迹。
+                if (laserRangefinder != null)
+                {
+                    var laserObservations = laserRangefinder.Observations;
+                    for (var laserIndex = 0;
+                         laserIndex < laserObservations.Length;
+                         laserIndex++)
+                    {
+                        if (LaserMeasurementBridge.TryConvert(
+                                laserObservations[laserIndex],
+                                out var laserMeasurement))
+                        {
+                            trackDetectionScratch.Add(laserMeasurement);
+                        }
+                    }
+                }
+
                 trackManager.Process(
                     trackDetectionScratch,
                     trackEmissionScratch,
@@ -326,6 +389,9 @@ namespace ACunicombat.Simulation.Driver
                 esmReceiver.BeginTick();
                 esmReceiver.Consume(radar.Emissions, tickTime);
                 esmReceiver.Consume(dataLink.Emissions, tickTime);
+                esmReceiver.Consume(
+                    laserRangefinder.Emissions,
+                    tickTime);
                 if (ownshipEsmReceiverId.IsValid)
                 {
                     mawSensor.AppendContacts(
@@ -351,6 +417,7 @@ namespace ACunicombat.Simulation.Driver
         private void OnDestroy()
         {
             dataLink?.Dispose();
+            laserRangefinder?.Dispose();
             electroOpticalSensor?.Dispose();
             esmReceiver?.Dispose();
             radar?.Dispose();

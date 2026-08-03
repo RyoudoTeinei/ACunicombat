@@ -27,6 +27,11 @@ public static class AC6PlayableSceneBuilder
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Scenes/AC6CombatShowcase.unity";
     private const string PlayableScenePath =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Scenes/AC6PlayerControl.unity";
+    private const string PlayerEnvironmentRootName =
+        "AC6PlayerEnvironment";
+    private const int PlayerEnvironmentSchemaVersion = 2;
+    private static readonly string PlayerEnvironmentVersionObjectName =
+        "__AC6PlayerEnvironmentVersion_" + PlayerEnvironmentSchemaVersion;
     private const string ShowcaseRegistryPath =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Actions/AC6CombatShowcaseRegistry.asset";
     private const string GeneratedActionsRoot =
@@ -73,6 +78,8 @@ public static class AC6PlayableSceneBuilder
         (MechPartSlot.Arms, "AM"),
         (MechPartSlot.Legs, "LG"),
     };
+
+    private static bool playerEnvironmentValidationQueued;
 
     public static void BuildAllBatch()
     {
@@ -129,6 +136,8 @@ public static class AC6PlayableSceneBuilder
     [InitializeOnLoadMethod]
     private static void RunRequestedBuildAfterReload()
     {
+        RegisterPlayerEnvironmentValidation();
+
         var projectRoot = Directory.GetParent(Application.dataPath)?.FullName;
         if (string.IsNullOrWhiteSpace(projectRoot))
         {
@@ -184,6 +193,109 @@ public static class AC6PlayableSceneBuilder
                 EditorSceneManager.OpenScene(PlayableScenePath, OpenSceneMode.Single);
             }
         };
+    }
+
+    private static void RegisterPlayerEnvironmentValidation()
+    {
+        EditorSceneManager.sceneOpened -= OnSceneOpened;
+        EditorSceneManager.sceneOpened += OnSceneOpened;
+        EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+        EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+        QueuePlayerEnvironmentValidation();
+    }
+
+    private static void OnSceneOpened(Scene scene, OpenSceneMode mode)
+    {
+        if (string.Equals(
+                scene.path,
+                PlayableScenePath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            QueuePlayerEnvironmentValidation();
+        }
+    }
+
+    private static void OnPlayModeStateChanged(PlayModeStateChange state)
+    {
+        if (state == PlayModeStateChange.EnteredEditMode)
+        {
+            QueuePlayerEnvironmentValidation();
+        }
+    }
+
+    private static void QueuePlayerEnvironmentValidation()
+    {
+        if (playerEnvironmentValidationQueued)
+        {
+            return;
+        }
+
+        playerEnvironmentValidationQueued = true;
+        EditorApplication.update -= ValidatePlayerEnvironmentWhenEditorIsReady;
+        EditorApplication.update += ValidatePlayerEnvironmentWhenEditorIsReady;
+    }
+
+    private static void ValidatePlayerEnvironmentWhenEditorIsReady()
+    {
+        // InitializeOnLoad and sceneOpened can both fire while Unity is still compiling or
+        // importing. Keep the request queued until the editor is actually ready instead of
+        // silently dropping the only validation attempt for this session.
+        if (EditorApplication.isCompiling || EditorApplication.isUpdating)
+        {
+            return;
+        }
+
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
+        {
+            EditorApplication.update -= ValidatePlayerEnvironmentWhenEditorIsReady;
+            playerEnvironmentValidationQueued = false;
+            return;
+        }
+
+        EditorApplication.update -= ValidatePlayerEnvironmentWhenEditorIsReady;
+        playerEnvironmentValidationQueued = false;
+        ValidatePlayerEnvironmentVersion();
+    }
+
+    private static void ValidatePlayerEnvironmentVersion()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
+        {
+            return;
+        }
+
+        var scene = SceneManager.GetActiveScene();
+        if (!scene.IsValid() ||
+            !scene.isLoaded ||
+            !string.Equals(
+                scene.path,
+                PlayableScenePath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var environmentRoot = scene.GetRootGameObjects()
+            .FirstOrDefault(root =>
+                string.Equals(
+                    root.name,
+                    PlayerEnvironmentRootName,
+                    StringComparison.Ordinal));
+        if (environmentRoot != null &&
+            environmentRoot.transform.Find(
+                PlayerEnvironmentVersionObjectName) != null)
+        {
+            return;
+        }
+
+        BuildPlayerEnvironment();
+        EnsureSpaceDustFieldForCurrentPlayer();
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        AssetDatabase.SaveAssets();
+        Debug.Log(
+            "[AC6PlayableScene] Player environment was stale and has been " +
+            $"upgraded automatically to schema {PlayerEnvironmentSchemaVersion}.");
     }
 
     public static bool BuildAll(out string report)
@@ -829,8 +941,7 @@ public static class AC6PlayableSceneBuilder
 
     private static void BuildPlayerEnvironment()
     {
-        const string rootName = "AC6PlayerEnvironment";
-        var existing = GameObject.Find(rootName);
+        var existing = GameObject.Find(PlayerEnvironmentRootName);
         if (existing != null)
         {
             UnityEngine.Object.DestroyImmediate(existing);
@@ -850,7 +961,7 @@ public static class AC6PlayableSceneBuilder
             $"{GeneratedMaterialsRoot}/AC6PlayerFloorMarkings.mat",
             new Color(0.72f, 0.48f, 0.075f, 1f), 0.35f, 0.25f);
 
-        var root = new GameObject(rootName);
+        var root = new GameObject(PlayerEnvironmentRootName);
         CreateEnvironmentBlock(
             root.transform, "Structural Floor", new Vector3(0f, -0.4f, 180f),
             new Vector3(640f, 0.8f, 720f), floorMaterial, true);
@@ -898,6 +1009,16 @@ public static class AC6PlayableSceneBuilder
             new Vector3(120f, 1f, 70f), new Vector3(-9f, 0f, 0f), floorMaterial);
 
         ConfigureDeepSpaceEnvironment();
+
+        // The playable scene is generated and intentionally ignored by Git. Keep a serialized
+        // schema marker in it so editor startup can distinguish a current scene from one produced
+        // by an older environment builder without destructively rebuilding on every launch.
+        var versionObject = new GameObject(
+            PlayerEnvironmentVersionObjectName)
+        {
+            hideFlags = HideFlags.HideInHierarchy,
+        };
+        versionObject.transform.SetParent(root.transform, false);
     }
 
     private static void ConfigureDeepSpaceEnvironment()
@@ -992,6 +1113,13 @@ public static class AC6PlayableSceneBuilder
         // resolution is what decides whether a high-smoothness zone gets a crisp sun glint or a
         // smear. 128 (the default) is not enough for the per-zone metallic pass to read.
         RenderSettings.defaultReflectionResolution = 256;
+
+        // 上面刚改写了天空盒材质的全部程序化参数，这里显式重算一次环境反射，让 Scene 视图
+        // 当场用上新值而不是等编辑器自己察觉。场景没有烘焙的环境光照数据
+        // （m_LightingDataAsset 为空引用），默认反射走 Skybox 模式由 Unity 自动生成，
+        // 因此这只是把时序钉死，不是必需项——真正导致"必须手动重建才有正常光影"的是
+        // Volume Profile 的子资产从未落盘，见 GetOrAddVolumeComponent。
+        DynamicGI.UpdateEnvironment();
 
         var playerCamera = GameObject.Find("AC6PlayerCamera");
         var camera = playerCamera != null ? playerCamera.GetComponent<Camera>() : null;
@@ -1507,7 +1635,32 @@ public static class AC6PlayableSceneBuilder
     private static T GetOrAddVolumeComponent<T>(VolumeProfile profile)
         where T : VolumeComponent
     {
-        return profile.TryGet<T>(out var component) ? component : profile.Add<T>(true);
+        if (profile.TryGet<T>(out var existing))
+        {
+            return existing;
+        }
+
+        var component = profile.Add<T>(true);
+
+        // 这一行是"为什么不跑 Rebuild Player Environment 就没有正常光影"的答案。
+        //
+        // VolumeProfile.Add 是运行期 API：它 CreateInstance 出来的 VolumeComponent 只被
+        // profile.components 列表引用，并不属于任何资产文件。因此保存时那些引用会被写成
+        // `fileID: 0`，而 VolumeProfile.OnEnable 又会 `components.RemoveAll(x => x == null)`
+        // 把空引用清掉——重新加载后 profile 就是彻底空的：没有 ACES 色调映射、没有 Bloom、
+        // 没有 ScreenSpaceLensFlare。构建当次因为内存里的组件还活着所以画面正确，
+        // 一旦重启/重载就全部消失，于是表现为"每次都得手动重建一遍"。
+        //
+        // 症状可以据此对上：Key Light 强度 10 是按 ACES 的肩部标定的，少了色调映射后
+        // 0.12 albedo 的地板线性值直接裁到 1.0（画面里那片发白的地面），HDR 太阳盘塌成
+        // 一个硬白盘；而挂在场景灯光上的 LensFlareComponentSRP 不走 Volume，所以鬼影和
+        // 拉丝仍然照常渲染——这也正是截图里"太阳有光晕但整体曝光不对"的原因。
+        //
+        // Unity 自己的 VolumeProfileFactory.CreateVolumeComponent 就是靠这一行落盘的；
+        // hideFlags 与 name 已由 VolumeProfile.Add 在 UNITY_EDITOR 下设好，无需重复。
+        AssetDatabase.AddObjectToAsset(component, profile);
+        EditorUtility.SetDirty(profile);
+        return component;
     }
 
     private static Volume GetOrCreateGlobalVolume(
@@ -1661,6 +1814,8 @@ public static class AC6PlayableSceneBuilder
         }
 
         Ensure<MechTestRadarEmitter>(root);
+        var aiSensors = Ensure<MechAiSensorSuite>(root);
+        aiSensors.Configure(playerTarget, sensorCamera);
         var ai = Ensure<MechAiTargetController>(root);
         ai.Configure(playerTarget, sensorCamera);
         ai.ConfigureCombatBehavior(3000f, 5000f, 8f);
@@ -1678,6 +1833,7 @@ public static class AC6PlayableSceneBuilder
         EditorUtility.SetDirty(rig);
         EditorUtility.SetDirty(target);
         EditorUtility.SetDirty(sensorCamera);
+        EditorUtility.SetDirty(aiSensors);
         EditorUtility.SetDirty(weaponSystem);
         EditorUtility.SetDirty(ai);
         EditorUtility.SetDirty(root);

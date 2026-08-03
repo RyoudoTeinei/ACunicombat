@@ -150,6 +150,14 @@ namespace ACunicombat.Tracking
                     measurement.Timestamp);
                 if (slotIndex < 0)
                 {
+                    // RefinementOnly 的测量（被 cue 指向的激光测距）不得起始新航迹：
+                    // 它没有多普勒，起始出来的航迹速度不可观测；而孤立的激光回波更可能是
+                    // 指向偏差或杂散反射，用来建航迹只会制造虚影。
+                    if ((measurement.Flags & MeasurementFlags.RefinementOnly) != 0)
+                    {
+                        continue;
+                    }
+
                     slotIndex = AllocateTrack(
                         cartesian,
                         in cartesianCovariance,

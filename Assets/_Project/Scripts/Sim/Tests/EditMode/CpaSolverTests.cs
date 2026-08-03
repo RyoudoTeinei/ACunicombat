@@ -176,5 +176,61 @@ namespace ACunicombat.Tests.EditMode
 
             Assert.That(leadTime, Is.EqualTo(4f).Within(1e-4f));
         }
+
+        [Test]
+        public void MissileReachability_AcceptsClosingCoastIntercept()
+        {
+            var reachable = MissileEngagementMath.HasReachableIntercept(
+                new float3(0f, 0f, 1000f),
+                float3.zero,
+                new float3(0f, 0f, 500f),
+                5f,
+                3000f,
+                20f);
+
+            Assert.That(reachable, Is.True);
+        }
+
+        [Test]
+        public void MissileReachability_RejectsPassedTargetWithoutTurnDeltaV()
+        {
+            var reachable = MissileEngagementMath.HasReachableIntercept(
+                new float3(0f, 0f, -1000f),
+                float3.zero,
+                new float3(0f, 0f, 500f),
+                8f,
+                5000f,
+                100f);
+
+            Assert.That(reachable, Is.False);
+        }
+
+        [Test]
+        public void MissileReachability_AllowsPassedTargetWithTurnDeltaV()
+        {
+            var reachable = MissileEngagementMath.HasReachableIntercept(
+                new float3(0f, 0f, -1000f),
+                float3.zero,
+                new float3(0f, 0f, 500f),
+                8f,
+                5000f,
+                800f);
+
+            Assert.That(reachable, Is.True);
+        }
+
+        [Test]
+        public void MissileReachability_RespectsRemainingTravelDistance()
+        {
+            var reachable = MissileEngagementMath.HasReachableIntercept(
+                new float3(0f, 0f, 1200f),
+                float3.zero,
+                new float3(0f, 0f, 500f),
+                5f,
+                900f,
+                1000f);
+
+            Assert.That(reachable, Is.False);
+        }
     }
 }

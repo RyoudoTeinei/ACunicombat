@@ -234,6 +234,22 @@ namespace ACunicombat.Mechs
                 false,
                 true);
 
+        /// <summary>
+        /// Holds the active right-arm action at a local clip time. Sustained-fire state
+        /// machines use this to keep the weapon at peak recoil without restarting the
+        /// single-shot animation for every projectile.
+        /// </summary>
+        public bool HoldRightArmPose(float actionTimeSeconds) =>
+            HoldOverlayLayerPose(
+                RightArmLayerIndex,
+                actionTimeSeconds);
+
+        /// <summary>
+        /// Releases a held right-arm pose and continues the same action from that point.
+        /// </summary>
+        public void ReleaseRightArmPose() =>
+            ReleaseOverlayLayerPose(RightArmLayerIndex);
+
         /// <summary>Plays a left-arm action independently of the right arm.</summary>
         public bool PlayLeftArm(string actionId) =>
             Play(actionId, MechBodyActionLayer.UpperBody, LeftArmLayerIndex, false);
@@ -256,6 +272,38 @@ namespace ACunicombat.Mechs
 
         public void ClearLeftArm(float fadeOutSeconds = -1f) =>
             ClearOverlayLayer(LeftArmLayerIndex, fadeOutSeconds);
+
+        private bool HoldOverlayLayerPose(
+            int layerIndex,
+            float actionTimeSeconds)
+        {
+            var layer = layers[layerIndex];
+            if (layer.Active == null)
+            {
+                return false;
+            }
+
+            layer.HeldActionTime = Mathf.Max(
+                0f,
+                actionTimeSeconds);
+            layer.TimeHeld = true;
+            return true;
+        }
+
+        private void ReleaseOverlayLayerPose(int layerIndex)
+        {
+            var layer = layers[layerIndex];
+            if (layer.Active == null || !layer.TimeHeld)
+            {
+                return;
+            }
+
+            // Rebase the start time so the normal clock resumes exactly where the held
+            // pose stopped instead of jumping ahead by the duration of the trigger hold.
+            layer.ActiveStartTime =
+                clock - layer.HeldActionTime;
+            layer.TimeHeld = false;
+        }
 
         private void ClearOverlayLayer(int layerIndex, float fadeOutSeconds)
         {
@@ -426,6 +474,8 @@ namespace ACunicombat.Mechs
             layer.Active = definition;
             layer.ActiveSlot = incomingSlot;
             layer.ActiveStartTime = clock;
+            layer.TimeHeld = false;
+            layer.HeldActionTime = 0d;
             layer.Fade = 0f;
             layer.FadeDuration = ResolveBlendInDuration(
                 runtimeLayerIndex,
@@ -556,8 +606,12 @@ namespace ACunicombat.Mechs
                         var isActiveSlot = slot == layer.ActiveSlot;
                         var startTime = isActiveSlot ? layer.ActiveStartTime : layer.PreviousStartTime;
                         var definition = isActiveSlot ? layer.Active : layer.Previous;
+                        var actionTime =
+                            isActiveSlot && layer.TimeHeld
+                                ? layer.HeldActionTime
+                                : clock - startTime;
                         playable.SetTime(NormalizeTime(
-                            clock - startTime,
+                            actionTime,
                             playable.GetAnimationClip(),
                             definition?.loop ?? true));
                         playable.SetSpeed(0d);
@@ -942,6 +996,8 @@ namespace ACunicombat.Mechs
             public float LayerFadeTarget;
             public float LayerFadeDuration = 0.15f;
             public bool AutoFade = true;
+            public bool TimeHeld;
+            public double HeldActionTime;
 
             public void Reset()
             {
@@ -954,6 +1010,8 @@ namespace ACunicombat.Mechs
                 LayerWeight = 0f;
                 LayerFadeTarget = 0f;
                 AutoFade = true;
+                TimeHeld = false;
+                HeldActionTime = 0d;
             }
         }
 

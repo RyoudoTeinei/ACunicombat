@@ -91,6 +91,57 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void AssociatedLaserReturn_RefinesRangeAndUncertainty()
+        {
+            var track = IncomingRadarTrack();
+            track.Position = new double3(0.0, 0.0, 1_080.0);
+            var laser = new[]
+            {
+                new LaserRangeObservation
+                {
+                    SensorId =
+                        new SensorId(new Handle(2, 1)),
+                    Timestamp = 10.0,
+                    RangeMeters = 1_000f,
+                    RangeVar = 1f,
+                    Direction = new float3(0f, 0f, 1f),
+                    AngleVar =
+                        math.pow(math.radians(0.02f), 2f),
+                    ObjectClass = TrackObjectClass.Missile,
+                    ClassificationConfidence = 0.9f,
+                },
+            };
+            var output = new MissileTrackSnapshot[1];
+
+            var count = MissileTrackFusion.Fuse(
+                MissileTrackFusionConfig.Default,
+                new[] { track },
+                1,
+                new ThreatSnapshot[0],
+                0,
+                new ElectroOpticalObservation[0],
+                0,
+                laser,
+                laser.Length,
+                double3.zero,
+                double3.zero,
+                10.0,
+                output);
+
+            Assert.That(count, Is.EqualTo(1));
+            Assert.That(
+                output[0].Position.z,
+                Is.EqualTo(1_000.0).Within(0.01));
+            Assert.That(
+                output[0].SourceMask &
+                MissileTrackSourceMask.LaserRangefinder,
+                Is.Not.EqualTo(MissileTrackSourceMask.None));
+            Assert.That(
+                output[0].PositionUncertaintyMeters,
+                Is.LessThan(2f));
+        }
+
+        [Test]
         public void ActiveSeekerClosingAtLongRange_IsMarkedIncomingBeforeCpaWindow()
         {
             var track = IncomingRadarTrack();

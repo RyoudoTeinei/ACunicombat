@@ -48,6 +48,8 @@ namespace ACunicombat.Mechs
         private const float PointDefenseRevisitIntervalSeconds = 0.04f;
         private const float PointDefenseBeamWidthDegrees = 4f;
         private const float PointDefenseCueHoldSeconds = 0.3f;
+        private const float LaserRangeBeamWidthDegrees = 0.4f;
+        private const float LaserRangeMaximumMeters = 12_000f;
         private const float RadarRangeMeters = 100_000f;
         private const float DesignationBaseSeconds = 0.3f;
         private const float DesignationCaptureBoxPixels = 54f;
@@ -76,6 +78,10 @@ namespace ACunicombat.Mechs
         private readonly SensorId esmReceiverId = new SensorId(new Handle(0, 1));
         private readonly SensorId electroOpticalReceiverId =
             new SensorId(new Handle(0, 1));
+        private readonly SensorId laserRangefinderId =
+            new SensorId(new Handle(2, 1));
+        private readonly EmitterId laserRangefinderEmitterId =
+            new EmitterId(new Handle(96, 1));
         [Tooltip("给场景目标自动补挂测试辐射源（RWR 没有会辐射的对手就听不到任何东西）。")]
         [SerializeField] private bool autoEquipTestEmitters = true;
 
@@ -112,6 +118,9 @@ namespace ACunicombat.Mechs
         private readonly ElectroOpticalObservation[] electroOpticalScratch =
             new ElectroOpticalObservation[
                 ElectroOpticalSensorSystem.ObservationCapacity];
+        private readonly LaserRangeObservation[] laserRangeScratch =
+            new LaserRangeObservation[
+                LaserRangefinderSystem.ObservationCapacity];
         private readonly MissileTrackFusionConfig missileTrackFusionConfig =
             MissileTrackFusionConfig.Default;
         private int missileTrackCacheCount;
@@ -308,6 +317,15 @@ namespace ACunicombat.Mechs
                                 TrackObjectClass.Missile,
                             ClassificationSignature = 0.9f,
                         });
+                    driver.RegisterLaserRangeTarget(
+                        new LaserRangeTargetProfile
+                        {
+                            EntityId = entity,
+                            ReflectivityDb = 0f,
+                            ObjectClass =
+                                TrackObjectClass.Missile,
+                            ClassificationSignature = 0.9f,
+                        });
                 }
 
                 auxiliarySensorAllocated[index] = true;
@@ -383,6 +401,8 @@ namespace ACunicombat.Mechs
                 driver.UnregisterRadarTarget(handle.EntityId);
                 driver.UnregisterElectroOpticalTarget(
                     handle.EntityId);
+                driver.UnregisterLaserRangeTarget(
+                    handle.EntityId);
             }
             driver.UnregisterEntity(handle.EntityId);
             var index = handle.SensorId.Value.Index;
@@ -417,6 +437,9 @@ namespace ACunicombat.Mechs
                 var electroOpticalCount =
                     driver.CopyElectroOpticalObservations(
                         electroOpticalScratch);
+                var laserRangeCount =
+                    driver.CopyLaserRangeObservations(
+                        laserRangeScratch);
                 missileTrackCacheCount = MissileTrackFusion.Fuse(
                     in missileTrackFusionConfig,
                     missileTrackFusionState,
@@ -426,6 +449,8 @@ namespace ACunicombat.Mechs
                     threatCount,
                     electroOpticalScratch,
                     electroOpticalCount,
+                    laserRangeScratch,
+                    laserRangeCount,
                     ToDouble3(transform.position),
                     ToDouble3(playerVelocity),
                     now,
@@ -1167,7 +1192,12 @@ namespace ACunicombat.Mechs
             }
 
             var trackedPosition =
-                PredictTrackPosition(pointDefenseTrack);
+                TryGetMissileTrack(
+                    pointDefenseCueTrackId,
+                    out var fusedPointDefenseTrack)
+                    ? ToVector3(
+                        fusedPointDefenseTrack.PredictPosition(now))
+                    : PredictTrackPosition(pointDefenseTrack);
             var direction =
                 (trackedPosition - transform.position).normalized;
             if (direction.sqrMagnitude < 0.5f ||
@@ -1185,6 +1215,13 @@ namespace ACunicombat.Mechs
                 BeamWidthRadians =
                     PointDefenseBeamWidthDegrees * Mathf.Deg2Rad,
                 Priority = DwellPriority.SingleTargetTrack,
+                Sequence = ++dwellSequence,
+            });
+            driver.ScheduleLaserPulse(new LaserPulse
+            {
+                SensorId = laserRangefinderId,
+                DueTime = now,
+                Direction = ToFloat3(direction),
                 Sequence = ++dwellSequence,
             });
             nextPointDefenseDwellTime =
@@ -1483,6 +1520,28 @@ namespace ACunicombat.Mechs
                     BearingSigmaRadians =
                         0.15f * Mathf.Deg2Rad,
                 });
+            driver.RegisterLaserRangefinder(
+                new LaserRangefinderProfile
+                {
+                    SensorId = laserRangefinderId,
+                    EmitterId = laserRangefinderEmitterId,
+                    OwnerEntityId = playerEntity,
+                    MaximumRangeMeters =
+                        LaserRangeMaximumMeters,
+                    BeamWidthRadians =
+                        LaserRangeBeamWidthDegrees *
+                        Mathf.Deg2Rad,
+                    PulseDurationSeconds = 0.00001f,
+                    MainlobePowerDb = 120f,
+                    SidelobeLevelDb = -160f,
+                    ReceiveSensitivityDb = -50f,
+                    BaseRangeSigmaMeters = 0.75f,
+                    RangeErrorPartsPerMillion = 20f,
+                    BearingSigmaRadians =
+                        0.03f * Mathf.Deg2Rad,
+                    FrequencyBand = 3,
+                    WaveformId = 20,
+                });
             RegisterWaveformLibrary();
             initialized = true;
 
@@ -1521,6 +1580,10 @@ namespace ACunicombat.Mechs
                 MawSensorSystem.InfraredBand,
                 MawSensorSystem.PlumeWaveformId,
                 EsmWaveformClass.InfraredPlume);
+            driver.RegisterEsmWaveformClass(
+                3,
+                20,
+                EsmWaveformClass.LaserRangefinder);
 
             var path = Path.Combine(Application.streamingAssetsPath, "EsmWaveformLibrary.json");
             if (!File.Exists(path))

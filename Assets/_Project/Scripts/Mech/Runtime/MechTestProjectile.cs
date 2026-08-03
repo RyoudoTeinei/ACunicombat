@@ -19,6 +19,12 @@ namespace ACunicombat.Mechs
         AttitudeAlignment = 7,
     }
 
+    public enum MissileEngagementState : byte
+    {
+        Active = 0,
+        Spent = 1,
+    }
+
     [DisallowMultipleComponent]
     public sealed class MechTestProjectile : MonoBehaviour
     {
@@ -41,10 +47,17 @@ namespace ACunicombat.Mechs
         private const float InterceptorFuseLookAheadSeconds = 0.06f;
         private const float InterceptorFuseUncertaintyAllowanceMeters = 8f;
         private const float DefaultMissileInterceptionHealth = 80f;
+        // 与 MechTestWeaponSystem.ConfigureMissileHitbox 的 hitboxDiameterMeters = 0.5 对应。
+        private const float MissileHitboxHalfWidthMeters = 0.25f;
         private const float AirToAirMidcourseLeadLimitSeconds = 15f;
         private const float AirToAirTerminalLeadLimitSeconds = 4f;
         private const float InterceptorMidcourseLeadLimitSeconds = 4f;
         private const float InterceptorTerminalLeadLimitSeconds = 1.5f;
+        private const float EngagementAssessmentIntervalSeconds = 0.2f;
+        private const float EngagementFailureConfirmationSeconds = 0.75f;
+        private const float GuidanceRecoveryGraceSeconds = 2f;
+        private const float MinimumEngagementAssessmentFlightSeconds = 1f;
+        private const float MinimumOpeningSpeedMetersPerSecond = 5f;
 
         // 物理查询复用缓冲：SphereCastAll/OverlapSphere 每次分配数组，
         // 弹幕场景下是稳定的每帧 GC 压力源。主线程单发访问，静态复用安全。
@@ -148,11 +161,31 @@ namespace ACunicombat.Mechs
         private ParticleSystem[] rcsParticles = Array.Empty<ParticleSystem>();
         private Vector3[] rcsExhaustDirectionsLocal = Array.Empty<Vector3>();
         private Vector3[] rcsTorqueAxesLocal = Array.Empty<Vector3>();
+        private float[] rcsPulsePhase = Array.Empty<float>();
+        private MechMissilePlume missilePlume;
+        // 喷口位置由羽焰组件从实际弹体模型的包围盒量出（R-27 为 4 m、R-77 为 3.6 m，
+        // 均以中心对齐原点）；这里的值只在模型缺失时兜底。
+        private const float MissilePlumeFallbackNozzleOffset = 1.8f;
+        private const float MissilePlumeScale = 1f;
         private static Material rcsParticleMaterial;
+        // 真实 RCS 是开关式（bang-bang）阀门，不是连续可变油门；指令强度体现为
+        // 脉冲占空比而不是喷流粗细。频率取略带互质关系的值，避免 8 个喷口整齐同步。
+        private const float RcsPulseHertz = 14f;
+        private const float RcsPulsePeakRate = 260f;
         private float interceptionHealth;
+        // > 0 表示这是专用拦截弹种，带小半径近炸；0 表示普通动能弹。
+        private float interceptorRoundLethalRadius;
         private bool interceptionResolved;
+        private MissileEngagementState engagementState =
+            MissileEngagementState.Active;
+        private float engagementAssessmentRemaining;
+        private float engagementFailureEvidenceSeconds;
+        private float noGuidanceSeconds;
 
         public MissileFlightPhase MissilePhase => missilePhase;
+        public MissileEngagementState EngagementState => engagementState;
+        public bool IsEngagementActive =>
+            IsMissile && engagementState == MissileEngagementState.Active;
         public bool SeekerLocked => seekerLocked;
         public float CurrentMassKg =>
             dryMassKg +
@@ -169,7 +202,7 @@ namespace ACunicombat.Mechs
         public bool IsInterceptableMissile =>
             IsMissile && !interceptionResolved && gameObject.activeInHierarchy;
         public bool HasActiveGuidance =>
-            IsMissile &&
+            IsEngagementActive &&
             (directGuidanceTarget != null
                 ? directGuidanceTarget.IsAlive
                 : directProjectileTarget != null
@@ -328,6 +361,10 @@ namespace ACunicombat.Mechs
             }
             targetTrackId = newTargetTrackId;
             weaponKind = kind;
+            engagementState = MissileEngagementState.Active;
+            engagementAssessmentRemaining = 0f;
+            engagementFailureEvidenceSeconds = 0f;
+            noGuidanceSeconds = 0f;
             interceptionHealth = IsMissile
                 ? DefaultMissileInterceptionHealth
                 : 0f;
@@ -435,9 +472,15 @@ namespace ACunicombat.Mechs
                     : 0f;
 
             projectileTrail = GetComponent<TrailRenderer>();
+            // 在羽焰与 RCS 构建之前采集：这两套由本组件显式开关，不应混进 propulsionParticles
+            // 的批量控制里（RCS 的开关取决于姿态指令，而不是主机是否点火）。
             propulsionParticles = GetComponentsInChildren<ParticleSystem>(true);
             if (weaponKind == TestWeaponKind.Missile)
             {
+                missilePlume = gameObject.AddComponent<MechMissilePlume>();
+                missilePlume.Build(
+                    MissilePlumeFallbackNozzleOffset,
+                    MissilePlumeScale);
                 CreateRcsThrusterVisuals();
             }
             if (weaponKind == TestWeaponKind.Missile &&
@@ -696,7 +739,7 @@ namespace ACunicombat.Mechs
                         UpdateMissileAttitude(dt);
                     }
                 }
-                UpdateRcsThrusterVisuals();
+                UpdateRcsThrusterVisuals(dt);
                 proximityDetonated = TryDetonateProximity(dt);
             }
 
@@ -713,7 +756,33 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            if (TryFindHit(travel, out var hit))
+            var hasSweepHit = TryFindHit(travel, out var hit);
+            var speed = velocity.magnitude;
+            var sweepTime = hasSweepHit && speed > 0.001f
+                ? hit.distance / speed
+                : float.PositiveInfinity;
+
+            // 弹丸对来袭导弹改用双体 CPA 判定，并与扫掠结果比较发生时刻取更早者。
+            // 只用 SphereCast 是不够的：它扫掠自己这一 tick 的位移，却把导弹当成 tick 开始时
+            // 的静止点。步枪弹 1500 m/s 在 0.02 s 步长下每 tick 走 30 m，而有效命中半径只有
+            // 0.33 m（弹丸 0.08 + 导弹半宽 0.25）；导弹自身每 tick 还要走十几米。
+            // 后果是几何相关的漏判：迎头交会时导弹位移几乎沿弹道方向、垂直分量小，仍能命中；
+            // 侧向穿越时位移全是垂直分量，必然判不到。这与 2026-07-29 修复导弹战斗部
+            // "近炸触发却未命中物理导弹" 是同一类问题，那次的解法同样是算双方真实轨迹的最近接近。
+            if (weaponKind != TestWeaponKind.Missile &&
+                TryFindMissileClosestApproach(
+                    dt,
+                    out var interceptTarget,
+                    out var interceptTime,
+                    out var interceptPoint) &&
+                interceptTime <= sweepTime &&
+                TryApplyGunInterception(interceptTarget, interceptPoint))
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            if (hasSweepHit)
             {
                 HandleDirectImpact(hit);
                 Destroy(gameObject);
@@ -855,6 +924,13 @@ namespace ACunicombat.Mechs
                     consumedPropellant;
             }
 
+            if (engagementState == MissileEngagementState.Spent)
+            {
+                desiredAttitudeForward = transform.forward;
+                currentAngularRateRadians = 0f;
+                return;
+            }
+
             Vector3 targetPosition;
             Vector3 targetVelocity;
             var hasGuidance = false;
@@ -968,6 +1044,18 @@ namespace ACunicombat.Mechs
                 targetVelocity = default;
             }
 
+            UpdateEngagementViability(
+                hasGuidance,
+                targetPosition,
+                targetVelocity,
+                deltaTime);
+            if (engagementState == MissileEngagementState.Spent)
+            {
+                desiredAttitudeForward = transform.forward;
+                currentAngularRateRadians = 0f;
+                return;
+            }
+
             if (hasGuidance)
             {
                 if (refreshesTerminalEstimate)
@@ -1023,6 +1111,121 @@ namespace ACunicombat.Mechs
             else if (velocity.sqrMagnitude > 0.001f)
             {
                 desiredAttitudeForward = velocity.normalized;
+            }
+        }
+
+        private void UpdateEngagementViability(
+            bool hasGuidance,
+            Vector3 targetPosition,
+            Vector3 targetVelocity,
+            float deltaTime)
+        {
+            if (engagementState != MissileEngagementState.Active ||
+                missileFlightTime <
+                    MinimumEngagementAssessmentFlightSeconds)
+            {
+                return;
+            }
+
+            if (!hasGuidance)
+            {
+                engagementFailureEvidenceSeconds = 0f;
+                noGuidanceSeconds += deltaTime;
+                if (noGuidanceSeconds >= GuidanceRecoveryGraceSeconds)
+                {
+                    MarkEngagementSpent();
+                }
+                return;
+            }
+
+            noGuidanceSeconds = 0f;
+            engagementAssessmentRemaining -= deltaTime;
+            if (engagementAssessmentRemaining > 0f)
+            {
+                return;
+            }
+            engagementAssessmentRemaining =
+                EngagementAssessmentIntervalSeconds;
+
+            var relativePosition =
+                targetPosition - transform.position;
+            var range = relativePosition.magnitude;
+            if (range <= Mathf.Max(
+                    warheadLethalRadius,
+                    proximityFuseRadius))
+            {
+                engagementFailureEvidenceSeconds = 0f;
+                return;
+            }
+
+            var relativeVelocity = targetVelocity - velocity;
+            var closingSpeed = range > 0.01f
+                ? -Vector3.Dot(relativePosition, relativeVelocity) / range
+                : 0f;
+            if (closingSpeed >= -MinimumOpeningSpeedMetersPerSecond)
+            {
+                engagementFailureEvidenceSeconds = 0f;
+                return;
+            }
+
+            var remainingTravelDistance = maximumTravelDistance > 0f
+                ? Mathf.Max(
+                    0f,
+                    maximumTravelDistance - distanceTravelled)
+                : Mathf.Max(1000f, velocity.magnitude * lifeRemaining);
+            var availableDeltaV =
+                EstimateMainEngineDeltaVRemaining() +
+                EstimateRcsDeltaVRemaining() +
+                Mathf.Max(75f, velocity.magnitude * 0.08f);
+            var reachable = MissileEngagementMath.HasReachableIntercept(
+                ToFloat3(relativePosition),
+                ToFloat3(targetVelocity),
+                ToFloat3(velocity),
+                lifeRemaining,
+                remainingTravelDistance,
+                availableDeltaV);
+            if (reachable)
+            {
+                engagementFailureEvidenceSeconds = 0f;
+                return;
+            }
+
+            engagementFailureEvidenceSeconds +=
+                EngagementAssessmentIntervalSeconds;
+            if (engagementFailureEvidenceSeconds >=
+                EngagementFailureConfirmationSeconds)
+            {
+                MarkEngagementSpent();
+            }
+        }
+
+        private void MarkEngagementSpent()
+        {
+            if (engagementState != MissileEngagementState.Active)
+            {
+                return;
+            }
+
+            engagementState = MissileEngagementState.Spent;
+            missilePhase = MissileFlightPhase.Ballistic;
+            seekerLocked = false;
+            seekerLockMemoryRemaining = 0f;
+            hasCachedGuidanceTrack = false;
+            guidanceMemoryRemaining = 0f;
+            targetTrackId = default;
+            directGuidanceTarget = null;
+            directProjectileTarget = null;
+            terminalFuseEstimateMemoryRemaining = 0f;
+            rcsAccelerationWorld = Vector3.zero;
+            rcsAttitudeTorqueLocal = Vector3.zero;
+            rcsAttitudeThrottle = 0f;
+            ReleaseGuidanceChannel();
+
+            if (radarController != null && linkTerminal.IsValid)
+            {
+                radarController.UnregisterMissileLinkTerminal(
+                    linkTerminal);
+                linkTerminal = default;
             }
         }
 
@@ -1260,6 +1463,26 @@ namespace ACunicombat.Mechs
                               rcsPropellantMassRemainingKg;
             var effectiveExhaustVelocity =
                 rcsThrustNewtons / rcsMassFlowKgPerSecond;
+            return effectiveExhaustVelocity *
+                   Mathf.Log(currentMass / burnoutMass);
+        }
+
+        private float EstimateMainEngineDeltaVRemaining()
+        {
+            if (mainPropellantMassRemainingKg <= 0f ||
+                mainEngineThrustNewtons <= 0f ||
+                mainMassFlowKgPerSecond <= 0f)
+            {
+                return 0f;
+            }
+
+            var burnoutMass = Mathf.Max(
+                dryMassKg + rcsPropellantMassRemainingKg,
+                0.001f);
+            var currentMass = burnoutMass +
+                              mainPropellantMassRemainingKg;
+            var effectiveExhaustVelocity =
+                mainEngineThrustNewtons / mainMassFlowKgPerSecond;
             return effectiveExhaustVelocity *
                    Mathf.Log(currentMass / burnoutMass);
         }
@@ -1807,6 +2030,108 @@ namespace ACunicombat.Mechs
             return true;
         }
 
+        /// <summary>
+        /// 弹丸对来袭导弹的双体最近接近判定。与 <c>TryFindHit</c> 的 SphereCast 不同，这里同时
+        /// 考虑双方在本 tick 内的真实位移，因此不受"侧向穿越必漏判"的影响。
+        /// </summary>
+        private bool TryFindMissileClosestApproach(
+            float deltaTime,
+            out MechTestProjectile target,
+            out float interceptTime,
+            out Vector3 interceptPoint)
+        {
+            target = null;
+            interceptTime = float.PositiveInfinity;
+            interceptPoint = default;
+            if (registry.Count == 0)
+            {
+                return false;
+            }
+
+            // 动能弹只有物理接触半径；专用拦截弹种额外带一个小半径近炸（见
+            // ConfigureInterceptorRound）。0.33 m 的接触半径在数公里外几乎不可能命中，
+            // 近炸半径才是把命中窗口放大到有意义尺度的手段。
+            var lethalRadius = Mathf.Max(
+                collisionRadius + MissileHitboxHalfWidthMeters,
+                interceptorRoundLethalRadius);
+            var window = Mathf.Max(deltaTime, 0.0001f);
+            var bestMiss = float.PositiveInfinity;
+
+            for (var i = 0; i < registry.Count; i++)
+            {
+                var candidate = registry[i];
+                if (candidate == null ||
+                    candidate == this ||
+                    candidate.IsOwnedBy(owner) ||
+                    !candidate.IsInterceptableMissile)
+                {
+                    continue;
+                }
+
+                var relativePosition =
+                    candidate.transform.position - transform.position;
+                var relativeVelocity = candidate.velocity - velocity;
+                var relativeSpeedSquared = relativeVelocity.sqrMagnitude;
+                var cpaTime = relativeSpeedSquared > 0.001f
+                    ? Mathf.Clamp(
+                        -Vector3.Dot(relativePosition, relativeVelocity) /
+                        relativeSpeedSquared,
+                        0f,
+                        window)
+                    : 0f;
+                var miss =
+                    (relativePosition + relativeVelocity * cpaTime).magnitude;
+                if (miss > lethalRadius)
+                {
+                    continue;
+                }
+
+                // 同 tick 内多个候选取最先接近的；时刻相同则取脱靶量更小的。
+                if (cpaTime < interceptTime ||
+                    (Mathf.Approximately(cpaTime, interceptTime) && miss < bestMiss))
+                {
+                    target = candidate;
+                    interceptTime = cpaTime;
+                    bestMiss = miss;
+                    interceptPoint = transform.position + velocity * cpaTime;
+                }
+            }
+
+            return target != null;
+        }
+
+        private bool TryApplyGunInterception(
+            MechTestProjectile target,
+            Vector3 interceptPoint)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            var hitDirection = velocity.sqrMagnitude > 0.001f
+                ? velocity.normalized
+                : transform.forward;
+            // ApplyPointDefenseDamage 自己会生成命中特效，这里不要重复生成。
+            // 返回 false 说明目标已经被别的弹丸解决掉了，本弹应当继续飞而不是凭空消失。
+            return target.ApplyPointDefenseDamage(
+                damage,
+                interceptPoint,
+                hitDirection,
+                weaponKind,
+                effectLibrary,
+                impactFfxId);
+        }
+
+        /// <summary>
+        /// 把本弹丸标记为专用拦截弹种：给一个小半径近炸，用于对抗来袭导弹。
+        /// 普通弹丸不调用本方法，保持纯动能直击。
+        /// </summary>
+        public void ConfigureInterceptorRound(float lethalRadiusMeters)
+        {
+            interceptorRoundLethalRadius = Mathf.Max(0f, lethalRadiusMeters);
+        }
+
         private void DetonateInterceptorWarhead(
             Vector3 detonationPoint,
             float predictionSeconds)
@@ -2093,6 +2418,7 @@ namespace ACunicombat.Mechs
             }
             motorVisualActive = active;
             missileAudio?.SetMotorActive(active);
+            missilePlume?.SetBurning(active);
 
             if (projectileTrail != null)
             {
@@ -2147,7 +2473,10 @@ namespace ACunicombat.Mechs
                 new Vector3[rcsParticles.Length];
             rcsTorqueAxesLocal =
                 new Vector3[rcsParticles.Length];
+            rcsPulsePhase = new float[rcsParticles.Length];
             var particleMaterial = GetRcsParticleMaterial();
+            var thermal = root.AddComponent<MechEffectThermalAppearance>();
+            thermal.Configure(MechEffectThermalAppearance.Signature.HotSaturating);
             var nozzleIndex = 0;
             for (var ring = 0; ring < ringCount; ring++)
             {
@@ -2179,6 +2508,11 @@ namespace ACunicombat.Mechs
                     ConfigureRcsParticleSystem(
                         particles,
                         particleMaterial);
+                    thermal.Track(
+                        particles.GetComponent<ParticleSystemRenderer>());
+                    // 各喷口相位错开，避免整机同步闪烁成"一拍一拍"的假象。
+                    rcsPulsePhase[nozzleIndex] =
+                        (nozzleIndex * 0.37f) % 1f;
                     rcsParticles[nozzleIndex] = particles;
                     rcsExhaustDirectionsLocal[nozzleIndex] =
                         exhaustDirection;
@@ -2206,13 +2540,12 @@ namespace ACunicombat.Mechs
                 ParticleSystemSimulationSpace.World;
             main.maxParticles = 64;
             main.startLifetime =
-                new ParticleSystem.MinMaxCurve(0.07f, 0.13f);
+                new ParticleSystem.MinMaxCurve(0.05f, 0.1f);
             main.startSpeed =
-                new ParticleSystem.MinMaxCurve(10f, 16f);
+                new ParticleSystem.MinMaxCurve(9f, 15f);
             main.startSize =
-                new ParticleSystem.MinMaxCurve(0.035f, 0.065f);
-            main.startColor =
-                new Color(0.94f, 0.98f, 1f, 0.92f);
+                new ParticleSystem.MinMaxCurve(0.03f, 0.055f);
+            main.startColor = Color.white;
 
             var emission = particles.emission;
             emission.enabled = true;
@@ -2221,9 +2554,21 @@ namespace ACunicombat.Mechs
             var shape = particles.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Cone;
-            shape.angle = 5f;
-            shape.radius = 0.012f;
+            // 单组元推进剂在真空里同样是欠膨胀自由膨胀，出口压远高于环境压（真空为 0），
+            // 扩张角很大。原来的 5° 是大气/科幻片里的细直喷流读法，真空里不成立。
+            shape.angle = 26f;
+            shape.radius = 0.01f;
             shape.radiusThickness = 1f;
+
+            // 欠膨胀羽流离开喷口后持续张开，用尺寸曲线表达，而不是靠拉伸渲染伪造。
+            var sizeOverLifetime = particles.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(
+                1f,
+                new AnimationCurve(
+                    new Keyframe(0f, 0.45f),
+                    new Keyframe(0.35f, 1f),
+                    new Keyframe(1f, 1.65f)));
 
             var colorOverLifetime = particles.colorOverLifetime;
             colorOverLifetime.enabled = true;
@@ -2240,25 +2585,24 @@ namespace ACunicombat.Mechs
                     alphaKeys = new[]
                     {
                         new GradientAlphaKey(0.95f, 0f),
+                        new GradientAlphaKey(0.55f, 0.35f),
                         new GradientAlphaKey(0f, 1f),
                     },
                 });
 
             var renderer =
                 particles.GetComponent<ParticleSystemRenderer>();
+            // 短促宽扇形优先于细长拉丝：Stretch 只保留很轻的一点速度方向感。
             renderer.renderMode =
                 ParticleSystemRenderMode.Stretch;
-            renderer.lengthScale = 1.2f;
-            renderer.velocityScale = 0.08f;
-            if (particleMaterial != null)
-            {
-                renderer.sharedMaterial = particleMaterial;
-            }
+            renderer.lengthScale = 0.7f;
+            renderer.velocityScale = 0.02f;
+            MechEffectResources.ConfigureUnlitRenderer(renderer, particleMaterial);
 
             particles.Play(false);
         }
 
-        private void UpdateRcsThrusterVisuals()
+        private void UpdateRcsThrusterVisuals(float deltaTime)
         {
             if (rcsParticles.Length == 0)
             {
@@ -2331,8 +2675,26 @@ namespace ACunicombat.Mechs
                 var output = Mathf.Max(
                     translationOutput,
                     attitudeOutput);
+
+                // bang-bang：阀门只有全开与全关两态，指令强度决定占空比。
+                // 连续按比例缩放喷流量是电动比例阀的行为，冷气/单组元 RCS 不是这样工作的，
+                // 脉冲串同时也符合"姿态控制在持续抖动纠偏"的观感。
                 var emission = particles.emission;
-                emission.rateOverTime = output * 120f;
+                if (output <= 0.001f)
+                {
+                    rcsPulsePhase[i] = 0f;
+                    emission.rateOverTime = 0f;
+                    continue;
+                }
+
+                rcsPulsePhase[i] = Mathf.Repeat(
+                    rcsPulsePhase[i] + deltaTime * RcsPulseHertz,
+                    1f);
+                // 最低占空比保证微弱指令也能看到独立的短脉冲，而不是稀疏到看不出喷。
+                var dutyCycle = Mathf.Lerp(0.18f, 1f, output);
+                emission.rateOverTime = rcsPulsePhase[i] < dutyCycle
+                    ? RcsPulsePeakRate
+                    : 0f;
             }
         }
 
@@ -2343,34 +2705,13 @@ namespace ACunicombat.Mechs
                 return rcsParticleMaterial;
             }
 
-            var shader =
-                Shader.Find(
-                    "Universal Render Pipeline/Particles/Unlit") ??
-                Shader.Find("Particles/Standard Unlit") ??
-                Shader.Find("Sprites/Default");
-            if (shader == null)
-            {
-                return null;
-            }
-
-            rcsParticleMaterial =
-                new Material(shader)
-                {
-                    name = "Runtime Missile RCS Plume",
-                    hideFlags = HideFlags.HideAndDontSave,
-                };
-            if (rcsParticleMaterial.HasProperty("_BaseColor"))
-            {
-                rcsParticleMaterial.SetColor(
-                    "_BaseColor",
-                    new Color(0.94f, 0.98f, 1f, 0.92f));
-            }
-            if (rcsParticleMaterial.HasProperty("_Color"))
-            {
-                rcsParticleMaterial.SetColor(
-                    "_Color",
-                    new Color(0.94f, 0.98f, 1f, 0.92f));
-            }
+            // 修复前这里只设 _BaseColor/_Color，从未配置 URP Particles/Unlit 的混合状态。
+            // 该 shader 默认 _Surface=0(Opaque)、_SrcBlend=One、_DstBlend=Zero、_ZWrite=1，
+            // 又没有贴图，所以 8 个喷口渲染成的是不透明、写深度的白色拉伸方片。
+            // 颜色值推过 Bloom 阈值（战斗 Volume 为 1.1）后喷流才会真正发光。
+            rcsParticleMaterial = MechEffectResources.CreateAdditiveParticleMaterial(
+                "Runtime Missile RCS Plume",
+                new Color(2.1f, 2.35f, 2.6f, 1f));
             return rcsParticleMaterial;
         }
 

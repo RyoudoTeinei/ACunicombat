@@ -26,6 +26,9 @@ namespace ACunicombat.Mechs
         private const float RifleProjectileLifetimeSeconds = 8f;
         private const float CannonMuzzleVelocityMetersPerSecond = 450f;
         private const float CannonProjectileLifetimeSeconds = 10f;
+        private const float MuzzleFlashTimeScale = 0.4f;
+        private const float MuzzleFlashMaximumVisibleSeconds = 0.18f;
+        private const float CannonMuzzleFlashVisibleSeconds = 0.34f;
 
         [SerializeField] private MechPlayerInputAdapter input;
         [SerializeField] private MechRuntimeState runtimeState;
@@ -41,11 +44,32 @@ namespace ACunicombat.Mechs
         [SerializeField] private float gunAutoAimDegrees = 4f;
         [SerializeField] private float missileLockDegrees = 24f;
         [SerializeField, Min(60f)] private float rifleRoundsPerMinute = 600f;
+        [Header("Hand weapon ammunition")]
+        [SerializeField, Min(1)] private int rifleMagazineCapacity = 30;
+        [SerializeField, Min(0.1f)] private float rifleReloadSeconds = 4.95f;
+        [SerializeField, Min(0.1f)] private float cannonReloadSeconds = 4.25f;
+        [Header("30 mm rifle dispersion")]
+        [SerializeField, Min(0f)] private float rifleBaseDispersionMilliradians = 0.07f;
+        [SerializeField, Min(1)] private int rifleLowRecoilShotCount = 4;
+        [SerializeField, Min(0f)] private float rifleLowRecoilPerShotMilliradians = 0.008f;
+        [SerializeField, Min(0f)] private float rifleSustainedRecoilPerShotMilliradians = 0.022f;
+        [SerializeField, Min(0f)] private float rifleMaximumDispersionMilliradians = 0.3f;
+        [SerializeField, Min(0f)] private float rifleDispersionRecoveryMilliradiansPerSecond = 0.4f;
+        [SerializeField, Min(0f)] private float rifleDispersionRecoveryDelaySeconds = 0.16f;
+        [SerializeField, Min(0f)] private float rifleBurstResetSeconds = 0.45f;
         [Header("Point defense")]
         [SerializeField, Range(1f, 20f)] private float pointDefenseLockDegrees = 6f;
         [SerializeField, Min(100f)] private float pointDefenseMaximumRangeMeters = 6000f;
         [SerializeField, Min(0.1f)] private float pointDefenseMaximumLeadSeconds = 6f;
         [SerializeField, Min(0f)] private float pointDefenseLockHoldSeconds = 0.25f;
+        // 专用拦截弹种的近炸半径。动能直击的有效命中半径只有 0.33 m（弹丸 0.08 + 导弹半宽
+        // 0.25），而 3 km 处光电/雷达给出的航迹横向误差是 8~9 m 量级——直击在这个误差预算下
+        // 几乎不可能。近炸半径是唯一能把命中窗口放大到有意义尺度的手段（现实 CIWS 同理）。
+        // 只在锁定点防御目标时装填，普通射击仍为纯动能弹。
+        [SerializeField, Min(0f)] private float pointDefenseRoundLethalRadiusMeters = 3.5f;
+        // 单发命中概率低于此值就不开火。0.02 ≈ 50 发一中，600 RPM 下约 5 秒——大致是
+        // 弹药消耗仍可接受的下界。调高会更省弹药但交战窗口更窄。
+        [SerializeField, Range(0f, 0.5f)] private float pointDefenseMinimumHitProbability = 0.02f;
         [Header("Interceptor missile")]
         [SerializeField, Min(1f)] private float interceptorProtectedRadiusMeters = 180f;
         [SerializeField, Min(0.1f)] private float interceptorPredictionHorizonSeconds = 60f;
@@ -72,20 +96,49 @@ namespace ACunicombat.Mechs
         private int leftBackMuzzleIndex;
         private int rightBackMuzzleIndex;
         private float nextRifleFireTime;
+        private int rifleRoundsRemaining;
+        private float rifleReloadCompleteTime = float.NegativeInfinity;
+        private float cannonReloadCompleteTime = float.NegativeInfinity;
+        private bool rifleReloading;
+        private bool cannonReloading;
+        private bool ammunitionInitialized;
+        private float rifleRecoilDispersionMilliradians;
+        private float lastRifleDispersionUpdateTime;
+        private float lastRifleShotTime = float.NegativeInfinity;
+        private int rifleBurstShotCount;
+        private uint rifleDispersionRandomState;
         private GUIStyle hudLabelStyle;
+        public enum PointDefenseWithholdReason : byte
+        {
+            None = 0,
+            /// <summary>航迹横向不确定度相对命中窗口过大。</summary>
+            TrackTooCoarse = 1,
+            /// <summary>距离过远，提前量误差被飞行时间放大到不可接受。</summary>
+            RangeTooLong = 2,
+        }
+
+        private const float RifleProjectileCollisionRadiusMeters = 0.08f;
+        // 与 MechTestProjectile.MissileHitboxHalfWidthMeters 对应。
+        private const float MissileHitboxHalfWidthMeters = 0.25f;
+        // 航迹速度估计的等效平滑窗口，用于把位置不确定度折算成速度不确定度。
+        private const float PointDefenseVelocitySmoothingSeconds = 0.5f;
+
         private MissileTrackSnapshot pointDefenseTarget;
+        private float pointDefenseHitProbability;
+        private PointDefenseWithholdReason pointDefenseWithholdReason;
         private float pointDefenseLockUntil;
         private MissileTrackSnapshot interceptorTarget;
         private InterceptorEngagementSolution interceptorSolution;
         private float interceptorLockUntil;
         private MechMissileLaunchAudio missileLaunchAudio;
+        private MechHandWeaponAudio handWeaponAudio;
         private readonly MissileTrackSnapshot[] interceptorTrackScratch =
             new MissileTrackSnapshot[MechRadarController.MaximumPublicTracks];
 
         private static Material rifleMaterial;
         private static Material cannonMaterial;
         private static Material missileMaterial;
-        private static Material trailMaterial;
+        private static uint nextRifleDispersionSeed = 0x9e3779b9u;
         private static GameObject leftMissileVisualPrefab;
         private static GameObject rightMissileVisualPrefab;
         private static readonly HashSet<string> missileVisualLoadFailures =
@@ -99,11 +152,28 @@ namespace ACunicombat.Mechs
         public MechRadarController RadarController => radarController;
         public TrackId PointDefenseTrackId =>
             pointDefenseTarget.TrackId;
+        /// <summary>最近一次点防御火控解算出的单发命中概率，供 HUD 显示。</summary>
+        public float PointDefenseHitProbability => pointDefenseHitProbability;
+        /// <summary>不开火的原因；None 表示具备拦截条件。</summary>
+        public PointDefenseWithholdReason PointDefenseWithhold =>
+            pointDefenseWithholdReason;
         public TrackId InterceptorTrackId =>
             interceptorTarget.TrackId;
         public bool HasInterceptorLaunchSolution =>
             interceptorTarget.TrackId.IsValid &&
             interceptorSolution.Reachable;
+        public int RifleRoundsRemaining => rifleRoundsRemaining;
+        public int RifleMagazineCapacity => rifleMagazineCapacity;
+        public bool RifleReloading =>
+            rifleReloading && Time.time < rifleReloadCompleteTime;
+        public bool CannonReloading =>
+            cannonReloading && Time.time < cannonReloadCompleteTime;
+        public float RifleReloadRemainingSeconds => RifleReloading
+            ? Mathf.Max(0f, rifleReloadCompleteTime - Time.time)
+            : 0f;
+        public float CannonReloadRemainingSeconds => CannonReloading
+            ? Mathf.Max(0f, cannonReloadCompleteTime - Time.time)
+            : 0f;
 
         public void Configure(
             MechPlayerInputAdapter newInput,
@@ -147,17 +217,44 @@ namespace ACunicombat.Mechs
 
             if (kind == TestWeaponKind.Cannon)
             {
-                FireHandWeapon(
+                TryFireHandWeapon(
                     MechPartSlot.LeftHandWeapon,
                     kind,
                     ref leftHandMuzzleIndex);
                 return;
             }
 
-            FireHandWeapon(
+            TryFireHandWeapon(
                 MechPartSlot.RightHandWeapon,
                 kind,
                 ref rightHandMuzzleIndex);
+        }
+
+        public bool CommandFireHandWeaponAtEstimate(
+            TestWeaponKind kind,
+            Vector3 estimatedPosition,
+            Vector3 estimatedVelocity)
+        {
+            if (kind == TestWeaponKind.Missile)
+            {
+                return false;
+            }
+
+            return kind == TestWeaponKind.Cannon
+                ? TryFireHandWeapon(
+                    MechPartSlot.LeftHandWeapon,
+                    kind,
+                    ref leftHandMuzzleIndex,
+                    true,
+                    estimatedPosition,
+                    estimatedVelocity)
+                : TryFireHandWeapon(
+                    MechPartSlot.RightHandWeapon,
+                    kind,
+                    ref rightHandMuzzleIndex,
+                    true,
+                    estimatedPosition,
+                    estimatedVelocity);
         }
 
         public void CommandFireMissile(MechPartSlot slot)
@@ -194,6 +291,29 @@ namespace ACunicombat.Mechs
             }
         }
 
+        public void CommandFireMissileAtEstimate(
+            MechPartSlot slot,
+            CombatTestTarget directTarget,
+            Vector3 estimatedPosition,
+            Vector3 estimatedVelocity,
+            float uncertaintyMeters)
+        {
+            if (directTarget == null || !directTarget.IsAlive ||
+                slot != MechPartSlot.RightBackWeapon)
+            {
+                return;
+            }
+
+            FireDirectMissileSalvo(
+                slot,
+                directTarget,
+                ref rightBackMuzzleIndex,
+                true,
+                estimatedPosition,
+                estimatedVelocity,
+                uncertaintyMeters);
+        }
+
         public void CommandFireInterceptorAt(
             MechTestProjectile incomingMissile)
         {
@@ -211,6 +331,7 @@ namespace ACunicombat.Mechs
 
         private void Awake()
         {
+            InitializeAmmunition();
             airToAirMissileProfile =
                 ResolveProfile(
                     airToAirMissileProfile,
@@ -295,6 +416,7 @@ namespace ACunicombat.Mechs
 
         private void Update()
         {
+            UpdateReloadState();
             if (input == null)
             {
                 return;
@@ -305,26 +427,34 @@ namespace ACunicombat.Mechs
             var frame = input.Current;
             if (frame.PrimaryFireEdge)
             {
-                FireHandWeapon(MechPartSlot.LeftHandWeapon, TestWeaponKind.Cannon, ref leftHandMuzzleIndex);
+                TryFireHandWeapon(
+                    MechPartSlot.LeftHandWeapon,
+                    TestWeaponKind.Cannon,
+                    ref leftHandMuzzleIndex);
             }
             if (frame.SecondaryFireHeld)
             {
                 if (frame.SecondaryFireEdge ||
                     Time.time >= nextRifleFireTime)
                 {
-                    FireHandWeapon(
+                    var fired = TryFireHandWeapon(
                         MechPartSlot.RightHandWeapon,
                         TestWeaponKind.Rifle,
                         ref rightHandMuzzleIndex);
-                    nextRifleFireTime =
-                        Time.time +
-                        60f / Mathf.Max(rifleRoundsPerMinute, 60f);
+                    if (fired)
+                    {
+                        nextRifleFireTime =
+                            Time.time +
+                            60f / Mathf.Max(rifleRoundsPerMinute, 60f);
+                    }
                 }
             }
             else
             {
                 nextRifleFireTime = 0f;
             }
+            handWeaponAudio?.SetRifleTriggerHeld(
+                frame.SecondaryFireHeld && !RifleReloading);
             if (playerRig != null &&
                 playerRig.ConsumeShoulderMissileLaunch(MechPartSlot.LeftBackWeapon))
             {
@@ -363,13 +493,40 @@ namespace ACunicombat.Mechs
             }
         }
 
-        private void FireHandWeapon(MechPartSlot slot, TestWeaponKind kind, ref int muzzleIndex)
+        private bool TryFireHandWeapon(
+            MechPartSlot slot,
+            TestWeaponKind kind,
+            ref int muzzleIndex,
+            bool hasExternalTrack = false,
+            Vector3 externalTrackPosition = default,
+            Vector3 externalTrackVelocity = default)
         {
+            InitializeAmmunition();
+            UpdateReloadState();
+            UpdateRifleDispersion(Time.time);
+            if (kind == TestWeaponKind.Rifle)
+            {
+                if (rifleReloading)
+                {
+                    return false;
+                }
+
+                if (rifleRoundsRemaining <= 0)
+                {
+                    BeginRifleReload(transform.position);
+                    return false;
+                }
+            }
+            else if (kind == TestWeaponKind.Cannon && cannonReloading)
+            {
+                return false;
+            }
+
             var muzzle = GetNextMuzzle(slot, ref muzzleIndex);
             if (muzzle == null)
             {
                 Debug.LogWarning($"[MechTestWeaponSystem] No muzzle for {slot}.", this);
-                return;
+                return false;
             }
 
             var projectileSpeed = kind == TestWeaponKind.Rifle
@@ -380,26 +537,56 @@ namespace ACunicombat.Mechs
                     ? flightMotion.Velocity
                     : Vector3.zero;
             var aimPoint = Vector3.zero;
-            var locked =
-                kind == TestWeaponKind.Rifle &&
-                TryGetPointDefenseAimPoint(
-                    muzzle.position,
-                    projectileSpeed,
-                    out aimPoint);
-            if (!locked)
+            var locked = false;
+            var pointDefenseEngaged = false;
+            if (hasExternalTrack)
             {
-                locked = TryGetAimPoint(
-                    kind == TestWeaponKind.Rifle
-                        ? gunAutoAimDegrees
-                        : gunAutoAimDegrees + 2f,
+                var relativePosition =
+                    externalTrackPosition - muzzle.position;
+                var relativeVelocity =
+                    externalTrackVelocity - inheritedVelocity;
+                locked = FireSolutionSolver.TrySolveBallisticIntercept(
+                    ToDouble3(relativePosition),
+                    ToDouble3(relativeVelocity),
+                    double3.zero,
                     projectileSpeed,
-                    out aimPoint,
-                    out _);
+                    kind == TestWeaponKind.Rifle ? 8f : 12f,
+                    out _,
+                    out var relativeInterceptPoint);
+                if (locked)
+                {
+                    aimPoint = muzzle.position +
+                               ToVector3(relativeInterceptPoint);
+                }
+            }
+            else
+            {
+                locked = kind == TestWeaponKind.Rifle &&
+                         TryGetPointDefenseAimPoint(
+                             muzzle.position,
+                             projectileSpeed,
+                             out aimPoint);
+                // 只有真正在拦截来袭导弹时才装填近炸拦截弹；对机体射击仍是纯动能弹。
+                pointDefenseEngaged = locked;
+                if (!locked)
+                {
+                    locked = TryGetAimPoint(
+                        kind == TestWeaponKind.Rifle
+                            ? gunAutoAimDegrees
+                            : gunAutoAimDegrees + 2f,
+                        projectileSpeed,
+                        out aimPoint,
+                        out _);
+                }
             }
             var direction = (aimPoint - muzzle.position).normalized;
             if (!locked)
             {
                 direction = GetAimRay().direction;
+            }
+            if (kind == TestWeaponKind.Rifle)
+            {
+                direction = ApplyRifleDispersion(direction);
             }
 
             if (kind == TestWeaponKind.Rifle)
@@ -414,7 +601,17 @@ namespace ACunicombat.Mechs
                     RifleProjectileLifetimeSeconds,
                     launchFfxId: 6011100, projectileFfxId: 6013101, impactFfxId: 6011101,
                     launchAnchor: muzzle,
-                    inheritedVelocity: inheritedVelocity);
+                    inheritedVelocity: inheritedVelocity,
+                    interceptorRoundLethalRadius: pointDefenseEngaged
+                        ? pointDefenseRoundLethalRadiusMeters
+                        : 0f);
+                PlayHandWeaponAudio(kind, muzzle);
+                RegisterRifleRecoil(Time.time);
+                rifleRoundsRemaining = Mathf.Max(0, rifleRoundsRemaining - 1);
+                if (rifleRoundsRemaining == 0)
+                {
+                    BeginRifleReload(muzzle.position);
+                }
             }
             else
             {
@@ -429,7 +626,227 @@ namespace ACunicombat.Mechs
                     launchFfxId: 6031100, projectileFfxId: 6031101,
                     launchAnchor: muzzle,
                     inheritedVelocity: inheritedVelocity);
+                PlayHandWeaponAudio(kind, muzzle);
+                BeginCannonReload(muzzle.position);
             }
+
+            return true;
+        }
+
+        private void InitializeAmmunition()
+        {
+            if (ammunitionInitialized)
+            {
+                return;
+            }
+
+            rifleMagazineCapacity = Mathf.Max(1, rifleMagazineCapacity);
+            rifleRoundsRemaining = rifleMagazineCapacity;
+            lastRifleDispersionUpdateTime = Time.time;
+            rifleDispersionRandomState = nextRifleDispersionSeed;
+            nextRifleDispersionSeed = unchecked(
+                nextRifleDispersionSeed + 0x6d2b79f5u);
+            if (rifleDispersionRandomState == 0u)
+            {
+                rifleDispersionRandomState = 1u;
+            }
+            ammunitionInitialized = true;
+        }
+
+        private void UpdateRifleDispersion(float now)
+        {
+            var elapsed = Mathf.Max(
+                0f,
+                now - lastRifleDispersionUpdateTime);
+            lastRifleDispersionUpdateTime = now;
+            if (elapsed <= 0f)
+            {
+                return;
+            }
+
+            var recoveryStart = lastRifleShotTime +
+                                rifleDispersionRecoveryDelaySeconds;
+            var recoveryElapsed = Mathf.Max(
+                0f,
+                now - Mathf.Max(now - elapsed, recoveryStart));
+            rifleRecoilDispersionMilliradians = Mathf.MoveTowards(
+                rifleRecoilDispersionMilliradians,
+                0f,
+                rifleDispersionRecoveryMilliradiansPerSecond *
+                recoveryElapsed);
+
+            if (now - lastRifleShotTime >= rifleBurstResetSeconds)
+            {
+                rifleBurstShotCount = 0;
+            }
+        }
+
+        private void RegisterRifleRecoil(float now)
+        {
+            if (now - lastRifleShotTime >= rifleBurstResetSeconds)
+            {
+                rifleBurstShotCount = 0;
+            }
+
+            var recoilPerShot =
+                rifleBurstShotCount < rifleLowRecoilShotCount
+                    ? rifleLowRecoilPerShotMilliradians
+                    : rifleSustainedRecoilPerShotMilliradians;
+            var maximumRecoil = Mathf.Max(
+                0f,
+                rifleMaximumDispersionMilliradians -
+                rifleBaseDispersionMilliradians);
+            rifleRecoilDispersionMilliradians = Mathf.Min(
+                maximumRecoil,
+                rifleRecoilDispersionMilliradians + recoilPerShot);
+            rifleBurstShotCount++;
+            lastRifleShotTime = now;
+        }
+
+        private Vector3 ApplyRifleDispersion(Vector3 forward)
+        {
+            if (forward.sqrMagnitude <= 0.000001f)
+            {
+                return transform.forward;
+            }
+
+            forward.Normalize();
+            var dispersionMilliradians = Mathf.Clamp(
+                rifleBaseDispersionMilliradians +
+                rifleRecoilDispersionMilliradians,
+                0f,
+                Mathf.Max(
+                    rifleBaseDispersionMilliradians,
+                    rifleMaximumDispersionMilliradians));
+            if (dispersionMilliradians <= 0f)
+            {
+                return forward;
+            }
+
+            NextRifleGaussianPair(out var horizontalSigma, out var verticalSigma);
+            const float maximumSigma = 2.5f;
+            horizontalSigma = Mathf.Clamp(
+                horizontalSigma,
+                -maximumSigma,
+                maximumSigma);
+            verticalSigma = Mathf.Clamp(
+                verticalSigma,
+                -maximumSigma,
+                maximumSigma);
+
+            var referenceUp = Mathf.Abs(Vector3.Dot(forward, Vector3.up)) > 0.95f
+                ? Vector3.right
+                : Vector3.up;
+            var right = Vector3.Cross(referenceUp, forward).normalized;
+            var up = Vector3.Cross(forward, right).normalized;
+            var dispersionRadians = dispersionMilliradians * 0.001f;
+            return (
+                forward +
+                right * (horizontalSigma * dispersionRadians) +
+                up * (verticalSigma * dispersionRadians)).normalized;
+        }
+
+        private void NextRifleGaussianPair(
+            out float first,
+            out float second)
+        {
+            var firstUniform = Mathf.Max(
+                NextRifleUniform(),
+                0.000001f);
+            var secondUniform = NextRifleUniform();
+            var radius = Mathf.Sqrt(-2f * Mathf.Log(firstUniform));
+            var angle = 2f * Mathf.PI * secondUniform;
+            first = radius * Mathf.Cos(angle);
+            second = radius * Mathf.Sin(angle);
+        }
+
+        private float NextRifleUniform()
+        {
+            var state = rifleDispersionRandomState;
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            rifleDispersionRandomState = state != 0u ? state : 1u;
+            return (rifleDispersionRandomState & 0x00ffffffu) /
+                   16777216f;
+        }
+
+        private void UpdateReloadState()
+        {
+            if (rifleReloading && Time.time >= rifleReloadCompleteTime)
+            {
+                rifleReloading = false;
+                rifleRoundsRemaining = rifleMagazineCapacity;
+            }
+
+            if (cannonReloading && Time.time >= cannonReloadCompleteTime)
+            {
+                cannonReloading = false;
+            }
+        }
+
+        private void BeginRifleReload(Vector3 weaponPosition)
+        {
+            if (rifleReloading)
+            {
+                return;
+            }
+
+            rifleReloading = true;
+            rifleReloadCompleteTime =
+                Time.time + Mathf.Max(0.1f, rifleReloadSeconds);
+            EnsureHandWeaponAudio().PlayRifleReload(
+                weaponPosition,
+                IsOwnship());
+        }
+
+        private void BeginCannonReload(Vector3 weaponPosition)
+        {
+            cannonReloading = true;
+            cannonReloadCompleteTime =
+                Time.time + Mathf.Max(0.1f, cannonReloadSeconds);
+            EnsureHandWeaponAudio().PlayCannonReload(
+                weaponPosition,
+                IsOwnship());
+        }
+
+        private void PlayHandWeaponAudio(
+            TestWeaponKind kind,
+            Transform muzzle)
+        {
+            var audio = EnsureHandWeaponAudio();
+            var ownship = IsOwnship();
+            if (kind == TestWeaponKind.Rifle)
+            {
+                audio.SetRifleTriggerHeld(
+                    ownship && input.Current.SecondaryFireHeld);
+                audio.PlayRifleShot(
+                    muzzle.position,
+                    ownship);
+            }
+            else if (kind == TestWeaponKind.Cannon)
+            {
+                audio.PlayCannonShot(
+                    muzzle.position,
+                    ownship);
+            }
+        }
+
+        private MechHandWeaponAudio EnsureHandWeaponAudio()
+        {
+            handWeaponAudio ??= GetComponent<MechHandWeaponAudio>();
+            if (handWeaponAudio == null)
+            {
+                handWeaponAudio = gameObject.AddComponent<MechHandWeaponAudio>();
+            }
+
+            return handWeaponAudio;
+        }
+
+        private bool IsOwnship()
+        {
+            return input != null &&
+                   GetComponent<MechAiTargetController>() == null;
         }
 
         private void FireInterceptorMissile(ref int muzzleIndex)
@@ -794,7 +1211,11 @@ namespace ACunicombat.Mechs
         private void FireDirectMissileSalvo(
             MechPartSlot slot,
             CombatTestTarget directTarget,
-            ref int muzzleIndex)
+            ref int muzzleIndex,
+            bool hasInitialEstimate = false,
+            Vector3 initialEstimatePosition = default,
+            Vector3 initialEstimateVelocity = default,
+            float initialEstimateUncertaintyMeters = 0f)
         {
             if (slot == MechPartSlot.LeftBackWeapon)
             {
@@ -839,9 +1260,13 @@ namespace ACunicombat.Mechs
                 var muzzle =
                     muzzles[(muzzleIndex + i) % muzzles.Length];
                 var launchDirection =
-                    ResolveDirectMissileLaunchDirection(
-                        muzzle,
-                        directTarget);
+                    hasInitialEstimate
+                        ? ResolveDirectMissileLaunchDirection(
+                            muzzle,
+                            initialEstimatePosition)
+                        : ResolveDirectMissileLaunchDirection(
+                            muzzle,
+                            directTarget);
                 var launchPosition =
                     muzzle.position +
                     launchDirection * missileLaunchClearanceMeters;
@@ -867,7 +1292,12 @@ namespace ACunicombat.Mechs
                     directGuidanceTarget: directTarget,
                     simulationRadarController: simulationRadar,
                     missileSourceSlot: slot,
-                    missileProfile: airToAirMissileProfile);
+                    missileProfile: airToAirMissileProfile,
+                    hasInitialGuidanceEstimate: hasInitialEstimate,
+                    initialGuidancePosition: initialEstimatePosition,
+                    initialGuidanceVelocity: initialEstimateVelocity,
+                    initialGuidanceUncertaintyMeters:
+                        initialEstimateUncertaintyMeters);
             }
             muzzleIndex = (muzzleIndex + salvoCount) % muzzles.Length;
         }
@@ -1098,6 +1528,23 @@ namespace ACunicombat.Mechs
                 : Vector3.forward;
         }
 
+        private static Vector3 ResolveDirectMissileLaunchDirection(
+            Transform muzzle,
+            Vector3 estimatedPosition)
+        {
+            if (muzzle != null)
+            {
+                var toEstimate = estimatedPosition - muzzle.position;
+                if (toEstimate.sqrMagnitude > 0.001f)
+                {
+                    return toEstimate.normalized;
+                }
+                return muzzle.forward;
+            }
+
+            return Vector3.forward;
+        }
+
         private Vector3 ResolveMissileLaunchDirection(Transform muzzle)
         {
             var bodyForward = flightMotion != null
@@ -1273,7 +1720,8 @@ namespace ACunicombat.Mechs
             float coldLaunchSafeSeparationSeconds = 0f,
             float coldLaunchSafeSeparationMeters = 0f,
             float coldLaunchIgnitionAlignmentDegrees = 8f,
-            float coldLaunchAlignmentTimeoutSeconds = 0.6f)
+            float coldLaunchAlignmentTimeoutSeconds = 0.6f,
+            float interceptorRoundLethalRadius = 0f)
         {
             EnsureMaterials();
             var ownshipMissileAudio =
@@ -1296,7 +1744,9 @@ namespace ACunicombat.Mechs
                 launchFfxId,
                 launchAnchor,
                 launchAnchor != null ? launchAnchor.position : position,
-                direction);
+                direction,
+                kind != TestWeaponKind.Missile,
+                ResolveMuzzleFlashVisibleSeconds(kind));
             var projectile = GameObject.CreatePrimitive(
                 kind == TestWeaponKind.Missile ? PrimitiveType.Cube : PrimitiveType.Sphere);
             projectile.name = $"Test_{kind}_Projectile";
@@ -1338,27 +1788,42 @@ namespace ACunicombat.Mechs
                     missileSourceSlot);
             }
 
-            var trail = projectile.AddComponent<TrailRenderer>();
-            trail.time = kind == TestWeaponKind.Missile ? 0.8f : 0.16f;
-            trail.startWidth = kind == TestWeaponKind.Missile ? 0.18f : 0.08f;
-            trail.endWidth = 0f;
-            trail.sharedMaterial = trailMaterial;
-            trail.startColor = GetWeaponColor(kind);
-            trail.endColor = new Color(GetWeaponColor(kind).r, GetWeaponColor(kind).g, GetWeaponColor(kind).b, 0f);
-
-            if (TryInstantiateNativeEffect(projectileFfxId, projectile.transform, out var nativeProjectileEffect))
+            // 步枪与火炮都改用程序化曳光弹。两者原本的 FFX 弹丸特效都栽在同一个问题上：
+            // Model 发射器引用的模型没有贴图——步枪 `ffx_6013101` 用 `s88060`
+            // （`g_DiffuseTexture` 为空、尺寸 `2.5×2.5×20`），火炮 `ffx_6031101` 用 `s88500`
+            // （Albedo/Metallic/Normal 三张路径全空），渲染出来都是无贴图的纯色块。
+            // 顺带解决旧拖尾"命中瞬间整条消失"的问题（MechTracerRound 会分离后就地淡出）。
+            if (kind == TestWeaponKind.Rifle)
             {
-                // Keep the physical missile body and its motor-only trail
-                // visible after the native exhaust particles stop at burnout.
-                if (kind != TestWeaponKind.Missile)
-                {
-                    placeholderRenderer.enabled = false;
-                    trail.enabled = false;
-                }
-                nativeProjectileEffect.name = $"Native_FFX_{projectileFfxId}";
+                placeholderRenderer.enabled = false;
+                projectile.AddComponent<MechTracerRound>().Build(
+                    hotColor: new Color(1f, 0.93f, 0.72f),
+                    // 弹头取小而极亮：靠 Bloom 把它扩成光点，而不是靠尺寸做成一个发光球。
+                    headSize: 0.3f,
+                    trailWidth: 0.17f,
+                    // 1500 m/s × 0.07 s ≈ 105 m 亮痕。
+                    streakSeconds: 0.07f);
+            }
+            else if (kind == TestWeaponKind.Cannon)
+            {
+                placeholderRenderer.enabled = false;
+                // 火炮是重弹：初速只有 450 m/s（步枪 1500），所以亮痕要更粗更短、
+                // 色温更低（偏橙而非近白），读起来才是一发看得见飞行过程的炮弹，
+                // 而不是又一条细长曳光。450 m/s × 0.16 s ≈ 72 m。
+                projectile.AddComponent<MechTracerRound>().Build(
+                    hotColor: new Color(1f, 0.74f, 0.36f),
+                    headSize: 0.85f,
+                    trailWidth: 0.5f,
+                    streakSeconds: 0.16f);
             }
 
-            projectile.AddComponent<MechTestProjectile>().Configure(
+            var projectileBehaviour = projectile.AddComponent<MechTestProjectile>();
+            if (interceptorRoundLethalRadius > 0f)
+            {
+                projectileBehaviour.ConfigureInterceptorRound(
+                    interceptorRoundLethalRadius);
+            }
+            projectileBehaviour.Configure(
                 transform,
                 simulationRadarController != null
                     ? simulationRadarController
@@ -1605,10 +2070,66 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
+            // 交战门限：此前火控解完全不消费 PositionUncertaintyMeters / CpaUncertaintyMeters，
+            // 明知航迹横向误差远大于命中窗口也照样开火，结果是白耗弹药、且低拦截率无从解释。
+            var interceptRange = ToVector3(relativeInterceptPoint).magnitude;
+            pointDefenseHitProbability = EstimatePointDefenseHitProbability(
+                in pointDefenseTarget,
+                interceptRange);
+            if (pointDefenseHitProbability < pointDefenseMinimumHitProbability)
+            {
+                pointDefenseWithholdReason = interceptRange >
+                                             pointDefenseTarget
+                                                 .PositionUncertaintyMeters * 400f
+                    ? PointDefenseWithholdReason.TrackTooCoarse
+                    : PointDefenseWithholdReason.RangeTooLong;
+                return false;
+            }
+
+            pointDefenseWithholdReason = PointDefenseWithholdReason.None;
             aimPoint =
                 shooterPosition +
                 ToVector3(relativeInterceptPoint);
             return true;
+        }
+
+        /// <summary>
+        /// 单发命中概率的一阶估计。把航迹横向不确定度、弹丸散布与提前量误差合成一个 2D 高斯
+        /// 的 σ，再对命中窗口积分：<c>P = 1 - exp(-r² / (2σ²))</c>（瑞利分布）。
+        /// 这不是精确弹道学，目的是给"打不打"一个可解释的判据。
+        /// </summary>
+        private float EstimatePointDefenseHitProbability(
+            in MissileTrackSnapshot track,
+            float interceptRange)
+        {
+            var lethalRadius = Mathf.Max(
+                pointDefenseRoundLethalRadiusMeters,
+                RifleProjectileCollisionRadiusMeters + MissileHitboxHalfWidthMeters);
+            var flightTime = interceptRange /
+                             Mathf.Max(RifleMuzzleVelocityMetersPerSecond, 1f);
+
+            // 航迹自身的位置不确定度。
+            var trackSigma = Mathf.Max(0.01f, track.PositionUncertaintyMeters);
+            // 速度估计误差经提前量放大：航迹不确定度在一个滤波周期内的等效速度误差。
+            var velocitySigma = trackSigma /
+                                Mathf.Max(PointDefenseVelocitySmoothingSeconds, 0.05f);
+            var leadSigma = velocitySigma * flightTime;
+            // 枪口散布。
+            var dispersionSigma =
+                (rifleBaseDispersionMilliradians +
+                 rifleRecoilDispersionMilliradians) * 0.001f * interceptRange;
+
+            var sigmaSquared =
+                trackSigma * trackSigma +
+                leadSigma * leadSigma +
+                dispersionSigma * dispersionSigma;
+            if (sigmaSquared <= 1e-6f)
+            {
+                return 1f;
+            }
+
+            return 1f - Mathf.Exp(
+                -(lethalRadius * lethalRadius) / (2f * sigmaSquared));
         }
 
         private static void ConfigureMissileHitbox(
@@ -1700,10 +2221,6 @@ namespace ACunicombat.Mechs
                 fontStyle = FontStyle.Bold,
             };
 
-            var center = GetReticleGuiPosition();
-            DrawRect(new Rect(center.x - 11f, center.y - 1f, 22f, 2f), new Color(0.25f, 0.95f, 0.75f));
-            DrawRect(new Rect(center.x - 1f, center.y - 11f, 2f, 22f), new Color(0.25f, 0.95f, 0.75f));
-
             if (!radarController.TryGetBestTrack(out var track))
             {
                 return;
@@ -1793,32 +2310,33 @@ namespace ACunicombat.Mechs
             MechEffectPrefabLibrary effectLibrary = null,
             int impactFfxId = 0)
         {
-            if (effectLibrary != null && impactFfxId > 0 &&
-                effectLibrary.TryGet(impactFfxId, out var effectPrefab))
-            {
-                var effect = Instantiate(effectPrefab, position,
-                    Quaternion.LookRotation(normal.sqrMagnitude > 0.001f ? normal : Vector3.up));
-                PlayAllParticles(effect);
-                Destroy(effect, 3f);
-                return;
-            }
+            // 命中特效统一走程序化实现：可提交、可复现，且带碎片。
+            // 此前只有步枪传了 impactFfxId，火炮与全部导弹都落到白球兜底，等于没有命中特效。
+            //
+            // FFX 命中层已停用（保留参数是因为整条调用链仍在透传，且后续可能用于别的效果）：
+            // ffx_6011101 的 Model 发射器引用模型 88060、颜色 (1, 0.37, 0.05)、尺寸 1×1×20，
+            // 而它的 matxml 里 g_DiffuseTexture 为空——渲染出来就是一根无贴图的纯红色加色长锥，
+            // 即反馈中"命中和被命中时的红色三角"。缺贴图是提取管线的产物，不是可调的美术参数。
+            MechImpactEffect.Spawn(position, normal, GetImpactScale(kind));
+        }
 
-            EnsureMaterials();
-            var impact = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            impact.name = $"Test_{kind}_Impact";
-            impact.transform.position = position + normal * 0.05f;
-            impact.transform.localScale = Vector3.one * (kind == TestWeaponKind.Missile ? 1.3f : 0.65f);
-            var collider = impact.GetComponent<Collider>();
-            if (collider != null) Destroy(collider);
-            impact.GetComponent<Renderer>().sharedMaterial = GetProjectileMaterial(kind);
-            Destroy(impact, 0.12f);
+        private static float GetImpactScale(TestWeaponKind kind)
+        {
+            return kind switch
+            {
+                TestWeaponKind.Missile => 1.4f,
+                TestWeaponKind.Cannon => 0.85f,
+                _ => 0.35f,
+            };
         }
 
         private void SpawnNativeOneShot(
             int ffxId,
             Transform anchor,
             Vector3 position,
-            Vector3 direction)
+            Vector3 direction,
+            bool shortenMuzzleFlash,
+            float maximumVisibleSeconds)
         {
             if (nativeEffectLibrary == null || ffxId <= 0 ||
                 !nativeEffectLibrary.TryGet(ffxId, out var prefab))
@@ -1831,8 +2349,100 @@ namespace ACunicombat.Mechs
                 ? Instantiate(prefab, position, rotation, anchor)
                 : Instantiate(prefab, position, rotation);
             effect.name = $"Native_FFX_{ffxId}_OneShot";
+            if (shortenMuzzleFlash)
+            {
+                ApplyMuzzleFlashTiming(effect, maximumVisibleSeconds);
+            }
             PlayAllParticles(effect);
             Destroy(effect, GetOneShotLifetime(effect));
+        }
+
+        /// <summary>
+        /// 枪口闪光的可见时长上限。必须明显短于射击间隔，否则连射时前一发的闪光还没结束
+        /// 后一发就叠上来，读起来是枪口挂着一团常亮的火——`600 RPM` 的间隔只有 `0.1 s`，
+        /// 而旧的固定上限是 `0.18 s`，必然重叠。真实枪口闪光只有几毫秒，屏幕上给 2～3 帧即可。
+        /// </summary>
+        private float ResolveMuzzleFlashVisibleSeconds(TestWeaponKind kind)
+        {
+            switch (kind)
+            {
+                case TestWeaponKind.Rifle:
+                    // 连射武器：必须短于射击间隔，否则前后两发的闪光会叠成一团常亮的火。
+                    var cycleSeconds = 60f / Mathf.Max(rifleRoundsPerMinute, 60f);
+                    return Mathf.Min(MuzzleFlashMaximumVisibleSeconds, cycleSeconds * 0.45f);
+
+                case TestWeaponKind.Cannon:
+                    // 火炮是单发重武器，没有重叠风险，闪光可以明显长于步枪——它本来就该
+                    // 读作"一声沉重的炮响"。原生 ffx_6031100 的资产是完好的（Model 81040
+                    // 带贴图 s31460_a.tif，billboard 也都有图），所以只放宽时长即可。
+                    return CannonMuzzleFlashVisibleSeconds;
+
+                default:
+                    return MuzzleFlashMaximumVisibleSeconds;
+            }
+        }
+
+        private static void ApplyMuzzleFlashTiming(
+            GameObject effect,
+            float maximumVisibleSeconds)
+        {
+            maximumVisibleSeconds = Mathf.Max(0.016f, maximumVisibleSeconds);
+
+            // 先量出源效果最晚结束的时刻，再求<b>统一</b>缩放比。
+            // 旧实现对每个发射器各自 `Min(乘数 * 0.4, 0.18)`，混淆了无量纲乘数与秒：
+            // `startLifetimeMultiplier` 通常是 1，`Min(0.4, 0.18)` 会得到 0.18，
+            // 既不是想要的比例，也把各子发射器之间的相对时序压平了。
+            var sourceSpan = 0f;
+            foreach (var particles in
+                     effect.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                var main = particles.main;
+                sourceSpan = Mathf.Max(
+                    sourceSpan,
+                    main.startDelay.constantMax + main.startLifetime.constantMax);
+            }
+
+            foreach (var timedElement in
+                     effect.GetComponentsInChildren<MechTimedEffectElement>(true))
+            {
+                sourceSpan = Mathf.Max(sourceSpan, timedElement.LifetimeSeconds);
+            }
+
+            var scale = sourceSpan > 0.0001f
+                ? Mathf.Min(MuzzleFlashTimeScale, maximumVisibleSeconds / sourceSpan)
+                : MuzzleFlashTimeScale;
+
+            foreach (var particles in
+                     effect.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                var main = particles.main;
+                main.startDelayMultiplier *= scale;
+                main.startLifetimeMultiplier *= scale;
+                main.duration = Mathf.Max(0.01f, main.duration * scale);
+            }
+
+            foreach (var timedElement in
+                     effect.GetComponentsInChildren<MechTimedEffectElement>(true))
+            {
+                timedElement.Configure(
+                    Mathf.Max(0.016f, timedElement.LifetimeSeconds * scale));
+            }
+
+            var visibleLifetime = Mathf.Min(
+                maximumVisibleSeconds,
+                Mathf.Max(0.016f, sourceSpan * scale));
+            foreach (var line in
+                     effect.GetComponentsInChildren<LineRenderer>(true))
+            {
+                var timedElement =
+                    line.GetComponent<MechTimedEffectElement>();
+                if (timedElement == null)
+                {
+                    timedElement =
+                        line.gameObject.AddComponent<MechTimedEffectElement>();
+                    timedElement.Configure(visibleLifetime);
+                }
+            }
         }
 
         private static float GetOneShotLifetime(GameObject effect)
@@ -1912,7 +2522,6 @@ namespace ACunicombat.Mechs
             rifleMaterial ??= CreateRuntimeMaterial("Test Rifle", GetWeaponColor(TestWeaponKind.Rifle));
             cannonMaterial ??= CreateRuntimeMaterial("Test Cannon", GetWeaponColor(TestWeaponKind.Cannon));
             missileMaterial ??= CreateRuntimeMaterial("Test Missile", GetWeaponColor(TestWeaponKind.Missile));
-            trailMaterial ??= CreateRuntimeMaterial("Test Projectile Trail", Color.white);
         }
 
         private static void TryAttachMissileVisual(

@@ -138,7 +138,11 @@ namespace ACunicombat.Tracking
                         EsmWaveformClass.MissileSeeker ||
                     slot.WaveformClass ==
                         EsmWaveformClass.InfraredPlume;
-                if ((missileThreat &&
+                var transientThreat =
+                    missileThreat ||
+                    slot.WaveformClass ==
+                        EsmWaveformClass.LaserRangefinder;
+                if ((transientThreat &&
                      unseen > MissileDropUnseenSeconds) ||
                     unseen > DropUnseenSeconds)
                 {
@@ -245,6 +249,14 @@ namespace ACunicombat.Tracking
                 return slot.ContinuousIlluminationSeconds >= LockedContinuousSeconds
                     ? EsmThreatLevel.Locked
                     : EsmThreatLevel.Tracked;
+            }
+
+            if (slot.WaveformClass ==
+                EsmWaveformClass.LaserRangefinder)
+            {
+                // A narrow active ranging beam means the receiver is already
+                // inside another platform's fire-control line of sight.
+                return EsmThreatLevel.Locked;
             }
 
             if (slot.ContinuousIlluminationSeconds >= LockedContinuousSeconds)

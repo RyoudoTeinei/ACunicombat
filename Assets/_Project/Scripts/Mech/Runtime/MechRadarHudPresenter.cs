@@ -64,8 +64,6 @@ namespace ACunicombat.Mechs
             new uint[MechRadarController.MaximumPublicTracks];
         private readonly float[] displayedClosingVelocities =
             new float[MechRadarController.MaximumPublicTracks];
-        private readonly float[] displayedRelativeHeights =
-            new float[MechRadarController.MaximumPublicTracks];
         private readonly float[] nextTrackReadoutUpdateTimes =
             new float[MechRadarController.MaximumPublicTracks];
         private float radarDisplayRangeMeters = 20_000f;
@@ -262,7 +260,7 @@ namespace ACunicombat.Mechs
             DrawMissileAttackLinks();
             DrawTacticalPlot();
             DrawRadarStatus();
-            DrawMissileMarkers();
+            DrawFriendlyMissileMarkers();
             if (radar.TrackOperationMode)
             {
                 DrawTransientEchoes();
@@ -273,6 +271,43 @@ namespace ACunicombat.Mechs
                 DrawLegacyReticle();
             }
             DrawWorldTrackMarkers();
+            DrawWeaponStatus();
+            DrawIncomingMissileMarkersOnTop();
+        }
+
+        private void DrawWeaponStatus()
+        {
+            if (weaponSystem == null)
+            {
+                return;
+            }
+
+            var centerX = Screen.width * 0.5f;
+            var y = Screen.height - 154f;
+            smallStyle.alignment = TextAnchor.MiddleRight;
+            smallStyle.normal.textColor = weaponSystem.CannonReloading
+                ? HudAmber
+                : HudGreen;
+            var cannonText = weaponSystem.CannonReloading
+                ? $"L 57MM  装填 {weaponSystem.CannonReloadRemainingSeconds:0.0}s"
+                : "L 57MM  READY";
+            GUI.Label(
+                new Rect(centerX - 330f, y, 250f, 22f),
+                cannonText,
+                smallStyle);
+
+            smallStyle.alignment = TextAnchor.MiddleLeft;
+            smallStyle.normal.textColor = weaponSystem.RifleReloading
+                ? HudAmber
+                : HudGreen;
+            var rifleText = weaponSystem.RifleReloading
+                ? $"R 30MM  换匣 {weaponSystem.RifleReloadRemainingSeconds:0.0}s"
+                : $"R 30MM  {weaponSystem.RifleRoundsRemaining:00}/" +
+                  $"{weaponSystem.RifleMagazineCapacity:00}";
+            GUI.Label(
+                new Rect(centerX + 80f, y, 250f, 22f),
+                rifleText,
+                smallStyle);
         }
 
         private void DrawTacticalPlot()
@@ -385,8 +420,7 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < projectiles.Count; i++)
             {
                 var projectile = projectiles[i];
-                if (!IsFriendlyMissile(projectile) ||
-                    !projectile.HasActiveGuidance)
+                if (!IsFriendlyEngagementMissile(projectile))
                 {
                     continue;
                 }
@@ -961,21 +995,20 @@ namespace ACunicombat.Mechs
                 GetTrackReadout(
                     in track,
                     closing,
-                    relative.y,
-                    out var displayedClosing,
-                    out var displayedHeight);
+                    out var displayedClosing);
                 smallStyle.normal.textColor = color;
                 smallStyle.alignment = TextAnchor.MiddleCenter;
                 var distanceRect = ClampToScreen(
                     new Rect(
-                        center.x - 70f,
+                        center.x - 105f,
                         center.y - size * 0.5f - 25f,
-                        140f,
+                        210f,
                         22f),
                     8f);
                 GUI.Label(
                     distanceRect,
-                    $"{relative.magnitude / 1000f:0.00} km",
+                    $"{relative.magnitude / 1000f:0.00} km  " +
+                    $"{displayedClosing:+0;-0;0} m/s",
                     smallStyle);
 
                 var informationRect = ClampToScreen(
@@ -990,19 +1023,6 @@ namespace ACunicombat.Mechs
                     $"{TrackLabel(track.TrackId)}  {lifecycle}  {classification}",
                     smallStyle);
 
-                smallStyle.alignment = TextAnchor.MiddleLeft;
-                var kinematicsRect = ClampToScreen(
-                    new Rect(
-                        center.x + size * 0.5f + 9f,
-                        center.y - 24f,
-                        190f,
-                        48f),
-                    8f);
-                GUI.Label(
-                    kinematicsRect,
-                    $"相对速度 {displayedClosing:+0;-0;0} m/s\n" +
-                    $"相对高度 {displayedHeight:+0;-0;0} m",
-                    smallStyle);
             }
         }
 
@@ -1059,15 +1079,12 @@ namespace ACunicombat.Mechs
         private void GetTrackReadout(
             in TrackSnapshot track,
             float closingVelocity,
-            float relativeHeight,
-            out float displayedClosing,
-            out float displayedHeight)
+            out float displayedClosing)
         {
             var slot = track.TrackId.Value.Index;
             if ((uint)slot >= trackReadoutKeys.Length)
             {
                 displayedClosing = closingVelocity;
-                displayedHeight = relativeHeight;
                 return;
             }
 
@@ -1077,7 +1094,6 @@ namespace ACunicombat.Mechs
             {
                 trackReadoutKeys[slot] = key;
                 displayedClosingVelocities[slot] = closingVelocity;
-                displayedRelativeHeights[slot] = relativeHeight;
                 nextTrackReadoutUpdateTimes[slot] =
                     now + trackReadoutRefreshSeconds;
             }
@@ -1087,26 +1103,21 @@ namespace ACunicombat.Mechs
                     displayedClosingVelocities[slot],
                     closingVelocity,
                     trackReadoutSmoothing);
-                displayedRelativeHeights[slot] = Mathf.Lerp(
-                    displayedRelativeHeights[slot],
-                    relativeHeight,
-                    trackReadoutSmoothing);
                 nextTrackReadoutUpdateTimes[slot] =
                     now + trackReadoutRefreshSeconds;
             }
 
             displayedClosing = displayedClosingVelocities[slot];
-            displayedHeight = displayedRelativeHeights[slot];
         }
 
-        private void DrawMissileMarkers()
+        private void DrawFriendlyMissileMarkers()
         {
             var projectiles = MechTestProjectile.Registry;
             var radius = Mathf.Max(3f, friendlyMissileMarkerRadius);
             for (var i = 0; i < projectiles.Count; i++)
             {
                 var projectile = projectiles[i];
-                if (!IsFriendlyMissile(projectile))
+                if (!IsFriendlyEngagementMissile(projectile))
                 {
                     continue;
                 }
@@ -1130,7 +1141,19 @@ namespace ACunicombat.Mechs
                     false,
                     1.4f);
             }
+        }
 
+        private void DrawIncomingMissileMarkersOnTop()
+        {
+            var previousDepth = GUI.depth;
+            GUI.depth = -1000;
+            DrawIncomingMissileMarkers();
+            GUI.depth = previousDepth;
+        }
+
+        private void DrawIncomingMissileMarkers()
+        {
+            var radius = Mathf.Max(3f, friendlyMissileMarkerRadius);
             var missileTrackCount =
                 radar.CopyMissileTracks(missileTracks);
             for (var i = 0; i < missileTrackCount; i++)
@@ -1224,7 +1247,7 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < projectiles.Count; i++)
             {
                 var projectile = projectiles[i];
-                if (!IsFriendlyMissile(projectile) ||
+                if (!IsFriendlyEngagementMissile(projectile) ||
                     !TryGetTrackScreenPoint(
                         projectile.GuidanceTrackId,
                         out var targetPoint))
@@ -1260,9 +1283,11 @@ namespace ACunicombat.Mechs
             }
         }
 
-        private bool IsFriendlyMissile(MechTestProjectile projectile) =>
+        private bool IsFriendlyEngagementMissile(
+            MechTestProjectile projectile) =>
             projectile != null &&
             projectile.IsMissile &&
+            projectile.IsEngagementActive &&
             projectile.IsOwnedBy(transform);
 
         private bool ShouldDisplayIncomingMissile(

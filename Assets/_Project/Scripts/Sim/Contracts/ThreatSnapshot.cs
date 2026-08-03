@@ -32,6 +32,8 @@ namespace ACunicombat.Sensing.Contracts
         DataLinkUplink = 4,
         /// <summary>红外羽焰点源（MAW 通道合成的伪波形）。</summary>
         InfraredPlume = 5,
+        /// <summary>主动激光测距脉冲。</summary>
+        LaserRangefinder = 6,
     }
 
     public readonly struct EsmThreatId : IEquatable<EsmThreatId>

@@ -33,6 +33,7 @@ namespace ACunicombat.Tests.EditMode
                     ObjectClass = TrackObjectClass.Missile,
                     ClassificationSignature = 0.9f,
                 });
+            world.SwapSnapshots(0.0);
 
             sensor.Tick(
                 new ElectroOpticalReceiverProfile
@@ -87,6 +88,7 @@ namespace ACunicombat.Tests.EditMode
                     ObjectClass = TrackObjectClass.Missile,
                     ClassificationSignature = 1f,
                 });
+            world.SwapSnapshots(0.0);
 
             sensor.Tick(
                 new ElectroOpticalReceiverProfile

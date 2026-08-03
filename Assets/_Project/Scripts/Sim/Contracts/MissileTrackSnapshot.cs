@@ -11,6 +11,7 @@ namespace ACunicombat.Sensing.Contracts
         Rwr = 1 << 1,
         Maw = 1 << 2,
         ElectroOptical = 1 << 3,
+        LaserRangefinder = 1 << 4,
     }
 
     public enum MissileTrackQuality : byte

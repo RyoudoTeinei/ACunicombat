@@ -30,10 +30,18 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0f)] private float sttCruiseShoulderOffset = 3f;
         [SerializeField, Min(0f)] private float sttOcclusionPullback = 2.5f;
         [SerializeField, Min(0.01f)] private float compositionResponse = 5f;
-        [SerializeField, Min(0f)] private float shoulderHoldSeconds = 3f;
         [SerializeField, Min(0f)] private float shoulderReleaseSeconds = 1.5f;
-        [SerializeField, Range(0f, 0.2f)] private float shoulderSwitchDeadZone = 0.06f;
         [SerializeField, Range(0f, 0.2f)] private float occlusionViewportPadding = 0.025f;
+        [Header("Occlusion escape")]
+        // 旧实现只给固定 3 m 横移。20 m 机距下机体宽 14 m 张角约 38.7 度，要把远处目标从剪影
+        // 中心推到边缘需要约 20*tan(19 度) = 6.9 m，固定 3 m 不到需要量的一半，必然推不出去。
+        [SerializeField, Min(0f)] private float occlusionLateralLimit = 8.5f;
+        // 纵向上限刻意小于横向：抬降镜头对"机体压在画面下方"的基础构图破坏更明显。
+        [SerializeField, Min(0f)] private float occlusionVerticalLimit = 5f;
+        [SerializeField, Range(0f, 0.1f)] private float occlusionEscapeMargin = 0.022f;
+        [SerializeField, Min(0f)] private float occlusionEscapeSwitchMargin = 1.2f;
+        [SerializeField, Min(0f)] private float occlusionEscapeSwitchCooldown = 0.8f;
+        [SerializeField, Min(0f)] private float occlusionHoldSeconds = 0.6f;
         [SerializeField, Min(0.02f)] private float rendererBoundsRefreshSeconds = 0.12f;
         [SerializeField] private Vector3 fallbackOwnshipBoundsSize = new Vector3(14f, 18f, 10f);
         [Header("Mouse aim cursor")]
@@ -80,10 +88,15 @@ namespace ACunicombat.Mechs
         private Vector3 compositionLocalOffsetVelocity;
         private TrackId compositionTrackId;
         private float shoulderSign = 1f;
-        private float shoulderDecisionLockedUntil;
-        private float shoulderAvoidanceUntil;
         private float shoulderBiasUntil;
         private uint observedReferenceFrameVersion;
+        // -1 = 无避让，0 = 横向，1 = 纵向。
+        private int occlusionEscapeAxis = -1;
+        private float occlusionEscapeSign = 1f;
+        private float occlusionEscapeMeters;
+        private bool occlusionEscapeClamped;
+        private float occlusionEscapeSwitchAllowedAt;
+        private float occlusionHoldUntil;
 
         public float PitchDegrees => pitchDegrees;
         public Vector2 AimViewportPoint
@@ -172,9 +185,12 @@ namespace ACunicombat.Mechs
             compositionLocalOffset = BaseCompositionOffset();
             compositionLocalOffsetVelocity = Vector3.zero;
             compositionTrackId = default;
-            shoulderDecisionLockedUntil = 0f;
-            shoulderAvoidanceUntil = 0f;
             shoulderBiasUntil = 0f;
+            occlusionEscapeAxis = -1;
+            occlusionEscapeMeters = 0f;
+            occlusionEscapeClamped = false;
+            occlusionHoldUntil = 0f;
+            occlusionEscapeSwitchAllowedAt = 0f;
             fieldOfViewVelocity = 0f;
             var rotation = ComputeRotation();
             transform.SetPositionAndRotation(
@@ -342,72 +358,252 @@ namespace ACunicombat.Mechs
             ResolveCombatReferences();
             var targetOffset = BaseCompositionOffset();
             var now = Time.unscaledTime;
-            if (radar == null ||
-                !radar.SttTrackId.IsValid ||
-                !radar.TryGetTrack(radar.SttTrackId, out var track))
+
+            // 巡航肩位仍然只在 STT 下生效。它是交战构图，不该被玩家没有主动关注的航迹带偏；
+            // 遮挡避让的目标范围比它更宽，见 TryResolveOcclusionTarget。
+            var hasStt = false;
+            var sttTrack = default(TrackSnapshot);
+            if (radar != null && radar.SttTrackId.IsValid)
+            {
+                hasStt = radar.TryGetTrack(radar.SttTrackId, out sttTrack);
+            }
+
+            if (hasStt)
+            {
+                if (!sttTrack.TrackId.Equals(compositionTrackId))
+                {
+                    // 换目标时清掉避让状态，避免沿用上一个目标的绕行方向。
+                    compositionTrackId = sttTrack.TrackId;
+                    occlusionEscapeAxis = -1;
+                    occlusionEscapeSwitchAllowedAt = 0f;
+                }
+
+                shoulderBiasUntil = now + Mathf.Max(0.5f, shoulderReleaseSeconds);
+                targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
+            }
+            else
             {
                 compositionTrackId = default;
                 if (now < shoulderBiasUntil)
                 {
-                    targetOffset.x =
-                        shoulderSign * sttCruiseShoulderOffset;
+                    targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
                 }
+            }
 
+            if (!TryResolveOcclusionTarget(hasStt, sttTrack, out var avoidTrack))
+            {
+                occlusionEscapeAxis = -1;
+                occlusionEscapeMeters = 0f;
+                occlusionEscapeClamped = false;
                 return targetOffset;
             }
 
-            var sttTrackId = track.TrackId;
-            var isNewTrack = !sttTrackId.Equals(compositionTrackId);
-            if (!sttTrackId.Equals(compositionTrackId))
+            ApplyOcclusionEscape(
+                radar.PredictTrackPosition(avoidTrack),
+                now,
+                ref targetOffset);
+            return targetOffset;
+        }
+
+        /// <summary>
+        /// 遮挡避让的目标：STT → 准星候选 → 最优航迹兜底。
+        /// 旧实现只认 STT，未锁定时 <c>IsTargetOccludedByOwnship</c> 一次都不会被调用——
+        /// 这是"机体完全盖住目标"最主要的成因。
+        /// </summary>
+        private bool TryResolveOcclusionTarget(
+            bool hasStt,
+            in TrackSnapshot sttTrack,
+            out TrackSnapshot track)
+        {
+            if (hasStt)
             {
-                compositionTrackId = sttTrackId;
-                shoulderDecisionLockedUntil = 0f;
-                shoulderAvoidanceUntil = 0f;
+                track = sttTrack;
+                return true;
             }
 
-            var targetPosition = radar.PredictTrackPosition(track);
+            track = default;
+            if (radar == null)
+            {
+                return false;
+            }
+
+            if (radar.CandidateTrackId.IsValid &&
+                radar.TryGetTrack(radar.CandidateTrackId, out track))
+            {
+                return true;
+            }
+
+            return radar.TryGetBestTrack(out track);
+        }
+
+        private void ApplyOcclusionEscape(
+            Vector3 targetPosition,
+            float now,
+            ref Vector3 targetOffset)
+        {
             var occluded = IsTargetOccludedByOwnship(
                 targetPosition,
                 out var targetViewport,
                 out var ownshipRect);
-            var hasCompositionProjection =
-                targetViewport.z > 0f &&
-                ownshipRect.width > 0f;
-            var horizontalDelta = hasCompositionProjection
-                ? targetViewport.x - ownshipRect.center.x
-                : 0f;
-            var holdDuration = Mathf.Max(2.5f, shoulderHoldSeconds);
-            if ((isNewTrack || occluded) &&
-                now >= shoulderDecisionLockedUntil)
-            {
-                if (Mathf.Abs(horizontalDelta) >= shoulderSwitchDeadZone)
-                {
-                    shoulderSign = Mathf.Sign(horizontalDelta);
-                }
-                else if (Mathf.Abs(compositionLocalOffset.x) >= 0.1f)
-                {
-                    shoulderSign = Mathf.Sign(compositionLocalOffset.x);
-                }
-
-                shoulderDecisionLockedUntil = now + holdDuration;
-            }
-
-            shoulderBiasUntil =
-                now + Mathf.Max(0.5f, shoulderReleaseSeconds);
-            targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
             if (occluded)
             {
-                targetOffset.z -= sttOcclusionPullback;
-                shoulderAvoidanceUntil = now + holdDuration;
+                occlusionHoldUntil = now + Mathf.Max(0.1f, occlusionHoldSeconds);
+                UpdateEscapeDecision(targetViewport, ownshipRect, now);
             }
-            else if (now < shoulderAvoidanceUntil)
+            else if (now >= occlusionHoldUntil)
             {
-                // Keep the selected shoulder after the target clears the silhouette. The offset
-                // remains fixed; only its persistence changes.
-                targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
+                // 目标露出后再保持一小段：剪影边缘附近的目标否则会让镜头反复进出避让状态。
+                occlusionEscapeAxis = -1;
+                occlusionEscapeMeters = 0f;
+                occlusionEscapeClamped = false;
             }
 
-            return targetOffset;
+            if (occlusionEscapeAxis == 0)
+            {
+                // 与巡航肩位同轴：取两者中较大的位移，避免叠加成两倍。
+                targetOffset.x = occlusionEscapeSign * Mathf.Max(
+                    Mathf.Abs(targetOffset.x),
+                    occlusionEscapeMeters);
+                shoulderSign = occlusionEscapeSign;
+            }
+            else if (occlusionEscapeAxis == 1)
+            {
+                targetOffset.y += occlusionEscapeSign * occlusionEscapeMeters;
+            }
+
+            // 单独后撤解决不了遮挡（机体与目标同时缩小、屏幕相对位置不变），但位移已经顶到
+            // 上限仍未露出时，后撤能减小剪影角宽度从而降低所需位移，作为辅助是有意义的。
+            if (occluded && occlusionEscapeClamped)
+            {
+                targetOffset.z -= sttOcclusionPullback;
+            }
+        }
+
+        /// <summary>
+        /// 闭环选路：把目标推出剪影所需的视口位移换算成相机位移，在左/右/上/下四个方向里
+        /// 取代价最小的一个。相机只平移不转向，而机体在 20 m、目标在数公里外，视差使得
+        /// 横移主要移动机体、几乎不移动目标——这正是位移能分离两者的原因。
+        /// </summary>
+        private void UpdateEscapeDecision(
+            Vector3 targetViewport,
+            Rect ownshipRect,
+            float now)
+        {
+            if (!TryGetViewportScale(out var lateralPerViewport, out var verticalPerViewport))
+            {
+                return;
+            }
+
+            var margin = occlusionEscapeMargin;
+            // 相机 +x 使近处的机体在画面上左移，所以"把机体推到目标左侧"对应 sign = +1。
+            var pushLeft = (ownshipRect.xMax - targetViewport.x + margin) * lateralPerViewport;
+            var pushRight = (targetViewport.x - ownshipRect.xMin + margin) * lateralPerViewport;
+            var pushDown = (ownshipRect.yMax - targetViewport.y + margin) * verticalPerViewport;
+            var pushUp = (targetViewport.y - ownshipRect.yMin + margin) * verticalPerViewport;
+
+            var bestAxis = 0;
+            var bestSign = 1f;
+            var bestCost = pushLeft;
+            if (pushRight < bestCost)
+            {
+                bestAxis = 0;
+                bestSign = -1f;
+                bestCost = pushRight;
+            }
+            if (pushDown < bestCost)
+            {
+                bestAxis = 1;
+                bestSign = 1f;
+                bestCost = pushDown;
+            }
+            if (pushUp < bestCost)
+            {
+                bestAxis = 1;
+                bestSign = -1f;
+                bestCost = pushUp;
+            }
+
+            // 迟滞：同轴同向时允许连续跟随重叠深度调整（这才是"闭环"）；换边/换轴需要新方案
+            // 明显更省且冷却已过。旧实现用的是 2.5 s 硬锁，目标横穿剪影时会一直被挡住。
+            if (occlusionEscapeAxis >= 0)
+            {
+                var currentCost = ResolveEscapeCost(
+                    occlusionEscapeAxis,
+                    occlusionEscapeSign,
+                    pushLeft,
+                    pushRight,
+                    pushDown,
+                    pushUp);
+                var sameChoice =
+                    occlusionEscapeAxis == bestAxis &&
+                    Mathf.Approximately(occlusionEscapeSign, bestSign);
+                if (!sameChoice)
+                {
+                    var cheaperByMargin = bestCost + occlusionEscapeSwitchMargin < currentCost;
+                    if (!cheaperByMargin || now < occlusionEscapeSwitchAllowedAt)
+                    {
+                        bestAxis = occlusionEscapeAxis;
+                        bestSign = occlusionEscapeSign;
+                        bestCost = currentCost;
+                    }
+                    else
+                    {
+                        occlusionEscapeSwitchAllowedAt =
+                            now + Mathf.Max(0f, occlusionEscapeSwitchCooldown);
+                    }
+                }
+            }
+
+            var limit = bestAxis == 0 ? occlusionLateralLimit : occlusionVerticalLimit;
+            occlusionEscapeClamped = bestCost > limit;
+            occlusionEscapeAxis = bestAxis;
+            occlusionEscapeSign = bestSign;
+            occlusionEscapeMeters = Mathf.Min(Mathf.Max(0f, bestCost), limit);
+        }
+
+        private static float ResolveEscapeCost(
+            int axis,
+            float sign,
+            float pushLeft,
+            float pushRight,
+            float pushDown,
+            float pushUp)
+        {
+            if (axis == 0)
+            {
+                return sign >= 0f ? pushLeft : pushRight;
+            }
+
+            return sign >= 0f ? pushDown : pushUp;
+        }
+
+        /// <summary>
+        /// 一个完整视口跨度在机体所在深度上对应多少米。视口位移必须按<b>机体</b>的距离换算，
+        /// 因为要移动的是机体在画面上的位置，目标在数公里外基本不动。
+        /// </summary>
+        private bool TryGetViewportScale(
+            out float lateralPerViewport,
+            out float verticalPerViewport)
+        {
+            lateralPerViewport = 0f;
+            verticalPerViewport = 0f;
+            if (controlledCamera == null || !hasOwnshipWorldBounds)
+            {
+                return false;
+            }
+
+            var ownshipDistance = Vector3.Distance(
+                transform.position,
+                ownshipWorldBounds.center);
+            if (ownshipDistance <= 0.01f)
+            {
+                return false;
+            }
+
+            var halfFovRadians = controlledCamera.fieldOfView * 0.5f * Mathf.Deg2Rad;
+            verticalPerViewport = 2f * Mathf.Tan(halfFovRadians) * ownshipDistance;
+            lateralPerViewport = verticalPerViewport * Mathf.Max(0.1f, controlledCamera.aspect);
+            return verticalPerViewport > 0.0001f;
         }
 
         private Vector3 BaseCompositionOffset() =>

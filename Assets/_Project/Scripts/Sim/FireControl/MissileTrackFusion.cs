@@ -10,6 +10,9 @@ namespace ACunicombat.FireControl
         public float ThreatAssociationRadians;
         public double ThreatMaximumAgeSeconds;
         public double ElectroOpticalMaximumAgeSeconds;
+        public double LaserRangeMaximumAgeSeconds;
+        public float LaserRangeAssociationGateMeters;
+        public float LaserRangeAssociationGateRadians;
         public float IncomingHorizonSeconds;
         public float ProtectedRadiusMeters;
         public float GuidedThreatRangeMeters;
@@ -34,6 +37,10 @@ namespace ACunicombat.FireControl
                 ThreatAssociationRadians = math.radians(20f),
                 ThreatMaximumAgeSeconds = 1.5,
                 ElectroOpticalMaximumAgeSeconds = 0.2,
+                LaserRangeMaximumAgeSeconds = 0.12,
+                LaserRangeAssociationGateMeters = 400f,
+                LaserRangeAssociationGateRadians =
+                    math.radians(0.5f),
                 IncomingHorizonSeconds = 90f,
                 ProtectedRadiusMeters = 250f,
                 GuidedThreatRangeMeters = 30_000f,
@@ -152,6 +159,38 @@ namespace ACunicombat.FireControl
 
         public static int Fuse(
             in MissileTrackFusionConfig config,
+            TrackSnapshot[] radarTracks,
+            int radarTrackCount,
+            ThreatSnapshot[] threats,
+            int threatCount,
+            ElectroOpticalObservation[] electroOpticalObservations,
+            int electroOpticalCount,
+            LaserRangeObservation[] laserRangeObservations,
+            int laserRangeCount,
+            double3 ownshipPosition,
+            double3 ownshipVelocity,
+            double now,
+            MissileTrackSnapshot[] destination)
+        {
+            return Fuse(
+                in config,
+                null,
+                radarTracks,
+                radarTrackCount,
+                threats,
+                threatCount,
+                electroOpticalObservations,
+                electroOpticalCount,
+                laserRangeObservations,
+                laserRangeCount,
+                ownshipPosition,
+                ownshipVelocity,
+                now,
+                destination);
+        }
+
+        public static int Fuse(
+            in MissileTrackFusionConfig config,
             MissileTrackFusionState state,
             TrackSnapshot[] radarTracks,
             int radarTrackCount,
@@ -159,6 +198,39 @@ namespace ACunicombat.FireControl
             int threatCount,
             ElectroOpticalObservation[] electroOpticalObservations,
             int electroOpticalCount,
+            double3 ownshipPosition,
+            double3 ownshipVelocity,
+            double now,
+            MissileTrackSnapshot[] destination)
+        {
+            return Fuse(
+                in config,
+                state,
+                radarTracks,
+                radarTrackCount,
+                threats,
+                threatCount,
+                electroOpticalObservations,
+                electroOpticalCount,
+                null,
+                0,
+                ownshipPosition,
+                ownshipVelocity,
+                now,
+                destination);
+        }
+
+        public static int Fuse(
+            in MissileTrackFusionConfig config,
+            MissileTrackFusionState state,
+            TrackSnapshot[] radarTracks,
+            int radarTrackCount,
+            ThreatSnapshot[] threats,
+            int threatCount,
+            ElectroOpticalObservation[] electroOpticalObservations,
+            int electroOpticalCount,
+            LaserRangeObservation[] laserRangeObservations,
+            int laserRangeCount,
             double3 ownshipPosition,
             double3 ownshipVelocity,
             double now,
@@ -220,6 +292,26 @@ namespace ACunicombat.FireControl
                 {
                     sourceMask |=
                         MissileTrackSourceMask.ElectroOptical;
+                    relativePosition =
+                        estimatedPosition - ownshipPosition;
+                }
+                var laserPositionUncertainty =
+                    float.PositiveInfinity;
+                var laserConfirmed =
+                    AssociateLaserRangeObservation(
+                        in config,
+                        ownshipPosition,
+                        ref estimatedPosition,
+                        laserRangeObservations,
+                        laserRangeCount,
+                        now,
+                        ref confidence,
+                        ref lastEvidenceTime,
+                        out laserPositionUncertainty);
+                if (laserConfirmed)
+                {
+                    sourceMask |=
+                        MissileTrackSourceMask.LaserRangefinder;
                     relativePosition =
                         estimatedPosition - ownshipPosition;
                 }
@@ -381,6 +473,29 @@ namespace ACunicombat.FireControl
                     quality = MissileTrackQuality.WeaponsQuality;
                 }
 
+                // Position 是 track.PredictPosition(now) 外推出来的，所以它的不确定度必须把
+                // "用带噪声的速度外推了多久" 算进去。原先用的 CalculatePositionUncertainty
+                // 只取位置协方差（索引 0/1/2），完全忽略速度协方差与外推时长——刚分配的航迹
+                // 速度 sigma 是 InitialVelocitySigmaMetersPerSecond = 300 m/s，外推 0.3 s
+                // 就有上百米的真实误差，却报出一个很小的不确定度。
+                //
+                // 这直接造成"来袭导弹虚影"：同一枚导弹偶尔关联失败会新建一条航迹，新航迹
+                // 速度接近 0 因而几乎不外推，而已收敛的真航迹按上千 m/s 正常外推，两者位置
+                // 拉开数百米；FindDuplicate 的位置门限（300 m 或两者不确定度之和）拿到的却是
+                // 被低估的不确定度，于是判为两个目标，HUD 上就出现两个框。
+                //
+                // 同一文件里 CalculateCpaPositionUncertainty 已经写了正确的协方差外推
+                // （position + 2·t·cross + t²·velocity），这里按航迹年龄复用它即可。
+                // 副作用都是想要的：去重门限自动放宽、火控交战门限会正确地拒绝对粗航迹开火、
+                // HUD 的红/琥珀分级也变得诚实。
+                var propagationAge = (float)math.max(
+                    0.0,
+                    now - track.LastUpdateTime);
+                var propagatedPositionUncertainty =
+                    CalculateCpaPositionUncertainty(
+                        in track,
+                        propagationAge);
+
                 var candidate =
                     new MissileTrackSnapshot
                     {
@@ -390,9 +505,16 @@ namespace ACunicombat.FireControl
                         Acceleration = estimatedAcceleration,
                         Jerk = estimatedJerk,
                         PositionUncertaintyMeters =
-                            CalculatePositionUncertainty(in track) *
-                            (opticalConfirmed ? 0.7f : 1f),
-                        CpaUncertaintyMeters = cpaUncertainty,
+                            laserConfirmed
+                                ? math.min(
+                                    propagatedPositionUncertainty *
+                                    (opticalConfirmed ? 0.7f : 1f),
+                                    laserPositionUncertainty)
+                                : propagatedPositionUncertainty *
+                                  (opticalConfirmed ? 0.7f : 1f),
+                        CpaUncertaintyMeters =
+                            cpaUncertainty *
+                            (laserConfirmed ? 0.8f : 1f),
                         Confidence = confidence,
                         SourceMask = sourceMask,
                         Quality = quality,
@@ -785,6 +907,117 @@ namespace ACunicombat.FireControl
                 best.ClassificationConfidence * 0.08f);
             lastUpdate =
                 math.max(lastUpdate, best.Timestamp);
+            return true;
+        }
+
+        private static bool AssociateLaserRangeObservation(
+            in MissileTrackFusionConfig config,
+            double3 ownshipPosition,
+            ref double3 estimatedPosition,
+            LaserRangeObservation[] observations,
+            int observationCount,
+            double now,
+            ref float confidence,
+            ref double lastUpdate,
+            out float positionUncertaintyMeters)
+        {
+            positionUncertaintyMeters = float.PositiveInfinity;
+            if (observations == null)
+            {
+                return false;
+            }
+
+            var relativePosition =
+                estimatedPosition - ownshipPosition;
+            var expectedRange = math.length(relativePosition);
+            if (expectedRange <= 1.0)
+            {
+                return false;
+            }
+
+            var expectedDirection = math.normalizesafe(
+                (float3)relativePosition,
+                new float3(0f, 0f, 1f));
+            var bestIndex = -1;
+            var bestScore = float.PositiveInfinity;
+            var count = math.min(
+                observationCount,
+                observations.Length);
+            for (var i = 0; i < count; i++)
+            {
+                var observation = observations[i];
+                if (observation.ObjectClass !=
+                        TrackObjectClass.Missile ||
+                    observation.ClassificationConfidence < 0.25f ||
+                    now - observation.Timestamp >
+                        config.LaserRangeMaximumAgeSeconds)
+                {
+                    continue;
+                }
+
+                var direction = math.normalizesafe(
+                    observation.Direction,
+                    expectedDirection);
+                var angle = math.acos(math.clamp(
+                    math.dot(expectedDirection, direction),
+                    -1f,
+                    1f));
+                var angleGate = math.max(
+                    config.LaserRangeAssociationGateRadians,
+                    math.sqrt(math.max(
+                        observation.AngleVar,
+                        1e-10f)) * 4f);
+                var rangeResidual = math.abs(
+                    observation.RangeMeters -
+                    (float)expectedRange);
+                var rangeGate = math.max(
+                    config.LaserRangeAssociationGateMeters,
+                    math.sqrt(math.max(
+                        observation.RangeVar,
+                        0.01f)) * 4f);
+                if (angle > angleGate ||
+                    rangeResidual > rangeGate)
+                {
+                    continue;
+                }
+
+                var score =
+                    angle / math.max(angleGate, 1e-6f) +
+                    rangeResidual / math.max(rangeGate, 0.1f);
+                if (score < bestScore)
+                {
+                    bestIndex = i;
+                    bestScore = score;
+                }
+            }
+
+            if (bestIndex < 0)
+            {
+                return false;
+            }
+
+            var best = observations[bestIndex];
+            var measuredDirection = math.normalizesafe(
+                best.Direction,
+                expectedDirection);
+            estimatedPosition =
+                ownshipPosition +
+                (double3)measuredDirection *
+                math.max(0.1f, best.RangeMeters);
+            var angularSigma = math.sqrt(
+                math.max(best.AngleVar, 1e-10f));
+            var rangeSigma = math.sqrt(
+                math.max(best.RangeVar, 0.01f));
+            var transverseSigma =
+                math.max(0.1f, best.RangeMeters) *
+                angularSigma;
+            positionUncertaintyMeters = math.sqrt(
+                rangeSigma * rangeSigma +
+                2f * transverseSigma * transverseSigma);
+            confidence = math.saturate(
+                confidence + 0.12f +
+                best.ClassificationConfidence * 0.06f);
+            lastUpdate = math.max(lastUpdate, best.Timestamp);
             return true;
         }
 
