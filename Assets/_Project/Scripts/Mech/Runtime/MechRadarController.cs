@@ -55,6 +55,16 @@ namespace ACunicombat.Mechs
         private const float DesignationCaptureBoxPixels = 54f;
         private const float SttAzimuthLimitDegrees = SearchAzimuthDegrees * 0.5f;
         private const float SttElevationLimitDegrees = SearchElevationDegrees * 0.5f;
+        private enum SttBreakReason : byte
+        {
+            Manual,
+            OperationModeDisabled,
+            TrackMissing,
+            TrackDropped,
+            TrackStale,
+            OutsideRadarFrame,
+        }
+
         private struct GuidanceChannel
         {
             public TrackId TrackId;
@@ -211,12 +221,33 @@ namespace ACunicombat.Mechs
             trackOperationMode = enabled;
             if (!enabled)
             {
-                BreakSingleTargetTrack();
+                BreakSingleTargetTrack(
+                    SttBreakReason.OperationModeDisabled);
             }
         }
 
         public void BreakSingleTargetTrack()
         {
+            BreakSingleTargetTrack(SttBreakReason.Manual);
+        }
+
+        private void BreakSingleTargetTrack(SttBreakReason reason)
+        {
+            var previousTrackId = sttTrackId;
+            if (previousTrackId.IsValid)
+            {
+                var details = TryGetTrack(previousTrackId, out var track)
+                    ? $" class={track.ObjectClass}" +
+                      $" lifecycle={track.Lifecycle}" +
+                      $" confidence={track.Confidence:0.00}" +
+                      $" age={Math.Max(0.0, SimTimeSeconds - track.LastUpdateTime):0.000}s"
+                    : " track=unavailable";
+                Debug.Log(
+                    $"[MechRadar][STT] break track={previousTrackId.Packed}" +
+                    $" reason={reason}{details}",
+                    this);
+            }
+
             sttTrackId = default;
             candidateTrackId = default;
             designationProgress = 0f;
@@ -726,9 +757,21 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            // Once STT is established, target changes must be explicit. Continuing
+            // reticle selection here allowed a newly launched missile on the same
+            // line of sight to overwrite the aircraft track silently.
+            if (HasStt)
+            {
+                candidateTrackId = sttTrackId;
+                designationProgress = 1f;
+                return;
+            }
+
             var count = CopyTracks(trackScratch);
             var bestId = default(TrackId);
             var bestScore = float.MaxValue;
+            var bestClassPriority = int.MaxValue;
+            var retainCurrentCandidate = false;
             var captureHalfSize = DesignationCaptureBoxPixels * 0.5f;
             var pixelWidth = Mathf.Max(1f, viewCamera.pixelWidth);
             var pixelHeight = Mathf.Max(1f, viewCamera.pixelHeight);
@@ -761,11 +804,29 @@ namespace ACunicombat.Mechs
                 }
 
                 var score = dxPixels * dxPixels + dyPixels * dyPixels;
-                if (score < bestScore)
+                if (track.TrackId.Equals(candidateTrackId))
                 {
+                    retainCurrentCandidate = true;
+                }
+
+                var classPriority = DesignationClassPriority(
+                    track.ObjectClass);
+                if (classPriority < bestClassPriority ||
+                    (classPriority == bestClassPriority &&
+                     score < bestScore))
+                {
+                    bestClassPriority = classPriority;
                     bestScore = score;
                     bestId = track.TrackId;
                 }
+            }
+
+            // Measurement noise must not restart designation while the selected
+            // track remains inside the capture box. The player can still move the
+            // reticle off it or use the explicit cycle/break controls.
+            if (retainCurrentCandidate)
+            {
+                bestId = candidateTrackId;
             }
 
             // The reticle center must remain inside the same 54 px box drawn around a normal track.
@@ -804,8 +865,24 @@ namespace ACunicombat.Mechs
                 candidate.Lifecycle == TrackLifecycle.Confirmed)
             {
                 sttTrackId = candidate.TrackId;
+                candidateTrackId = sttTrackId;
+                Debug.Log(
+                    $"[MechRadar][STT] acquired track={sttTrackId.Packed}" +
+                    $" class={candidate.ObjectClass}" +
+                    $" confidence={candidate.Confidence:0.00}" +
+                    $" interference={candidate.InterferenceScore:0.00}",
+                    this);
             }
         }
+
+        private static int DesignationClassPriority(
+            TrackObjectClass objectClass) => objectClass switch
+        {
+            TrackObjectClass.AirVehicle => 0,
+            TrackObjectClass.Unknown => 1,
+            TrackObjectClass.Missile => 2,
+            _ => 3,
+        };
 
         public void CycleCandidate(int direction)
         {
@@ -1112,7 +1189,8 @@ namespace ACunicombat.Mechs
             if (direction.sqrMagnitude < 0.5f ||
                 !IsWithinBodyRadarFrame(direction))
             {
-                BreakSingleTargetTrack();
+                BreakSingleTargetTrack(
+                    SttBreakReason.OutsideRadarFrame);
                 return;
             }
 
@@ -1388,13 +1466,29 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            if (!TryGetTrack(sttTrackId, out var track) ||
-                track.Lifecycle == TrackLifecycle.Dropped ||
-                SimTimeSeconds - track.LastUpdateTime > 3.0 ||
-                !IsWithinBodyRadarFrame(
+            if (!TryGetTrack(sttTrackId, out var track))
+            {
+                BreakSingleTargetTrack(SttBreakReason.TrackMissing);
+                return;
+            }
+
+            if (track.Lifecycle == TrackLifecycle.Dropped)
+            {
+                BreakSingleTargetTrack(SttBreakReason.TrackDropped);
+                return;
+            }
+
+            if (SimTimeSeconds - track.LastUpdateTime > 3.0)
+            {
+                BreakSingleTargetTrack(SttBreakReason.TrackStale);
+                return;
+            }
+
+            if (!IsWithinBodyRadarFrame(
                     PredictTrackPosition(track) - transform.position))
             {
-                BreakSingleTargetTrack();
+                BreakSingleTargetTrack(
+                    SttBreakReason.OutsideRadarFrame);
             }
         }
 
