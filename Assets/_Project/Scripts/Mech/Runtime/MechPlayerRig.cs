@@ -105,6 +105,7 @@ namespace ACunicombat.Mechs
         private MechRadarController radar;
         private Camera viewCamera;
         private MechEngineController engineController;
+        private MechMechanicalAudioController mechanicalAudioController;
         private ShoulderLauncherState leftShoulderLauncher;
         private ShoulderLauncherState rightShoulderLauncher;
         private bool actionPlayerAttached;
@@ -132,6 +133,12 @@ namespace ACunicombat.Mechs
                 engineController = gameObject.AddComponent<MechEngineController>();
             }
             engineController.Configure(motion, !aiControlled);
+            mechanicalAudioController = GetComponent<MechMechanicalAudioController>();
+            if (mechanicalAudioController == null)
+            {
+                mechanicalAudioController = gameObject.AddComponent<MechMechanicalAudioController>();
+            }
+            mechanicalAudioController.Configure(motion, !aiControlled);
             if (thrustVisualizer == null)
             {
                 thrustVisualizer = GetComponent<MechThrustVisualizer>();
