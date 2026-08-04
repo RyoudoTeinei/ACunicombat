@@ -283,31 +283,31 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            const float horizontalGap = 12f;
-            var stripWidth = Mathf.Min(920f, Screen.width - 32f);
-            var entryWidth =
-                (stripWidth - horizontalGap * 3f) / 4f;
-            var stripX = Screen.width - stripWidth - 20f;
-            var rowY = Mathf.Max(12f, Screen.height - 188f);
+            const float columnGap = 24f;
+            const float rowSpacing = 36f;
+            var panelWidth = Mathf.Min(560f, Screen.width - 32f);
+            var entryWidth = (panelWidth - columnGap) * 0.5f;
+            var panelX = Screen.width - panelWidth - 20f;
+            var firstRowY = Mathf.Max(12f, Screen.height - 226f);
 
             var leftMissileRect = new Rect(
-                stripX,
-                rowY,
+                panelX,
+                firstRowY,
                 entryWidth,
                 30f);
             var cannonRect = new Rect(
-                leftMissileRect.xMax + horizontalGap,
-                rowY,
-                entryWidth,
-                30f);
-            var rifleRect = new Rect(
-                cannonRect.xMax + horizontalGap,
-                rowY,
+                panelX,
+                firstRowY + rowSpacing,
                 entryWidth,
                 30f);
             var rightMissileRect = new Rect(
-                rifleRect.xMax + horizontalGap,
-                rowY,
+                leftMissileRect.xMax + columnGap,
+                firstRowY,
+                entryWidth,
+                30f);
+            var rifleRect = new Rect(
+                rightMissileRect.x,
+                firstRowY + rowSpacing,
                 entryWidth,
                 30f);
 
@@ -330,15 +330,6 @@ namespace ACunicombat.Mechs
                 weaponSystem.CannonReloadRemainingSeconds,
                 "装");
             DrawWeaponAmmoEntry(
-                rifleRect,
-                "R 30MM",
-                weaponSystem.RifleRoundsRemaining,
-                weaponSystem.RifleMagazineCapacity,
-                weaponSystem.RifleMagazinesRemaining,
-                weaponSystem.RifleReloading,
-                weaponSystem.RifleReloadRemainingSeconds,
-                "换");
-            DrawWeaponAmmoEntry(
                 rightMissileRect,
                 "R MSL",
                 weaponSystem.RightMissileRoundsRemaining,
@@ -347,6 +338,15 @@ namespace ACunicombat.Mechs
                 false,
                 0f,
                 string.Empty);
+            DrawWeaponAmmoEntry(
+                rifleRect,
+                "R 30MM",
+                weaponSystem.RifleRoundsRemaining,
+                weaponSystem.RifleMagazineCapacity,
+                weaponSystem.RifleMagazinesRemaining,
+                weaponSystem.RifleReloading,
+                weaponSystem.RifleReloadRemainingSeconds,
+                "换");
         }
 
         private void DrawWeaponAmmoEntry(
