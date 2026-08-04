@@ -18,6 +18,9 @@ namespace ACunicombat.Tracking
         private const double UnobservedMissAgeSeconds = 1.0;
         private const double MaximumAssociationAgeSeconds = 1.0;
         private const double MaximumTrackAgeSeconds = 3.0;
+        private const double LaserRefinementMaximumAgeSeconds = 0.12;
+        // Chi-square 99% quantile for a three-dimensional position innovation.
+        private const double LaserRefinementNisGate = 11.345;
 
         private struct TrackSlot
         {
@@ -150,14 +153,6 @@ namespace ACunicombat.Tracking
                     measurement.Timestamp);
                 if (slotIndex < 0)
                 {
-                    // RefinementOnly 的测量（被 cue 指向的激光测距）不得起始新航迹：
-                    // 它没有多普勒，起始出来的航迹速度不可观测；而孤立的激光回波更可能是
-                    // 指向偏差或杂散反射，用来建航迹只会制造虚影。
-                    if ((measurement.Flags & MeasurementFlags.RefinementOnly) != 0)
-                    {
-                        continue;
-                    }
-
                     slotIndex = AllocateTrack(
                         cartesian,
                         in cartesianCovariance,
@@ -347,6 +342,90 @@ namespace ACunicombat.Tracking
             }
 
             return count;
+        }
+
+        /// <summary>
+        /// Applies a cued laser return to an already confirmed missile track.
+        /// The update cannot create, confirm, revive, or keep a radar track
+        /// alive. A strict NIS gate protects the high-gain position update from
+        /// pulling the filter onto another object inside the laser beam.
+        /// </summary>
+        public bool TryRefineConfirmedTrackWithLaser(
+            in LaserRangeObservation observation,
+            double3 sensorPosition,
+            double simTime,
+            out double normalizedInnovationSquared)
+        {
+            normalizedInnovationSquared = double.PositiveInfinity;
+            if (!observation.CuedTrackId.IsValid ||
+                observation.ObjectClass != TrackObjectClass.Missile ||
+                float.IsNaN(observation.RangeMeters) ||
+                observation.RangeMeters <= 0f ||
+                math.lengthsq(observation.Direction) <= 1e-8f ||
+                observation.Timestamp > simTime + 1e-6 ||
+                simTime - observation.Timestamp >
+                    LaserRefinementMaximumAgeSeconds)
+            {
+                return false;
+            }
+
+            var index = observation.CuedTrackId.Value.Index;
+            if ((uint)index >= slots.Length ||
+                !slots[index].Active ||
+                !slots[index].Id.Equals(observation.CuedTrackId))
+            {
+                return false;
+            }
+
+            var slot = slots[index];
+            if (slot.Lifecycle.State != TrackLifecycle.Confirmed ||
+                slot.ObjectClass != TrackObjectClass.Missile)
+            {
+                return false;
+            }
+
+            var propagationSeconds =
+                observation.Timestamp - slot.Filter.Time;
+            if (propagationSeconds < -1e-6)
+            {
+                return false;
+            }
+            if (propagationSeconds > 0.0)
+            {
+                Cmkf.PredictCv(
+                    ref slot.Filter,
+                    propagationSeconds,
+                    4.0,
+                    16.0);
+            }
+
+            Cmkf.ConvertMeasurement(
+                sensorPosition,
+                observation.RangeMeters,
+                math.normalizesafe(
+                    observation.Direction,
+                    new float3(0f, 0f, 1f)),
+                math.max(observation.RangeVar, 1e-3f),
+                math.max(observation.AngleVar, 1e-12f),
+                out var cartesian,
+                out var measurementCovariance);
+            if (!Cmkf.TryCalculatePositionInnovationNis(
+                    in slot.Filter,
+                    cartesian,
+                    in measurementCovariance,
+                    out normalizedInnovationSquared) ||
+                normalizedInnovationSquared > LaserRefinementNisGate)
+            {
+                return false;
+            }
+
+            Cmkf.UpdatePosition(
+                ref slot.Filter,
+                cartesian,
+                in measurementCovariance);
+            slot.SourceMask |= TrackSourceMask.LaserRangefinder;
+            slots[index] = slot;
+            return true;
         }
 
         private int FindAssociation(

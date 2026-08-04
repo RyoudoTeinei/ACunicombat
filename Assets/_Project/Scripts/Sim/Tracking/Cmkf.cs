@@ -199,6 +199,56 @@ namespace ACunicombat.Tracking
             AssertDiagonal(in s.P);
         }
 
+        /// <summary>
+        /// Calculates the normalized innovation squared for a 3D position
+        /// measurement. Callers use this before a high-gain refinement update
+        /// so an incorrectly associated observation cannot pull a track onto
+        /// another target.
+        /// </summary>
+        public static bool TryCalculatePositionInnovationNis(
+            in FilterState state,
+            double3 measurement,
+            in Matrix6 measurementCovariance,
+            out double nis)
+        {
+            Span<double> innovationCovariance = stackalloc double[9];
+            for (var row = 0; row < 3; row++)
+            {
+                for (var column = 0; column < 3; column++)
+                {
+                    innovationCovariance[row * 3 + column] =
+                        state.P[row, column] +
+                        measurementCovariance[row, column];
+                }
+
+                innovationCovariance[row * 3 + row] += 1e-9;
+            }
+
+            Span<double> inverse = stackalloc double[9];
+            if (!TryInvertSymmetric3(innovationCovariance, inverse))
+            {
+                nis = double.PositiveInfinity;
+                return false;
+            }
+
+            var innovation = measurement - state.Position;
+            var weightedX = inverse[0] * innovation.x +
+                            inverse[1] * innovation.y +
+                            inverse[2] * innovation.z;
+            var weightedY = inverse[3] * innovation.x +
+                            inverse[4] * innovation.y +
+                            inverse[5] * innovation.z;
+            var weightedZ = inverse[6] * innovation.x +
+                            inverse[7] * innovation.y +
+                            inverse[8] * innovation.z;
+            nis = innovation.x * weightedX +
+                  innovation.y * weightedY +
+                  innovation.z * weightedZ;
+            return !double.IsNaN(nis) &&
+                   !double.IsInfinity(nis) &&
+                   nis >= 0.0;
+        }
+
         private static bool TryInvertSymmetric3(ReadOnlySpan<double> m, Span<double> inverse)
         {
             var a = m[0];

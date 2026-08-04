@@ -34,6 +34,7 @@ namespace ACunicombat.Sensing.Contracts
         ElectroOptical = 1 << 1,
         Esm = 1 << 2,
         DataLink = 1 << 3,
+        LaserRangefinder = 1 << 4,
     }
 
     /// <summary>

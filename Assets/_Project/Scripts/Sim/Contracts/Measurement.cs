@@ -26,13 +26,6 @@ namespace ACunicombat.Sensing.Contracts
         SuspectedClutter = 1 << 1,
         Jammed = 1 << 2,
         Passive = 1 << 3,
-        /// <summary>
-        /// 只用于精化已有航迹，不得凭它自己新建航迹。用于被引导指向的高精度测距器
-        /// （激光）：它没有多普勒、且只在被 cue 到某条航迹时才发射，孤立的回波更可能是
-        /// 指向偏差或杂散反射，用来起始新航迹会造成虚影。这是传感器使用方式的属性，
-        /// 不是真值标签。
-        /// </summary>
-        RefinementOnly = 1 << 4,
     }
 
     /// <summary>

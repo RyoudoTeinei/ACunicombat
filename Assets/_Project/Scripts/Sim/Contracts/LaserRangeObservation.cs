@@ -12,6 +12,11 @@ namespace ACunicombat.Sensing.Contracts
     public struct LaserRangeObservation
     {
         public SensorId SensorId;
+        /// <summary>
+        /// Fire-control track that cued the pulse. This is an estimated track
+        /// identity, not a simulation entity identity.
+        /// </summary>
+        public TrackId CuedTrackId;
         public double Timestamp;
         public float RangeMeters;
         public float RangeVar;

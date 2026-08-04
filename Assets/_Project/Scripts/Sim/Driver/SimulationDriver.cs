@@ -353,10 +353,16 @@ namespace ACunicombat.Simulation.Driver
                     }
                 }
 
-                // 激光测距回波与雷达检测一起送进跟踪器，让滤波器的速度估计也受益于激光的
-                // 高测角精度——横向速度没有任何直接量测，只能由位置序列的斜率推出，因此位置
-                // 横向噪声（雷达约 9.3 m / 激光约 1.57 m @3 km）直接决定提前量误差。
-                // 标记为 RefinementOnly，孤立回波只会被丢弃而不会新建航迹。
+                trackManager.Process(
+                    trackDetectionScratch,
+                    trackEmissionScratch,
+                    sensorPosition,
+                    sensorVelocity,
+                    tickTime);
+
+                // Laser returns refine only the confirmed missile track that
+                // cued the pulse. They do not create tracks, count as radar
+                // hits, or keep a coasting radar track alive.
                 if (laserRangefinder != null)
                 {
                     var laserObservations = laserRangefinder.Observations;
@@ -364,21 +370,15 @@ namespace ACunicombat.Simulation.Driver
                          laserIndex < laserObservations.Length;
                          laserIndex++)
                     {
-                        if (LaserMeasurementBridge.TryConvert(
-                                laserObservations[laserIndex],
-                                out var laserMeasurement))
-                        {
-                            trackDetectionScratch.Add(laserMeasurement);
-                        }
+                        var laserObservation =
+                            laserObservations[laserIndex];
+                        trackManager.TryRefineConfirmedTrackWithLaser(
+                            in laserObservation,
+                            sensorPosition,
+                            tickTime,
+                            out _);
                     }
                 }
-
-                trackManager.Process(
-                    trackDetectionScratch,
-                    trackEmissionScratch,
-                    sensorPosition,
-                    sensorVelocity,
-                    tickTime);
 
                 // 数据链：投递队列中的报文（写链路辐射 + 按物理条件投递）。
                 dataLink.Tick(tickTime);

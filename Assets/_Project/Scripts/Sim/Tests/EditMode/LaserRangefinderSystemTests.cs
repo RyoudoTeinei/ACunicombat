@@ -32,9 +32,11 @@ namespace ACunicombat.Tests.EditMode
                 ClassificationSignature = 0.9f,
             });
             world.SwapSnapshots(0.0);
+            var cuedTrackId = new TrackId(new Handle(7, 1));
             Assert.That(sensor.SchedulePulse(new LaserPulse
             {
                 SensorId = sensorId,
+                CuedTrackId = cuedTrackId,
                 DueTime = 1.0,
                 Direction = math.normalize(new float3(4f, 0f, 2_000f)),
                 Sequence = 7,
@@ -49,6 +51,7 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(sensor.Observations.Length, Is.EqualTo(1));
             var observation = sensor.Observations[0];
             Assert.That(observation.SensorId, Is.EqualTo(sensorId));
+            Assert.That(observation.CuedTrackId, Is.EqualTo(cuedTrackId));
             Assert.That(observation.Timestamp, Is.EqualTo(1.0));
             Assert.That(
                 observation.RangeMeters,

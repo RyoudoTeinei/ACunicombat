@@ -36,6 +36,7 @@ namespace ACunicombat.Sensors
     public struct LaserPulse
     {
         public SensorId SensorId;
+        public TrackId CuedTrackId;
         public double DueTime;
         public float3 Direction;
         public ulong Sequence;
@@ -297,6 +298,7 @@ namespace ACunicombat.Sensors
                 observations.Add(new LaserRangeObservation
                 {
                     SensorId = sensor.SensorId,
+                    CuedTrackId = pulse.CuedTrackId,
                     Timestamp = timestamp,
                     RangeMeters = measuredRange,
                     RangeVar = rangeSigma * rangeSigma,

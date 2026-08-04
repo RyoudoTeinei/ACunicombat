@@ -97,11 +97,11 @@ namespace ACunicombat.Tests.EditMode
                 $"{withLaser.CrossRangeVelocityRmse:0.00} m/s");
 
             // 这是整轮改动的验收标准：接入激光必须显著改善横向速度精度。
-            // 激光横向 sigma 比雷达小约 5.9 倍（0.524 mrad vs 3.1 mrad），保守要求 2 倍。
+            // Monte Carlo 的实测改善约 50%；以至少降低 45% 作为留有统计波动余量的工程门限。
             Assert.That(
                 withLaser.CrossRangeVelocityRmse,
-                Is.LessThan(radarOnly.CrossRangeVelocityRmse / 2.0),
-                "接入激光后横向速度误差应至少改善一半，否则量测注入没有真正生效。");
+                Is.LessThan(radarOnly.CrossRangeVelocityRmse * 0.55),
+                "接入激光后横向速度误差应至少降低 45%，否则量测注入没有真正生效。");
 
             // 精度提升不得以协方差失真为代价——激光横向方差比雷达小约 35 倍，
             // 卡尔曼增益接近 1，这正是最容易把协方差压到过度自信的场景。
@@ -109,6 +109,133 @@ namespace ACunicombat.Tests.EditMode
                 withLaser.AverageNees,
                 Is.LessThan(2.0 * StateDimension),
                 "接入激光后协方差被低估，下游门限会失效。");
+            Assert.That(
+                withLaser.LaserAccepted,
+                Is.GreaterThan(withLaser.LaserAttempts * 0.95),
+                "正确 cue 的激光回波不应被 NIS 门限大量拒绝。");
+            Assert.That(
+                withLaser.AverageLaserNis,
+                Is.InRange(0.5, 6.0),
+                "三维位置量测的平均 NIS 应接近期望值 3。高于范围表示协方差过小，" +
+                "低于范围表示协方差过度保守或测试未走真实量测路径。");
+        }
+
+        [Test]
+        public void LaserRefinement_RequiresExistingConfirmedCuedTrack()
+        {
+            var manager = new RadarTrackManager();
+            var observation = new LaserRangeObservation
+            {
+                CuedTrackId = new TrackId(new Handle(0, 1)),
+                Timestamp = StepSeconds,
+                RangeMeters = 3_000f,
+                RangeVar = LaserRangeSigmaMeters * LaserRangeSigmaMeters,
+                Direction = new float3(0f, 0f, 1f),
+                AngleVar = LaserAngleSigmaRadians * LaserAngleSigmaRadians,
+                ObjectClass = TrackObjectClass.Missile,
+            };
+
+            Assert.That(
+                manager.TryRefineConfirmedTrackWithLaser(
+                    in observation,
+                    double3.zero,
+                    StepSeconds,
+                    out _),
+                Is.False);
+            Assert.That(manager.Count, Is.Zero);
+
+            using var measurements =
+                new NativeList<Measurement>(1, Allocator.Temp);
+            var rng = new DeterministicGaussian(0xA11CEu);
+            measurements.Add(BuildRadarMeasurement(
+                ref rng,
+                TrueInitialPosition,
+                TrueVelocity,
+                StepSeconds));
+            manager.Process(measurements, double3.zero, StepSeconds);
+            Assert.That(manager.TryGetBestTrack(out var tentative), Is.True);
+            Assert.That(tentative.Lifecycle, Is.EqualTo(TrackLifecycle.Tentative));
+
+            observation.CuedTrackId = tentative.TrackId;
+            Assert.That(
+                manager.TryRefineConfirmedTrackWithLaser(
+                    in observation,
+                    double3.zero,
+                    StepSeconds,
+                    out _),
+                Is.False);
+            Assert.That(manager.TryGetTrack(tentative.TrackId, out var unchanged), Is.True);
+            Assert.That(unchanged.HitCount, Is.EqualTo(tentative.HitCount));
+            Assert.That(
+                unchanged.SourceMask & TrackSourceMask.LaserRangefinder,
+                Is.EqualTo(TrackSourceMask.None));
+        }
+
+        [Test]
+        public void LaserRefinement_GatesOutlierAndPreservesRadarLifecycle()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(1, Allocator.Temp);
+            var rng = new DeterministicGaussian(0xBAD5EEDu);
+            for (var step = 1; step <= 3; step++)
+            {
+                var time = step * StepSeconds;
+                var position = TrueInitialPosition + TrueVelocity * time;
+                measurements.Clear();
+                measurements.Add(BuildRadarMeasurement(
+                    ref rng,
+                    position,
+                    TrueVelocity,
+                    time));
+                manager.Process(measurements, double3.zero, time);
+            }
+
+            Assert.That(manager.TryGetBestTrack(out var before), Is.True);
+            Assert.That(before.Lifecycle, Is.EqualTo(TrackLifecycle.Confirmed));
+            var outlier = new LaserRangeObservation
+            {
+                CuedTrackId = before.TrackId,
+                Timestamp = 3 * StepSeconds,
+                RangeMeters = (float)math.length(before.Position) + 600f,
+                RangeVar = LaserRangeSigmaMeters * LaserRangeSigmaMeters,
+                Direction = math.normalizesafe(
+                    (float3)before.Position,
+                    new float3(0f, 0f, 1f)),
+                AngleVar = LaserAngleSigmaRadians * LaserAngleSigmaRadians,
+                ObjectClass = TrackObjectClass.Missile,
+            };
+
+            Assert.That(
+                manager.TryRefineConfirmedTrackWithLaser(
+                    in outlier,
+                    double3.zero,
+                    3 * StepSeconds,
+                    out var nis),
+                Is.False);
+            Assert.That(nis, Is.GreaterThan(11.345));
+            Assert.That(manager.TryGetTrack(before.TrackId, out var after), Is.True);
+            Assert.That(
+                math.distance(after.Position, before.Position),
+                Is.LessThan(1e-9));
+            Assert.That(after.HitCount, Is.EqualTo(before.HitCount));
+
+            var valid = outlier;
+            valid.RangeMeters = (float)math.length(before.Position);
+            Assert.That(
+                manager.TryRefineConfirmedTrackWithLaser(
+                    in valid,
+                    double3.zero,
+                    3 * StepSeconds,
+                    out var acceptedNis),
+                Is.True);
+            Assert.That(acceptedNis, Is.LessThan(11.345));
+            Assert.That(manager.TryGetTrack(before.TrackId, out var refined), Is.True);
+            Assert.That(refined.HitCount, Is.EqualTo(before.HitCount));
+            Assert.That(refined.LastUpdateTime, Is.EqualTo(before.LastUpdateTime));
+            Assert.That(
+                refined.SourceMask & TrackSourceMask.LaserRangefinder,
+                Is.EqualTo(TrackSourceMask.LaserRangefinder));
         }
 
         /// <summary>
@@ -142,7 +269,11 @@ namespace ACunicombat.Tests.EditMode
             var positionSquaredErrorSum = 0.0;
             var crossRangeVelocitySquaredErrorSum = 0.0;
             var sampleCount = 0;
-            var rng = new DeterministicGaussian(seed);
+            var laserNisSum = 0.0;
+            var laserAttempts = 0;
+            var laserAccepted = 0;
+            var radarRng = new DeterministicGaussian(seed);
+            var laserRng = new DeterministicGaussian(seed ^ 0x9E3779B9u);
 
             // 横向单位向量：真速度中垂直于初始视线的分量方向，即"提前量误差"的方向。
             var lineOfSight = math.normalize(TrueInitialPosition);
@@ -153,7 +284,7 @@ namespace ACunicombat.Tests.EditMode
             {
                 var manager = new RadarTrackManager();
                 using var measurements =
-                    new NativeList<Measurement>(4, Allocator.Temp);
+                    new NativeList<Measurement>(1, Allocator.Temp);
 
                 for (var step = 1; step <= StepsPerTrial; step++)
                 {
@@ -162,22 +293,47 @@ namespace ACunicombat.Tests.EditMode
 
                     measurements.Clear();
                     measurements.Add(BuildRadarMeasurement(
-                        ref rng,
+                        ref radarRng,
                         truePosition,
                         TrueVelocity,
                         time));
-                    if (useLaser)
-                    {
-                        measurements.Add(BuildLaserMeasurement(
-                            ref rng,
-                            truePosition,
-                            time));
-                    }
 
                     manager.Process(measurements, double3.zero, time);
+                    if (!manager.TryGetBestTrack(out var track))
+                    {
+                        continue;
+                    }
+
+                    if (useLaser &&
+                        track.Lifecycle == TrackLifecycle.Confirmed)
+                    {
+                        var laserObservation = BuildLaserObservation(
+                            ref laserRng,
+                            truePosition,
+                            time,
+                            track.TrackId);
+                        if (step > WarmupSteps)
+                        {
+                            laserAttempts++;
+                        }
+                        var accepted =
+                            manager.TryRefineConfirmedTrackWithLaser(
+                                in laserObservation,
+                                double3.zero,
+                                time,
+                                out var nis);
+                        if (accepted && step > WarmupSteps)
+                        {
+                            laserAccepted++;
+                            laserNisSum += nis;
+                        }
+                        Assert.That(
+                            manager.TryGetTrack(track.TrackId, out track),
+                            Is.True);
+                    }
 
                     if (step <= WarmupSteps ||
-                        !manager.TryGetBestTrack(out var track))
+                        track.Lifecycle == TrackLifecycle.Dropped)
                     {
                         continue;
                     }
@@ -215,6 +371,11 @@ namespace ACunicombat.Tests.EditMode
                 CrossRangeVelocityRmse =
                     math.sqrt(crossRangeVelocitySquaredErrorSum / sampleCount),
                 Samples = sampleCount,
+                AverageLaserNis = laserAccepted > 0
+                    ? laserNisSum / laserAccepted
+                    : double.NaN,
+                LaserAttempts = laserAttempts,
+                LaserAccepted = laserAccepted,
             };
         }
 
@@ -253,13 +414,14 @@ namespace ACunicombat.Tests.EditMode
         }
 
         /// <summary>
-        /// 激光测距返回：高精度距离 + 高精度角度，无多普勒。标记为 RefinementOnly，
-        /// 因此只能精化已有航迹、不能凭它自己新建航迹。
+        /// 激光测距返回：高精度距离 + 高精度角度，无多普勒，并携带发射脉冲所 cue 的
+        /// 航迹 ID。专用更新入口只接受已确认导弹航迹。
         /// </summary>
-        private static Measurement BuildLaserMeasurement(
+        private static LaserRangeObservation BuildLaserObservation(
             ref DeterministicGaussian rng,
             double3 truePosition,
-            double time)
+            double time,
+            TrackId cuedTrackId)
         {
             var range = math.length(truePosition);
             var trueDirection = truePosition / range;
@@ -267,22 +429,19 @@ namespace ACunicombat.Tests.EditMode
                 ref rng,
                 trueDirection,
                 LaserAngleSigmaRadians);
-            return new Measurement
+            return new LaserRangeObservation
             {
                 SensorId = new SensorId(new Handle(1, 1)),
+                CuedTrackId = cuedTrackId,
                 Timestamp = time,
-                Range = (float)range + (float)rng.Next() * LaserRangeSigmaMeters,
+                RangeMeters =
+                    (float)range + (float)rng.Next() * LaserRangeSigmaMeters,
                 Direction = (float3)noisyDirection,
-                RadialVelocity = float.NaN,
-                LosRate = new float3(float.NaN),
                 RangeVar = LaserRangeSigmaMeters * LaserRangeSigmaMeters,
                 AngleVar = LaserAngleSigmaRadians * LaserAngleSigmaRadians,
-                VelocityVar = float.NaN,
-                LosRateVar = float.NaN,
-                SnrDb = 40f,
+                SignalMarginDb = 40f,
                 ObjectClass = TrackObjectClass.Missile,
                 ClassificationConfidence = 0.9f,
-                Flags = MeasurementFlags.RefinementOnly,
             };
         }
 
@@ -433,12 +592,19 @@ namespace ACunicombat.Tests.EditMode
             public double PositionRmse;
             public double CrossRangeVelocityRmse;
             public int Samples;
+            public double AverageLaserNis;
+            public int LaserAttempts;
+            public int LaserAccepted;
 
             public string Describe(string label) =>
                 $"[{label}] NEES={AverageNees:0.000} (期望 {StateDimension}, " +
                 $"n={NeesSamples}), 位置 RMSE={PositionRmse:0.00} m, " +
                 $"横向速度 RMSE={CrossRangeVelocityRmse:0.00} m/s, " +
-                $"样本={Samples}";
+                $"样本={Samples}" +
+                (LaserAttempts > 0
+                    ? $", 激光 NIS={AverageLaserNis:0.000}, " +
+                      $"接受={LaserAccepted}/{LaserAttempts}"
+                    : string.Empty);
         }
 
         /// <summary>

@@ -1220,6 +1220,7 @@ namespace ACunicombat.Mechs
             driver.ScheduleLaserPulse(new LaserPulse
             {
                 SensorId = laserRangefinderId,
+                CuedTrackId = pointDefenseCueTrackId,
                 DueTime = now,
                 Direction = ToFloat3(direction),
                 Sequence = ++dwellSequence,
