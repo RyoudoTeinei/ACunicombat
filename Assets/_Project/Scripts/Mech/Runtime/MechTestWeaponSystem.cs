@@ -230,6 +230,32 @@ namespace ACunicombat.Mechs
                 ref rightHandMuzzleIndex);
         }
 
+        public bool RequestRifleReload()
+        {
+            InitializeAmmunition();
+            UpdateReloadState();
+            if (rifleReloading ||
+                rifleRoundsRemaining >= rifleMagazineCapacity)
+            {
+                return false;
+            }
+
+            BeginRifleReload(GetWeaponPosition(MechPartSlot.RightHandWeapon));
+            return true;
+        }
+
+        public bool RequestCannonReload()
+        {
+            UpdateReloadState();
+            if (cannonReloading)
+            {
+                return false;
+            }
+
+            BeginCannonReload(GetWeaponPosition(MechPartSlot.LeftHandWeapon));
+            return true;
+        }
+
         public bool CommandFireHandWeaponAtEstimate(
             TestWeaponKind kind,
             Vector3 estimatedPosition,
@@ -425,6 +451,14 @@ namespace ACunicombat.Mechs
             UpdateInterceptorTarget();
             UpdatePointDefenseTarget();
             var frame = input.Current;
+            if (frame.PrimaryReloadEdge)
+            {
+                RequestCannonReload();
+            }
+            if (frame.SecondaryReloadEdge)
+            {
+                RequestRifleReload();
+            }
             if (frame.PrimaryFireEdge)
             {
                 TryFireHandWeapon(
@@ -491,6 +525,21 @@ namespace ACunicombat.Mechs
                     ? candidates
                     : new[] { record.instance.transform };
             }
+        }
+
+        private Vector3 GetWeaponPosition(MechPartSlot slot)
+        {
+            if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) ||
+                muzzles.Length == 0)
+            {
+                ResolveMuzzles();
+            }
+
+            return muzzlesBySlot.TryGetValue(slot, out muzzles) &&
+                   muzzles.Length > 0 &&
+                   muzzles[0] != null
+                ? muzzles[0].position
+                : transform.position;
         }
 
         private bool TryFireHandWeapon(
@@ -802,6 +851,11 @@ namespace ACunicombat.Mechs
 
         private void BeginCannonReload(Vector3 weaponPosition)
         {
+            if (cannonReloading)
+            {
+                return;
+            }
+
             cannonReloading = true;
             cannonReloadCompleteTime =
                 Time.time + Mathf.Max(0.1f, cannonReloadSeconds);

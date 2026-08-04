@@ -32,9 +32,13 @@ namespace ACunicombat.Mechs
         /// <summary>Primary fire is the left mouse button and commands the anatomical left hand.</summary>
         public bool PrimaryFireHeld;
         public bool PrimaryFireEdge;
+        /// <summary>R + left mouse requests a left-hand cannon reload.</summary>
+        public bool PrimaryReloadEdge;
         /// <summary>Secondary fire is the right mouse button and commands the anatomical right hand.</summary>
         public bool SecondaryFireHeld;
         public bool SecondaryFireEdge;
+        /// <summary>R + right mouse requests a right-hand rifle reload.</summary>
+        public bool SecondaryReloadEdge;
         /// <summary>Middle mouse requests a navigation reference-plane reset.</summary>
         public bool ReferencePlaneResetEdge;
         /// <summary>Q commands the anatomical left shoulder weapon.</summary>
@@ -85,8 +89,6 @@ namespace ACunicombat.Mechs
         [SerializeField] private float riseHoldBoostSeconds = 0.25f;
         [Tooltip("鼠标滚轮每格改变的主推进节流比例。")]
         [Range(0.01f, 0.25f)] [SerializeField] private float throttleWheelStep = 0.05f;
-        [Tooltip("按住 R/C 时每秒增加/降低的主推进节流比例。")]
-        [Range(0.1f, 2f)] [SerializeField] private float throttleKeyboardRate = 0.5f;
 
         private float lastSpaceDownTime = -10f;
         private float spaceHeldSince = -1f;
@@ -162,10 +164,8 @@ namespace ACunicombat.Mechs
             frame.ThermalVisionCycleEdge = keyboard.backquoteKey.wasPressedThisFrame;
 
             var previousThrottle = mainThrottle;
-            var throttleAxis = (keyboard.rKey.isPressed ? 1f : 0f)
-                               - (keyboard.cKey.isPressed ? 1f : 0f);
-            mainThrottle = Mathf.Clamp01(
-                mainThrottle + throttleAxis * throttleKeyboardRate * Time.unscaledDeltaTime);
+            var reloadModifierHeld = keyboard.rKey.isPressed;
+            var reloadModifierEdge = keyboard.rKey.wasPressedThisFrame;
 
             if (mouse != null)
             {
@@ -177,10 +177,26 @@ namespace ACunicombat.Mechs
                 }
 
                 frame.MouseDelta = mouse.delta.ReadValue();
-                frame.PrimaryFireHeld = mouse.leftButton.isPressed;
-                frame.PrimaryFireEdge = mouse.leftButton.wasPressedThisFrame;
-                frame.SecondaryFireHeld = mouse.rightButton.isPressed;
-                frame.SecondaryFireEdge = mouse.rightButton.wasPressedThisFrame;
+                frame.PrimaryReloadEdge =
+                    (reloadModifierHeld &&
+                     mouse.leftButton.wasPressedThisFrame) ||
+                    (reloadModifierEdge &&
+                     mouse.leftButton.isPressed);
+                frame.SecondaryReloadEdge =
+                    (reloadModifierHeld &&
+                     mouse.rightButton.wasPressedThisFrame) ||
+                    (reloadModifierEdge &&
+                     mouse.rightButton.isPressed);
+                frame.PrimaryFireHeld =
+                    mouse.leftButton.isPressed && !reloadModifierHeld;
+                frame.PrimaryFireEdge =
+                    mouse.leftButton.wasPressedThisFrame &&
+                    !reloadModifierHeld;
+                frame.SecondaryFireHeld =
+                    mouse.rightButton.isPressed && !reloadModifierHeld;
+                frame.SecondaryFireEdge =
+                    mouse.rightButton.wasPressedThisFrame &&
+                    !reloadModifierHeld;
                 frame.ReferencePlaneResetEdge = mouse.middleButton.wasPressedThisFrame;
             }
 
