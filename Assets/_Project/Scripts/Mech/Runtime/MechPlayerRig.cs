@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text;
 using ACunicombat.Sensing.Contracts;
 using UnityEngine;
@@ -67,6 +68,8 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechOrbitSynchronizer orbitSynchronizer;
         [SerializeField] private MechBehaviorGraphRunner graphRunner;
         [SerializeField] private MechBodyActionPlayer actionPlayer;
+        [SerializeField] private MechActionRegistry actionRegistry;
+        [SerializeField] private List<string> upperBodyBoneNames = new List<string>();
         [SerializeField] private MechWeaponArmLayer weaponLayer;
         [SerializeField] private MechThermalSignature thermalSignature;
         [SerializeField] private MechThermalVisionController thermalVision;
@@ -103,6 +106,7 @@ namespace ACunicombat.Mechs
         private Camera viewCamera;
         private ShoulderLauncherState leftShoulderLauncher;
         private ShoulderLauncherState rightShoulderLauncher;
+        private bool actionPlayerAttached;
 
         private sealed class ShoulderLauncherState
         {
@@ -193,34 +197,117 @@ namespace ACunicombat.Mechs
             thermalVision = null;
         }
 
+        public void ConfigureActionPlayback(
+            MechActionRegistry registry,
+            IEnumerable<string> maskedUpperBodyBoneNames)
+        {
+            actionRegistry = registry;
+            actionPlayerAttached = false;
+            upperBodyBoneNames.Clear();
+            if (maskedUpperBodyBoneNames != null)
+            {
+                upperBodyBoneNames.AddRange(maskedUpperBodyBoneNames);
+            }
+        }
+
         /// <summary>
-        /// MechBodyActionPlayer 由 showcase 控制器在 Start() 里装配到机体根上（外部控制模式
-        /// 仍保留该职责），因此这里延迟绑定：每帧尝试直到拿到。
+        /// Binds an existing body player or creates a local one from the rig's
+        /// action configuration. Old generated scenes recover that data from
+        /// the showcase controller once, then own an independent graph.
         /// </summary>
         private bool EnsureActionPlayer()
         {
-            if (actionPlayer != null)
+            if (actionPlayer == null)
             {
-                return true;
+                actionPlayer = GetComponentInChildren<MechBodyActionPlayer>();
             }
 
-            actionPlayer = GetComponentInChildren<MechBodyActionPlayer>();
-            if (actionPlayer == null)
+            if (actionPlayer == null || !actionPlayer.IsGraphValid)
+            {
+                if (!TryCreateActionPlayer())
+                {
+                    return false;
+                }
+            }
+
+            if (!actionPlayerAttached)
+            {
+                if (weaponLayer != null)
+                {
+                    weaponLayer.Configure(actionPlayer);
+                }
+
+                if (graphRunner != null)
+                {
+                    graphRunner.AttachActionPlayer(actionPlayer);
+                }
+
+                actionPlayerAttached = true;
+            }
+
+            return true;
+        }
+
+        private bool TryCreateActionPlayer()
+        {
+            RecoverActionPlaybackConfiguration();
+            if (actionRegistry == null || runtimeState == null)
             {
                 return false;
             }
 
-            if (weaponLayer != null)
+            var legacyPlayer = GetComponent<MechSynchronizedAnimationPlayer>();
+            if (legacyPlayer != null)
             {
-                weaponLayer.Configure(actionPlayer);
+                legacyPlayer.StopPlayback();
+                legacyPlayer.enabled = false;
             }
 
-            if (graphRunner != null)
+            if (actionPlayer == null)
             {
-                graphRunner.AttachActionPlayer(actionPlayer);
+                actionPlayer = gameObject.AddComponent<MechBodyActionPlayer>();
             }
 
+            actionPlayer.Configure(
+                actionRegistry,
+                runtimeState,
+                upperBodyBoneNames,
+                initialFullBodyActionId: null,
+                speed: 1f);
+            if (!actionPlayer.IsGraphValid)
+            {
+                return false;
+            }
+
+            Debug.Log(
+                $"[MechPlayerRig] Created local body action player for " +
+                $"{(aiControlled ? "AI" : "player")} rig. parts={actionPlayer.PartCount}.",
+                this);
             return true;
+        }
+
+        private void RecoverActionPlaybackConfiguration()
+        {
+            if (actionRegistry != null && upperBodyBoneNames.Count > 0)
+            {
+                return;
+            }
+
+            // Migration path for generated scenes saved before each rig owned
+            // its animation configuration. The showcase remains the canonical
+            // source asset, but every rig creates and owns its own graph.
+            var showcase = FindAnyObjectByType<AC6CombatShowcaseController>();
+            if (showcase == null || showcase.ActionRegistry == null)
+            {
+                return;
+            }
+
+            actionRegistry = showcase.ActionRegistry;
+            upperBodyBoneNames.Clear();
+            if (showcase.UpperBodyBoneNames != null)
+            {
+                upperBodyBoneNames.AddRange(showcase.UpperBodyBoneNames);
+            }
         }
 
         private void OnDestroy()

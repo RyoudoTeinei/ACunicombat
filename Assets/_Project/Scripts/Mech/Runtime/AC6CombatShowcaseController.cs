@@ -116,6 +116,8 @@ namespace ACunicombat.Mechs
         public int LaunchedMissiles => launchedMissiles;
         public bool IsBodyActionGraphValid => bodyActionPlayer != null && bodyActionPlayer.IsGraphValid;
         public int BodyActionProbeCount => poseProbes.Count;
+        public MechActionRegistry ActionRegistry => actionRegistry;
+        public IReadOnlyList<string> UpperBodyBoneNames => upperBodyBoneNames;
 
         public void Configure(
             GameObject mechRoot,

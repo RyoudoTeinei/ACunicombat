@@ -46,6 +46,10 @@ namespace ACunicombat.Mechs
         private MechBodyActionPlayer player;
         private MechTestWeaponSystem weaponSystem;
         private bool activeSideIsRight = true;
+        private bool externalRightFireEdge;
+        private bool externalLeftFireEdge;
+        private float externalRightFireUntil = float.NegativeInfinity;
+        private float externalLeftFireUntil = float.NegativeInfinity;
 
         public ArmPhase Phase =>
             activeSideIsRight ? rightState.Phase : leftState.Phase;
@@ -96,6 +100,25 @@ namespace ACunicombat.Mechs
             leftState.Reset();
         }
 
+        public void NotifyExternalFire(bool rightHand, float holdSeconds = 0.12f)
+        {
+            var holdUntil = Time.time + Mathf.Max(holdSeconds, 0.02f);
+            if (rightHand)
+            {
+                externalRightFireEdge = true;
+                externalRightFireUntil = Mathf.Max(
+                    externalRightFireUntil,
+                    holdUntil);
+            }
+            else
+            {
+                externalLeftFireEdge = true;
+                externalLeftFireUntil = Mathf.Max(
+                    externalLeftFireUntil,
+                    holdUntil);
+            }
+        }
+
         public void Tick(
             in MechPlayerInputFrame frame,
             bool suppress,
@@ -118,14 +141,24 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var rightFireHeld = frame.SecondaryFireHeld &&
-                                (weaponSystem == null ||
-                                 !weaponSystem.RifleReloading);
-            var rightFireEdge = frame.SecondaryFireEdge && rightFireHeld;
-            var leftFireHeld = frame.PrimaryFireHeld &&
-                               (weaponSystem == null ||
-                                !weaponSystem.CannonReloading);
-            var leftFireEdge = frame.PrimaryFireEdge && leftFireHeld;
+            var rightFireHeld =
+                (frame.SecondaryFireHeld ||
+                 Time.time <= externalRightFireUntil) &&
+                (weaponSystem == null ||
+                 !weaponSystem.RifleReloading);
+            var rightFireEdge =
+                (frame.SecondaryFireEdge || externalRightFireEdge) &&
+                rightFireHeld;
+            var leftFireHeld =
+                (frame.PrimaryFireHeld ||
+                 Time.time <= externalLeftFireUntil) &&
+                (weaponSystem == null ||
+                 !weaponSystem.CannonReloading);
+            var leftFireEdge =
+                (frame.PrimaryFireEdge || externalLeftFireEdge) &&
+                leftFireHeld;
+            externalRightFireEdge = false;
+            externalLeftFireEdge = false;
 
             if (rightFireEdge)
             {

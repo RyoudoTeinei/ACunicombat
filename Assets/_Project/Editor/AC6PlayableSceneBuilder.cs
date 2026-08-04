@@ -513,6 +513,10 @@ public static class AC6PlayableSceneBuilder
         var weapon = Ensure<MechWeaponArmLayer>(mech);
         var rig = Ensure<MechPlayerRig>(mech);
 
+        rig.ConfigureActionPlayback(
+            controller.ActionRegistry,
+            controller.UpperBodyBoneNames);
+
         weapon.ApplyVerifiedSideMapping();
         if (!weapon.HasVerifiedSideMapping)
         {

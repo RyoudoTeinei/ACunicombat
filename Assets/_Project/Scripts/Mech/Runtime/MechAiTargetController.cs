@@ -60,6 +60,7 @@ namespace ACunicombat.Mechs
         private MechRadarController radar;
         private MechTestRadarEmitter radarEmitter;
         private MechTestWeaponSystem weapons;
+        private MechWeaponArmLayer weaponAnimationLayer;
         private MechAiSensorSuite sensorSuite;
         private CombatTestTarget selfTarget;
         private float nextHandWeaponTime;
@@ -113,6 +114,7 @@ namespace ACunicombat.Mechs
             radar = GetComponent<MechRadarController>();
             EnsureRadarEmitterConfigured();
             weapons = GetComponent<MechTestWeaponSystem>();
+            weaponAnimationLayer = GetComponent<MechWeaponArmLayer>();
             selfTarget = GetComponent<CombatTestTarget>();
             sensorSuite = GetComponent<MechAiSensorSuite>();
             if (sensorSuite == null)
@@ -294,6 +296,9 @@ namespace ACunicombat.Mechs
                     if (fired)
                     {
                         rifleBurstShotsRemaining--;
+                        weaponAnimationLayer?.NotifyExternalFire(
+                            rightHand: true,
+                            holdSeconds: rifleShotIntervalSeconds + 0.04f);
                     }
                     else if (weapons.RifleReloading)
                     {
@@ -322,6 +327,12 @@ namespace ACunicombat.Mechs
                     track.Position,
                     track.Velocity);
                 nextHandWeaponTime = Time.time + (fired ? 4.4f : 0.25f);
+                if (fired)
+                {
+                    weaponAnimationLayer?.NotifyExternalFire(
+                        rightHand: false,
+                        holdSeconds: 0.14f);
+                }
             }
 
             var missileUncertaintyLimit = Mathf.Max(120f, range * 0.025f);
