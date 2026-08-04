@@ -283,12 +283,28 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            const float columnGap = 24f;
+            const float columnGap = 20f;
             const float rowSpacing = 44f;
-            var panelWidth = Mathf.Min(560f, Screen.width - 32f);
+            var centerGaugeWidth = Mathf.Clamp(
+                Screen.width * 0.34f,
+                300f,
+                520f);
+            var availableLeft =
+                Screen.width * 0.5f + centerGaugeWidth * 0.5f + 28f;
+            var availableRight =
+                Screen.width - RadarStatusWidth - 34f;
+            var availableWidth = availableRight - availableLeft;
+            var useBottomRightGap = availableWidth >= 300f;
+            var panelWidth = useBottomRightGap
+                ? Mathf.Min(420f, availableWidth)
+                : Mathf.Min(420f, Screen.width - 32f);
             var entryWidth = (panelWidth - columnGap) * 0.5f;
-            var panelX = Screen.width * 0.5f - panelWidth * 0.5f;
-            var firstRowY = Mathf.Max(12f, Screen.height - 252f);
+            var panelX = useBottomRightGap
+                ? availableLeft + (availableWidth - panelWidth) * 0.5f
+                : Screen.width - RadarStatusWidth - panelWidth - 42f;
+            var firstRowY = useBottomRightGap
+                ? Mathf.Max(12f, Screen.height - 148f)
+                : Mathf.Max(12f, Screen.height - RadarStatusHeight - 126f);
 
             var leftMissileRect = new Rect(
                 panelX,
