@@ -33,10 +33,11 @@ namespace ACunicombat.Mechs
         [Header("Mix")]
         [SerializeField, Range(0f, 1f)] private float slowServoVolume = 0.12f;
         [SerializeField, Range(0f, 1f)] private float fastServoVolume = 0.16f;
-        [SerializeField, Range(0f, 1f)] private float hydraulicVolume = 0.13f;
+        [SerializeField, Range(0f, 1f)] private float hydraulicVolume = 0.1f;
         [SerializeField, Range(0f, 1f)] private float servoTransientVolume = 0.18f;
         [SerializeField, Range(0f, 1f)] private float mechanicalTransientVolume = 0.16f;
         [SerializeField, Range(0f, 1f)] private float hydraulicTransientVolume = 0.2f;
+        [SerializeField, Range(0f, 1f)] private float hydraulicStopVolume = 0.13f;
         [SerializeField, Range(0f, 1f)] private float pneumaticVolume = 0.18f;
 
         private readonly List<MonitoredTransform> monitoredTransforms =
@@ -257,7 +258,7 @@ namespace ACunicombat.Mechs
                 if (smoothedHydraulicActivity <= hydraulicStopThreshold)
                 {
                     hydraulicActive = false;
-                    PlayOneShot(hydraulicStopSource, hydraulicTransientVolume * 0.9f);
+                    PlayOneShot(hydraulicStopSource, hydraulicStopVolume);
                     if (hydraulicPeak >= 0.55f && !pneumaticReleasedForCycle)
                     {
                         PlayPneumaticRelease();

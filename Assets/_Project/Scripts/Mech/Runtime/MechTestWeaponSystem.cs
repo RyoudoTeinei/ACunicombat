@@ -1261,10 +1261,7 @@ namespace ACunicombat.Mechs
                 $"[MechTestWeaponSystem] Missile launch authorized: slot={slot}, track={trackId}, " +
                 $"channel={guidanceToken}, seeker={seekerActivationDelay:0.0}s.",
                 this);
-            var salvoCount = Mathf.Min(
-                4,
-                muzzles.Length,
-                rightMissileRoundsRemaining);
+            const int salvoCount = 1;
             var launchedCount = 0;
             for (var i = 0; i < salvoCount; i++)
             {
