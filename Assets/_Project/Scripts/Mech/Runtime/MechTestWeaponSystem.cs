@@ -206,6 +206,10 @@ namespace ACunicombat.Mechs
         public float CannonReloadRemainingSeconds => CannonReloading
             ? Mathf.Max(0f, cannonReloadCompleteTime - Time.time)
             : 0f;
+        public float RifleReloadDurationSeconds =>
+            Mathf.Max(0.1f, rifleReloadSeconds);
+        public float CannonReloadDurationSeconds =>
+            Mathf.Max(0.1f, cannonReloadSeconds);
 
         public void Configure(
             MechPlayerInputAdapter newInput,

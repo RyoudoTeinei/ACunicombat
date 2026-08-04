@@ -284,32 +284,32 @@ namespace ACunicombat.Mechs
             }
 
             const float columnGap = 24f;
-            const float rowSpacing = 36f;
+            const float rowSpacing = 44f;
             var panelWidth = Mathf.Min(560f, Screen.width - 32f);
             var entryWidth = (panelWidth - columnGap) * 0.5f;
-            var panelX = Screen.width - panelWidth - 20f;
-            var firstRowY = Mathf.Max(12f, Screen.height - 226f);
+            var panelX = Screen.width * 0.5f - panelWidth * 0.5f;
+            var firstRowY = Mathf.Max(12f, Screen.height - 252f);
 
             var leftMissileRect = new Rect(
                 panelX,
                 firstRowY,
                 entryWidth,
-                30f);
+                40f);
             var cannonRect = new Rect(
                 panelX,
                 firstRowY + rowSpacing,
                 entryWidth,
-                30f);
+                40f);
             var rightMissileRect = new Rect(
                 leftMissileRect.xMax + columnGap,
                 firstRowY,
                 entryWidth,
-                30f);
+                40f);
             var rifleRect = new Rect(
                 rightMissileRect.x,
                 firstRowY + rowSpacing,
                 entryWidth,
-                30f);
+                40f);
 
             DrawWeaponAmmoEntry(
                 leftMissileRect,
@@ -318,6 +318,7 @@ namespace ACunicombat.Mechs
                 weaponSystem.LeftMissileMagazineCapacity,
                 weaponSystem.LeftMissileMagazinesRemaining,
                 false,
+                0f,
                 0f,
                 string.Empty);
             DrawWeaponAmmoEntry(
@@ -328,6 +329,7 @@ namespace ACunicombat.Mechs
                 weaponSystem.CannonMagazinesRemaining,
                 weaponSystem.CannonReloading,
                 weaponSystem.CannonReloadRemainingSeconds,
+                weaponSystem.CannonReloadDurationSeconds,
                 "装");
             DrawWeaponAmmoEntry(
                 rightMissileRect,
@@ -336,6 +338,7 @@ namespace ACunicombat.Mechs
                 weaponSystem.RightMissileMagazineCapacity,
                 weaponSystem.RightMissileMagazinesRemaining,
                 false,
+                0f,
                 0f,
                 string.Empty);
             DrawWeaponAmmoEntry(
@@ -346,6 +349,7 @@ namespace ACunicombat.Mechs
                 weaponSystem.RifleMagazinesRemaining,
                 weaponSystem.RifleReloading,
                 weaponSystem.RifleReloadRemainingSeconds,
+                weaponSystem.RifleReloadDurationSeconds,
                 "换");
         }
 
@@ -357,6 +361,7 @@ namespace ACunicombat.Mechs
             int magazinesRemaining,
             bool reloading,
             float reloadRemainingSeconds,
+            float reloadDurationSeconds,
             string reloadLabel)
         {
             var empty = roundsRemaining <= 0 && magazinesRemaining <= 0;
@@ -376,11 +381,25 @@ namespace ACunicombat.Mechs
                     ? HudAmber
                     : HudGreen;
             var roundsText = $"{roundsRemaining:00}";
-            var suffix = $"/{magazineCapacity:00} x{magazinesRemaining}";
+            var suffix = $" x{magazinesRemaining}";
             if (reloading)
             {
                 suffix += $" {reloadLabel}{reloadRemainingSeconds:0.0}s";
             }
+
+            var ammoFraction = magazineCapacity > 0
+                ? Mathf.Clamp01(roundsRemaining / (float)magazineCapacity)
+                : 0f;
+            var reloadFraction = reloading && reloadDurationSeconds > 0f
+                ? Mathf.Clamp01(
+                    1f - reloadRemainingSeconds / reloadDurationSeconds)
+                : ammoFraction;
+            var progress = reloading ? reloadFraction : ammoFraction;
+            var progressColor = empty
+                ? HudRed
+                : reloading
+                    ? HudAmber
+                    : HudGreen;
 
             var labelWidth = weaponStatusStyle.CalcSize(
                 new GUIContent(weaponLabel + " ")).x;
@@ -393,11 +412,12 @@ namespace ACunicombat.Mechs
             var contentWidth = labelWidth + roundsWidth + suffixWidth;
             var contentX = bounds.center.x - contentWidth * 0.5f;
             var textY = bounds.y;
+            const float textHeight = 28f;
 
             weaponStatusStyle.alignment = TextAnchor.MiddleLeft;
             weaponStatusStyle.normal.textColor = statusColor;
             GUI.Label(
-                new Rect(contentX, textY, labelWidth, bounds.height),
+                new Rect(contentX, textY, labelWidth, textHeight),
                 weaponLabel,
                 weaponStatusStyle);
 
@@ -405,7 +425,7 @@ namespace ACunicombat.Mechs
                 contentX + labelWidth,
                 textY + 3f,
                 roundsWidth,
-                bounds.height - 6f);
+                textHeight - 6f);
             var topLeft = new Vector2(roundsRect.xMin, roundsRect.yMin);
             var topRight = new Vector2(roundsRect.xMax, roundsRect.yMin);
             var bottomRight = new Vector2(roundsRect.xMax, roundsRect.yMax);
@@ -425,9 +445,31 @@ namespace ACunicombat.Mechs
                     roundsRect.xMax,
                     textY,
                     suffixWidth,
-                    bounds.height),
+                    textHeight),
                 suffix,
                 weaponStatusStyle);
+
+            var barWidth = Mathf.Min(170f, bounds.width - 36f);
+            var barStart = new Vector2(
+                bounds.center.x - barWidth * 0.5f,
+                bounds.y + 35f);
+            var barEnd = new Vector2(barStart.x + barWidth, barStart.y);
+            var barBackground = new Color(
+                HudDimGreen.r,
+                HudDimGreen.g,
+                HudDimGreen.b,
+                0.32f);
+            DrawLine(barStart, barEnd, barBackground, 3f);
+            if (progress > 0.001f)
+            {
+                DrawLine(
+                    barStart,
+                    new Vector2(
+                        barStart.x + barWidth * progress,
+                        barStart.y),
+                    progressColor,
+                    3f);
+            }
         }
 
         private void DrawTacticalPlot()
