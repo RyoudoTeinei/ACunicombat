@@ -13,7 +13,7 @@ namespace ACunicombat.Mechs
 
     /// <summary>
     /// 机体红外特征（sim 层热状态，07-21 决策的热资源与红外可见性同源）：
-    /// 按通道维护一阶热模型——推进器由主节流/AB 持续加热、QB 边沿注入脉冲、
+    /// 按通道维护一阶热模型——推进器由实际主推输出/AB 持续加热、QB 边沿注入脉冲、
     /// 武器开火注入脉冲，真空散热简化为向基线温度的指数回落（慢冷却=热惯性，
     /// 刚机动完的目标在热像里持续显眼）。温度可选地经 MaterialPropertyBlock
     /// 写进逐 renderer 的 _ThermalTemp，由热辐射 override shader 消费；将来的
@@ -37,7 +37,7 @@ namespace ACunicombat.Mechs
         [Header("基线与幅度（开尔文）")]
         [SerializeField] private float skinBaselineK = 285f;
         [SerializeField] private float thrusterBaselineK = 300f;
-        [Tooltip("满节流推进器相对基线的温升。")]
+        [Tooltip("主推进器达到额定输出时相对基线的温升。")]
         [SerializeField] private float thrusterMaxRiseK = 900f;
         [SerializeField] private float weaponBaselineK = 285f;
         [Tooltip("单次开火注入的温度脉冲。")]
@@ -130,7 +130,7 @@ namespace ACunicombat.Mechs
             var thrusterDrive = 0f;
             if (motion != null)
             {
-                thrusterDrive = motion.MainThrottle;
+                thrusterDrive = motion.MainEngineOutput;
                 if (motion.AssaultBoostActive)
                 {
                     thrusterDrive = Mathf.Max(thrusterDrive, assaultBoostDrive);

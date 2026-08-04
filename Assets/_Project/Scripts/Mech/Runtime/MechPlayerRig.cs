@@ -460,9 +460,6 @@ namespace ACunicombat.Mechs
             var motionFrame = lastFrame;
             if (orbitSynchronizer != null && orbitSynchronizer.Active)
             {
-                // In synchronization mode the physical throttle is owned by the flight computer.
-                // Lever changes have already been converted to a relative along-track speed bias.
-                motionFrame.MainThrottle = 0f;
                 if (orbitSynchronizer.RequestsAutomaticDeparture)
                 {
                     motionFrame.RiseHeld = true;
@@ -1095,7 +1092,7 @@ namespace ACunicombat.Mechs
             {
                 sb.AppendLine($"速度: {motion.Velocity.magnitude:F1} m/s {motion.Velocity}");
                 sb.AppendLine($"Yaw: {motion.YawDegrees:F1}°  接地: {motion.Grounded}  AB: {motion.AssaultBoostActive}");
-                sb.AppendLine($"节流: {motion.MainThrottle:P0}  技术安全速度: {motion.TechnicalSafetySpeed:F0} m/s");
+                sb.AppendLine($"主推输出: {motion.MainEngineOutput:P0}  技术安全速度: {motion.TechnicalSafetySpeed:F0} m/s");
                 sb.AppendLine(
                     $"机动能量: {motion.CurrentManeuverEnergy:F1}/" +
                     $"{motion.MaximumManeuverEnergy:F1}  " +
@@ -1113,7 +1110,7 @@ namespace ACunicombat.Mechs
                 {
                     sb.AppendLine(
                         $"轨道同步: T{orbitSynchronizer.SynchronizedTrackId.Value.Index:00}  " +
-                        $"自动节流: {orbitSynchronizer.AutoThrottleCommand:P0}  " +
+                        $"纵向飞控: {orbitSynchronizer.AutomaticLongitudinalCommand:P0}  " +
                         $"纵向偏置: {orbitSynchronizer.LongitudinalVelocityBias:F1} m/s");
                 }
             }

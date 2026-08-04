@@ -23,10 +23,6 @@ namespace ACunicombat.Mechs
         public bool QuickBoostEdge;
         /// <summary>X 按住（水平反推制动并保持当前高度）。</summary>
         public bool BrakeHeld;
-        /// <summary>持久主推进节流，[0,1]。它控制推力比例，不直接指定速度。</summary>
-        public float MainThrottle;
-        /// <summary>本帧节流杆相对上一帧的变化量；轨道同步飞控将其解释为沿轨速度设定变化。</summary>
-        public float MainThrottleDelta;
         /// <summary>按住 F 时冻结当前水平推力参考；机体仍可随鼠标转向。</summary>
         public bool InertialThrustLockHeld;
         /// <summary>Primary fire is the left mouse button and commands the anatomical left hand.</summary>
@@ -87,12 +83,8 @@ namespace ACunicombat.Mechs
         [SerializeField] private float doubleTapWindowSeconds = 0.3f;
         [Tooltip("长按 Space 判定为上昇開始ブースト的时长（秒）。")]
         [SerializeField] private float riseHoldBoostSeconds = 0.25f;
-        [Tooltip("鼠标滚轮每格改变的主推进节流比例。")]
-        [Range(0.01f, 0.25f)] [SerializeField] private float throttleWheelStep = 0.05f;
-
         private float lastSpaceDownTime = -10f;
         private float spaceHeldSince = -1f;
-        private float mainThrottle;
         private bool externalControl;
         private MechPlayerInputFrame externalFrame;
 
@@ -163,19 +155,11 @@ namespace ACunicombat.Mechs
             frame.ThrustVisualizationToggleEdge = keyboard.digit2Key.wasPressedThisFrame;
             frame.ThermalVisionCycleEdge = keyboard.backquoteKey.wasPressedThisFrame;
 
-            var previousThrottle = mainThrottle;
             var reloadModifierHeld = keyboard.rKey.isPressed;
             var reloadModifierEdge = keyboard.rKey.wasPressedThisFrame;
 
             if (mouse != null)
             {
-                var scrollY = mouse.scroll.ReadValue().y;
-                if (Mathf.Abs(scrollY) > Mathf.Epsilon)
-                {
-                    mainThrottle = Mathf.Clamp01(
-                        mainThrottle + Mathf.Sign(scrollY) * throttleWheelStep);
-                }
-
                 frame.MouseDelta = mouse.delta.ReadValue();
                 frame.PrimaryReloadEdge =
                     (reloadModifierHeld &&
@@ -199,9 +183,6 @@ namespace ACunicombat.Mechs
                     !reloadModifierHeld;
                 frame.ReferencePlaneResetEdge = mouse.middleButton.wasPressedThisFrame;
             }
-
-            frame.MainThrottle = mainThrottle;
-            frame.MainThrottleDelta = mainThrottle - previousThrottle;
 
             Current = frame;
             return frame;

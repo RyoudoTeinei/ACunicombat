@@ -728,16 +728,21 @@ public static class AC6PlayableSceneBuilder
             sustainedThrust.ConfigureModelForwardYawOffset(0f);
             sustainedThrust.ConfigureTechnicalSafetySpeed(200f);
             sustainedThrustGo.transform.position = Vector3.zero;
-            var fullThrottle = new MechPlayerInputFrame { MainThrottle = 1f };
+            var fullThrust = new MechPlayerInputFrame { MoveLocal = Vector2.up };
             for (var i = 0; i < 600; i++)
             {
-                sustainedThrust.Tick(in fullThrottle, dt);
+                sustainedThrust.Tick(in fullThrust, dt);
             }
 
             var sustainedThrustSpeed = sustainedThrust.HorizontalSpeed;
+            var fullMainOutput = sustainedThrust.MainEngineOutput;
             var sustainedThrustPass =
                 sustainedThrustSpeed > 100f &&
-                sustainedThrustSpeed <= 200.01f;
+                sustainedThrustSpeed <= 200.01f &&
+                fullMainOutput >= 0.99f;
+            sustainedThrust.Tick(in noInput, dt);
+            var releaseStopsMainEngine =
+                sustainedThrust.MainEngineOutput <= 0.001f;
 
             var brake = brakeGo.AddComponent<MechFlightMotionController>();
             brake.ConfigureModelForwardYawOffset(0f);
@@ -829,8 +834,9 @@ public static class AC6PlayableSceneBuilder
                      + $"(speed={assaultBoost.Velocity.magnitude:F2}, vy={assaultBoost.Velocity.y:F2}), "
                      + $"QB-overspeed={(quickBoostPass ? "PASS" : "FAIL")} "
                      + $"({quickBoostFirstStepSpeed:F2}->{quickBoostSpeed:F2} m/s), "
-                     + $"sustained-thrust={(sustainedThrustPass ? "PASS" : "FAIL")} "
-                     + $"({sustainedThrustSpeed:F2} m/s), "
+                      + $"sustained-thrust={(sustainedThrustPass ? "PASS" : "FAIL")} "
+                      + $"({sustainedThrustSpeed:F2} m/s, output={fullMainOutput:P0}), "
+                      + $"release-main={(releaseStopsMainEngine ? "PASS" : "FAIL")}, "
                      + $"ground-brake={(groundBrakePass ? "PASS" : "FAIL")} "
                      + $"({impulseSpeed:F2}->{stoppedSpeed:F2} m/s), "
                      + $"air-brake={(airBrakePass ? "PASS" : "FAIL")} "
@@ -839,6 +845,7 @@ public static class AC6PlayableSceneBuilder
                      + $"(recovered={energy.CurrentManeuverEnergy:F1}, "
                      + $"qb-left={quickBoostEnergy.CurrentManeuverEnergy:F1})";
             return pitchedForwardPass && assaultBoostPass && quickBoostPass && sustainedThrustPass
+                   && releaseStopsMainEngine
                    && groundBrakePass && airBrakePass && energyPass;
         }
         finally

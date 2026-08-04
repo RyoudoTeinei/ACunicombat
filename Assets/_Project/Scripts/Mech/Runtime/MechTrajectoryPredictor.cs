@@ -331,8 +331,6 @@ namespace ACunicombat.Mechs
         [SerializeField] private float maximumSynchronizationAcceleration = 32f;
         [SerializeField, Range(0.1f, 1f)] private float longitudinalBrakingSafety = 0.78f;
         [SerializeField] private float longitudinalHoldRadius = 3f;
-        [SerializeField] private float throttleVelocityRange = 300f;
-        [SerializeField] private float maximumLongitudinalVelocityBias = 300f;
         [SerializeField] private float targetVelocitySmoothingSeconds = 0.35f;
         [SerializeField] private float targetTurnReanchorDegrees = 2.5f;
         [SerializeField] private float targetSpeedReanchorThreshold = 8f;
@@ -366,7 +364,7 @@ namespace ACunicombat.Mechs
         private bool longitudinalOverrideLastFrame;
         private bool active;
         private bool manualOverride;
-        private float autoThrottleCommand;
+        private float automaticLongitudinalCommand;
         private LineRenderer leftPathLine;
         private LineRenderer rightPathLine;
         private Material pathMaterial;
@@ -386,7 +384,7 @@ namespace ACunicombat.Mechs
         public Vector3 ParallelDirection => parallelDirection;
         public Vector3 FilteredTargetVelocity => filteredTargetVelocity;
         public float LongitudinalVelocityBias => longitudinalVelocityBias;
-        public float AutoThrottleCommand => autoThrottleCommand;
+        public float AutomaticLongitudinalCommand => automaticLongitudinalCommand;
         public bool RequestsAutomaticDeparture =>
             active && motion != null && motion.Grounded;
 
@@ -431,7 +429,7 @@ namespace ACunicombat.Mechs
             longitudinalOverrideLastFrame = false;
             active = true;
             manualOverride = false;
-            autoThrottleCommand = 0f;
+            automaticLongitudinalCommand = 0f;
             pathVisualInitialized = false;
             dashLightInitialized = false;
             EnsurePathRenderer();
@@ -444,7 +442,7 @@ namespace ACunicombat.Mechs
             active = false;
             synchronizedTrackId = default;
             manualOverride = false;
-            autoThrottleCommand = 0f;
+            automaticLongitudinalCommand = 0f;
             pathVisualInitialized = false;
             motion?.ClearTrajectorySyncCommand();
             SetPathVisible(false);
@@ -512,12 +510,9 @@ namespace ACunicombat.Mechs
                 frame.BrakeHeld ||
                 motion.AssaultBoostActive ||
                 quickBoostOverride;
-            var throttleAdjusted =
-                Mathf.Abs(frame.MainThrottleDelta) > 0.00001f;
             manualOverride =
                 playerLateralOverride ||
-                directLongitudinalOverride ||
-                throttleAdjusted;
+                directLongitudinalOverride;
 
             var relativePosition = transform.position - targetPosition;
             var relativeVelocity = motion.Velocity - filteredTargetVelocity;
@@ -532,16 +527,6 @@ namespace ACunicombat.Mechs
                 (lateralOverrideLastFrame && !lateralOverride))
             {
                 desiredRelativeOffset = relativePosition;
-            }
-
-            if (throttleAdjusted)
-            {
-                desiredRelativeOffset = relativePosition;
-                longitudinalVelocityBias = Mathf.Clamp(
-                    longitudinalVelocityBias +
-                    frame.MainThrottleDelta * throttleVelocityRange,
-                    -Mathf.Max(0f, maximumLongitudinalVelocityBias),
-                    Mathf.Max(0f, maximumLongitudinalVelocityBias));
             }
 
             if (directLongitudinalOverride)
@@ -578,7 +563,7 @@ namespace ACunicombat.Mechs
                 longitudinalBrakingSafety,
                 longitudinalHoldRadius);
             motion.SetTrajectorySyncAcceleration(requestedAcceleration);
-            autoThrottleCommand = Mathf.Clamp(
+            automaticLongitudinalCommand = Mathf.Clamp(
                 Vector3.Dot(
                     requestedAcceleration,
                     parallelDirection) /

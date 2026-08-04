@@ -186,7 +186,7 @@ namespace ACunicombat.Mechs
         private bool maneuverEnergyInitialized;
         private bool maneuverEnergyConfiguredAtRuntime;
         private bool braking;
-        private float mainThrottle;
+        private float mainEngineOutput;
         private bool inertialThrustLockActive;
         private Vector3 inertialThrustLockForward = Vector3.forward;
         private bool trajectorySyncCommandActive;
@@ -235,7 +235,8 @@ namespace ACunicombat.Mechs
             velocity,
             ReferenceUp).magnitude;
 
-        public float MainThrottle => mainThrottle;
+        /// <summary>当前主推进器实际输出相对额定主推力的比例，仅用于遥测与热模型。</summary>
+        public float MainEngineOutput => mainEngineOutput;
 
         public float TechnicalSafetySpeed => technicalSafetySpeed;
 
@@ -818,6 +819,7 @@ namespace ACunicombat.Mechs
             currentDescentForceNewtons = Vector3.zero;
             currentQuickBoostForceNewtons = Vector3.zero;
             currentTrajectorySyncForceNewtons = Vector3.zero;
+            mainEngineOutput = 0f;
 
             // Cursor displacement commands bounded yaw and pitch rates in the active reference
             // frame. Roll remains zero relative to that frame.
@@ -922,10 +924,9 @@ namespace ACunicombat.Mechs
             {
                 controlRight = right;
             }
-            mainThrottle = Mathf.Clamp01(frame.MainThrottle);
-
-            // 节流是持久的前向推力命令。W/S 在该命令上临时加减，A/D 仍是侧向推进。
-            var forwardCommand = Mathf.Clamp(frame.MoveLocal.y + mainThrottle, -1f, 1f);
+            // 没有独立节流杆。W/S 直接请求对应纵向喷口组的额定输出；松键即停火，
+            // 已获得的速度继续按惯性保留。
+            var forwardCommand = Mathf.Clamp(frame.MoveLocal.y, -1f, 1f);
             var movementEnergyScale = ConsumeMovementEnergy(
                 ResolveMovementEnergyDrainRate(in frame, forwardCommand),
                 deltaTime);
@@ -1142,6 +1143,10 @@ namespace ACunicombat.Mechs
                 currentControlForceNewtons = totalBrakingForce;
                 currentControlAcceleration = currentControlForceNewtons / currentMassKg;
             }
+
+            mainEngineOutput = Mathf.Clamp01(
+                SumThrusterForce(MechThrusterRole.Main).magnitude /
+                Mathf.Max(1f, mainThrustNewtons));
 
             // 无输入时空中保留惯性；地面则由接触摩擦可靠退出 QB/滑行。
             if (!braking && grounded && !hasPropulsionCommand &&
@@ -2207,7 +2212,7 @@ namespace ACunicombat.Mechs
                 controlRight,
                 controlForward,
                 quickBoostApplying);
-            var longitudinalCommand = Mathf.Clamp(frame.MoveLocal.y + mainThrottle, -1f, 1f);
+            var longitudinalCommand = Mathf.Clamp(frame.MoveLocal.y, -1f, 1f);
             var translationCommandMagnitude = Mathf.Clamp01(
                 new Vector2(frame.MoveLocal.x, longitudinalCommand).magnitude);
 
@@ -2344,7 +2349,7 @@ namespace ACunicombat.Mechs
                 return Vector3.ProjectOnPlane(mainThrustDirection, ReferenceUp).normalized;
             }
 
-            var longitudinalCommand = Mathf.Clamp(frame.MoveLocal.y + mainThrottle, -1f, 1f);
+            var longitudinalCommand = Mathf.Clamp(frame.MoveLocal.y, -1f, 1f);
             var inputDirection = controlRight * frame.MoveLocal.x
                                  + controlForward * longitudinalCommand;
             return inputDirection.sqrMagnitude > 0.0001f

@@ -388,7 +388,6 @@ namespace ACunicombat.Mechs
                         Mathf.Sin(Time.time * 0.7f) * 0.18f,
                         0.18f),
                 QuickBoostEdge = quickBoost,
-                MainThrottle = 0f,
             };
         }
 
@@ -677,7 +676,6 @@ namespace ACunicombat.Mechs
                         : weave * (state == CombatState.Engage ? 0.36f : 0.2f),
                     defensive ? -0.2f : longitudinalCommand),
                 QuickBoostEdge = quickBoost,
-                MainThrottle = 0f,
                 BrakeHeld = false,
             };
         }
