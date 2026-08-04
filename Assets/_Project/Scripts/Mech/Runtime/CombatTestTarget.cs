@@ -68,6 +68,22 @@ namespace ACunicombat.Mechs
         public TestWeaponKind LastHitKind => lastHitKind;
         public CombatTestTargetMotionMode MotionMode => motionMode;
         public float FlightSpeedMetersPerSecond => flightSpeedMetersPerSecond;
+        public Vector3 ProceduralVelocity => motionMode switch
+        {
+            CombatTestTargetMotionMode.LinearFlight =>
+                flightDirection * flightSpeedMetersPerSecond,
+            CombatTestTargetMotionMode.LateralOscillation
+                when moveLaterally &&
+                     lateralAmplitudeMeters > 0.01f &&
+                     lateralSpeedMetersPerSecond > 0.01f =>
+                Vector3.right *
+                (Mathf.Cos(
+                     motionElapsedSeconds *
+                     lateralSpeedMetersPerSecond /
+                     lateralAmplitudeMeters) *
+                 lateralSpeedMetersPerSecond),
+            _ => Vector3.zero,
+        };
 
         public void Configure(
             Transform newAimPoint,

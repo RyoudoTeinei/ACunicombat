@@ -84,6 +84,7 @@ namespace ACunicombat.Mechs
         private float launchDelay;
         private float maximumTravelDistance;
         private float distanceTravelled;
+        private float projectileFlightTime;
         private MechEffectPrefabLibrary effectLibrary;
         private int impactFfxId;
 
@@ -175,6 +176,7 @@ namespace ACunicombat.Mechs
         private float interceptionHealth;
         // > 0 表示这是专用拦截弹种，带小半径近炸；0 表示普通动能弹。
         private float interceptorRoundLethalRadius;
+        private bool cannonProximityFuseEnabled;
         private bool interceptionResolved;
         private MissileEngagementState engagementState =
             MissileEngagementState.Active;
@@ -433,6 +435,8 @@ namespace ACunicombat.Mechs
             launchDelay = Mathf.Max(0f, delaySeconds);
             maximumTravelDistance = Mathf.Max(0f, newMaximumTravelDistance);
             distanceTravelled = 0f;
+            projectileFlightTime = 0f;
+            cannonProximityFuseEnabled = false;
             effectLibrary = newEffectLibrary;
             impactFfxId = newImpactFfxId;
             guidanceChannelToken = newGuidanceChannelToken;
@@ -689,6 +693,11 @@ namespace ACunicombat.Mechs
         private void FixedUpdate()
         {
             var dt = Time.fixedDeltaTime;
+            var cannonFuseArmedAtTickStart =
+                cannonProximityFuseEnabled &&
+                projectileFlightTime >= proximityFuseArmTime &&
+                distanceTravelled >= proximityFuseSafeDistance;
+            projectileFlightTime += dt;
             lifeRemaining -= dt;
             if (lifeRemaining <= 0f)
             {
@@ -761,6 +770,25 @@ namespace ACunicombat.Mechs
             var sweepTime = hasSweepHit && speed > 0.001f
                 ? hit.distance / speed
                 : float.PositiveInfinity;
+
+            if (cannonFuseArmedAtTickStart &&
+                TryFindCannonProximityPass(
+                    dt,
+                    out var cannonFuseTime,
+                    out var cannonDetonationPoint,
+                    out var cannonMissDistance) &&
+                cannonFuseTime <= sweepTime)
+            {
+                Debug.Log(
+                    $"[CannonFuze] proximity burst " +
+                    $"CPA={cannonFuseTime:0.000}s " +
+                    $"miss={cannonMissDistance:0.0}m " +
+                    $"trigger={proximityFuseRadius:0.0}m.",
+                    this);
+                DetonateWarhead(cannonDetonationPoint);
+                Destroy(gameObject);
+                return;
+            }
 
             // 弹丸对来袭导弹改用双体 CPA 判定，并与扫掠结果比较发生时刻取更早者。
             // 只用 SphereCast 是不够的：它扫掠自己这一 tick 的位移，却把导弹当成 tick 开始时
@@ -2130,6 +2158,136 @@ namespace ACunicombat.Mechs
         public void ConfigureInterceptorRound(float lethalRadiusMeters)
         {
             interceptorRoundLethalRadius = Mathf.Max(0f, lethalRadiusMeters);
+        }
+
+        public void ConfigureCannonProximityFuse(
+            float triggerRadiusMeters,
+            float armSeconds,
+            float safeDistanceMeters,
+            float lethalRadiusMeters)
+        {
+            if (weaponKind != TestWeaponKind.Cannon)
+            {
+                return;
+            }
+
+            proximityFuseRadius = Mathf.Max(0f, triggerRadiusMeters);
+            proximityFuseArmTime = Mathf.Max(0f, armSeconds);
+            proximityFuseSafeDistance = Mathf.Max(
+                0f,
+                safeDistanceMeters);
+            warheadLethalRadius = Mathf.Max(0f, lethalRadiusMeters);
+            cannonProximityFuseEnabled =
+                proximityFuseRadius > 0f &&
+                warheadLethalRadius > 0f;
+        }
+
+        private bool TryFindCannonProximityPass(
+            float deltaTime,
+            out float detonationTime,
+            out Vector3 detonationPoint,
+            out float missDistance)
+        {
+            detonationTime = float.PositiveInfinity;
+            detonationPoint = default;
+            missDistance = float.PositiveInfinity;
+            if (!cannonProximityFuseEnabled ||
+                weaponKind != TestWeaponKind.Cannon)
+            {
+                return false;
+            }
+
+            // The local RF fuze only needs nearby reflectors. The extra motion
+            // allowance keeps fast crossing targets inside the broad phase for
+            // this physics tick; CPA below performs the actual trigger test.
+            var searchRadius =
+                proximityFuseRadius +
+                velocity.magnitude * deltaTime +
+                40f;
+            var colliderCount = Physics.OverlapSphereNonAlloc(
+                transform.position,
+                searchRadius,
+                OverlapScratch,
+                Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Collide);
+            var bestMissDistance = float.PositiveInfinity;
+            for (var i = 0; i < colliderCount; i++)
+            {
+                var candidate =
+                    OverlapScratch[i]
+                        .GetComponentInParent<CombatTestTarget>();
+                if (candidate == null ||
+                    !candidate.IsAlive ||
+                    IsOwnerTarget(candidate.transform))
+                {
+                    continue;
+                }
+
+                var targetPosition = candidate.AimPoint.position;
+                var targetVelocity = ResolveCombatTargetVelocity(
+                    candidate);
+                var relativePosition = targetPosition - transform.position;
+                var relativeVelocity = targetVelocity - velocity;
+                if (Vector3.Dot(relativePosition, relativeVelocity) >= 0f)
+                {
+                    continue;
+                }
+
+                var cpa = CpaSolver.Solve(
+                    new double3(
+                        relativePosition.x,
+                        relativePosition.y,
+                        relativePosition.z),
+                    new double3(
+                        relativeVelocity.x,
+                        relativeVelocity.y,
+                        relativeVelocity.z),
+                    double3.zero,
+                    Math.Max(deltaTime, 0.0001f));
+                if (cpa.Distance > proximityFuseRadius)
+                {
+                    continue;
+                }
+
+                var cpaTime = (float)cpa.Time;
+                var candidateMissDistance = (float)cpa.Distance;
+                if (cpaTime < detonationTime ||
+                    (Mathf.Approximately(cpaTime, detonationTime) &&
+                     candidateMissDistance < bestMissDistance))
+                {
+                    detonationTime = cpaTime;
+                    bestMissDistance = candidateMissDistance;
+                    detonationPoint =
+                        transform.position + velocity * cpaTime;
+                }
+            }
+
+            missDistance = bestMissDistance;
+            return !float.IsPositiveInfinity(detonationTime);
+        }
+
+        private bool IsOwnerTarget(Transform candidate)
+        {
+            return owner != null &&
+                   (candidate == owner ||
+                    candidate.IsChildOf(owner) ||
+                    owner.IsChildOf(candidate));
+        }
+
+        private static Vector3 ResolveCombatTargetVelocity(
+            CombatTestTarget candidate)
+        {
+            var motion =
+                candidate.GetComponent<MechFlightMotionController>();
+            if (motion != null)
+            {
+                return motion.Velocity;
+            }
+
+            var body = candidate.GetComponent<Rigidbody>();
+            return body != null
+                ? body.linearVelocity
+                : candidate.ProceduralVelocity;
         }
 
         private void DetonateInterceptorWarhead(

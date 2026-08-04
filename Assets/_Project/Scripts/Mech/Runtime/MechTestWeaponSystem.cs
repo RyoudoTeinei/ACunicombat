@@ -52,6 +52,15 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(1)] private int rifleMagazineCount = 8;
         [SerializeField, Min(0.1f)] private float rifleReloadSeconds = 4.95f;
         [SerializeField, Min(0.1f)] private float cannonReloadSeconds = 4.25f;
+        [Header("57 mm proximity fuze")]
+        [SerializeField, Min(0f)]
+        private float cannonProximityFuseRadiusMeters = 7.5f;
+        [SerializeField, Min(0f)]
+        private float cannonProximityFuseArmSeconds = 0.12f;
+        [SerializeField, Min(0f)]
+        private float cannonProximityFuseSafeDistanceMeters = 45f;
+        [SerializeField, Min(0f)]
+        private float cannonWarheadLethalRadiusMeters = 10f;
         [Header("Missile launcher ammunition")]
         [SerializeField, Min(1)] private int leftMissileMagazineCapacity = 16;
         [SerializeField, Min(1)] private int leftMissileMagazineCount = 2;
@@ -741,7 +750,16 @@ namespace ACunicombat.Mechs
                     CannonProjectileLifetimeSeconds,
                     launchFfxId: 6031100, projectileFfxId: 6031101,
                     launchAnchor: muzzle,
-                    inheritedVelocity: inheritedVelocity);
+                    proximityFuseRadius:
+                        cannonProximityFuseRadiusMeters,
+                    proximityFuseArmTime:
+                        cannonProximityFuseArmSeconds,
+                    proximityFuseSafeDistance:
+                        cannonProximityFuseSafeDistanceMeters,
+                    warheadLethalRadius:
+                        cannonWarheadLethalRadiusMeters,
+                    inheritedVelocity: inheritedVelocity,
+                    cannonProximityFuseEnabled: locked);
                 PlayHandWeaponAudio(kind, muzzle);
                 cannonRoundsRemaining = Mathf.Max(
                     0,
@@ -1968,7 +1986,8 @@ namespace ACunicombat.Mechs
             float coldLaunchSafeSeparationMeters = 0f,
             float coldLaunchIgnitionAlignmentDegrees = 8f,
             float coldLaunchAlignmentTimeoutSeconds = 0.6f,
-            float interceptorRoundLethalRadius = 0f)
+            float interceptorRoundLethalRadius = 0f,
+            bool cannonProximityFuseEnabled = false)
         {
             EnsureMaterials();
             var ownshipMissileAudio =
@@ -2117,6 +2136,15 @@ namespace ACunicombat.Mechs
                 coldLaunchIgnitionAlignmentDegrees,
                 coldLaunchAlignmentTimeoutSeconds,
                 ownshipMissileAudio);
+            if (kind == TestWeaponKind.Cannon &&
+                cannonProximityFuseEnabled)
+            {
+                projectileBehaviour.ConfigureCannonProximityFuse(
+                    proximityFuseRadius,
+                    proximityFuseArmTime,
+                    proximityFuseSafeDistance,
+                    warheadLethalRadius);
+            }
         }
 
         private bool TryGetAimPoint(
