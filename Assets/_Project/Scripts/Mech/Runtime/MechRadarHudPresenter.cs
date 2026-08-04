@@ -282,22 +282,18 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var centerX = Screen.width * 0.5f;
-            var labelWidth = Mathf.Clamp(
-                Screen.width * 0.24f,
-                220f,
-                320f);
-            var requestedHorizontalOffset = Mathf.Clamp(
-                Screen.width * 0.2f,
-                220f,
-                520f);
-            var horizontalOffset = Mathf.Min(
-                requestedHorizontalOffset,
-                Mathf.Max(48f, centerX - labelWidth - 12f));
-            var leftX = centerX - horizontalOffset - labelWidth;
-            var rightX = centerX + horizontalOffset;
-            var missileY = Screen.height * 0.60f;
-            var handWeaponY = Screen.height * 0.74f;
+            const float labelWidth = 300f;
+            const float rowHeight = 22f;
+            const float rowSpacing = 27f;
+            var preferredX =
+                Screen.width - RadarStatusWidth - labelWidth - 32f;
+            var statusX = Mathf.Clamp(
+                preferredX,
+                Screen.width * 0.55f,
+                Mathf.Max(12f, Screen.width - labelWidth - 20f));
+            var firstRowY = Mathf.Max(
+                12f,
+                Screen.height - rowSpacing * 4f - 54f);
 
             smallStyle.alignment = TextAnchor.MiddleRight;
             smallStyle.normal.textColor =
@@ -305,19 +301,23 @@ namespace ACunicombat.Mechs
                     ? HudGreen
                     : HudRed;
             GUI.Label(
-                new Rect(leftX, missileY, labelWidth, 22f),
+                new Rect(statusX, firstRowY, labelWidth, rowHeight),
                 $"L MSL  {weaponSystem.LeftMissileRoundsRemaining:00}/" +
                 $"{weaponSystem.LeftMissileMagazineCapacity:00}  " +
                 $"x{weaponSystem.LeftMissileMagazinesRemaining}",
                 smallStyle);
 
-            smallStyle.alignment = TextAnchor.MiddleLeft;
+            smallStyle.alignment = TextAnchor.MiddleRight;
             smallStyle.normal.textColor =
                 weaponSystem.RightMissileMagazinesRemaining > 0
                     ? HudGreen
                     : HudRed;
             GUI.Label(
-                new Rect(rightX, missileY, labelWidth, 22f),
+                new Rect(
+                    statusX,
+                    firstRowY + rowSpacing,
+                    labelWidth,
+                    rowHeight),
                 $"R MSL  {weaponSystem.RightMissileRoundsRemaining:00}/" +
                 $"{weaponSystem.RightMissileMagazineCapacity:00}  " +
                 $"x{weaponSystem.RightMissileMagazinesRemaining}",
@@ -338,11 +338,15 @@ namespace ACunicombat.Mechs
                   $"{weaponSystem.CannonMagazineCapacity:00}  " +
                   $"x{weaponSystem.CannonMagazinesRemaining}";
             GUI.Label(
-                new Rect(leftX, handWeaponY, labelWidth, 22f),
+                new Rect(
+                    statusX,
+                    firstRowY + rowSpacing * 2f + 8f,
+                    labelWidth,
+                    rowHeight),
                 cannonText,
                 smallStyle);
 
-            smallStyle.alignment = TextAnchor.MiddleLeft;
+            smallStyle.alignment = TextAnchor.MiddleRight;
             smallStyle.normal.textColor = weaponSystem.RifleReloading
                 ? HudAmber
                 : weaponSystem.RifleMagazinesRemaining > 0
@@ -357,7 +361,11 @@ namespace ACunicombat.Mechs
                   $"{weaponSystem.RifleMagazineCapacity:00}  " +
                   $"x{weaponSystem.RifleMagazinesRemaining}";
             GUI.Label(
-                new Rect(rightX, handWeaponY, labelWidth, 22f),
+                new Rect(
+                    statusX,
+                    firstRowY + rowSpacing * 3f + 8f,
+                    labelWidth,
+                    rowHeight),
                 rifleText,
                 smallStyle);
         }

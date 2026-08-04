@@ -14,6 +14,11 @@ namespace ACunicombat.Tracking
         public const int MaxTracks = 32;
 
         private const double AssociationGateSquared = 25.0;
+        // The interceptor profile can exceed 500 m/s^2 and search dwells may
+        // revisit it only every 0.2 s. The generic aircraft process tier is
+        // too confident for that motion and repeatedly breaks association.
+        private const double MissilePositionProcessNoise = 900.0;
+        private const double MissileVelocityProcessNoise = 90_000.0;
         private const double InitialVelocitySigmaMetersPerSecond = 300.0;
         private const double UnobservedMissAgeSeconds = 1.0;
         private const double MaximumAssociationAgeSeconds = 1.0;
@@ -112,7 +117,17 @@ namespace ACunicombat.Tracking
                 var dt = math.max(0.0, simTime - slot.Filter.Time);
                 if (dt > 0.0)
                 {
-                    Cmkf.PredictCv(ref slot.Filter, dt, 4.0, 16.0);
+                    var missileTrack =
+                        slot.ObjectClass == TrackObjectClass.Missile;
+                    Cmkf.PredictCv(
+                        ref slot.Filter,
+                        dt,
+                        missileTrack
+                            ? MissilePositionProcessNoise
+                            : 4.0,
+                        missileTrack
+                            ? MissileVelocityProcessNoise
+                            : 16.0);
                 }
 
                 if (simTime - slot.LastUpdateTime >= MaximumTrackAgeSeconds)
@@ -479,11 +494,12 @@ namespace ACunicombat.Tracking
                 // 归一化距离 ≪ 门限仍可合并，但近距编队的相邻目标不再被
                 // 已关联的航迹抢走（最近邻无排他性的最小缓解）。
                 // Overlapping dwells may report the same small, fast target
-                // several times in one fusion tick. Lifecycle hits are
-                // already de-duplicated by associated[], so retaining the
-                // normal covariance gate prevents noisy missile returns from
-                // allocating a trail of duplicate tracks.
-                var gate = AssociationGateSquared;
+                // several times in one fusion tick. The tighter second-hit
+                // gate still merges those returns without allowing the wider
+                // missile maneuver covariance to absorb a nearby missile.
+                var gate = associated[i]
+                    ? AssociationGateSquared * 0.25
+                    : AssociationGateSquared;
                 if (normalizedDistance >= gate || normalizedDistance >= bestDistance)
                 {
                     continue;

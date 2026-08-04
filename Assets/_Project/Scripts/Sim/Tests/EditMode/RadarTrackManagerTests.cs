@@ -151,6 +151,48 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void HighAccelerationMissileAtSearchCadence_RemainsSingleTrack()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+            var initialPosition = new double3(0.0, 0.0, 2_000.0);
+            var initialVelocity = new double3(0.0, 0.0, -100.0);
+            var acceleration = new double3(800.0, 0.0, 0.0);
+
+            for (var sample = 1; sample <= 20; sample++)
+            {
+                var time = sample * 0.2;
+                var position = initialPosition +
+                               initialVelocity * time +
+                               acceleration * (0.5 * time * time);
+                var velocity = initialVelocity + acceleration * time;
+                var measurement = MeasurementAtPosition(
+                    time,
+                    position,
+                    velocity);
+                measurement.ObjectClass = TrackObjectClass.Missile;
+                measurement.ClassificationConfidence = 0.9f;
+                measurements.Clear();
+                measurements.Add(measurement);
+
+                manager.Process(
+                    measurements,
+                    double3.zero,
+                    double3.zero,
+                    time);
+            }
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+            Assert.That(
+                manager.TryGetBestTrack(out var track),
+                Is.True);
+            Assert.That(
+                track.Lifecycle,
+                Is.EqualTo(TrackLifecycle.Confirmed));
+        }
+
+        [Test]
         public void CoLocatedAircraftAndMissile_ReturnsRemainSeparateTracks()
         {
             var manager = new RadarTrackManager();
