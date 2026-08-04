@@ -98,6 +98,28 @@ namespace ACunicombat.Editor.Tests
         }
 
         [Test]
+        public void EngineAvailability_GatesAllPropulsionCommands()
+        {
+            motion.ConfigureGravity(0f);
+            motion.SetEngineAvailable(false);
+            var forward = new MechPlayerInputFrame { MoveLocal = Vector2.up };
+            var initialPosition = mechObject.transform.position;
+
+            motion.Tick(in forward, 0.1f);
+
+            Assert.That(mechObject.transform.position, Is.EqualTo(initialPosition));
+            Assert.That(motion.MainEngineOutput, Is.Zero.Within(0.0001f));
+            Assert.That(motion.BeginQuickBoost(Vector2.up), Is.False);
+            Assert.That(motion.ToggleAssaultBoost(), Is.False);
+
+            motion.SetEngineAvailable(true);
+            motion.Tick(in forward, 0.1f);
+
+            Assert.That(motion.MainEngineOutput, Is.GreaterThan(0f));
+            Assert.That(mechObject.transform.position.z, Is.GreaterThan(initialPosition.z));
+        }
+
+        [Test]
         public void GroundedPitchEnvelope_PreventsPointingIntoSurface()
         {
             var groundedField = typeof(MechFlightMotionController).GetField(

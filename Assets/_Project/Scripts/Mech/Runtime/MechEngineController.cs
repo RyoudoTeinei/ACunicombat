@@ -1,0 +1,369 @@
+using UnityEngine;
+
+namespace ACunicombat.Mechs
+{
+    /// <summary>
+    /// Owns engine startup availability and the layered propulsion mix. Flight physics remains
+    /// authoritative in <see cref="MechFlightMotionController"/>; this component only gates that
+    /// authority during startup and renders its output as audio.
+    /// </summary>
+    [DisallowMultipleComponent]
+    public sealed class MechEngineController : MonoBehaviour
+    {
+        private const string AudioRoot = "Audio/Engine/";
+
+        [Header("Startup")]
+        [SerializeField, Min(0f)] private float startupDurationSeconds = 16f;
+        [SerializeField, Min(0.01f)] private float startupFadeSeconds = 3f;
+
+        [Header("Mix")]
+        [SerializeField, Range(0f, 1f)] private float interiorStartupVolume = 0.72f;
+        [SerializeField, Range(0f, 1f)] private float externalStartupVolume = 0.52f;
+        [SerializeField, Range(0f, 1f)] private float turbineStartupVolume = 0.32f;
+        [SerializeField, Range(0f, 1f)] private float turbineLoopVolume = 0.34f;
+        [SerializeField, Range(0f, 1f)] private float rearLoopVolume = 0.46f;
+        [SerializeField, Range(0f, 1f)] private float afterburnerVolume = 0.56f;
+        [SerializeField, Min(0.01f)] private float mixResponsePerSecond = 3.5f;
+
+        private MechFlightMotionController motion;
+        private bool useInteriorMix;
+        private bool configured;
+        private bool startupActive;
+        private float startupElapsedSeconds;
+        private bool previousAssaultBoost;
+        private float afterburnerGain;
+
+        private AudioSource interiorStartupSource;
+        private AudioSource externalStartupSource;
+        private AudioSource turbineStartupSource;
+        private AudioSource turbineIdleSource;
+        private AudioSource turbineCruiseSource;
+        private AudioSource turbineMaximumSource;
+        private AudioSource rearLowSource;
+        private AudioSource rearCruiseSource;
+        private AudioSource rearMaximumSource;
+        private AudioSource afterburnerIgnitionSource;
+        private AudioSource afterburnerBurnSource;
+        private AudioSource afterburnerWepSource;
+        private AudioSource jetThrustSource;
+        private AudioSource nozzleThrustSource;
+
+        public bool StartupActive => startupActive;
+        public float StartupProgress => startupDurationSeconds <= Mathf.Epsilon
+            ? 1f
+            : Mathf.Clamp01(startupElapsedSeconds / startupDurationSeconds);
+        public float StartupSecondsRemaining => startupActive
+            ? Mathf.Max(0f, startupDurationSeconds - startupElapsedSeconds)
+            : 0f;
+
+        private void Awake()
+        {
+            LoadAndCreateSources();
+        }
+
+        public void Configure(
+            MechFlightMotionController motionController,
+            bool enableInteriorMix)
+        {
+            motion = motionController;
+            useInteriorMix = enableInteriorMix;
+            configured = motion != null;
+            SetStructuralSpatialBlend(useInteriorMix ? 0f : 1f);
+            BeginStartup();
+        }
+
+        private void BeginStartup()
+        {
+            if (!configured)
+            {
+                return;
+            }
+
+            startupElapsedSeconds = 0f;
+            startupActive = startupDurationSeconds > Mathf.Epsilon;
+            previousAssaultBoost = false;
+            afterburnerGain = 0f;
+            motion.SetEngineAvailable(!startupActive);
+
+            StartLoopSources();
+            if (!startupActive)
+            {
+                return;
+            }
+
+            PlayFromStart(externalStartupSource);
+            PlayFromStart(turbineStartupSource);
+            if (useInteriorMix)
+            {
+                PlayFromStart(interiorStartupSource);
+            }
+        }
+
+        private void Update()
+        {
+            if (!configured || motion == null)
+            {
+                return;
+            }
+
+            var deltaTime = Mathf.Max(0f, Time.deltaTime);
+            if (startupActive)
+            {
+                startupElapsedSeconds += deltaTime;
+                UpdateStartupMix();
+                if (startupElapsedSeconds >= startupDurationSeconds)
+                {
+                    CompleteStartup();
+                }
+            }
+
+            UpdateRunningMix(deltaTime);
+        }
+
+        private void UpdateStartupMix()
+        {
+            var fadeStart = Mathf.Max(
+                0f,
+                startupDurationSeconds - Mathf.Max(0.01f, startupFadeSeconds));
+            var fade = 1f - Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(fadeStart, startupDurationSeconds, startupElapsedSeconds));
+            if (interiorStartupSource != null)
+            {
+                interiorStartupSource.volume = useInteriorMix
+                    ? interiorStartupVolume * fade
+                    : 0f;
+            }
+            if (externalStartupSource != null)
+            {
+                externalStartupSource.volume = externalStartupVolume * fade;
+            }
+            if (turbineStartupSource != null)
+            {
+                turbineStartupSource.volume = turbineStartupVolume * fade;
+            }
+        }
+
+        private void CompleteStartup()
+        {
+            startupElapsedSeconds = startupDurationSeconds;
+            startupActive = false;
+            StopSource(interiorStartupSource);
+            StopSource(externalStartupSource);
+            StopSource(turbineStartupSource);
+            motion.SetEngineAvailable(true);
+        }
+
+        private void UpdateRunningMix(float deltaTime)
+        {
+            var ready = motion.EngineAvailable && !startupActive;
+            var load = ready ? Mathf.Clamp01(motion.MainEngineOutput) : 0f;
+            var lowWeight = ready
+                ? 1f - SmoothRange(0.12f, 0.58f, load)
+                : 0f;
+            var cruiseWeight = ready
+                ? 1f - Mathf.Clamp01(Mathf.Abs(load - 0.5f) * 2f)
+                : 0f;
+            cruiseWeight = cruiseWeight * cruiseWeight * (3f - 2f * cruiseWeight);
+            var highWeight = ready ? SmoothRange(0.42f, 0.92f, load) : 0f;
+            var step = Mathf.Max(0.01f, mixResponsePerSecond) * deltaTime;
+
+            MoveVolume(turbineIdleSource, lowWeight * turbineLoopVolume, step);
+            MoveVolume(turbineCruiseSource, cruiseWeight * turbineLoopVolume, step);
+            MoveVolume(turbineMaximumSource, highWeight * turbineLoopVolume, step);
+            MoveVolume(rearLowSource, lowWeight * rearLoopVolume, step);
+            MoveVolume(rearCruiseSource, cruiseWeight * rearLoopVolume, step);
+            MoveVolume(rearMaximumSource, highWeight * rearLoopVolume, step);
+
+            var assaultBoost = ready && motion.AssaultBoostActive;
+            if (assaultBoost && !previousAssaultBoost && afterburnerIgnitionSource != null)
+            {
+                afterburnerIgnitionSource.PlayOneShot(
+                    afterburnerIgnitionSource.clip,
+                    useInteriorMix ? 0.72f : 1f);
+            }
+            previousAssaultBoost = assaultBoost;
+            afterburnerGain = Mathf.MoveTowards(
+                afterburnerGain,
+                assaultBoost ? 1f : 0f,
+                step * (assaultBoost ? 1.8f : 1f));
+
+            MoveVolume(
+                afterburnerBurnSource,
+                afterburnerGain * afterburnerVolume * (useInteriorMix ? 0.72f : 0.35f),
+                step);
+            MoveVolume(
+                afterburnerWepSource,
+                afterburnerGain * afterburnerVolume * (useInteriorMix ? 0.58f : 0.25f),
+                step);
+            MoveVolume(
+                jetThrustSource,
+                afterburnerGain * afterburnerVolume,
+                step);
+            MoveVolume(
+                nozzleThrustSource,
+                (ready ? load * rearLoopVolume * 0.42f : 0f) +
+                afterburnerGain * afterburnerVolume * 0.52f,
+                step);
+
+            var pitch = Mathf.Lerp(0.93f, 1.08f, load);
+            SetPitch(turbineIdleSource, pitch);
+            SetPitch(turbineCruiseSource, pitch);
+            SetPitch(turbineMaximumSource, pitch);
+        }
+
+        private void LoadAndCreateSources()
+        {
+            interiorStartupSource = CreateSource(
+                "Engine Startup Interior",
+                Load("engine_start_cockpit"),
+                false,
+                0f);
+            externalStartupSource = CreateSource(
+                "Engine Startup Exterior",
+                Load("engine_start"),
+                false,
+                1f);
+            turbineStartupSource = CreateSource(
+                "Engine Turbine Startup",
+                Load("turbine_start"),
+                false,
+                0f);
+            turbineIdleSource = CreateSource("Engine Turbine Idle", Load("turbine_idle"), true, 0f);
+            turbineCruiseSource = CreateSource("Engine Turbine Cruise", Load("turbine_cruise"), true, 0f);
+            turbineMaximumSource = CreateSource("Engine Turbine Maximum", Load("turbine_max"), true, 0f);
+            rearLowSource = CreateSource("Engine Rear Low", Load("engine_rear_low"), true, 1f);
+            rearCruiseSource = CreateSource("Engine Rear Cruise", Load("engine_rear_cruise"), true, 1f);
+            rearMaximumSource = CreateSource("Engine Rear Maximum", Load("engine_rear_max"), true, 1f);
+            afterburnerIgnitionSource = CreateSource(
+                "Afterburner Ignition",
+                Load("afterburner_ignition"),
+                false,
+                0f);
+            afterburnerBurnSource = CreateSource("Afterburner Burn", Load("afterburner_burn"), true, 0f);
+            afterburnerWepSource = CreateSource("Afterburner WEP", Load("afterburner_wep"), true, 0f);
+            jetThrustSource = CreateSource("Afterburner Jet Thrust", Load("jet_wep_thrust"), true, 1f);
+            nozzleThrustSource = CreateSource("Engine Nozzle Thrust", Load("jet_nozzle_thrust"), true, 1f);
+        }
+
+        private AudioSource CreateSource(
+            string sourceName,
+            AudioClip clip,
+            bool loop,
+            float spatialBlend)
+        {
+            var holder = new GameObject(sourceName);
+            holder.transform.SetParent(transform, false);
+            var source = holder.AddComponent<AudioSource>();
+            source.clip = clip;
+            source.playOnAwake = false;
+            source.loop = loop;
+            source.spatialBlend = spatialBlend;
+            source.volume = 0f;
+            source.dopplerLevel = 0.15f;
+            source.rolloffMode = AudioRolloffMode.Logarithmic;
+            source.minDistance = 18f;
+            source.maxDistance = 6000f;
+            return source;
+        }
+
+        private void SetStructuralSpatialBlend(float blend)
+        {
+            SetSpatialBlend(turbineStartupSource, blend);
+            SetSpatialBlend(turbineIdleSource, blend);
+            SetSpatialBlend(turbineCruiseSource, blend);
+            SetSpatialBlend(turbineMaximumSource, blend);
+            SetSpatialBlend(afterburnerIgnitionSource, blend);
+            SetSpatialBlend(afterburnerBurnSource, blend);
+            SetSpatialBlend(afterburnerWepSource, blend);
+        }
+
+        private void StartLoopSources()
+        {
+            PlayLoop(turbineIdleSource);
+            PlayLoop(turbineCruiseSource);
+            PlayLoop(turbineMaximumSource);
+            PlayLoop(rearLowSource);
+            PlayLoop(rearCruiseSource);
+            PlayLoop(rearMaximumSource);
+            PlayLoop(afterburnerBurnSource);
+            PlayLoop(afterburnerWepSource);
+            PlayLoop(jetThrustSource);
+            PlayLoop(nozzleThrustSource);
+        }
+
+        private static AudioClip Load(string clipName)
+        {
+            var clip = Resources.Load<AudioClip>(AudioRoot + clipName);
+            clip?.LoadAudioData();
+            return clip;
+        }
+
+        private static float SmoothRange(float minimum, float maximum, float value)
+        {
+            var t = Mathf.InverseLerp(minimum, maximum, value);
+            return t * t * (3f - 2f * t);
+        }
+
+        private static void PlayFromStart(AudioSource source)
+        {
+            if (source == null || source.clip == null)
+            {
+                return;
+            }
+            source.Stop();
+            source.time = 0f;
+            source.Play();
+        }
+
+        private static void PlayLoop(AudioSource source)
+        {
+            if (source != null && source.clip != null && !source.isPlaying)
+            {
+                source.Play();
+            }
+        }
+
+        private static void MoveVolume(AudioSource source, float target, float step)
+        {
+            if (source != null)
+            {
+                source.volume = Mathf.MoveTowards(source.volume, Mathf.Clamp01(target), step);
+            }
+        }
+
+        private static void SetPitch(AudioSource source, float pitch)
+        {
+            if (source != null)
+            {
+                source.pitch = pitch;
+            }
+        }
+
+        private static void SetSpatialBlend(AudioSource source, float blend)
+        {
+            if (source != null)
+            {
+                source.spatialBlend = Mathf.Clamp01(blend);
+            }
+        }
+
+        private static void StopSource(AudioSource source)
+        {
+            if (source != null)
+            {
+                source.Stop();
+                source.volume = 0f;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (motion != null)
+            {
+                motion.SetEngineAvailable(true);
+            }
+        }
+    }
+}

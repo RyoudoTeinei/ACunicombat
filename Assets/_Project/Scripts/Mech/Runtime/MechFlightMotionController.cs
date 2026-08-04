@@ -177,6 +177,7 @@ namespace ACunicombat.Mechs
         private Vector3 referencePlaneOrigin;
         private uint referenceFrameVersion;
         private Vector3 velocity;
+        private bool engineAvailable = true;
         private float quickBoostRemaining;
         private Vector3 quickBoostDirection;
         private bool assaultBoostActive;
@@ -231,6 +232,8 @@ namespace ACunicombat.Mechs
 
         public Vector3 Velocity => velocity;
 
+        public bool EngineAvailable => engineAvailable;
+
         public float HorizontalSpeed => Vector3.ProjectOnPlane(
             velocity,
             ReferenceUp).magnitude;
@@ -261,7 +264,8 @@ namespace ACunicombat.Mechs
             get
             {
                 EnsureManeuverEnergyInitialized();
-                return !maneuverEnergyDepleted &&
+                return engineAvailable &&
+                       !maneuverEnergyDepleted &&
                        currentManeuverEnergy + 0.0001f >= quickBoostEnergyCost;
             }
         }
@@ -625,12 +629,34 @@ namespace ACunicombat.Mechs
         public void SetAssaultBoostActive(bool active)
         {
             EnsureManeuverEnergyInitialized();
-            assaultBoostActive = active && !maneuverEnergyDepleted &&
-                                  currentManeuverEnergy > 0f;
+            assaultBoostActive = active && engineAvailable &&
+                                   !maneuverEnergyDepleted &&
+                                   currentManeuverEnergy > 0f;
             if (assaultBoostActive)
             {
                 quickBoostRemaining = 0f;
             }
+        }
+
+        public void SetEngineAvailable(bool available)
+        {
+            engineAvailable = available;
+            if (available)
+            {
+                return;
+            }
+
+            assaultBoostActive = false;
+            quickBoostRemaining = 0f;
+            braking = false;
+            mainEngineOutput = 0f;
+            currentControlForceNewtons = Vector3.zero;
+            currentControlAcceleration = Vector3.zero;
+            currentShoulderLiftForceNewtons = Vector3.zero;
+            currentLegLiftForceNewtons = Vector3.zero;
+            currentDescentForceNewtons = Vector3.zero;
+            currentQuickBoostForceNewtons = Vector3.zero;
+            currentTrajectorySyncForceNewtons = Vector3.zero;
         }
 
         public void ConfigureTechnicalSafetySpeed(float safetySpeed)
@@ -820,6 +846,14 @@ namespace ACunicombat.Mechs
             currentQuickBoostForceNewtons = Vector3.zero;
             currentTrajectorySyncForceNewtons = Vector3.zero;
             mainEngineOutput = 0f;
+
+            if (!engineAvailable)
+            {
+                assaultBoostActive = false;
+                quickBoostRemaining = 0f;
+                braking = false;
+                return;
+            }
 
             // Cursor displacement commands bounded yaw and pitch rates in the active reference
             // frame. Roll remains zero relative to that frame.
@@ -2700,7 +2734,7 @@ namespace ACunicombat.Mechs
         /// <summary>消耗一次能量并启动固定方向的 QB 高加速度窗口。</summary>
         public bool BeginQuickBoost(Vector2 moveLocal)
         {
-            if (!TrySpendQuickBoostEnergy())
+            if (!engineAvailable || !TrySpendQuickBoostEnergy())
             {
                 return false;
             }

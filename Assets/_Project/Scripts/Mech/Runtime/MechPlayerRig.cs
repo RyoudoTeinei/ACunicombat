@@ -104,6 +104,7 @@ namespace ACunicombat.Mechs
         private MechRuntimeState runtimeState;
         private MechRadarController radar;
         private Camera viewCamera;
+        private MechEngineController engineController;
         private ShoulderLauncherState leftShoulderLauncher;
         private ShoulderLauncherState rightShoulderLauncher;
         private bool actionPlayerAttached;
@@ -125,6 +126,12 @@ namespace ACunicombat.Mechs
             showFlightInstruments = true;
             if (input == null) input = GetComponent<MechPlayerInputAdapter>();
             if (motion == null) motion = GetComponent<MechFlightMotionController>();
+            engineController = GetComponent<MechEngineController>();
+            if (engineController == null)
+            {
+                engineController = gameObject.AddComponent<MechEngineController>();
+            }
+            engineController.Configure(motion, !aiControlled);
             if (thrustVisualizer == null)
             {
                 thrustVisualizer = GetComponent<MechThrustVisualizer>();
@@ -369,6 +376,19 @@ namespace ACunicombat.Mechs
             UpdateShoulderLauncher(leftShoulderLauncher, interceptorReady);
             UpdateShoulderLauncher(rightShoulderLauncher, hasStt);
             lastFrame = input.Sample();
+            if (!motion.EngineAvailable)
+            {
+                // Sensors and weapons remain live, but locomotion must not animate against
+                // propulsion commands that the engine gate will reject.
+                lastFrame.MoveLocal = Vector2.zero;
+                lastFrame.RiseHeld = false;
+                lastFrame.DescendHeld = false;
+                lastFrame.RiseEdge = false;
+                lastFrame.AssaultBoostEdge = false;
+                lastFrame.QuickBoostEdge = false;
+                lastFrame.BrakeHeld = false;
+                lastFrame.InertialThrustLockHeld = false;
+            }
             quickBoostActivationConsumed = false;
 
             if (lastFrame.VectorThrustToggleEdge)
@@ -1171,8 +1191,38 @@ namespace ACunicombat.Mechs
                 FormatInstrumentValue(motion.Altitude),
                 "m",
                 false);
+            DrawEngineStartupStatus();
             DrawHealthGauge();
             DrawManeuverEnergyGauge();
+        }
+
+        private void DrawEngineStartupStatus()
+        {
+            if (engineController == null || !engineController.StartupActive)
+            {
+                return;
+            }
+
+            const float width = 220f;
+            const float height = 6f;
+            var rect = new Rect(
+                Screen.width * 0.5f - width * 0.5f,
+                Screen.height - 174f,
+                width,
+                height);
+            var color = new Color(1f, 0.68f, 0.18f, 0.98f);
+            DrawInstrumentRect(
+                new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f),
+                new Color(0.05f, 0.035f, 0.01f, 0.86f));
+            DrawInstrumentRect(
+                new Rect(rect.x, rect.y, rect.width * engineController.StartupProgress, rect.height),
+                color);
+            instrumentEnergyStyle.normal.textColor = color;
+            instrumentEnergyStyle.alignment = TextAnchor.MiddleCenter;
+            GUI.Label(
+                new Rect(rect.x, rect.y - 25f, rect.width, 20f),
+                $"ENG START  {engineController.StartupSecondsRemaining:0.0}s",
+                instrumentEnergyStyle);
         }
 
         private void DrawHealthGauge()
