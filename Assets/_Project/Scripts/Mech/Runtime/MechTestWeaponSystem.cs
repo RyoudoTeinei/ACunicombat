@@ -12,7 +12,7 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class MechTestWeaponSystem : MonoBehaviour
     {
-        private const int CurrentAmmunitionConfigurationVersion = 1;
+        private const int CurrentAmmunitionConfigurationVersion = 2;
         private const string LeftMissileVisualResourcePath =
             "Projectiles/r27_white";
         private const string RightMissileVisualResourcePath =
@@ -49,7 +49,7 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(1)] private int cannonMagazineCapacity = 1;
         [SerializeField, Min(1)] private int cannonMagazineCount = 32;
         [SerializeField, Min(1)] private int rifleMagazineCapacity = 36;
-        [SerializeField, Min(1)] private int rifleMagazineCount = 8;
+        [SerializeField, Min(1)] private int rifleMagazineCount = 12;
         [SerializeField, Min(0.1f)] private float rifleReloadSeconds = 4.95f;
         [SerializeField, Min(0.1f)] private float cannonReloadSeconds = 4.25f;
         [Header("57 mm proximity fuze")]
@@ -65,7 +65,7 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(1)] private int leftMissileMagazineCapacity = 16;
         [SerializeField, Min(1)] private int leftMissileMagazineCount = 2;
         [SerializeField, Min(1)] private int rightMissileMagazineCapacity = 4;
-        [SerializeField, Min(1)] private int rightMissileMagazineCount = 4;
+        [SerializeField, Min(1)] private int rightMissileMagazineCount = 6;
         [SerializeField, HideInInspector]
         private int ammunitionConfigurationVersion;
         [Header("30 mm rifle dispersion")]
@@ -793,7 +793,8 @@ namespace ACunicombat.Mechs
                 cannonMagazineCapacity = 1;
                 cannonMagazineCount = 32;
                 rifleMagazineCapacity = 36;
-                rifleMagazineCount = 8;
+                rifleMagazineCount = 12;
+                rightMissileMagazineCount = 6;
                 ammunitionConfigurationVersion =
                     CurrentAmmunitionConfigurationVersion;
             }
