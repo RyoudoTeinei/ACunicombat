@@ -1193,7 +1193,7 @@ namespace ACunicombat.Mechs
             const float height = 14f;
             var rect = new Rect(
                 Screen.width * 0.5f - width * 0.5f,
-                Screen.height - 126f,
+                Screen.height - 86f,
                 width,
                 height);
             var normalized = combatTarget.HealthFraction;
@@ -1249,7 +1249,7 @@ namespace ACunicombat.Mechs
             const float height = 12f;
             var rect = new Rect(
                 Screen.width * 0.5f - width * 0.5f,
-                Screen.height - 86f,
+                Screen.height - 126f,
                 width,
                 height);
             var normalized = Mathf.Clamp01(motion.ManeuverEnergyNormalized);

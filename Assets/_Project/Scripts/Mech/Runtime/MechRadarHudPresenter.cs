@@ -283,29 +283,68 @@ namespace ACunicombat.Mechs
             }
 
             var centerX = Screen.width * 0.5f;
-            var y = Screen.height - 154f;
+            var missileY = Screen.height - 212f;
+            var handWeaponY = Screen.height - 184f;
+
+            smallStyle.alignment = TextAnchor.MiddleRight;
+            smallStyle.normal.textColor =
+                weaponSystem.LeftMissileMagazinesRemaining > 0
+                    ? HudGreen
+                    : HudRed;
+            GUI.Label(
+                new Rect(centerX - 360f, missileY, 280f, 22f),
+                $"L MSL  {weaponSystem.LeftMissileRoundsRemaining:00}/" +
+                $"{weaponSystem.LeftMissileMagazineCapacity:00}  " +
+                $"x{weaponSystem.LeftMissileMagazinesRemaining}",
+                smallStyle);
+
+            smallStyle.alignment = TextAnchor.MiddleLeft;
+            smallStyle.normal.textColor =
+                weaponSystem.RightMissileMagazinesRemaining > 0
+                    ? HudGreen
+                    : HudRed;
+            GUI.Label(
+                new Rect(centerX + 80f, missileY, 280f, 22f),
+                $"R MSL  {weaponSystem.RightMissileRoundsRemaining:00}/" +
+                $"{weaponSystem.RightMissileMagazineCapacity:00}  " +
+                $"x{weaponSystem.RightMissileMagazinesRemaining}",
+                smallStyle);
+
             smallStyle.alignment = TextAnchor.MiddleRight;
             smallStyle.normal.textColor = weaponSystem.CannonReloading
                 ? HudAmber
-                : HudGreen;
+                : weaponSystem.CannonMagazinesRemaining > 0
+                    ? HudGreen
+                    : HudRed;
             var cannonText = weaponSystem.CannonReloading
-                ? $"L 57MM  装填 {weaponSystem.CannonReloadRemainingSeconds:0.0}s"
-                : "L 57MM  READY";
+                ? $"L 57MM  装填 {weaponSystem.CannonReloadRemainingSeconds:0.0}s  " +
+                  $"{weaponSystem.CannonRoundsRemaining:00}/" +
+                  $"{weaponSystem.CannonMagazineCapacity:00}  " +
+                  $"x{weaponSystem.CannonMagazinesRemaining}"
+                : $"L 57MM  {weaponSystem.CannonRoundsRemaining:00}/" +
+                  $"{weaponSystem.CannonMagazineCapacity:00}  " +
+                  $"x{weaponSystem.CannonMagazinesRemaining}";
             GUI.Label(
-                new Rect(centerX - 330f, y, 250f, 22f),
+                new Rect(centerX - 360f, handWeaponY, 280f, 22f),
                 cannonText,
                 smallStyle);
 
             smallStyle.alignment = TextAnchor.MiddleLeft;
             smallStyle.normal.textColor = weaponSystem.RifleReloading
                 ? HudAmber
-                : HudGreen;
+                : weaponSystem.RifleMagazinesRemaining > 0
+                    ? HudGreen
+                    : HudRed;
             var rifleText = weaponSystem.RifleReloading
-                ? $"R 30MM  换匣 {weaponSystem.RifleReloadRemainingSeconds:0.0}s"
+                ? $"R 30MM  换匣 {weaponSystem.RifleReloadRemainingSeconds:0.0}s  " +
+                  $"{weaponSystem.RifleRoundsRemaining:00}/" +
+                  $"{weaponSystem.RifleMagazineCapacity:00}  " +
+                  $"x{weaponSystem.RifleMagazinesRemaining}"
                 : $"R 30MM  {weaponSystem.RifleRoundsRemaining:00}/" +
-                  $"{weaponSystem.RifleMagazineCapacity:00}";
+                  $"{weaponSystem.RifleMagazineCapacity:00}  " +
+                  $"x{weaponSystem.RifleMagazinesRemaining}";
             GUI.Label(
-                new Rect(centerX + 80f, y, 250f, 22f),
+                new Rect(centerX + 80f, handWeaponY, 280f, 22f),
                 rifleText,
                 smallStyle);
         }

@@ -45,9 +45,17 @@ namespace ACunicombat.Mechs
         [SerializeField] private float missileLockDegrees = 24f;
         [SerializeField, Min(60f)] private float rifleRoundsPerMinute = 600f;
         [Header("Hand weapon ammunition")]
+        [SerializeField, Min(1)] private int cannonMagazineCapacity = 8;
+        [SerializeField, Min(1)] private int cannonMagazineCount = 4;
         [SerializeField, Min(1)] private int rifleMagazineCapacity = 30;
+        [SerializeField, Min(1)] private int rifleMagazineCount = 6;
         [SerializeField, Min(0.1f)] private float rifleReloadSeconds = 4.95f;
         [SerializeField, Min(0.1f)] private float cannonReloadSeconds = 4.25f;
+        [Header("Missile launcher ammunition")]
+        [SerializeField, Min(1)] private int leftMissileMagazineCapacity = 16;
+        [SerializeField, Min(1)] private int leftMissileMagazineCount = 2;
+        [SerializeField, Min(1)] private int rightMissileMagazineCapacity = 4;
+        [SerializeField, Min(1)] private int rightMissileMagazineCount = 4;
         [Header("30 mm rifle dispersion")]
         [SerializeField, Min(0f)] private float rifleBaseDispersionMilliradians = 0.07f;
         [SerializeField, Min(1)] private int rifleLowRecoilShotCount = 4;
@@ -96,7 +104,14 @@ namespace ACunicombat.Mechs
         private int leftBackMuzzleIndex;
         private int rightBackMuzzleIndex;
         private float nextRifleFireTime;
+        private int cannonRoundsRemaining;
+        private int cannonMagazinesRemaining;
         private int rifleRoundsRemaining;
+        private int rifleMagazinesRemaining;
+        private int leftMissileRoundsRemaining;
+        private int leftMissileMagazinesRemaining;
+        private int rightMissileRoundsRemaining;
+        private int rightMissileMagazinesRemaining;
         private float rifleReloadCompleteTime = float.NegativeInfinity;
         private float cannonReloadCompleteTime = float.NegativeInfinity;
         private bool rifleReloading;
@@ -162,8 +177,22 @@ namespace ACunicombat.Mechs
         public bool HasInterceptorLaunchSolution =>
             interceptorTarget.TrackId.IsValid &&
             interceptorSolution.Reachable;
+        public int CannonRoundsRemaining => cannonRoundsRemaining;
+        public int CannonMagazineCapacity => cannonMagazineCapacity;
+        public int CannonMagazinesRemaining => cannonMagazinesRemaining;
         public int RifleRoundsRemaining => rifleRoundsRemaining;
         public int RifleMagazineCapacity => rifleMagazineCapacity;
+        public int RifleMagazinesRemaining => rifleMagazinesRemaining;
+        public int LeftMissileRoundsRemaining => leftMissileRoundsRemaining;
+        public int LeftMissileMagazineCapacity =>
+            leftMissileMagazineCapacity;
+        public int LeftMissileMagazinesRemaining =>
+            leftMissileMagazinesRemaining;
+        public int RightMissileRoundsRemaining => rightMissileRoundsRemaining;
+        public int RightMissileMagazineCapacity =>
+            rightMissileMagazineCapacity;
+        public int RightMissileMagazinesRemaining =>
+            rightMissileMagazinesRemaining;
         public bool RifleReloading =>
             rifleReloading && Time.time < rifleReloadCompleteTime;
         public bool CannonReloading =>
@@ -235,23 +264,31 @@ namespace ACunicombat.Mechs
             InitializeAmmunition();
             UpdateReloadState();
             if (rifleReloading ||
-                rifleRoundsRemaining >= rifleMagazineCapacity)
+                rifleRoundsRemaining >= rifleMagazineCapacity ||
+                rifleMagazinesRemaining <= 1)
             {
                 return false;
             }
 
+            rifleMagazinesRemaining--;
+            rifleRoundsRemaining = 0;
             BeginRifleReload(GetWeaponPosition(MechPartSlot.RightHandWeapon));
             return true;
         }
 
         public bool RequestCannonReload()
         {
+            InitializeAmmunition();
             UpdateReloadState();
-            if (cannonReloading)
+            if (cannonReloading ||
+                cannonRoundsRemaining >= cannonMagazineCapacity ||
+                cannonMagazinesRemaining <= 1)
             {
                 return false;
             }
 
+            cannonMagazinesRemaining--;
+            cannonRoundsRemaining = 0;
             BeginCannonReload(GetWeaponPosition(MechPartSlot.LeftHandWeapon));
             return true;
         }
@@ -488,7 +525,9 @@ namespace ACunicombat.Mechs
                 nextRifleFireTime = 0f;
             }
             handWeaponAudio?.SetRifleTriggerHeld(
-                frame.SecondaryFireHeld && !RifleReloading);
+                frame.SecondaryFireHeld &&
+                !RifleReloading &&
+                rifleRoundsRemaining > 0);
             if (playerRig != null &&
                 playerRig.ConsumeShoulderMissileLaunch(MechPartSlot.LeftBackWeapon))
             {
@@ -562,13 +601,28 @@ namespace ACunicombat.Mechs
 
                 if (rifleRoundsRemaining <= 0)
                 {
-                    BeginRifleReload(transform.position);
+                    if (rifleMagazinesRemaining > 0)
+                    {
+                        BeginRifleReload(transform.position);
+                    }
                     return false;
                 }
             }
-            else if (kind == TestWeaponKind.Cannon && cannonReloading)
+            else if (kind == TestWeaponKind.Cannon)
             {
-                return false;
+                if (cannonReloading)
+                {
+                    return false;
+                }
+
+                if (cannonRoundsRemaining <= 0)
+                {
+                    if (cannonMagazinesRemaining > 0)
+                    {
+                        BeginCannonReload(transform.position);
+                    }
+                    return false;
+                }
             }
 
             var muzzle = GetNextMuzzle(slot, ref muzzleIndex);
@@ -659,7 +713,13 @@ namespace ACunicombat.Mechs
                 rifleRoundsRemaining = Mathf.Max(0, rifleRoundsRemaining - 1);
                 if (rifleRoundsRemaining == 0)
                 {
-                    BeginRifleReload(muzzle.position);
+                    rifleMagazinesRemaining = Mathf.Max(
+                        0,
+                        rifleMagazinesRemaining - 1);
+                    if (rifleMagazinesRemaining > 0)
+                    {
+                        BeginRifleReload(muzzle.position);
+                    }
                 }
             }
             else
@@ -676,7 +736,20 @@ namespace ACunicombat.Mechs
                     launchAnchor: muzzle,
                     inheritedVelocity: inheritedVelocity);
                 PlayHandWeaponAudio(kind, muzzle);
-                BeginCannonReload(muzzle.position);
+                cannonRoundsRemaining = Mathf.Max(
+                    0,
+                    cannonRoundsRemaining - 1);
+                if (cannonRoundsRemaining == 0)
+                {
+                    cannonMagazinesRemaining = Mathf.Max(
+                        0,
+                        cannonMagazinesRemaining - 1);
+                }
+                if (cannonRoundsRemaining > 0 ||
+                    cannonMagazinesRemaining > 0)
+                {
+                    BeginCannonReload(muzzle.position);
+                }
             }
 
             return true;
@@ -689,8 +762,30 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            cannonMagazineCapacity = Mathf.Max(1, cannonMagazineCapacity);
+            cannonMagazineCount = Mathf.Max(1, cannonMagazineCount);
             rifleMagazineCapacity = Mathf.Max(1, rifleMagazineCapacity);
+            rifleMagazineCount = Mathf.Max(1, rifleMagazineCount);
+            leftMissileMagazineCapacity = Mathf.Max(
+                1,
+                leftMissileMagazineCapacity);
+            leftMissileMagazineCount = Mathf.Max(
+                1,
+                leftMissileMagazineCount);
+            rightMissileMagazineCapacity = Mathf.Max(
+                1,
+                rightMissileMagazineCapacity);
+            rightMissileMagazineCount = Mathf.Max(
+                1,
+                rightMissileMagazineCount);
+            cannonRoundsRemaining = cannonMagazineCapacity;
+            cannonMagazinesRemaining = cannonMagazineCount;
             rifleRoundsRemaining = rifleMagazineCapacity;
+            rifleMagazinesRemaining = rifleMagazineCount;
+            leftMissileRoundsRemaining = leftMissileMagazineCapacity;
+            leftMissileMagazinesRemaining = leftMissileMagazineCount;
+            rightMissileRoundsRemaining = rightMissileMagazineCapacity;
+            rightMissileMagazinesRemaining = rightMissileMagazineCount;
             lastRifleDispersionUpdateTime = Time.time;
             rifleDispersionRandomState = nextRifleDispersionSeed;
             nextRifleDispersionSeed = unchecked(
@@ -825,18 +920,26 @@ namespace ACunicombat.Mechs
             if (rifleReloading && Time.time >= rifleReloadCompleteTime)
             {
                 rifleReloading = false;
-                rifleRoundsRemaining = rifleMagazineCapacity;
+                if (rifleMagazinesRemaining > 0)
+                {
+                    rifleRoundsRemaining = rifleMagazineCapacity;
+                }
             }
 
             if (cannonReloading && Time.time >= cannonReloadCompleteTime)
             {
                 cannonReloading = false;
+                if (cannonRoundsRemaining == 0 &&
+                    cannonMagazinesRemaining > 0)
+                {
+                    cannonRoundsRemaining = cannonMagazineCapacity;
+                }
             }
         }
 
         private void BeginRifleReload(Vector3 weaponPosition)
         {
-            if (rifleReloading)
+            if (rifleReloading || rifleMagazinesRemaining <= 0)
             {
                 return;
             }
@@ -851,7 +954,7 @@ namespace ACunicombat.Mechs
 
         private void BeginCannonReload(Vector3 weaponPosition)
         {
-            if (cannonReloading)
+            if (cannonReloading || cannonMagazinesRemaining <= 0)
             {
                 return;
             }
@@ -903,8 +1006,40 @@ namespace ACunicombat.Mechs
                    GetComponent<MechAiTargetController>() == null;
         }
 
+        private bool HasLeftMissileAmmunition =>
+            leftMissileRoundsRemaining > 0 &&
+            leftMissileMagazinesRemaining > 0;
+
+        private bool HasRightMissileAmmunition =>
+            rightMissileRoundsRemaining > 0 &&
+            rightMissileMagazinesRemaining > 0;
+
+        private static void ConsumeMissileRound(
+            ref int roundsRemaining,
+            int magazineCapacity,
+            ref int magazinesRemaining)
+        {
+            roundsRemaining = Mathf.Max(0, roundsRemaining - 1);
+            if (roundsRemaining > 0)
+            {
+                return;
+            }
+
+            magazinesRemaining = Mathf.Max(0, magazinesRemaining - 1);
+            if (magazinesRemaining > 0)
+            {
+                roundsRemaining = Mathf.Max(1, magazineCapacity);
+            }
+        }
+
         private void FireInterceptorMissile(ref int muzzleIndex)
         {
+            InitializeAmmunition();
+            if (!HasLeftMissileAmmunition)
+            {
+                return;
+            }
+
             UpdateInterceptorTarget();
             var incomingTrack = interceptorTarget;
             if (!incomingTrack.TrackId.IsValid ||
@@ -1013,6 +1148,10 @@ namespace ACunicombat.Mechs
                     interceptorIgnitionAlignmentDegrees,
                 coldLaunchAlignmentTimeoutSeconds:
                     interceptorAlignmentTimeoutSeconds);
+            ConsumeMissileRound(
+                ref leftMissileRoundsRemaining,
+                leftMissileMagazineCapacity,
+                ref leftMissileMagazinesRemaining);
 
             Debug.Log(
                 $"[MechTestWeaponSystem] Interceptor launched at " +
@@ -1033,6 +1172,12 @@ namespace ACunicombat.Mechs
             if (slot == MechPartSlot.LeftBackWeapon)
             {
                 FireInterceptorMissile(ref muzzleIndex);
+                return;
+            }
+
+            InitializeAmmunition();
+            if (!HasRightMissileAmmunition)
+            {
                 return;
             }
 
@@ -1079,7 +1224,11 @@ namespace ACunicombat.Mechs
                 $"[MechTestWeaponSystem] Missile launch authorized: slot={slot}, track={trackId}, " +
                 $"channel={guidanceToken}, seeker={seekerActivationDelay:0.0}s.",
                 this);
-            var salvoCount = Mathf.Min(4, muzzles.Length);
+            var salvoCount = Mathf.Min(
+                4,
+                muzzles.Length,
+                rightMissileRoundsRemaining);
+            var launchedCount = 0;
             for (var i = 0; i < salvoCount; i++)
             {
                 if (i > 0 && !radarController.RetainGuidanceChannel(guidanceToken))
@@ -1122,8 +1271,13 @@ namespace ACunicombat.Mechs
                     inheritedVelocity: inheritedVelocity,
                     missileSourceSlot: slot,
                     missileProfile: launchProfile);
+                ConsumeMissileRound(
+                    ref rightMissileRoundsRemaining,
+                    rightMissileMagazineCapacity,
+                    ref rightMissileMagazinesRemaining);
+                launchedCount++;
             }
-            muzzleIndex = (muzzleIndex + salvoCount) % muzzles.Length;
+            muzzleIndex = (muzzleIndex + launchedCount) % muzzles.Length;
         }
 
         private void FireDirectInterceptorMissile(
@@ -1132,6 +1286,12 @@ namespace ACunicombat.Mechs
         {
             const MechPartSlot slot =
                 MechPartSlot.LeftBackWeapon;
+            InitializeAmmunition();
+            if (!HasLeftMissileAmmunition)
+            {
+                return;
+            }
+
             var muzzle = GetNextMuzzle(slot, ref muzzleIndex);
             if (muzzle == null)
             {
@@ -1261,6 +1421,10 @@ namespace ACunicombat.Mechs
                     interceptorIgnitionAlignmentDegrees,
                 coldLaunchAlignmentTimeoutSeconds:
                     interceptorAlignmentTimeoutSeconds);
+            ConsumeMissileRound(
+                ref leftMissileRoundsRemaining,
+                leftMissileMagazineCapacity,
+                ref leftMissileMagazinesRemaining);
         }
 
         private void FireDirectMissileSalvo(
@@ -1275,6 +1439,12 @@ namespace ACunicombat.Mechs
             if (slot == MechPartSlot.LeftBackWeapon)
             {
                 FireInterceptorMissile(ref muzzleIndex);
+                return;
+            }
+
+            InitializeAmmunition();
+            if (!HasRightMissileAmmunition)
+            {
                 return;
             }
 
@@ -1353,6 +1523,10 @@ namespace ACunicombat.Mechs
                     initialGuidanceVelocity: initialEstimateVelocity,
                     initialGuidanceUncertaintyMeters:
                         initialEstimateUncertaintyMeters);
+                ConsumeMissileRound(
+                    ref rightMissileRoundsRemaining,
+                    rightMissileMagazineCapacity,
+                    ref rightMissileMagazinesRemaining);
             }
             muzzleIndex = (muzzleIndex + salvoCount) % muzzles.Length;
         }
