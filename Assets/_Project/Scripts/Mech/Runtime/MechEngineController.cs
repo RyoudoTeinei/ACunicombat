@@ -20,10 +20,14 @@ namespace ACunicombat.Mechs
         [SerializeField, Range(0f, 1f)] private float interiorStartupVolume = 0.72f;
         [SerializeField, Range(0f, 1f)] private float externalStartupVolume = 0.52f;
         [SerializeField, Range(0f, 1f)] private float turbineStartupVolume = 0.32f;
-        [SerializeField, Range(0f, 1f)] private float turbineLoopVolume = 0.34f;
-        [SerializeField, Range(0f, 1f)] private float rearLoopVolume = 0.46f;
-        [SerializeField, Range(0f, 1f)] private float afterburnerVolume = 0.56f;
-        [SerializeField, Min(0.01f)] private float mixResponsePerSecond = 3.5f;
+        [SerializeField, Range(0f, 1f)] private float turbineLoopVolume = 0.22f;
+        [SerializeField, Range(0f, 1f)] private float rearLoopVolume = 0.3f;
+        [SerializeField, Range(0f, 1f)] private float afterburnerVolume = 0.46f;
+        [SerializeField, Range(0f, 0.5f)] private float idleStructureGain = 0.12f;
+        [SerializeField, Min(1f)] private float fullLoadAcceleration = 35f;
+        [SerializeField, Min(0.05f)] private float spoolUpSeconds = 0.7f;
+        [SerializeField, Min(0.05f)] private float spoolDownSeconds = 1.8f;
+        [SerializeField, Min(0.01f)] private float mixResponsePerSecond = 1.5f;
 
         private MechFlightMotionController motion;
         private bool useInteriorMix;
@@ -32,6 +36,7 @@ namespace ACunicombat.Mechs
         private float startupElapsedSeconds;
         private bool previousAssaultBoost;
         private float afterburnerGain;
+        private float engineLoad;
 
         private AudioSource interiorStartupSource;
         private AudioSource externalStartupSource;
@@ -83,6 +88,7 @@ namespace ACunicombat.Mechs
             startupActive = startupDurationSeconds > Mathf.Epsilon;
             previousAssaultBoost = false;
             afterburnerGain = 0f;
+            engineLoad = 0f;
             motion.SetEngineAvailable(!startupActive);
 
             StartLoopSources();
@@ -158,23 +164,57 @@ namespace ACunicombat.Mechs
         private void UpdateRunningMix(float deltaTime)
         {
             var ready = motion.EngineAvailable && !startupActive;
-            var load = ready ? Mathf.Clamp01(motion.MainEngineOutput) : 0f;
+            var requestedLoad = ready
+                ? Mathf.Max(
+                    Mathf.Clamp01(motion.MainEngineOutput),
+                    Mathf.Clamp01(
+                        motion.CurrentControlAcceleration.magnitude /
+                        Mathf.Max(1f, fullLoadAcceleration)))
+                : 0f;
+            if (ready && (motion.QuickBoostActive || motion.AssaultBoostActive))
+            {
+                requestedLoad = 1f;
+            }
+            var spoolSeconds = requestedLoad > engineLoad
+                ? Mathf.Max(0.05f, spoolUpSeconds)
+                : Mathf.Max(0.05f, spoolDownSeconds);
+            var spoolBlend = 1f - Mathf.Exp(-deltaTime / spoolSeconds);
+            engineLoad = Mathf.Lerp(engineLoad, requestedLoad, spoolBlend);
+            if (engineLoad < 0.0001f && requestedLoad <= 0f)
+            {
+                engineLoad = 0f;
+            }
+
+            var load = engineLoad;
             var lowWeight = ready
-                ? 1f - SmoothRange(0.12f, 0.58f, load)
+                ? 1f - 0.72f * SmoothRange(0.12f, 0.72f, load)
                 : 0f;
             var cruiseWeight = ready
-                ? 1f - Mathf.Clamp01(Mathf.Abs(load - 0.5f) * 2f)
+                ? 1f - Mathf.Clamp01(Mathf.Abs(load - 0.52f) * 1.65f)
                 : 0f;
             cruiseWeight = cruiseWeight * cruiseWeight * (3f - 2f * cruiseWeight);
-            var highWeight = ready ? SmoothRange(0.42f, 0.92f, load) : 0f;
+            var highWeight = ready ? SmoothRange(0.5f, 0.94f, load) : 0f;
             var step = Mathf.Max(0.01f, mixResponsePerSecond) * deltaTime;
+            var structureGain = ready
+                ? Mathf.Lerp(Mathf.Clamp01(idleStructureGain), 1f, load)
+                : 0f;
+            var externalGain = ready ? load * load : 0f;
 
-            MoveVolume(turbineIdleSource, lowWeight * turbineLoopVolume, step);
-            MoveVolume(turbineCruiseSource, cruiseWeight * turbineLoopVolume, step);
-            MoveVolume(turbineMaximumSource, highWeight * turbineLoopVolume, step);
-            MoveVolume(rearLowSource, lowWeight * rearLoopVolume, step);
-            MoveVolume(rearCruiseSource, cruiseWeight * rearLoopVolume, step);
-            MoveVolume(rearMaximumSource, highWeight * rearLoopVolume, step);
+            MoveVolume(
+                turbineIdleSource,
+                lowWeight * turbineLoopVolume * structureGain,
+                step);
+            MoveVolume(
+                turbineCruiseSource,
+                cruiseWeight * turbineLoopVolume * structureGain,
+                step);
+            MoveVolume(
+                turbineMaximumSource,
+                highWeight * turbineLoopVolume * structureGain,
+                step);
+            MoveVolume(rearLowSource, lowWeight * rearLoopVolume * externalGain, step);
+            MoveVolume(rearCruiseSource, cruiseWeight * rearLoopVolume * externalGain, step);
+            MoveVolume(rearMaximumSource, highWeight * rearLoopVolume * externalGain, step);
 
             var assaultBoost = ready && motion.AssaultBoostActive;
             if (assaultBoost && !previousAssaultBoost && afterburnerIgnitionSource != null)
@@ -207,7 +247,7 @@ namespace ACunicombat.Mechs
                 afterburnerGain * afterburnerVolume * 0.52f,
                 step);
 
-            var pitch = Mathf.Lerp(0.93f, 1.08f, load);
+            var pitch = Mathf.Lerp(0.97f, 1.03f, load);
             SetPitch(turbineIdleSource, pitch);
             SetPitch(turbineCruiseSource, pitch);
             SetPitch(turbineMaximumSource, pitch);
