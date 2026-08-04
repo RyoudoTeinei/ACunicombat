@@ -1,4 +1,5 @@
 using ACunicombat.FireControl;
+using ACunicombat.Sensing.Contracts;
 using NUnit.Framework;
 using Unity.Mathematics;
 
@@ -115,6 +116,41 @@ namespace ACunicombat.Tests.EditMode
                     new float3(0f, 0f, 1100f),
                     1000f,
                     halfAngle),
+                Is.False);
+        }
+
+        [Test]
+        public void MissileSeekerTargetRole_SeparatesAirToAirAndInterceptorTargets()
+        {
+            Assert.That(
+                MissileEngagementMath.IsCompatibleSeekerTarget(
+                    false,
+                    TrackObjectClass.AirVehicle,
+                    0.9f),
+                Is.True);
+            Assert.That(
+                MissileEngagementMath.IsCompatibleSeekerTarget(
+                    false,
+                    TrackObjectClass.Missile,
+                    0.9f),
+                Is.False);
+            Assert.That(
+                MissileEngagementMath.IsCompatibleSeekerTarget(
+                    true,
+                    TrackObjectClass.Missile,
+                    0.9f),
+                Is.True);
+            Assert.That(
+                MissileEngagementMath.IsCompatibleSeekerTarget(
+                    true,
+                    TrackObjectClass.AirVehicle,
+                    0.9f),
+                Is.False);
+            Assert.That(
+                MissileEngagementMath.IsCompatibleSeekerTarget(
+                    false,
+                    TrackObjectClass.AirVehicle,
+                    0.1f),
                 Is.False);
         }
 

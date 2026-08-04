@@ -1607,10 +1607,10 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < measurementCount; i++)
             {
                 var measurement = seekerMeasurementScratch[i];
-                if (interceptorMissile &&
-                    (measurement.ObjectClass !=
-                         TrackObjectClass.Missile ||
-                     measurement.ClassificationConfidence < 0.25f))
+                if (!MissileEngagementMath.IsCompatibleSeekerTarget(
+                        interceptorMissile,
+                        measurement.ObjectClass,
+                        measurement.ClassificationConfidence))
                 {
                     continue;
                 }

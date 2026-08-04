@@ -1052,6 +1052,7 @@ namespace ACunicombat.Mechs
                     MissileGuidanceMode.ActiveRadar,
                     missileLockDegrees,
                     missileKinematics,
+                    TrackObjectClass.AirVehicle,
                     out var track,
                     out var solution,
                     out var guidanceToken))

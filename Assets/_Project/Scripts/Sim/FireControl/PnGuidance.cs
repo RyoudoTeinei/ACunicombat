@@ -1,3 +1,4 @@
+using ACunicombat.Sensing.Contracts;
 using Unity.Mathematics;
 
 namespace ACunicombat.FireControl
@@ -29,6 +30,25 @@ namespace ACunicombat.FireControl
 
     public static class MissileEngagementMath
     {
+        public static bool IsCompatibleSeekerTarget(
+            bool interceptorMissile,
+            TrackObjectClass objectClass,
+            float classificationConfidence,
+            float minimumClassificationConfidence = 0.25f)
+        {
+            if (!math.isfinite(classificationConfidence) ||
+                classificationConfidence <
+                    math.max(0f, minimumClassificationConfidence))
+            {
+                return false;
+            }
+
+            var expectedClass = interceptorMissile
+                ? TrackObjectClass.Missile
+                : TrackObjectClass.AirVehicle;
+            return objectClass == expectedClass;
+        }
+
         public static bool IntersectsProtectedCpaWindow(
             float timeToClosestApproachSeconds,
             float closestApproachDistanceMeters,

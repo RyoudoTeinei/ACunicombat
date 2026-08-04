@@ -871,6 +871,7 @@ namespace ACunicombat.Mechs
             MissileGuidanceMode guidanceMode,
             float coneDegrees,
             in MissileKinematicProfile kinematics,
+            TrackObjectClass requiredTargetClass,
             out TrackSnapshot track,
             out FireSolution solution,
             out int guidanceChannelToken)
@@ -881,6 +882,12 @@ namespace ACunicombat.Mechs
                     kinematics,
                     out track,
                     out solution))
+            {
+                return false;
+            }
+
+            if (track.ObjectClass != requiredTargetClass ||
+                track.Classification < 0.25f)
             {
                 return false;
             }
