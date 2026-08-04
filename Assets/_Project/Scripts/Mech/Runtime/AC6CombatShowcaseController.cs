@@ -244,7 +244,7 @@ namespace ACunicombat.Mechs
 
         private void LateUpdate()
         {
-            if (showcaseCamera == null || mech == null)
+            if (externalControlMode || showcaseCamera == null || mech == null)
             {
                 return;
             }
