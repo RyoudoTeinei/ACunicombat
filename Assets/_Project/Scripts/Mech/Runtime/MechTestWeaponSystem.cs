@@ -12,6 +12,7 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class MechTestWeaponSystem : MonoBehaviour
     {
+        private const int CurrentAmmunitionConfigurationVersion = 1;
         private const string LeftMissileVisualResourcePath =
             "Projectiles/r27_white";
         private const string RightMissileVisualResourcePath =
@@ -45,10 +46,10 @@ namespace ACunicombat.Mechs
         [SerializeField] private float missileLockDegrees = 24f;
         [SerializeField, Min(60f)] private float rifleRoundsPerMinute = 600f;
         [Header("Hand weapon ammunition")]
-        [SerializeField, Min(1)] private int cannonMagazineCapacity = 8;
-        [SerializeField, Min(1)] private int cannonMagazineCount = 4;
-        [SerializeField, Min(1)] private int rifleMagazineCapacity = 30;
-        [SerializeField, Min(1)] private int rifleMagazineCount = 6;
+        [SerializeField, Min(1)] private int cannonMagazineCapacity = 1;
+        [SerializeField, Min(1)] private int cannonMagazineCount = 32;
+        [SerializeField, Min(1)] private int rifleMagazineCapacity = 36;
+        [SerializeField, Min(1)] private int rifleMagazineCount = 8;
         [SerializeField, Min(0.1f)] private float rifleReloadSeconds = 4.95f;
         [SerializeField, Min(0.1f)] private float cannonReloadSeconds = 4.25f;
         [Header("Missile launcher ammunition")]
@@ -56,6 +57,8 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(1)] private int leftMissileMagazineCount = 2;
         [SerializeField, Min(1)] private int rightMissileMagazineCapacity = 4;
         [SerializeField, Min(1)] private int rightMissileMagazineCount = 4;
+        [SerializeField, HideInInspector]
+        private int ammunitionConfigurationVersion;
         [Header("30 mm rifle dispersion")]
         [SerializeField, Min(0f)] private float rifleBaseDispersionMilliradians = 0.07f;
         [SerializeField, Min(1)] private int rifleLowRecoilShotCount = 4;
@@ -760,6 +763,17 @@ namespace ACunicombat.Mechs
             if (ammunitionInitialized)
             {
                 return;
+            }
+
+            if (ammunitionConfigurationVersion <
+                CurrentAmmunitionConfigurationVersion)
+            {
+                cannonMagazineCapacity = 1;
+                cannonMagazineCount = 32;
+                rifleMagazineCapacity = 36;
+                rifleMagazineCount = 8;
+                ammunitionConfigurationVersion =
+                    CurrentAmmunitionConfigurationVersion;
             }
 
             cannonMagazineCapacity = Mathf.Max(1, cannonMagazineCapacity);

@@ -283,8 +283,21 @@ namespace ACunicombat.Mechs
             }
 
             var centerX = Screen.width * 0.5f;
-            var missileY = Screen.height - 212f;
-            var handWeaponY = Screen.height - 184f;
+            var labelWidth = Mathf.Clamp(
+                Screen.width * 0.24f,
+                220f,
+                320f);
+            var requestedHorizontalOffset = Mathf.Clamp(
+                Screen.width * 0.2f,
+                220f,
+                520f);
+            var horizontalOffset = Mathf.Min(
+                requestedHorizontalOffset,
+                Mathf.Max(48f, centerX - labelWidth - 12f));
+            var leftX = centerX - horizontalOffset - labelWidth;
+            var rightX = centerX + horizontalOffset;
+            var missileY = Screen.height * 0.60f;
+            var handWeaponY = Screen.height * 0.74f;
 
             smallStyle.alignment = TextAnchor.MiddleRight;
             smallStyle.normal.textColor =
@@ -292,7 +305,7 @@ namespace ACunicombat.Mechs
                     ? HudGreen
                     : HudRed;
             GUI.Label(
-                new Rect(centerX - 360f, missileY, 280f, 22f),
+                new Rect(leftX, missileY, labelWidth, 22f),
                 $"L MSL  {weaponSystem.LeftMissileRoundsRemaining:00}/" +
                 $"{weaponSystem.LeftMissileMagazineCapacity:00}  " +
                 $"x{weaponSystem.LeftMissileMagazinesRemaining}",
@@ -304,7 +317,7 @@ namespace ACunicombat.Mechs
                     ? HudGreen
                     : HudRed;
             GUI.Label(
-                new Rect(centerX + 80f, missileY, 280f, 22f),
+                new Rect(rightX, missileY, labelWidth, 22f),
                 $"R MSL  {weaponSystem.RightMissileRoundsRemaining:00}/" +
                 $"{weaponSystem.RightMissileMagazineCapacity:00}  " +
                 $"x{weaponSystem.RightMissileMagazinesRemaining}",
@@ -325,7 +338,7 @@ namespace ACunicombat.Mechs
                   $"{weaponSystem.CannonMagazineCapacity:00}  " +
                   $"x{weaponSystem.CannonMagazinesRemaining}";
             GUI.Label(
-                new Rect(centerX - 360f, handWeaponY, 280f, 22f),
+                new Rect(leftX, handWeaponY, labelWidth, 22f),
                 cannonText,
                 smallStyle);
 
@@ -344,7 +357,7 @@ namespace ACunicombat.Mechs
                   $"{weaponSystem.RifleMagazineCapacity:00}  " +
                   $"x{weaponSystem.RifleMagazinesRemaining}";
             GUI.Label(
-                new Rect(centerX + 80f, handWeaponY, 280f, 22f),
+                new Rect(rightX, handWeaponY, labelWidth, 22f),
                 rifleText,
                 smallStyle);
         }
