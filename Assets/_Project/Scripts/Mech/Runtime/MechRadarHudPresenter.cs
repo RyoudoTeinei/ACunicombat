@@ -71,6 +71,7 @@ namespace ACunicombat.Mechs
         private MechThirdPersonCamera aimController;
         private MechFlightMotionController motion;
         private MechTestWeaponSystem weaponSystem;
+        private MechEngineController engineController;
         private AudioSource radarOperatorAudioSource;
         private Texture2D operationRingTexture;
         private Texture2D tacticalBackgroundTexture;
@@ -113,6 +114,7 @@ namespace ACunicombat.Mechs
             weaponSystem = radar != null
                 ? radar.GetComponent<MechTestWeaponSystem>()
                 : GetComponent<MechTestWeaponSystem>();
+            engineController = GetComponent<MechEngineController>();
             aimViewportPoint = new Vector2(
                 Mathf.Clamp(newAimViewportPoint.x, 0.05f, 0.95f),
                 Mathf.Clamp(newAimViewportPoint.y, 0.05f, 0.95f));
@@ -125,6 +127,7 @@ namespace ACunicombat.Mechs
                 ? radar.GetComponent<MechFlightMotionController>()
                 : GetComponent<MechFlightMotionController>();
             weaponSystem = GetComponent<MechTestWeaponSystem>();
+            engineController = GetComponent<MechEngineController>();
             if (viewCamera == null) viewCamera = Camera.main;
             if (viewCamera != null)
             {
@@ -218,7 +221,8 @@ namespace ACunicombat.Mechs
 
             AudioClip desiredClip = null;
             var desiredVolume = 0f;
-            if (radar.TrackOperationMode)
+            if (radar.TrackOperationMode && IsStartupModuleOnline(
+                    MechStartupHudModule.RadarScan))
             {
                 if (radar.HasStt)
                 {
@@ -258,22 +262,80 @@ namespace ACunicombat.Mechs
 
             EnsureStyles();
             EnsureSoftLineTexture();
+
+            var previousColor = GUI.color;
+            SetStartupGuiAlpha(MechStartupHudModule.TrackData);
             DrawMissileAttackLinks();
-            DrawTacticalPlot();
-            DrawRadarStatus();
+            GUI.color = previousColor;
+
+            SetStartupGuiAlpha(MechStartupHudModule.TacticalDisplay);
+            DrawTacticalPlot(IsStartupModuleOnline(MechStartupHudModule.TrackData));
+            GUI.color = previousColor;
+
+            SetStartupGuiAlpha(MechStartupHudModule.RadarStatus);
+            DrawRadarStatus(
+                IsStartupModuleOnline(MechStartupHudModule.RadarScan),
+                IsStartupModuleOnline(MechStartupHudModule.TrackData));
+            GUI.color = previousColor;
+
+            SetStartupGuiAlpha(MechStartupHudModule.TrackData);
             DrawFriendlyMissileMarkers();
+            GUI.color = previousColor;
             if (radar.TrackOperationMode)
             {
-                DrawTransientEchoes();
+                if (IsStartupModuleOnline(MechStartupHudModule.RadarScan))
+                {
+                    SetStartupGuiAlpha(MechStartupHudModule.RadarScan);
+                    DrawTransientEchoes();
+                    GUI.color = previousColor;
+                }
+                SetStartupGuiAlpha(MechStartupHudModule.FlightReference);
                 DrawTrackOperationOverlay();
+                GUI.color = previousColor;
             }
             else
             {
+                SetStartupGuiAlpha(MechStartupHudModule.FlightReference);
                 DrawLegacyReticle();
+                GUI.color = previousColor;
             }
+
+            SetStartupGuiAlpha(MechStartupHudModule.TrackData);
             DrawWorldTrackMarkers();
+            GUI.color = previousColor;
+
+            SetStartupGuiAlpha(MechStartupHudModule.Weapons);
             DrawWeaponStatus();
+            GUI.color = previousColor;
+
+            SetStartupGuiAlpha(MechStartupHudModule.TrackData);
             DrawIncomingMissileMarkersOnTop();
+            GUI.color = previousColor;
+        }
+
+        private bool IsStartupModuleOnline(MechStartupHudModule module)
+        {
+            ResolveEngineController();
+            return engineController == null ||
+                   engineController.GetHudStartupAlpha(module) >= 0.98f;
+        }
+
+        private void SetStartupGuiAlpha(MechStartupHudModule module)
+        {
+            ResolveEngineController();
+            var color = GUI.color;
+            color.a = engineController != null
+                ? engineController.GetHudStartupAlpha(module)
+                : 1f;
+            GUI.color = color;
+        }
+
+        private void ResolveEngineController()
+        {
+            if (engineController == null)
+            {
+                engineController = GetComponent<MechEngineController>();
+            }
         }
 
         private void DrawWeaponStatus()
@@ -488,7 +550,7 @@ namespace ACunicombat.Mechs
             }
         }
 
-        private void DrawTacticalPlot()
+        private void DrawTacticalPlot(bool showTrackData)
         {
             var plot = new Rect(18f, 18f, TacticalPlotWidth, TacticalPlotHeight);
             var center = new Vector2(plot.center.x, plot.center.y);
@@ -523,6 +585,11 @@ namespace ACunicombat.Mechs
             DrawLine(center + new Vector2(0f, -12f), center + new Vector2(-8f, 6f), HudBrightGreen, 2.4f);
             DrawLine(center + new Vector2(0f, -12f), center + new Vector2(8f, 6f), HudBrightGreen, 2.4f);
             DrawLine(center + new Vector2(-8f, 6f), center + new Vector2(8f, 6f), HudBrightGreen, 2.4f);
+
+            if (!showTrackData)
+            {
+                return;
+            }
 
             var range = GetTacticalDisplayRange();
             for (var i = 0; i < trackCount; i++)
@@ -678,7 +745,7 @@ namespace ACunicombat.Mechs
                 1.3f);
         }
 
-        private void DrawRadarStatus()
+        private void DrawRadarStatus(bool showScan, bool showTrackData)
         {
             var rect = new Rect(
                 Screen.width - RadarStatusWidth - 18f,
@@ -725,32 +792,45 @@ namespace ACunicombat.Mechs
                 HudDimGreen,
                 1f);
 
-            var beamAngle = Mathf.Clamp(radarStatus.BeamAzimuthDegrees, -halfAngle, halfAngle);
-            var beamHalfWidth = Mathf.Max(1f, radarStatus.BeamWidthDegrees * 0.5f);
-            var beamFill = new Color(
-                HudBrightGreen.r,
-                HudBrightGreen.g,
-                HudBrightGreen.b,
-                0.28f);
-            for (var angle = beamAngle - beamHalfWidth;
-                 angle <= beamAngle + beamHalfWidth;
-                 angle += 1f)
+            if (showScan)
             {
+                var beamAngle = Mathf.Clamp(
+                    radarStatus.BeamAzimuthDegrees,
+                    -halfAngle,
+                    halfAngle);
+                var beamHalfWidth = Mathf.Max(
+                    1f,
+                    radarStatus.BeamWidthDegrees * 0.5f);
+                var beamFill = new Color(
+                    HudBrightGreen.r,
+                    HudBrightGreen.g,
+                    HudBrightGreen.b,
+                    0.28f);
+                for (var angle = beamAngle - beamHalfWidth;
+                     angle <= beamAngle + beamHalfWidth;
+                     angle += 1f)
+                {
+                    DrawLine(
+                        fanApex,
+                        fanApex + RadarDirection(
+                            Mathf.Clamp(angle, -halfAngle, halfAngle)) * fanRadius,
+                        beamFill,
+                        4f);
+                }
+
                 DrawLine(
                     fanApex,
-                    fanApex + RadarDirection(Mathf.Clamp(angle, -halfAngle, halfAngle)) * fanRadius,
-                    beamFill,
-                    4f);
+                    fanApex + RadarDirection(beamAngle) * fanRadius,
+                    HudBrightGreen,
+                    2.6f);
             }
 
-            DrawLine(
-                fanApex,
-                fanApex + RadarDirection(beamAngle) * fanRadius,
-                HudBrightGreen,
-                2.6f);
-            DrawRadarFanTracks(fanApex, fanRadius, halfAngle, displayRange);
+            if (showTrackData)
+            {
+                DrawRadarFanTracks(fanApex, fanRadius, halfAngle, displayRange);
+            }
 
-            var sttText = radarStatus.SttTrackId.IsValid
+            var sttText = showTrackData && radarStatus.SttTrackId.IsValid
                 ? TrackLabel(radarStatus.SttTrackId)
                 : "--";
 
@@ -783,26 +863,42 @@ namespace ACunicombat.Mechs
                     1f);
             }
 
-            var elevationHalf = Mathf.Max(1f, radarStatus.ScanElevationDegrees * 0.5f);
-            var elevationNormalized = Mathf.InverseLerp(
-                elevationHalf,
-                -elevationHalf,
-                Mathf.Clamp(radarStatus.BeamElevationDegrees, -elevationHalf, elevationHalf));
-            var elevationY = Mathf.Lerp(elevationTop, elevationBottom, elevationNormalized);
-            DrawLine(
-                new Vector2(elevationX - 10f, elevationY),
-                new Vector2(elevationX + 10f, elevationY),
-                HudBrightGreen,
-                2.5f);
+            if (showScan)
+            {
+                var elevationHalf = Mathf.Max(
+                    1f,
+                    radarStatus.ScanElevationDegrees * 0.5f);
+                var elevationNormalized = Mathf.InverseLerp(
+                    elevationHalf,
+                    -elevationHalf,
+                    Mathf.Clamp(
+                        radarStatus.BeamElevationDegrees,
+                        -elevationHalf,
+                        elevationHalf));
+                var elevationY = Mathf.Lerp(
+                    elevationTop,
+                    elevationBottom,
+                    elevationNormalized);
+                DrawLine(
+                    new Vector2(elevationX - 10f, elevationY),
+                    new Vector2(elevationX + 10f, elevationY),
+                    HudBrightGreen,
+                    2.5f);
+            }
 
             statusStyle.normal.textColor = HudGreen;
+            var radarStatusText = !showScan
+                ? "航迹 --/--\nSTT OFF\n\n发射机 BIT\n制导 OFF"
+                : !showTrackData
+                    ? "航迹 --/--\nSTT OFF\n\n扫描 ON\n处理器 BIT"
+                    : $"航迹 {displayTrackCount}/{radarStatus.TrackCapacity}\n" +
+                      $"STT {sttText}\n\n" +
+                      $"负载 {radarStatus.DwellLoad * 100f:0}%\n" +
+                      $"制导 {radarStatus.GuidanceChannelsUsed}/" +
+                      $"{radarStatus.GuidanceChannelCapacity}";
             GUI.Label(
                 new Rect(rect.x + 458f, rect.y + 66f, 92f, 220f),
-                $"航迹 {displayTrackCount}/{radarStatus.TrackCapacity}\n" +
-                $"STT {sttText}\n\n" +
-                $"负载 {radarStatus.DwellLoad * 100f:0}%\n" +
-                $"制导 {radarStatus.GuidanceChannelsUsed}/" +
-                $"{radarStatus.GuidanceChannelCapacity}",
+                radarStatusText,
                 statusStyle);
         }
 
@@ -2257,7 +2353,7 @@ namespace ACunicombat.Mechs
         private static void DrawFilledRect(Rect rect, Color color)
         {
             var previousColor = GUI.color;
-            GUI.color = color;
+            GUI.color = MultiplyGuiTint(color, previousColor);
             GUI.DrawTexture(rect, Texture2D.whiteTexture);
             GUI.color = previousColor;
         }
@@ -2330,7 +2426,7 @@ namespace ACunicombat.Mechs
             var angle = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
             var matrix = GUI.matrix;
             var previousColor = GUI.color;
-            GUI.color = color;
+            GUI.color = MultiplyGuiTint(color, previousColor);
             GUIUtility.RotateAroundPivot(angle, start);
             GUI.DrawTexture(
                 new Rect(
@@ -2341,6 +2437,15 @@ namespace ACunicombat.Mechs
                 softLineTexture);
             GUI.matrix = matrix;
             GUI.color = previousColor;
+        }
+
+        private static Color MultiplyGuiTint(Color color, Color tint)
+        {
+            return new Color(
+                color.r * tint.r,
+                color.g * tint.g,
+                color.b * tint.b,
+                color.a * tint.a);
         }
 
         private static Vector3 ToVector3(double3 value) =>

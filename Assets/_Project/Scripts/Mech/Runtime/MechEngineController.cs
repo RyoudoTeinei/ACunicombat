@@ -2,6 +2,18 @@ using UnityEngine;
 
 namespace ACunicombat.Mechs
 {
+    public enum MechStartupHudModule
+    {
+        FlightReference,
+        TacticalDisplay,
+        RadarScan,
+        ThreatWarning,
+        RadarStatus,
+        Weapons,
+        VitalStatus,
+        TrackData,
+    }
+
     /// <summary>
     /// Owns engine startup availability and the layered propulsion mix. Flight physics remains
     /// authoritative in <see cref="MechFlightMotionController"/>; this component only gates that
@@ -13,8 +25,8 @@ namespace ACunicombat.Mechs
         private const string AudioRoot = "Audio/Engine/";
 
         [Header("Startup")]
-        [SerializeField, Min(0f)] private float startupDurationSeconds = 16f;
-        [SerializeField, Min(0.01f)] private float startupFadeSeconds = 3f;
+        [SerializeField, Range(0f, 7.5f)] private float startupDurationSeconds = 7.5f;
+        [SerializeField, Min(0.01f)] private float startupFadeSeconds = 1.4f;
 
         [Header("Mix")]
         [SerializeField, Range(0f, 1f)] private float interiorStartupVolume = 0.72f;
@@ -60,10 +72,84 @@ namespace ACunicombat.Mechs
         public float StartupSecondsRemaining => startupActive
             ? Mathf.Max(0f, startupDurationSeconds - startupElapsedSeconds)
             : 0f;
+        public string StartupStatusText => GetStartupStatusText();
 
         private void Awake()
         {
+            startupDurationSeconds = Mathf.Clamp(startupDurationSeconds, 0f, 7.5f);
+            startupFadeSeconds = Mathf.Min(startupFadeSeconds, 1.4f);
             LoadAndCreateSources();
+        }
+
+        public float GetHudStartupAlpha(MechStartupHudModule module)
+        {
+            if (!startupActive)
+            {
+                return 1f;
+            }
+
+            return module switch
+            {
+                MechStartupHudModule.FlightReference =>
+                    LampWarmupAlpha(0.45f, 1.25f, 0.3f, true),
+                MechStartupHudModule.TacticalDisplay =>
+                    LampWarmupAlpha(1.2f, 2.05f, 1.1f, true),
+                MechStartupHudModule.RadarScan =>
+                    LampWarmupAlpha(2.65f, 3.35f, 2.3f, false),
+                MechStartupHudModule.ThreatWarning =>
+                    LampWarmupAlpha(2.55f, 3.4f, 3.7f, true),
+                MechStartupHudModule.RadarStatus =>
+                    LampWarmupAlpha(1.75f, 2.55f, 4.6f, true),
+                MechStartupHudModule.Weapons =>
+                    LampWarmupAlpha(3.55f, 4.45f, 5.2f, true),
+                MechStartupHudModule.VitalStatus =>
+                    LampWarmupAlpha(4.15f, 5f, 6.4f, false),
+                MechStartupHudModule.TrackData =>
+                    LampWarmupAlpha(5.15f, 6.05f, 7.8f, true),
+                _ => 1f,
+            };
+        }
+
+        private float LampWarmupAlpha(
+            float startSeconds,
+            float stableSeconds,
+            float phase,
+            bool flicker)
+        {
+            var progress = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(startSeconds, stableSeconds, startupElapsedSeconds));
+            if (!flicker || progress <= 0f || progress >= 0.98f)
+            {
+                return progress;
+            }
+
+            var localTime = Mathf.Max(0f, startupElapsedSeconds - startSeconds);
+            var coarsePulse = Mathf.Sin(localTime * 31f + phase) * 0.5f + 0.5f;
+            var finePulse = Mathf.Sin(localTime * 67f + phase * 2.1f) * 0.5f + 0.5f;
+            var lampPower = Mathf.Clamp01(coarsePulse * 0.72f + finePulse * 0.48f - 0.28f);
+            var flickerStrength = 1f - Mathf.SmoothStep(0.2f, 0.82f, progress);
+            return progress * Mathf.Lerp(1f, 0.18f + lampPower * 0.82f, flickerStrength);
+        }
+
+        private string GetStartupStatusText()
+        {
+            if (!startupActive)
+            {
+                return "SYSTEM READY";
+            }
+
+            var progress = StartupProgress;
+            if (progress < 0.08f) return "主电源总线接通";
+            if (progress < 0.18f) return "显示驱动自检";
+            if (progress < 0.3f) return "飞控与姿态基准校准";
+            if (progress < 0.42f) return "雷达显示器预热";
+            if (progress < 0.55f) return "雷达发射机上线";
+            if (progress < 0.68f) return "告警接收机联机";
+            if (progress < 0.8f) return "火控与武器总线自检";
+            if (progress < 0.92f) return "航迹处理器同步";
+            return "全系统就绪";
         }
 
         public void Configure(

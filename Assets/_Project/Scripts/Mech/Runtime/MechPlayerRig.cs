@@ -1186,6 +1186,8 @@ namespace ACunicombat.Mechs
                 readoutWidth,
                 readoutHeight);
 
+            var previousColor = GUI.color;
+            SetGuiAlpha(GetStartupHudAlpha(MechStartupHudModule.FlightReference));
             DrawFlightReadout(
                 leftReadout,
                 "速度",
@@ -1198,9 +1200,13 @@ namespace ACunicombat.Mechs
                 FormatInstrumentValue(motion.Altitude),
                 "m",
                 false);
+            GUI.color = previousColor;
+
             DrawEngineStartupStatus();
+            SetGuiAlpha(GetStartupHudAlpha(MechStartupHudModule.VitalStatus));
             DrawHealthGauge();
             DrawManeuverEnergyGauge();
+            GUI.color = previousColor;
         }
 
         private void DrawEngineStartupStatus()
@@ -1210,26 +1216,57 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            const float width = 220f;
-            const float height = 6f;
+            var width = Mathf.Clamp(Screen.width * 0.28f, 300f, 440f);
+            const float height = 8f;
             var rect = new Rect(
                 Screen.width * 0.5f - width * 0.5f,
-                Screen.height - 174f,
+                Screen.height * 0.52f,
                 width,
                 height);
-            var color = new Color(1f, 0.68f, 0.18f, 0.98f);
+            var readyBlend = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.72f, 1f, engineController.StartupProgress));
+            var color = Color.Lerp(
+                new Color(1f, 0.62f, 0.12f, 0.98f),
+                new Color(0.38f, 1f, 0.56f, 0.98f),
+                readyBlend);
             DrawInstrumentRect(
                 new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f),
-                new Color(0.05f, 0.035f, 0.01f, 0.86f));
+                new Color(0.015f, 0.035f, 0.018f, 0.9f));
             DrawInstrumentRect(
                 new Rect(rect.x, rect.y, rect.width * engineController.StartupProgress, rect.height),
                 color);
             instrumentEnergyStyle.normal.textColor = color;
             instrumentEnergyStyle.alignment = TextAnchor.MiddleCenter;
             GUI.Label(
-                new Rect(rect.x, rect.y - 25f, rect.width, 20f),
-                $"ENG START  {engineController.StartupSecondsRemaining:0.0}s",
+                new Rect(rect.x, rect.y - 51f, rect.width, 22f),
+                "SYSTEM STARTUP / SELF TEST",
                 instrumentEnergyStyle);
+            GUI.Label(
+                new Rect(rect.x, rect.y - 29f, rect.width, 22f),
+                $"{engineController.StartupStatusText}  " +
+                $"{engineController.StartupSecondsRemaining:0.0}s",
+                instrumentEnergyStyle);
+            instrumentEnergyStyle.alignment = TextAnchor.MiddleRight;
+            GUI.Label(
+                new Rect(rect.x, rect.y + 11f, rect.width, 20f),
+                $"{engineController.StartupProgress * 100f:0}%",
+                instrumentEnergyStyle);
+        }
+
+        private float GetStartupHudAlpha(MechStartupHudModule module)
+        {
+            return engineController != null
+                ? engineController.GetHudStartupAlpha(module)
+                : 1f;
+        }
+
+        private static void SetGuiAlpha(float alpha)
+        {
+            var color = GUI.color;
+            color.a = Mathf.Clamp01(alpha);
+            GUI.color = color;
         }
 
         private void DrawHealthGauge()
@@ -1397,7 +1434,9 @@ namespace ACunicombat.Mechs
             var direction = to - from;
             var angle = Mathf.Atan2(direction.y, direction.x) *
                         Mathf.Rad2Deg;
-            GUI.color = new Color(0.38f, 1f, 0.56f, 0.92f);
+            GUI.color = MultiplyGuiTint(
+                new Color(0.38f, 1f, 0.56f, 0.92f),
+                previousColor);
             var matrix = GUI.matrix;
             GUIUtility.RotateAroundPivot(angle, from);
             GUI.DrawTexture(
@@ -1414,9 +1453,18 @@ namespace ACunicombat.Mechs
         private static void DrawInstrumentRect(Rect rect, Color color)
         {
             var previousColor = GUI.color;
-            GUI.color = color;
+            GUI.color = MultiplyGuiTint(color, previousColor);
             GUI.DrawTexture(rect, Texture2D.whiteTexture);
             GUI.color = previousColor;
+        }
+
+        private static Color MultiplyGuiTint(Color color, Color tint)
+        {
+            return new Color(
+                color.r * tint.r,
+                color.g * tint.g,
+                color.b * tint.b,
+                color.a * tint.a);
         }
 
         private void EnsureInstrumentStyles()

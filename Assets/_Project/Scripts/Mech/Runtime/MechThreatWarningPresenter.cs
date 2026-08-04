@@ -46,6 +46,7 @@ namespace ACunicombat.Mechs
 
         private MechRadarController radar;
         private MechFlightMotionController flightMotion;
+        private MechEngineController engineController;
         private AudioSource oneShotSource;
         private AudioSource loopSource;
         private readonly ThreatSnapshot[] threatScratch =
@@ -75,6 +76,7 @@ namespace ACunicombat.Mechs
         {
             radar = GetComponent<MechRadarController>();
             flightMotion = GetComponent<MechFlightMotionController>();
+            engineController = GetComponent<MechEngineController>();
             LoadDefaultAudioClips();
             PreloadAudioClips();
             oneShotSource = gameObject.AddComponent<AudioSource>();
@@ -146,6 +148,17 @@ namespace ACunicombat.Mechs
 
         private void UpdateAudio()
         {
+            ResolveEngineController();
+            if (engineController != null &&
+                engineController.GetHudStartupAlpha(
+                    MechStartupHudModule.ThreatWarning) < 0.98f)
+            {
+                oneShotSource?.Stop();
+                loopSource?.Stop();
+                previousHighestLevel = EsmThreatLevel.None;
+                return;
+            }
+
             var highest = EsmThreatLevel.None;
             for (var i = 0; i < threatCount; i++)
             {
@@ -250,6 +263,20 @@ namespace ACunicombat.Mechs
 
         private void OnGUI()
         {
+            ResolveEngineController();
+            var startupAlpha = engineController != null
+                ? engineController.GetHudStartupAlpha(
+                    MechStartupHudModule.ThreatWarning)
+                : 1f;
+            if (startupAlpha <= 0.001f)
+            {
+                return;
+            }
+
+            var previousGuiColor = GUI.color;
+            var startupTint = previousGuiColor;
+            startupTint.a *= startupAlpha;
+            GUI.color = startupTint;
             EnsureAssets();
             var panel = new Rect(
                 PanelMargin,
@@ -313,6 +340,15 @@ namespace ACunicombat.Mechs
                     ? new Color(0.12f, 1f, 0.34f, pulse)
                     : new Color(0.18f, 0.92f, 0.34f, 0.94f);
                 GUI.Label(statusRect, status, statusStyle);
+            }
+            GUI.color = previousGuiColor;
+        }
+
+        private void ResolveEngineController()
+        {
+            if (engineController == null)
+            {
+                engineController = GetComponent<MechEngineController>();
             }
         }
 
@@ -676,7 +712,11 @@ namespace ACunicombat.Mechs
         private static void DrawTintedTexture(Rect rect, Texture texture, Color color)
         {
             var previousColor = GUI.color;
-            GUI.color = color;
+            GUI.color = new Color(
+                color.r * previousColor.r,
+                color.g * previousColor.g,
+                color.b * previousColor.b,
+                color.a * previousColor.a);
             GUI.DrawTexture(rect, texture);
             GUI.color = previousColor;
         }
