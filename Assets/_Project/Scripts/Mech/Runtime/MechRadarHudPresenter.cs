@@ -76,6 +76,7 @@ namespace ACunicombat.Mechs
         private Texture2D tacticalBackgroundTexture;
         private static Texture2D softLineTexture;
         private GUIStyle smallStyle;
+        private GUIStyle weaponStatusStyle;
         private GUIStyle statusStyle;
         private GUIStyle microStyle;
         private GUIStyle compassStyle;
@@ -282,92 +283,151 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            const float labelWidth = 300f;
-            const float rowHeight = 22f;
-            const float rowSpacing = 27f;
-            var preferredX =
-                Screen.width - RadarStatusWidth - labelWidth - 32f;
-            var statusX = Mathf.Clamp(
-                preferredX,
-                Screen.width * 0.55f,
-                Mathf.Max(12f, Screen.width - labelWidth - 20f));
-            var firstRowY = Mathf.Max(
-                12f,
-                Screen.height - rowSpacing * 4f - 54f);
+            const float horizontalGap = 12f;
+            var stripWidth = Mathf.Min(920f, Screen.width - 32f);
+            var entryWidth =
+                (stripWidth - horizontalGap * 3f) / 4f;
+            var stripX = Screen.width - stripWidth - 20f;
+            var rowY = Mathf.Max(12f, Screen.height - 188f);
 
-            smallStyle.alignment = TextAnchor.MiddleRight;
-            smallStyle.normal.textColor =
-                weaponSystem.LeftMissileMagazinesRemaining > 0
-                    ? HudGreen
-                    : HudRed;
+            var leftMissileRect = new Rect(
+                stripX,
+                rowY,
+                entryWidth,
+                30f);
+            var cannonRect = new Rect(
+                leftMissileRect.xMax + horizontalGap,
+                rowY,
+                entryWidth,
+                30f);
+            var rifleRect = new Rect(
+                cannonRect.xMax + horizontalGap,
+                rowY,
+                entryWidth,
+                30f);
+            var rightMissileRect = new Rect(
+                rifleRect.xMax + horizontalGap,
+                rowY,
+                entryWidth,
+                30f);
+
+            DrawWeaponAmmoEntry(
+                leftMissileRect,
+                "L MSL",
+                weaponSystem.LeftMissileRoundsRemaining,
+                weaponSystem.LeftMissileMagazineCapacity,
+                weaponSystem.LeftMissileMagazinesRemaining,
+                false,
+                0f,
+                string.Empty);
+            DrawWeaponAmmoEntry(
+                cannonRect,
+                "L 57MM",
+                weaponSystem.CannonRoundsRemaining,
+                weaponSystem.CannonMagazineCapacity,
+                weaponSystem.CannonMagazinesRemaining,
+                weaponSystem.CannonReloading,
+                weaponSystem.CannonReloadRemainingSeconds,
+                "装");
+            DrawWeaponAmmoEntry(
+                rifleRect,
+                "R 30MM",
+                weaponSystem.RifleRoundsRemaining,
+                weaponSystem.RifleMagazineCapacity,
+                weaponSystem.RifleMagazinesRemaining,
+                weaponSystem.RifleReloading,
+                weaponSystem.RifleReloadRemainingSeconds,
+                "换");
+            DrawWeaponAmmoEntry(
+                rightMissileRect,
+                "R MSL",
+                weaponSystem.RightMissileRoundsRemaining,
+                weaponSystem.RightMissileMagazineCapacity,
+                weaponSystem.RightMissileMagazinesRemaining,
+                false,
+                0f,
+                string.Empty);
+        }
+
+        private void DrawWeaponAmmoEntry(
+            Rect bounds,
+            string weaponLabel,
+            int roundsRemaining,
+            int magazineCapacity,
+            int magazinesRemaining,
+            bool reloading,
+            float reloadRemainingSeconds,
+            string reloadLabel)
+        {
+            var empty = roundsRemaining <= 0 && magazinesRemaining <= 0;
+            var lowRounds = !empty &&
+                            roundsRemaining < magazineCapacity &&
+                            roundsRemaining <= Mathf.Max(
+                                1,
+                                Mathf.CeilToInt(magazineCapacity * 0.25f));
+            var statusColor = empty
+                ? HudRed
+                : reloading
+                    ? HudAmber
+                    : HudGreen;
+            var roundsColor = empty
+                ? HudRed
+                : lowRounds
+                    ? HudAmber
+                    : HudGreen;
+            var roundsText = $"{roundsRemaining:00}";
+            var suffix = $"/{magazineCapacity:00} x{magazinesRemaining}";
+            if (reloading)
+            {
+                suffix += $" {reloadLabel}{reloadRemainingSeconds:0.0}s";
+            }
+
+            var labelWidth = weaponStatusStyle.CalcSize(
+                new GUIContent(weaponLabel + " ")).x;
+            var roundsWidth = Mathf.Max(
+                26f,
+                weaponStatusStyle.CalcSize(
+                    new GUIContent(roundsText)).x + 8f);
+            var suffixWidth = weaponStatusStyle.CalcSize(
+                new GUIContent(suffix)).x;
+            var contentWidth = labelWidth + roundsWidth + suffixWidth;
+            var contentX = bounds.center.x - contentWidth * 0.5f;
+            var textY = bounds.y;
+
+            weaponStatusStyle.alignment = TextAnchor.MiddleLeft;
+            weaponStatusStyle.normal.textColor = statusColor;
             GUI.Label(
-                new Rect(statusX, firstRowY, labelWidth, rowHeight),
-                $"L MSL  {weaponSystem.LeftMissileRoundsRemaining:00}/" +
-                $"{weaponSystem.LeftMissileMagazineCapacity:00}  " +
-                $"x{weaponSystem.LeftMissileMagazinesRemaining}",
-                smallStyle);
+                new Rect(contentX, textY, labelWidth, bounds.height),
+                weaponLabel,
+                weaponStatusStyle);
 
-            smallStyle.alignment = TextAnchor.MiddleRight;
-            smallStyle.normal.textColor =
-                weaponSystem.RightMissileMagazinesRemaining > 0
-                    ? HudGreen
-                    : HudRed;
+            var roundsRect = new Rect(
+                contentX + labelWidth,
+                textY + 3f,
+                roundsWidth,
+                bounds.height - 6f);
+            var topLeft = new Vector2(roundsRect.xMin, roundsRect.yMin);
+            var topRight = new Vector2(roundsRect.xMax, roundsRect.yMin);
+            var bottomRight = new Vector2(roundsRect.xMax, roundsRect.yMax);
+            var bottomLeft = new Vector2(roundsRect.xMin, roundsRect.yMax);
+            DrawLine(topLeft, topRight, roundsColor, 1.4f);
+            DrawLine(topRight, bottomRight, roundsColor, 1.4f);
+            DrawLine(bottomRight, bottomLeft, roundsColor, 1.4f);
+            DrawLine(bottomLeft, topLeft, roundsColor, 1.4f);
+            weaponStatusStyle.alignment = TextAnchor.MiddleCenter;
+            weaponStatusStyle.normal.textColor = roundsColor;
+            GUI.Label(roundsRect, roundsText, weaponStatusStyle);
+
+            weaponStatusStyle.alignment = TextAnchor.MiddleLeft;
+            weaponStatusStyle.normal.textColor = statusColor;
             GUI.Label(
                 new Rect(
-                    statusX,
-                    firstRowY + rowSpacing,
-                    labelWidth,
-                    rowHeight),
-                $"R MSL  {weaponSystem.RightMissileRoundsRemaining:00}/" +
-                $"{weaponSystem.RightMissileMagazineCapacity:00}  " +
-                $"x{weaponSystem.RightMissileMagazinesRemaining}",
-                smallStyle);
-
-            smallStyle.alignment = TextAnchor.MiddleRight;
-            smallStyle.normal.textColor = weaponSystem.CannonReloading
-                ? HudAmber
-                : weaponSystem.CannonMagazinesRemaining > 0
-                    ? HudGreen
-                    : HudRed;
-            var cannonText = weaponSystem.CannonReloading
-                ? $"L 57MM  装填 {weaponSystem.CannonReloadRemainingSeconds:0.0}s  " +
-                  $"{weaponSystem.CannonRoundsRemaining:00}/" +
-                  $"{weaponSystem.CannonMagazineCapacity:00}  " +
-                  $"x{weaponSystem.CannonMagazinesRemaining}"
-                : $"L 57MM  {weaponSystem.CannonRoundsRemaining:00}/" +
-                  $"{weaponSystem.CannonMagazineCapacity:00}  " +
-                  $"x{weaponSystem.CannonMagazinesRemaining}";
-            GUI.Label(
-                new Rect(
-                    statusX,
-                    firstRowY + rowSpacing * 2f + 8f,
-                    labelWidth,
-                    rowHeight),
-                cannonText,
-                smallStyle);
-
-            smallStyle.alignment = TextAnchor.MiddleRight;
-            smallStyle.normal.textColor = weaponSystem.RifleReloading
-                ? HudAmber
-                : weaponSystem.RifleMagazinesRemaining > 0
-                    ? HudGreen
-                    : HudRed;
-            var rifleText = weaponSystem.RifleReloading
-                ? $"R 30MM  换匣 {weaponSystem.RifleReloadRemainingSeconds:0.0}s  " +
-                  $"{weaponSystem.RifleRoundsRemaining:00}/" +
-                  $"{weaponSystem.RifleMagazineCapacity:00}  " +
-                  $"x{weaponSystem.RifleMagazinesRemaining}"
-                : $"R 30MM  {weaponSystem.RifleRoundsRemaining:00}/" +
-                  $"{weaponSystem.RifleMagazineCapacity:00}  " +
-                  $"x{weaponSystem.RifleMagazinesRemaining}";
-            GUI.Label(
-                new Rect(
-                    statusX,
-                    firstRowY + rowSpacing * 3f + 8f,
-                    labelWidth,
-                    rowHeight),
-                rifleText,
-                smallStyle);
+                    roundsRect.xMax,
+                    textY,
+                    suffixWidth,
+                    bounds.height),
+                suffix,
+                weaponStatusStyle);
         }
 
         private void DrawTacticalPlot()
@@ -1782,6 +1842,14 @@ namespace ACunicombat.Mechs
                 fontSize = 14,
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.UpperLeft,
+                wordWrap = false,
+                richText = false,
+            };
+            weaponStatusStyle ??= new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 16,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleLeft,
                 wordWrap = false,
                 richText = false,
             };
