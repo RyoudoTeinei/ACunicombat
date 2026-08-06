@@ -1,0 +1,1921 @@
+using System;
+using System.Collections.Generic;
+using ACunicombat.FireControl;
+using ACunicombat.Sensing.Contracts;
+using Unity.Mathematics;
+using UnityEngine;
+
+namespace ACunicombat.Mechs
+{
+	[DisallowMultipleComponent]
+	public sealed class MechTestProjectile : MonoBehaviour
+	{
+		private static readonly List<MechTestProjectile> registry = new List<MechTestProjectile>();
+
+		private const float GuidanceMemorySeconds = 4f;
+
+		private const float InterceptorGuidanceMemorySeconds = 0.8f;
+
+		private const float ReacquisitionGateMeters = 350f;
+
+		private const float InterceptorReacquisitionGateMeters = 100f;
+
+		private const float InterceptorAcquisitionGateMinimumMeters = 80f;
+
+		private const float InterceptorAcquisitionGateMaximumMeters = 300f;
+
+		private const float InterceptorVelocityAssociationGateMps = 300f;
+
+		private const float InterceptorSeekerPositionBlend = 0.35f;
+
+		private const float InterceptorSeekerVelocityBlend = 0.2f;
+
+		private const float SeekerScanIntervalSeconds = 0.05f;
+
+		private const float SeekerLockMemorySeconds = 0.35f;
+
+		private const float InterceptorSeekerLockMemorySeconds = 0.65f;
+
+		private const float InterceptorFuseEstimateMemorySeconds = 4f;
+
+		private const float InterceptorFuseLookAheadSeconds = 0.06f;
+
+		private const float InterceptorFuseUncertaintyAllowanceMeters = 8f;
+
+		private const float DefaultMissileInterceptionHealth = 80f;
+
+		private const float MissileHitboxHalfWidthMeters = 0.25f;
+
+		private const float AirToAirMidcourseLeadLimitSeconds = 15f;
+
+		private const float AirToAirTerminalLeadLimitSeconds = 4f;
+
+		private const float InterceptorMidcourseLeadLimitSeconds = 4f;
+
+		private const float InterceptorTerminalLeadLimitSeconds = 1.5f;
+
+		private const float EngagementAssessmentIntervalSeconds = 0.2f;
+
+		private const float EngagementFailureConfirmationSeconds = 0.75f;
+
+		private const float GuidanceRecoveryGraceSeconds = 2f;
+
+		private const float MinimumEngagementAssessmentFlightSeconds = 1f;
+
+		private const float MinimumOpeningSpeedMetersPerSecond = 5f;
+
+		private static readonly RaycastHit[] SphereCastScratch = new RaycastHit[32];
+
+		private static readonly Collider[] OverlapScratch = new Collider[64];
+
+		private static readonly HashSet<CombatTestTarget> DamagedScratch = new HashSet<CombatTestTarget>();
+
+		private static readonly HashSet<MechTestProjectile> DamagedProjectileScratch = new HashSet<MechTestProjectile>();
+
+		private Transform owner;
+
+		private MechRadarController radarController;
+
+		private CombatTestTarget directGuidanceTarget;
+
+		private MechTestProjectile directProjectileTarget;
+
+		private bool interceptorMissile;
+
+		private bool interceptorTargetCommitted;
+
+		private Vector3 directTargetPreviousPosition;
+
+		private Vector3 directTargetVelocity;
+
+		private TrackId targetTrackId;
+
+		private TestWeaponKind weaponKind;
+
+		private Vector3 velocity;
+
+		private float damage;
+
+		private float collisionRadius;
+
+		private float lifeRemaining;
+
+		private float launchDelay;
+
+		private float maximumTravelDistance;
+
+		private float distanceTravelled;
+
+		private float projectileFlightTime;
+
+		private MechEffectPrefabLibrary effectLibrary;
+
+		private int impactFfxId;
+
+		private TrackSnapshot cachedGuidanceTrack;
+
+		private bool hasCachedGuidanceTrack;
+
+		private float guidanceMemoryRemaining;
+
+		private int guidanceChannelToken;
+
+		private bool guidanceChannelReleased;
+
+		private MissileFlightPhase missilePhase;
+
+		private float missileFlightTime;
+
+		private float dryMassKg;
+
+		private float mainPropellantMassRemainingKg;
+
+		private float mainEngineThrustNewtons;
+
+		private float mainMassFlowKgPerSecond;
+
+		private float rcsPropellantMassRemainingKg;
+
+		private float rcsThrustNewtons;
+
+		private float rcsMassFlowKgPerSecond;
+
+		private float pitchYawInertiaKgM2;
+
+		private float rcsMomentArmMeters;
+
+		private float maximumAngularRateRadians;
+
+		private float currentAngularRateRadians;
+
+		private float seekerActivationDelay;
+
+		private float seekerMaximumRange;
+
+		private float seekerHalfAngleRadians;
+
+		private float seekerGimbalRadians;
+
+		private Vector3 rcsAccelerationWorld;
+
+		private Vector3 rcsAttitudeTorqueLocal;
+
+		private float rcsAttitudeThrottle;
+
+		private float proximityFuseRadius;
+
+		private float proximityFuseArmTime;
+
+		private float proximityFuseSafeDistance;
+
+		private float warheadLethalRadius;
+
+		private float seekerScanRemaining;
+
+		private float seekerLockMemoryRemaining;
+
+		private bool seekerLocked;
+
+		private Vector3 desiredAttitudeForward;
+
+		private Vector3 seekerEstimatedPosition;
+
+		private Vector3 seekerEstimatedVelocity;
+
+		private Vector3 terminalFuseEstimatedPosition;
+
+		private Vector3 terminalFuseEstimatedVelocity;
+
+		private float terminalFuseEstimateMemoryRemaining;
+
+		private float terminalFuseEstimateUncertaintyMeters;
+
+		private Vector3 prelaunchInterceptPoint;
+
+		private float prelaunchSteeringRemaining;
+
+		private bool coldLaunchEnabled;
+
+		private bool coldLaunchMotorIgnited;
+
+		private Vector3 coldLaunchAxis;
+
+		private Vector3 coldLaunchInheritedVelocity;
+
+		private Vector3 coldLaunchPreviousPosition;
+
+		private Vector3 coldLaunchCarrierPreviousPosition;
+
+		private float coldLaunchElapsedSeconds;
+
+		private float coldLaunchRelativeDistanceMeters;
+
+		private float coldLaunchSafeSeparationSeconds;
+
+		private float coldLaunchSafeSeparationMeters;
+
+		private float coldLaunchIgnitionAlignmentRadians;
+
+		private float coldLaunchAlignmentTimeoutRemaining;
+
+		private double seekerLastMeasurementTime = -1.0;
+
+		private ulong seekerDwellSequence;
+
+		private MechRadarController.MissileSeekerHandle seekerHandle;
+
+		private readonly Measurement[] seekerMeasurementScratch = new Measurement[8];
+
+		private LinkTerminalId linkTerminal;
+
+		private ulong lastLinkSequence;
+
+		private readonly LinkMessage[] linkInboxScratch = new LinkMessage[8];
+
+		private bool irSourceRegistered;
+
+		private bool irMotorStateRegistered;
+
+		private const float MotorIrIntensityDb = 58f;
+
+		private const float CoastIrIntensityDb = 28f;
+
+		private ParticleSystem[] propulsionParticles = Array.Empty<ParticleSystem>();
+
+		private TrailRenderer projectileTrail;
+
+		private bool motorVisualActive;
+
+		private MechMissileAudioController missileAudio;
+
+		private ParticleSystem[] rcsParticles = Array.Empty<ParticleSystem>();
+
+		private Vector3[] rcsExhaustDirectionsLocal = Array.Empty<Vector3>();
+
+		private Vector3[] rcsTorqueAxesLocal = Array.Empty<Vector3>();
+
+		private float[] rcsPulsePhase = Array.Empty<float>();
+
+		private MechMissilePlume missilePlume;
+
+		private const float MissilePlumeFallbackNozzleOffset = 1.8f;
+
+		private const float MissilePlumeScale = 1f;
+
+		private static Material rcsParticleMaterial;
+
+		private const float RcsPulseHertz = 14f;
+
+		private const float RcsPulsePeakRate = 260f;
+
+		private float interceptionHealth;
+
+		private float interceptorRoundLethalRadius;
+
+		private float interceptorRoundDamage;
+
+		private float interceptorRoundArmSeconds;
+
+		private float interceptorRoundSafeDistanceMeters;
+
+		private bool cannonProximityFuseEnabled;
+
+		private bool interceptionResolved;
+
+		private MissileEngagementState engagementState;
+
+		private float engagementAssessmentRemaining;
+
+		private float engagementFailureEvidenceSeconds;
+
+		private float noGuidanceSeconds;
+
+		public static IReadOnlyList<MechTestProjectile> Registry => registry;
+
+		public MissileFlightPhase MissilePhase => missilePhase;
+
+		public MissileEngagementState EngagementState => engagementState;
+
+		public bool IsEngagementActive
+		{
+			get
+			{
+				if (IsMissile)
+				{
+					return engagementState == MissileEngagementState.Active;
+				}
+				return false;
+			}
+		}
+
+		public bool SeekerLocked => seekerLocked;
+
+		public float CurrentMassKg => dryMassKg + mainPropellantMassRemainingKg + rcsPropellantMassRemainingKg;
+
+		public float MainPropellantMassRemainingKg => mainPropellantMassRemainingKg;
+
+		public float RcsPropellantMassRemainingKg => rcsPropellantMassRemainingKg;
+
+		public float ManeuverDeltaVRemaining => EstimateRcsDeltaVRemaining();
+
+		public Vector3 Velocity => velocity;
+
+		public bool IsMissile => weaponKind == TestWeaponKind.Missile;
+
+		public bool IsInterceptableMissile
+		{
+			get
+			{
+				if (IsMissile && !interceptionResolved)
+				{
+					return base.gameObject.activeInHierarchy;
+				}
+				return false;
+			}
+		}
+
+		public bool HasActiveGuidance
+		{
+			get
+			{
+				if (IsEngagementActive)
+				{
+					if (!(directGuidanceTarget != null))
+					{
+						if (!(directProjectileTarget != null))
+						{
+							if (!seekerLocked)
+							{
+								if (hasCachedGuidanceTrack)
+								{
+									return guidanceMemoryRemaining > 0f;
+								}
+								return false;
+							}
+							return true;
+						}
+						return directProjectileTarget.IsInterceptableMissile;
+					}
+					return directGuidanceTarget.IsAlive;
+				}
+				return false;
+			}
+		}
+
+		public TrackId GuidanceTrackId
+		{
+			get
+			{
+				if (!hasCachedGuidanceTrack || !cachedGuidanceTrack.TrackId.IsValid)
+				{
+					return targetTrackId;
+				}
+				return cachedGuidanceTrack.TrackId;
+			}
+		}
+
+		public bool IsOwnedBy(Transform candidateOwner)
+		{
+			if (candidateOwner != null)
+			{
+				return owner == candidateOwner;
+			}
+			return false;
+		}
+
+		public bool TryPredictThreatTo(Transform defendedTarget, Vector3 defendedVelocity, float protectedRadius, float predictionHorizon, out float timeToClosestApproach, out float missDistance)
+		{
+			timeToClosestApproach = 0f;
+			missDistance = float.PositiveInfinity;
+			if (!IsInterceptableMissile || !HasActiveGuidance || defendedTarget == null)
+			{
+				return false;
+			}
+			Vector3 relativePosition = base.transform.position - defendedTarget.position;
+			Vector3 relativeVelocity = velocity - defendedVelocity;
+			float velocitySquared = relativeVelocity.sqrMagnitude;
+			if (velocitySquared <= 0.01f)
+			{
+				return false;
+			}
+			float horizon = Mathf.Max(0.1f, predictionHorizon);
+			float rawClosestTime = (0f - Vector3.Dot(relativePosition, relativeVelocity)) / velocitySquared;
+			timeToClosestApproach = Mathf.Clamp(rawClosestTime, 0f, horizon);
+			missDistance = (relativePosition + relativeVelocity * timeToClosestApproach).magnitude;
+			if (directGuidanceTarget != null && (directGuidanceTarget.transform == defendedTarget || directGuidanceTarget.transform.IsChildOf(defendedTarget) || defendedTarget.IsChildOf(directGuidanceTarget.transform)))
+			{
+				if (rawClosestTime <= 0f)
+				{
+					timeToClosestApproach = Mathf.Min(horizon, relativePosition.magnitude / Mathf.Max(relativeVelocity.magnitude, 1f));
+				}
+				missDistance = 0f;
+				return true;
+			}
+			if (rawClosestTime > 0f && rawClosestTime <= horizon)
+			{
+				return missDistance <= Mathf.Max(1f, protectedRadius);
+			}
+			return false;
+		}
+
+		private void OnEnable()
+		{
+			if (!registry.Contains(this))
+			{
+				registry.Add(this);
+			}
+		}
+
+		private void OnDisable()
+		{
+			registry.Remove(this);
+		}
+
+		public void Configure(Transform newOwner, MechRadarController newRadarController, TrackId newTargetTrackId, TestWeaponKind kind, Vector3 initialVelocity, float newDamage, float newCollisionRadius, float lifetimeSeconds, float delaySeconds = 0f, float accelerationMetersPerSecondSquared = 0f, float turnRateDegreesPerSecond = 0f, MechEffectPrefabLibrary newEffectLibrary = null, int newImpactFfxId = 0, float newMaximumTravelDistance = 0f, int newGuidanceChannelToken = 0, float newMotorBurnDuration = 2.1f, float newSeekerActivationDelay = 2.5f, float newSeekerMaximumRange = 8000f, float newSeekerHalfAngleDegrees = 35f, float newSeekerGimbalDegrees = 60f, float newMaximumLateralAcceleration = 75f, float newManeuverDeltaV = 180f, float newRcsLateralAcceleration = 0f, float newRcsDeltaV = 0f, float newProximityFuseRadius = 12f, float newProximityFuseArmTime = 0.75f, float newProximityFuseSafeDistance = 20f, float newWarheadLethalRadius = 18f, CombatTestTarget newDirectGuidanceTarget = null, bool newInterceptorMissile = false, MechTestProjectile newDirectProjectileTarget = null, MissileFlightProfile missileProfile = default(MissileFlightProfile), bool hasInitialGuidanceEstimate = false, Vector3 initialGuidancePosition = default(Vector3), Vector3 initialGuidanceVelocity = default(Vector3), float initialGuidanceUncertaintyMeters = 0f, Vector3 newPrelaunchInterceptPoint = default(Vector3), bool newColdLaunch = false, Vector3 newColdLaunchInheritedVelocity = default(Vector3), float newColdLaunchSafeSeparationSeconds = 0f, float newColdLaunchSafeSeparationMeters = 0f, float newColdLaunchIgnitionAlignmentDegrees = 8f, float newColdLaunchAlignmentTimeoutSeconds = 0.6f, bool newOwnshipMissileAudio = false)
+		{
+			owner = newOwner;
+			radarController = newRadarController;
+			directGuidanceTarget = newDirectGuidanceTarget;
+			directProjectileTarget = newDirectProjectileTarget;
+			interceptorMissile = newInterceptorMissile;
+			interceptorTargetCommitted = newInterceptorMissile && (newTargetTrackId.IsValid || newDirectProjectileTarget != null || hasInitialGuidanceEstimate);
+			if (directGuidanceTarget != null)
+			{
+				directTargetPreviousPosition = directGuidanceTarget.AimPoint.position;
+			}
+			else if (directProjectileTarget != null)
+			{
+				directTargetPreviousPosition = directProjectileTarget.transform.position;
+			}
+			targetTrackId = newTargetTrackId;
+			weaponKind = kind;
+			engagementState = MissileEngagementState.Active;
+			engagementAssessmentRemaining = 0f;
+			engagementFailureEvidenceSeconds = 0f;
+			noGuidanceSeconds = 0f;
+			interceptionHealth = (IsMissile ? 80f : 0f);
+			interceptionResolved = false;
+			velocity = initialVelocity;
+			desiredAttitudeForward = ((base.transform.forward.sqrMagnitude > 0.001f) ? base.transform.forward.normalized : ((initialVelocity.sqrMagnitude > 0.001f) ? initialVelocity.normalized : Vector3.forward));
+			if (hasInitialGuidanceEstimate)
+			{
+				terminalFuseEstimatedPosition = initialGuidancePosition;
+				terminalFuseEstimatedVelocity = initialGuidanceVelocity;
+				terminalFuseEstimateMemoryRemaining = GetTerminalEstimateMemorySeconds();
+				terminalFuseEstimateUncertaintyMeters = Mathf.Max(0f, initialGuidanceUncertaintyMeters);
+			}
+			prelaunchInterceptPoint = newPrelaunchInterceptPoint;
+			prelaunchSteeringRemaining = ((newInterceptorMissile && (prelaunchInterceptPoint - base.transform.position).sqrMagnitude > 0.001f) ? 0.6f : 0f);
+			coldLaunchEnabled = weaponKind == TestWeaponKind.Missile && newColdLaunch;
+			coldLaunchMotorIgnited = !coldLaunchEnabled;
+			coldLaunchAxis = ((base.transform.forward.sqrMagnitude > 0.001f) ? base.transform.forward.normalized : ((initialVelocity.sqrMagnitude > 0.001f) ? initialVelocity.normalized : Vector3.forward));
+			coldLaunchInheritedVelocity = newColdLaunchInheritedVelocity;
+			coldLaunchPreviousPosition = base.transform.position;
+			coldLaunchCarrierPreviousPosition = ((owner != null) ? owner.position : Vector3.zero);
+			coldLaunchElapsedSeconds = 0f;
+			coldLaunchRelativeDistanceMeters = 0f;
+			coldLaunchSafeSeparationSeconds = Mathf.Max(0f, newColdLaunchSafeSeparationSeconds);
+			coldLaunchSafeSeparationMeters = Mathf.Max(0f, newColdLaunchSafeSeparationMeters);
+			coldLaunchIgnitionAlignmentRadians = Mathf.Clamp(newColdLaunchIgnitionAlignmentDegrees, 0.5f, 45f) * (MathF.PI / 180f);
+			coldLaunchAlignmentTimeoutRemaining = Mathf.Max(0.05f, newColdLaunchAlignmentTimeoutSeconds);
+			damage = newDamage;
+			collisionRadius = Mathf.Max(0.01f, newCollisionRadius);
+			lifeRemaining = Mathf.Max(0.1f, lifetimeSeconds);
+			launchDelay = Mathf.Max(0f, delaySeconds);
+			maximumTravelDistance = Mathf.Max(0f, newMaximumTravelDistance);
+			distanceTravelled = 0f;
+			projectileFlightTime = 0f;
+			cannonProximityFuseEnabled = false;
+			effectLibrary = newEffectLibrary;
+			impactFfxId = newImpactFfxId;
+			guidanceChannelToken = newGuidanceChannelToken;
+			guidanceChannelReleased = guidanceChannelToken <= 0;
+			if (weaponKind == TestWeaponKind.Missile)
+			{
+				ConfigureMissileDynamics(missileProfile, accelerationMetersPerSecondSquared, turnRateDegreesPerSecond, newMotorBurnDuration, newSeekerActivationDelay, newSeekerMaximumRange, newSeekerHalfAngleDegrees, newSeekerGimbalDegrees, newMaximumLateralAcceleration, newManeuverDeltaV, newRcsLateralAcceleration, newRcsDeltaV, newProximityFuseRadius, newProximityFuseArmTime, newProximityFuseSafeDistance, newWarheadLethalRadius);
+			}
+			hasCachedGuidanceTrack = weaponKind == TestWeaponKind.Missile && targetTrackId.IsValid && radarController != null && radarController.TryGetTrack(targetTrackId, out cachedGuidanceTrack);
+			guidanceMemoryRemaining = (hasCachedGuidanceTrack ? GetGuidanceMemorySeconds() : 0f);
+			projectileTrail = GetComponent<TrailRenderer>();
+			propulsionParticles = GetComponentsInChildren<ParticleSystem>(includeInactive: true);
+			if (weaponKind == TestWeaponKind.Missile)
+			{
+				missilePlume = base.gameObject.AddComponent<MechMissilePlume>();
+				missilePlume.Build(1.8f, 1f);
+				CreateRcsThrusterVisuals();
+			}
+			if (weaponKind == TestWeaponKind.Missile && radarController != null)
+			{
+				radarController.TryRegisterMissileSeeker(base.transform.position, velocity, seekerMaximumRange, seekerHalfAngleRadians * 2f * 57.29578f, owner != null && ResolveCombatantRoot(owner) != ResolveCombatantRoot(radarController.transform), out seekerHandle);
+				if (seekerHandle.IsValid)
+				{
+					if (radarController.TryRegisterMissileLinkTerminal(in seekerHandle, out linkTerminal) && targetTrackId.IsValid)
+					{
+						radarController.BeginGuidanceUplink(linkTerminal, targetTrackId, !interceptorMissile);
+					}
+					radarController.RegisterMissileIrSource(in seekerHandle, 28f);
+					irSourceRegistered = true;
+					irMotorStateRegistered = false;
+				}
+			}
+			missilePhase = (coldLaunchEnabled ? MissileFlightPhase.ColdEjection : ((!(launchDelay > 0f)) ? MissileFlightPhase.Boost : MissileFlightPhase.LaunchDelay));
+			if (weaponKind == TestWeaponKind.Missile)
+			{
+				missileAudio = GetComponent<MechMissileAudioController>();
+				if (missileAudio == null)
+				{
+					missileAudio = base.gameObject.AddComponent<MechMissileAudioController>();
+				}
+				missileAudio.Configure(coldLaunchEnabled, newOwnshipMissileAudio);
+				bool motorStartsImmediately = !coldLaunchEnabled && launchDelay <= 0f;
+				motorVisualActive = !motorStartsImmediately;
+				SetMotorVisual(motorStartsImmediately);
+			}
+		}
+
+		private void ConfigureMissileDynamics(MissileFlightProfile profile, float legacyAcceleration, float legacyTurnRateDegrees, float legacyMotorBurnDuration, float legacySeekerActivationDelay, float legacySeekerMaximumRange, float legacySeekerHalfAngleDegrees, float legacySeekerGimbalDegrees, float legacyMaximumLateralAcceleration, float legacyManeuverDeltaV, float legacyRcsLateralAcceleration, float legacyRcsDeltaV, float legacyProximityFuseRadius, float legacyProximityFuseArmTime, float legacyProximityFuseSafeDistance, float legacyWarheadLethalRadius)
+		{
+			if (!profile.IsConfigured)
+			{
+				profile = MissileFlightProfile.AirToAirDefault;
+				float initialMass = profile.InitialMassKg;
+				if (legacyAcceleration > 0f)
+				{
+					profile.MainEngineThrustNewtons = legacyAcceleration * initialMass;
+				}
+				if (legacyMotorBurnDuration > 0f)
+				{
+					profile.MainPropellantMassKg = profile.MainMassFlowKgPerSecond * legacyMotorBurnDuration;
+				}
+				if (legacyTurnRateDegrees > 0f)
+				{
+					profile.MaximumAngularRateDegreesPerSecond = legacyTurnRateDegrees;
+				}
+				float legacyRcsAcceleration = Mathf.Max(legacyMaximumLateralAcceleration, legacyRcsLateralAcceleration);
+				if (legacyRcsAcceleration > 0f)
+				{
+					profile.RcsThrustNewtons = legacyRcsAcceleration * initialMass;
+				}
+				float legacyRcsDeltaVTotal = Mathf.Max(0f, legacyManeuverDeltaV) + Mathf.Max(0f, legacyRcsDeltaV);
+				if (legacyRcsDeltaVTotal > 0f && legacyRcsAcceleration > 0f)
+				{
+					profile.RcsPropellantMassKg = profile.RcsMassFlowKgPerSecond * legacyRcsDeltaVTotal / legacyRcsAcceleration;
+				}
+				profile.SeekerActivationDelaySeconds = legacySeekerActivationDelay;
+				profile.SeekerRangeMeters = legacySeekerMaximumRange;
+				profile.SeekerSearchHalfAngleDegrees = legacySeekerHalfAngleDegrees;
+				profile.SeekerGimbalDegrees = legacySeekerGimbalDegrees;
+				profile.ProximityFuseRadiusMeters = legacyProximityFuseRadius;
+				profile.ProximityFuseArmSeconds = legacyProximityFuseArmTime;
+				profile.ProximityFuseSafeDistanceMeters = legacyProximityFuseSafeDistance;
+				profile.WarheadLethalRadiusMeters = legacyWarheadLethalRadius;
+			}
+			profile = profile.Sanitized();
+			dryMassKg = profile.DryMassKg;
+			mainPropellantMassRemainingKg = profile.MainPropellantMassKg;
+			mainEngineThrustNewtons = profile.MainEngineThrustNewtons;
+			mainMassFlowKgPerSecond = profile.MainMassFlowKgPerSecond;
+			rcsPropellantMassRemainingKg = profile.RcsPropellantMassKg;
+			rcsThrustNewtons = profile.RcsThrustNewtons;
+			rcsMassFlowKgPerSecond = profile.RcsMassFlowKgPerSecond;
+			pitchYawInertiaKgM2 = profile.PitchYawInertiaKgM2;
+			rcsMomentArmMeters = profile.RcsMomentArmMeters;
+			maximumAngularRateRadians = profile.MaximumAngularRateDegreesPerSecond * (MathF.PI / 180f);
+			currentAngularRateRadians = 0f;
+			seekerActivationDelay = profile.SeekerActivationDelaySeconds;
+			seekerMaximumRange = profile.SeekerRangeMeters;
+			seekerHalfAngleRadians = profile.SeekerSearchHalfAngleDegrees * (MathF.PI / 180f);
+			seekerGimbalRadians = profile.SeekerGimbalDegrees * (MathF.PI / 180f);
+			proximityFuseRadius = profile.ProximityFuseRadiusMeters;
+			proximityFuseArmTime = profile.ProximityFuseArmSeconds;
+			proximityFuseSafeDistance = profile.ProximityFuseSafeDistanceMeters;
+			warheadLethalRadius = profile.WarheadLethalRadiusMeters;
+			lifeRemaining = profile.MaximumFlightTimeSeconds;
+			maximumTravelDistance = profile.MaximumRangeMeters;
+		}
+
+		private static Transform ResolveCombatantRoot(Transform source)
+		{
+			if (source == null)
+			{
+				return null;
+			}
+			MechPlayerRig rig = source.GetComponentInParent<MechPlayerRig>();
+			if (rig != null)
+			{
+				return rig.transform;
+			}
+			CombatTestTarget target = source.GetComponentInParent<CombatTestTarget>();
+			if (!(target != null))
+			{
+				return source;
+			}
+			return target.transform;
+		}
+
+		private void FixedUpdate()
+		{
+			float dt = Time.fixedDeltaTime;
+			bool cannonFuseArmedAtTickStart = cannonProximityFuseEnabled && projectileFlightTime >= proximityFuseArmTime && distanceTravelled >= proximityFuseSafeDistance;
+			projectileFlightTime += dt;
+			lifeRemaining -= dt;
+			if (lifeRemaining <= 0f)
+			{
+				UnityEngine.Object.Destroy(base.gameObject);
+				return;
+			}
+			if (weaponKind == TestWeaponKind.Missile)
+			{
+				rcsAccelerationWorld = Vector3.zero;
+				rcsAttitudeTorqueLocal = Vector3.zero;
+				rcsAttitudeThrottle = 0f;
+			}
+			bool coldLaunchAttitudeUpdated = false;
+			bool motorIgnited = (coldLaunchEnabled ? coldLaunchMotorIgnited : (launchDelay <= 0f));
+			if (weaponKind == TestWeaponKind.Missile && coldLaunchEnabled && !coldLaunchMotorIgnited)
+			{
+				coldLaunchAttitudeUpdated = UpdateColdLaunchSequence(dt);
+				motorIgnited = coldLaunchMotorIgnited;
+			}
+			else if (weaponKind == TestWeaponKind.Missile && launchDelay > 0f)
+			{
+				launchDelay = Mathf.Max(0f, launchDelay - dt);
+				motorIgnited = launchDelay <= 0f;
+				if (motorIgnited)
+				{
+					missilePhase = MissileFlightPhase.Boost;
+					SetMotorVisual(active: true);
+				}
+			}
+			bool proximityDetonated = false;
+			if (weaponKind == TestWeaponKind.Missile)
+			{
+				missileFlightTime += dt;
+				if (motorIgnited)
+				{
+					UpdateMissile(dt);
+					if (!coldLaunchAttitudeUpdated)
+					{
+						UpdateMissileAttitude(dt);
+					}
+				}
+				UpdateRcsThrusterVisuals(dt);
+				proximityDetonated = TryDetonateProximity(dt);
+			}
+			if (proximityDetonated)
+			{
+				return;
+			}
+			Vector3 travel = velocity * dt;
+			if (maximumTravelDistance > 0f && distanceTravelled + travel.magnitude >= maximumTravelDistance)
+			{
+				UnityEngine.Object.Destroy(base.gameObject);
+				return;
+			}
+			RaycastHit hit;
+			bool hasSweepHit = TryFindHit(travel, out hit);
+			float speed = velocity.magnitude;
+			float sweepTime = ((hasSweepHit && speed > 0.001f) ? (hit.distance / speed) : float.PositiveInfinity);
+			if (cannonFuseArmedAtTickStart && TryFindCannonProximityPass(dt, out var cannonFuseTime, out var cannonDetonationPoint, out var cannonMissDistance) && cannonFuseTime <= sweepTime)
+			{
+				Debug.Log("[CannonFuze] proximity burst " + $"CPA={cannonFuseTime:0.000}s " + $"miss={cannonMissDistance:0.0}m " + $"trigger={proximityFuseRadius:0.0}m.", this);
+				DetonateWarhead(cannonDetonationPoint);
+				UnityEngine.Object.Destroy(base.gameObject);
+				return;
+			}
+			if (weaponKind != TestWeaponKind.Missile && TryFindMissileClosestApproach(dt, out var interceptTarget, out var interceptTime, out var interceptPoint) && interceptTime <= sweepTime && TryApplyGunInterception(interceptTarget, interceptPoint))
+			{
+				UnityEngine.Object.Destroy(base.gameObject);
+				return;
+			}
+			if (hasSweepHit)
+			{
+				HandleDirectImpact(hit);
+				UnityEngine.Object.Destroy(base.gameObject);
+				return;
+			}
+			base.transform.position += travel;
+			if (weaponKind == TestWeaponKind.Missile)
+			{
+				radarController?.UpdateMissileSeekerState(in seekerHandle, base.transform.position, velocity);
+			}
+			distanceTravelled += travel.magnitude;
+			if (weaponKind != TestWeaponKind.Missile && velocity.sqrMagnitude > 0.001f)
+			{
+				base.transform.rotation = Quaternion.LookRotation(velocity.normalized, base.transform.up);
+			}
+		}
+
+		private bool UpdateColdLaunchSequence(float deltaTime)
+		{
+			coldLaunchElapsedSeconds += deltaTime;
+			Vector3 vector = base.transform.position - coldLaunchPreviousPosition;
+			Vector3 carrierDisplacement = ((owner != null) ? (owner.position - coldLaunchCarrierPreviousPosition) : (coldLaunchInheritedVelocity * deltaTime));
+			Vector3 relativeDisplacement = vector - carrierDisplacement;
+			coldLaunchRelativeDistanceMeters += Mathf.Max(0f, Vector3.Dot(relativeDisplacement, coldLaunchAxis));
+			coldLaunchPreviousPosition = base.transform.position;
+			if (owner != null)
+			{
+				coldLaunchCarrierPreviousPosition = owner.position;
+			}
+			if (missilePhase == MissileFlightPhase.ColdEjection)
+			{
+				desiredAttitudeForward = coldLaunchAxis;
+				if (coldLaunchElapsedSeconds < coldLaunchSafeSeparationSeconds || coldLaunchRelativeDistanceMeters < coldLaunchSafeSeparationMeters)
+				{
+					return false;
+				}
+				missilePhase = MissileFlightPhase.AttitudeAlignment;
+				currentAngularRateRadians = 0f;
+			}
+			Vector3 toIntercept = prelaunchInterceptPoint - base.transform.position;
+			if (toIntercept.sqrMagnitude > 0.001f)
+			{
+				desiredAttitudeForward = toIntercept.normalized;
+			}
+			UpdateMissileAttitude(deltaTime);
+			coldLaunchAlignmentTimeoutRemaining = Mathf.Max(0f, coldLaunchAlignmentTimeoutRemaining - deltaTime);
+			if (Vector3.Angle(base.transform.forward, desiredAttitudeForward) * (MathF.PI / 180f) <= coldLaunchIgnitionAlignmentRadians || coldLaunchAlignmentTimeoutRemaining <= 0f)
+			{
+				coldLaunchMotorIgnited = true;
+				missilePhase = MissileFlightPhase.Boost;
+				SetMotorVisual(active: true);
+			}
+			return true;
+		}
+
+		private void UpdateMissile(float deltaTime)
+		{
+			if (terminalFuseEstimateMemoryRemaining > 0f)
+			{
+				terminalFuseEstimatedPosition += terminalFuseEstimatedVelocity * deltaTime;
+			}
+			terminalFuseEstimateMemoryRemaining = Mathf.Max(0f, terminalFuseEstimateMemoryRemaining - deltaTime);
+			prelaunchSteeringRemaining = Mathf.Max(0f, prelaunchSteeringRemaining - deltaTime);
+			bool motorActive = mainPropellantMassRemainingKg > 0.0001f && mainEngineThrustNewtons > 0f && mainMassFlowKgPerSecond > 0f;
+			SetMotorVisual(motorActive);
+			if (irSourceRegistered && motorActive != irMotorStateRegistered)
+			{
+				radarController.SetMissileIrIntensity(in seekerHandle, motorActive ? 58f : 28f);
+				irMotorStateRegistered = motorActive;
+			}
+			float currentSpeed = velocity.magnitude;
+			if (motorActive)
+			{
+				float consumedPropellant = Mathf.Min(mainPropellantMassRemainingKg, mainMassFlowKgPerSecond * deltaTime);
+				float effectiveMass = Mathf.Max(dryMassKg, CurrentMassKg - consumedPropellant * 0.5f);
+				Vector3 thrustDirection = ((base.transform.forward.sqrMagnitude > 0.001f) ? base.transform.forward.normalized : ((currentSpeed > 0.01f) ? (velocity / currentSpeed) : Vector3.forward));
+				velocity += thrustDirection * (mainEngineThrustNewtons / effectiveMass) * deltaTime;
+				mainPropellantMassRemainingKg -= consumedPropellant;
+			}
+			if (engagementState == MissileEngagementState.Spent)
+			{
+				desiredAttitudeForward = base.transform.forward;
+				currentAngularRateRadians = 0f;
+				return;
+			}
+			bool hasGuidance = false;
+			bool refreshesTerminalEstimate = false;
+			bool seekerActive = missileFlightTime >= seekerActivationDelay;
+			bool num = directGuidanceTarget != null && directGuidanceTarget.IsAlive;
+			bool directMissileTargetAlive = directProjectileTarget != null && directProjectileTarget.IsInterceptableMissile;
+			bool committedDirectMissileTargetLost = interceptorTargetCommitted && directProjectileTarget != null && !directMissileTargetAlive;
+			bool hasDirectTarget = num || directMissileTargetAlive;
+			Vector3 directTargetPosition = (num ? directGuidanceTarget.AimPoint.position : (directMissileTargetAlive ? directProjectileTarget.transform.position : default(Vector3)));
+			bool directSeekerHasTrack = false;
+			if (hasDirectTarget && seekerActive)
+			{
+				directSeekerHasTrack = UpdateDirectGuidanceSeekerEmission(deltaTime, directTargetPosition);
+			}
+			else if (seekerActive && !committedDirectMissileTargetLost)
+			{
+				UpdateSeeker(deltaTime);
+			}
+			else if (committedDirectMissileTargetLost)
+			{
+				seekerLocked = false;
+			}
+			Vector3 targetPosition;
+			Vector3 targetVelocity;
+			TrackSnapshot track;
+			if (hasDirectTarget)
+			{
+				Vector3 currentTargetPosition = directTargetPosition;
+				directTargetVelocity = (directMissileTargetAlive ? directProjectileTarget.Velocity : ((currentTargetPosition - directTargetPreviousPosition) / Mathf.Max(deltaTime, 0.001f)));
+				directTargetPreviousPosition = currentTargetPosition;
+				missilePhase = (seekerActive ? MissileFlightPhase.TerminalGuidance : (motorActive ? MissileFlightPhase.Boost : MissileFlightPhase.MidcourseCoast));
+				targetPosition = currentTargetPosition;
+				targetVelocity = directTargetVelocity;
+				seekerEstimatedPosition = targetPosition;
+				seekerEstimatedVelocity = targetVelocity;
+				seekerLocked = seekerActive && directSeekerHasTrack;
+				hasGuidance = true;
+				refreshesTerminalEstimate = true;
+			}
+			else if (seekerLocked)
+			{
+				missilePhase = MissileFlightPhase.TerminalGuidance;
+				targetPosition = seekerEstimatedPosition;
+				targetVelocity = seekerEstimatedVelocity;
+				hasGuidance = true;
+				refreshesTerminalEstimate = true;
+				ReleaseGuidanceChannel();
+			}
+			else if (TryUpdateDatalinkTrack(deltaTime, out track))
+			{
+				missilePhase = (motorActive ? MissileFlightPhase.Boost : (seekerActive ? MissileFlightPhase.SeekerAcquisition : MissileFlightPhase.MidcourseCoast));
+				targetPosition = radarController.PredictTrackPosition(in track);
+				targetVelocity = new Vector3((float)track.Velocity.x, (float)track.Velocity.y, (float)track.Velocity.z);
+				hasGuidance = true;
+				refreshesTerminalEstimate = true;
+			}
+			else if (interceptorMissile && terminalFuseEstimateMemoryRemaining > 0f)
+			{
+				missilePhase = (motorActive ? MissileFlightPhase.Boost : MissileFlightPhase.MidcourseCoast);
+				targetPosition = terminalFuseEstimatedPosition;
+				targetVelocity = terminalFuseEstimatedVelocity;
+				hasGuidance = true;
+			}
+			else
+			{
+				missilePhase = (motorActive ? MissileFlightPhase.Boost : (seekerActive ? MissileFlightPhase.SeekerAcquisition : MissileFlightPhase.Ballistic));
+				targetPosition = default(Vector3);
+				targetVelocity = default(Vector3);
+			}
+			UpdateEngagementViability(hasGuidance, targetPosition, targetVelocity, deltaTime);
+			if (engagementState == MissileEngagementState.Spent)
+			{
+				desiredAttitudeForward = base.transform.forward;
+				currentAngularRateRadians = 0f;
+			}
+			else if (hasGuidance)
+			{
+				if (refreshesTerminalEstimate)
+				{
+					terminalFuseEstimatedPosition = targetPosition;
+					terminalFuseEstimatedVelocity = targetVelocity;
+					terminalFuseEstimateMemoryRemaining = GetTerminalEstimateMemorySeconds();
+				}
+				Vector3 toTarget = targetPosition - base.transform.position;
+				bool terminalGuidance = seekerLocked || directSeekerHasTrack;
+				float guidanceSpeed = EstimateGuidanceSpeed(toTarget.magnitude, terminalGuidance);
+				float leadTimeLimit = ((!interceptorMissile) ? (terminalGuidance ? 4f : 15f) : (terminalGuidance ? 1.5f : 4f));
+				Vector3 leadPoint = ToVector3(MissileEngagementMath.PredictLeadPoint(ToFloat3(base.transform.position), ToFloat3(targetPosition), ToFloat3(targetVelocity), guidanceSpeed, leadTimeLimit));
+				Vector3 toAttitudeTarget = ((interceptorMissile && prelaunchSteeringRemaining > 0f) ? prelaunchInterceptPoint : leadPoint) - base.transform.position;
+				if (toAttitudeTarget.sqrMagnitude > 0.001f)
+				{
+					desiredAttitudeForward = toAttitudeTarget.normalized;
+				}
+				else if (toTarget.sqrMagnitude > 0.001f)
+				{
+					desiredAttitudeForward = toTarget.normalized;
+				}
+				ApplyGuidance(targetPosition, targetVelocity, desiredAttitudeForward, terminalGuidance, deltaTime);
+			}
+			else if (velocity.sqrMagnitude > 0.001f)
+			{
+				desiredAttitudeForward = velocity.normalized;
+			}
+		}
+
+		private void UpdateEngagementViability(bool hasGuidance, Vector3 targetPosition, Vector3 targetVelocity, float deltaTime)
+		{
+			if (engagementState != MissileEngagementState.Active || missileFlightTime < 1f)
+			{
+				return;
+			}
+			if (!hasGuidance)
+			{
+				engagementFailureEvidenceSeconds = 0f;
+				noGuidanceSeconds += deltaTime;
+				if (noGuidanceSeconds >= 2f)
+				{
+					MarkEngagementSpent();
+				}
+				return;
+			}
+			noGuidanceSeconds = 0f;
+			engagementAssessmentRemaining -= deltaTime;
+			if (engagementAssessmentRemaining > 0f)
+			{
+				return;
+			}
+			engagementAssessmentRemaining = 0.2f;
+			Vector3 relativePosition = targetPosition - base.transform.position;
+			float range = relativePosition.magnitude;
+			if (range <= Mathf.Max(warheadLethalRadius, proximityFuseRadius))
+			{
+				engagementFailureEvidenceSeconds = 0f;
+				return;
+			}
+			Vector3 relativeVelocity = targetVelocity - velocity;
+			if (((range > 0.01f) ? ((0f - Vector3.Dot(relativePosition, relativeVelocity)) / range) : 0f) >= -5f)
+			{
+				engagementFailureEvidenceSeconds = 0f;
+				return;
+			}
+			float remainingTravelDistance = ((maximumTravelDistance > 0f) ? Mathf.Max(0f, maximumTravelDistance - distanceTravelled) : Mathf.Max(1000f, velocity.magnitude * lifeRemaining));
+			float availableDeltaV = EstimateMainEngineDeltaVRemaining() + EstimateRcsDeltaVRemaining() + Mathf.Max(75f, velocity.magnitude * 0.08f);
+			if (MissileEngagementMath.HasReachableIntercept(ToFloat3(relativePosition), ToFloat3(targetVelocity), ToFloat3(velocity), lifeRemaining, remainingTravelDistance, availableDeltaV))
+			{
+				engagementFailureEvidenceSeconds = 0f;
+				return;
+			}
+			engagementFailureEvidenceSeconds += 0.2f;
+			if (engagementFailureEvidenceSeconds >= 0.75f)
+			{
+				MarkEngagementSpent();
+			}
+		}
+
+		private void MarkEngagementSpent()
+		{
+			if (engagementState == MissileEngagementState.Active)
+			{
+				engagementState = MissileEngagementState.Spent;
+				missilePhase = MissileFlightPhase.Ballistic;
+				seekerLocked = false;
+				seekerLockMemoryRemaining = 0f;
+				hasCachedGuidanceTrack = false;
+				guidanceMemoryRemaining = 0f;
+				targetTrackId = default(TrackId);
+				directGuidanceTarget = null;
+				directProjectileTarget = null;
+				terminalFuseEstimateMemoryRemaining = 0f;
+				rcsAccelerationWorld = Vector3.zero;
+				rcsAttitudeTorqueLocal = Vector3.zero;
+				rcsAttitudeThrottle = 0f;
+				ReleaseGuidanceChannel();
+				if (radarController != null && linkTerminal.IsValid)
+				{
+					radarController.UnregisterMissileLinkTerminal(linkTerminal);
+					linkTerminal = default(LinkTerminalId);
+				}
+			}
+		}
+
+		private void UpdateMissileAttitude(float deltaTime)
+		{
+			if (desiredAttitudeForward.sqrMagnitude <= 0.001f)
+			{
+				currentAngularRateRadians = 0f;
+				return;
+			}
+			Vector3 forward = desiredAttitudeForward.normalized;
+			Vector3 up = Vector3.ProjectOnPlane(base.transform.up, forward);
+			if (up.sqrMagnitude <= 0.001f)
+			{
+				up = Vector3.ProjectOnPlane(Vector3.up, forward);
+			}
+			if (up.sqrMagnitude <= 0.001f)
+			{
+				up = Vector3.ProjectOnPlane(Vector3.right, forward);
+			}
+			Quaternion targetRotation = Quaternion.LookRotation(forward, up.normalized);
+			float angleRadians = Quaternion.Angle(base.transform.rotation, targetRotation) * (MathF.PI / 180f);
+			if (angleRadians <= 0.0001f)
+			{
+				currentAngularRateRadians = 0f;
+				base.transform.rotation = targetRotation;
+				return;
+			}
+			float angularAcceleration = AvailableRcsAngularAcceleration();
+			if (angularAcceleration <= 0f)
+			{
+				currentAngularRateRadians = 0f;
+				return;
+			}
+			float stoppingLimitedRate = Mathf.Sqrt(2f * angularAcceleration * angleRadians);
+			float targetAngularRate = Mathf.Min(maximumAngularRateRadians, stoppingLimitedRate);
+			float previousAngularRate = currentAngularRateRadians;
+			currentAngularRateRadians = Mathf.MoveTowards(currentAngularRateRadians, targetAngularRate, angularAcceleration * deltaTime);
+			float turnRadians = Mathf.Min(angleRadians, currentAngularRateRadians * deltaTime);
+			base.transform.rotation = Quaternion.RotateTowards(base.transform.rotation, targetRotation, turnRadians * 57.29578f);
+			float rcsThrottle = Mathf.Clamp01(Mathf.Abs(currentAngularRateRadians - previousAngularRate) / Mathf.Max(angularAcceleration * deltaTime, 0.001f));
+			Vector3 rotationAxisWorld = Vector3.Cross(base.transform.forward, forward);
+			float angularRateDelta = currentAngularRateRadians - previousAngularRate;
+			if (rcsThrottle > 0.001f && rotationAxisWorld.sqrMagnitude > 1E-06f && Mathf.Abs(angularRateDelta) > 1E-06f)
+			{
+				Vector3 torqueDirectionWorld = rotationAxisWorld.normalized * Mathf.Sign(angularRateDelta);
+				rcsAttitudeTorqueLocal = base.transform.InverseTransformDirection(torqueDirectionWorld);
+				rcsAttitudeThrottle = Mathf.Max(rcsAttitudeThrottle, rcsThrottle);
+			}
+			ConsumeRcsPropellant(rcsThrottle, deltaTime);
+		}
+
+		private void ApplyGuidance(Vector3 targetPosition, Vector3 targetVelocity, Vector3 guidanceDirection, bool terminal, float deltaTime)
+		{
+			if (velocity.sqrMagnitude <= 0.001f || rcsPropellantMassRemainingKg <= 0f || rcsThrustNewtons <= 0f)
+			{
+				return;
+			}
+			Vector3 relativePosition = targetPosition - base.transform.position;
+			if (relativePosition.sqrMagnitude <= 0.001f)
+			{
+				return;
+			}
+			Vector3 relativeVelocity = targetVelocity - velocity;
+			Vector3 losDirection = relativePosition.normalized;
+			float closingVelocity = Mathf.Max(0f, 0f - Vector3.Dot(relativeVelocity, losDirection));
+			float3 losRate = MissileEngagementMath.LineOfSightRate(ToFloat3(relativePosition), ToFloat3(relativeVelocity));
+			float speed = velocity.magnitude;
+			float phaseAuthority = (terminal ? 1f : 0.72f);
+			float rcsAccelerationLimit = rcsThrustNewtons / Mathf.Max(CurrentMassKg, 0.001f);
+			float accelerationLimit = rcsAccelerationLimit * phaseAuthority;
+			if (!(accelerationLimit <= 0f))
+			{
+				Vector3 lateralAcceleration = Vector3.ProjectOnPlane(ToVector3(PnGuidance.Command(losRate, ToFloat3(losDirection), closingVelocity, (!interceptorMissile) ? (terminal ? 4.5f : 3.5f) : (terminal ? 5.5f : 4.5f), accelerationLimit)), velocity.normalized);
+				Vector3 pursuitAcceleration = Vector3.ClampMagnitude(Vector3.ProjectOnPlane(((guidanceDirection.sqrMagnitude > 0.001f) ? guidanceDirection.normalized : losDirection) * speed, velocity.normalized) / (terminal ? 0.65f : 1.5f), accelerationLimit * 0.45f);
+				lateralAcceleration = Vector3.ClampMagnitude(lateralAcceleration + pursuitAcceleration, accelerationLimit);
+				if (!(lateralAcceleration.magnitude * deltaTime <= 0f))
+				{
+					velocity += lateralAcceleration * deltaTime;
+					rcsAccelerationWorld = lateralAcceleration;
+					float rcsThrottle = Mathf.Clamp01(lateralAcceleration.magnitude / Mathf.Max(rcsAccelerationLimit * phaseAuthority, 0.001f));
+					ConsumeRcsPropellant(rcsThrottle, deltaTime);
+				}
+			}
+		}
+
+		private float EstimateGuidanceSpeed(float targetRange, bool terminal)
+		{
+			float speed = Mathf.Max(velocity.magnitude, 1f);
+			if (mainPropellantMassRemainingKg <= 0.0001f || mainEngineThrustNewtons <= 0f || mainMassFlowKgPerSecond <= 0f)
+			{
+				return speed;
+			}
+			float burnRemaining = mainPropellantMassRemainingKg / mainMassFlowKgPerSecond;
+			float projectionLimit = ((!interceptorMissile) ? (terminal ? 0.75f : 2.5f) : (terminal ? 0.35f : 0.8f));
+			float rangeTime = targetRange / Mathf.Max(speed, 100f);
+			float projectionTime = Mathf.Min(burnRemaining, projectionLimit, rangeTime);
+			float axialAcceleration = mainEngineThrustNewtons / Mathf.Max(CurrentMassKg, 0.001f);
+			return speed + axialAcceleration * Mathf.Max(0f, projectionTime) * 0.7f;
+		}
+
+		private float AvailableRcsAngularAcceleration()
+		{
+			if (rcsPropellantMassRemainingKg <= 0f || rcsThrustNewtons <= 0f || rcsMomentArmMeters <= 0f || pitchYawInertiaKgM2 <= 0f)
+			{
+				return 0f;
+			}
+			return rcsThrustNewtons * rcsMomentArmMeters / pitchYawInertiaKgM2;
+		}
+
+		private float EstimateRcsDeltaVRemaining()
+		{
+			if (rcsPropellantMassRemainingKg <= 0f || rcsThrustNewtons <= 0f || rcsMassFlowKgPerSecond <= 0f)
+			{
+				return 0f;
+			}
+			float burnoutMass = Mathf.Max(dryMassKg + mainPropellantMassRemainingKg, 0.001f);
+			float currentMass = burnoutMass + rcsPropellantMassRemainingKg;
+			return rcsThrustNewtons / rcsMassFlowKgPerSecond * Mathf.Log(currentMass / burnoutMass);
+		}
+
+		private float EstimateMainEngineDeltaVRemaining()
+		{
+			if (mainPropellantMassRemainingKg <= 0f || mainEngineThrustNewtons <= 0f || mainMassFlowKgPerSecond <= 0f)
+			{
+				return 0f;
+			}
+			float burnoutMass = Mathf.Max(dryMassKg + rcsPropellantMassRemainingKg, 0.001f);
+			float currentMass = burnoutMass + mainPropellantMassRemainingKg;
+			return mainEngineThrustNewtons / mainMassFlowKgPerSecond * Mathf.Log(currentMass / burnoutMass);
+		}
+
+		private void ConsumeRcsPropellant(float throttle, float deltaTime)
+		{
+			if (!(throttle <= 0f) && !(deltaTime <= 0f) && !(rcsPropellantMassRemainingKg <= 0f))
+			{
+				rcsPropellantMassRemainingKg = Mathf.Max(0f, rcsPropellantMassRemainingKg - rcsMassFlowKgPerSecond * Mathf.Clamp01(throttle) * deltaTime);
+			}
+		}
+
+		private void UpdateSeeker(float deltaTime)
+		{
+			if (!seekerHandle.IsValid || radarController == null)
+			{
+				seekerLocked = false;
+				return;
+			}
+			Vector3 seekerForward = ((velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward);
+			bool estimateWithinGimbal = false;
+			if (seekerLocked)
+			{
+				seekerEstimatedPosition += seekerEstimatedVelocity * deltaTime;
+				seekerLockMemoryRemaining -= deltaTime;
+				if (seekerLockMemoryRemaining <= 0f)
+				{
+					seekerLocked = false;
+				}
+				else
+				{
+					Vector3 toEstimate = seekerEstimatedPosition - base.transform.position;
+					estimateWithinGimbal = toEstimate.sqrMagnitude > 0.001f && PnGuidance.WithinGimbalLimit(ToFloat3(toEstimate.normalized), ToFloat3(seekerForward), seekerGimbalRadians);
+				}
+			}
+			seekerScanRemaining -= deltaTime;
+			if (seekerScanRemaining > 0f)
+			{
+				return;
+			}
+			seekerScanRemaining = 0.05f;
+			Vector3 searchDirection = ((seekerLocked && estimateWithinGimbal) ? (seekerEstimatedPosition - base.transform.position) : ((hasCachedGuidanceTrack && radarController != null) ? (radarController.PredictTrackPosition(in cachedGuidanceTrack) - base.transform.position) : velocity));
+			if (searchDirection.sqrMagnitude <= 0.001f)
+			{
+				searchDirection = base.transform.forward;
+			}
+			radarController.ScheduleMissileSeekerDwell(in seekerHandle, searchDirection, seekerLocked ? 6f : (seekerHalfAngleRadians * 57.29578f * 2f), ++seekerDwellSequence);
+			int measurementCount = radarController.CopyMissileSeekerMeasurements(in seekerHandle, seekerMeasurementScratch);
+			if (measurementCount <= 0)
+			{
+				return;
+			}
+			float bestScore = float.PositiveInfinity;
+			Measurement bestMeasurement = default(Measurement);
+			bool hasMeasurement = false;
+			bool hasHandoff = hasCachedGuidanceTrack;
+			bool hasInterceptorEstimate = interceptorTargetCommitted && terminalFuseEstimateMemoryRemaining > 0f;
+			Vector3 referencePosition = (seekerLocked ? seekerEstimatedPosition : ((hasHandoff && radarController != null) ? radarController.PredictTrackPosition(in cachedGuidanceTrack) : (hasInterceptorEstimate ? terminalFuseEstimatedPosition : (base.transform.position + base.transform.forward * seekerMaximumRange))));
+			Vector3 referenceVelocity = (seekerLocked ? seekerEstimatedVelocity : (hasHandoff ? new Vector3((float)cachedGuidanceTrack.Velocity.x, (float)cachedGuidanceTrack.Velocity.y, (float)cachedGuidanceTrack.Velocity.z) : (hasInterceptorEstimate ? terminalFuseEstimatedVelocity : velocity)));
+			for (int i = 0; i < measurementCount; i++)
+			{
+				Measurement measurement = seekerMeasurementScratch[i];
+				if (!MissileEngagementMath.IsCompatibleSeekerTarget(interceptorMissile, measurement.ObjectClass, measurement.ClassificationConfidence) || !float.IsFinite(measurement.Range) || measurement.Range <= 0f || measurement.Timestamp <= seekerLastMeasurementTime || !PnGuidance.WithinGimbalLimit(measurement.Direction, ToFloat3(seekerForward), seekerGimbalRadians))
+				{
+					continue;
+				}
+				float measurementAge = Mathf.Max(0f, (float)(radarController.SimTimeSeconds - measurement.Timestamp));
+				float associationError = Vector3.Distance(base.transform.position - velocity * measurementAge + ToVector3(measurement.Direction) * measurement.Range, referencePosition);
+				float gate = ((!interceptorTargetCommitted) ? (seekerLocked ? 350f : 1400f) : (seekerLocked ? 100f : Mathf.Clamp(terminalFuseEstimateUncertaintyMeters * 2f + 80f, 80f, 300f)));
+				if ((hasHandoff || seekerLocked || hasInterceptorEstimate) && associationError > gate)
+				{
+					continue;
+				}
+				Vector3 candidateTargetVelocity = EstimateSeekerTargetVelocity(in measurement, velocity);
+				float velocityAssociationError = Vector3.Distance(candidateTargetVelocity, referenceVelocity);
+				if (!interceptorTargetCommitted || (IsFinite(candidateTargetVelocity) && !(velocityAssociationError > 300f)))
+				{
+					float score = associationError * 2f + velocityAssociationError * 0.35f - measurement.SnrDb * 4f;
+					if (!(score >= bestScore))
+					{
+						bestScore = score;
+						bestMeasurement = measurement;
+						hasMeasurement = true;
+					}
+				}
+			}
+			if (hasMeasurement)
+			{
+				Vector3 relativePosition = ToVector3(bestMeasurement.Direction).normalized * bestMeasurement.Range;
+				Vector3 measuredTargetVelocity = EstimateSeekerTargetVelocity(in bestMeasurement, velocity);
+				float selectedMeasurementAge = Mathf.Max(0f, (float)(radarController.SimTimeSeconds - bestMeasurement.Timestamp));
+				Vector3 measuredPositionNow = base.transform.position - velocity * selectedMeasurementAge + relativePosition + measuredTargetVelocity * selectedMeasurementAge;
+				if (interceptorTargetCommitted)
+				{
+					seekerEstimatedPosition = Vector3.Lerp(referencePosition, measuredPositionNow, 0.35f);
+					seekerEstimatedVelocity = Vector3.Lerp(referenceVelocity, measuredTargetVelocity, 0.2f);
+				}
+				else
+				{
+					seekerEstimatedPosition = measuredPositionNow;
+					seekerEstimatedVelocity = measuredTargetVelocity;
+				}
+				seekerLastMeasurementTime = bestMeasurement.Timestamp;
+				seekerLocked = true;
+				seekerLockMemoryRemaining = (interceptorMissile ? 0.65f : 0.35f);
+			}
+		}
+
+		private static Vector3 EstimateSeekerTargetVelocity(in Measurement measurement, Vector3 sensorVelocity)
+		{
+			Vector3 direction = ToVector3(measurement.Direction).normalized;
+			Vector3 relativePosition = direction * measurement.Range;
+			float radialVelocity = (float.IsFinite(measurement.RadialVelocity) ? measurement.RadialVelocity : 0f);
+			Vector3 losRate = (math.all(math.isfinite(measurement.LosRate)) ? ToVector3(measurement.LosRate) : Vector3.zero);
+			return sensorVelocity + direction * radialVelocity + Vector3.Cross(losRate, relativePosition);
+		}
+
+		private static bool IsFinite(Vector3 value)
+		{
+			if (float.IsFinite(value.x) && float.IsFinite(value.y))
+			{
+				return float.IsFinite(value.z);
+			}
+			return false;
+		}
+
+		private bool TryUpdateDatalinkTrack(float deltaTime, out TrackSnapshot track)
+		{
+			track = default(TrackSnapshot);
+			if (radarController == null)
+			{
+				return false;
+			}
+			if (linkTerminal.IsValid)
+			{
+				int messageCount = radarController.CopyLinkMessages(linkTerminal, linkInboxScratch);
+				for (int i = 0; i < messageCount; i++)
+				{
+					LinkMessage message = linkInboxScratch[i];
+					if (message.Kind == LinkMessageKind.GuidanceUpdate && message.Sequence > lastLinkSequence && (!interceptorTargetCommitted || !targetTrackId.IsValid || message.TrackPayload.TrackId.Equals(targetTrackId)))
+					{
+						lastLinkSequence = message.Sequence;
+						cachedGuidanceTrack = message.TrackPayload;
+						hasCachedGuidanceTrack = true;
+						guidanceMemoryRemaining = GetGuidanceMemorySeconds();
+					}
+				}
+			}
+			guidanceMemoryRemaining = Mathf.Max(0f, guidanceMemoryRemaining - deltaTime);
+			if (!hasCachedGuidanceTrack || guidanceMemoryRemaining <= 0f)
+			{
+				return false;
+			}
+			track = cachedGuidanceTrack;
+			return true;
+		}
+
+		private float GetGuidanceMemorySeconds()
+		{
+			if (!interceptorTargetCommitted)
+			{
+				return 4f;
+			}
+			return 0.8f;
+		}
+
+		private float GetTerminalEstimateMemorySeconds()
+		{
+			if (!interceptorTargetCommitted)
+			{
+				return 4f;
+			}
+			return 0.8f;
+		}
+
+		private bool TryDetonateProximity(float deltaTime)
+		{
+			if (missileFlightTime < proximityFuseArmTime || distanceTravelled < proximityFuseSafeDistance)
+			{
+				return false;
+			}
+			if (!seekerLocked && (!interceptorMissile || !(terminalFuseEstimateMemoryRemaining > 0f)))
+			{
+				return false;
+			}
+			Vector3 estimatedPosition = (seekerLocked ? seekerEstimatedPosition : terminalFuseEstimatedPosition);
+			Vector3 obj = (seekerLocked ? seekerEstimatedVelocity : terminalFuseEstimatedVelocity);
+			Vector3 relativePosition = estimatedPosition - base.transform.position;
+			Vector3 relativeVelocity = obj - velocity;
+			float fuseLookAhead = (interceptorMissile ? Mathf.Max(deltaTime, 0.06f) : deltaTime);
+			float effectiveFuseRadius = proximityFuseRadius;
+			if (interceptorMissile)
+			{
+				effectiveFuseRadius += Mathf.Min(8f, terminalFuseEstimateUncertaintyMeters * 0.05f);
+			}
+			if (!MissileEngagementMath.TryGetProximityPass(ToFloat3(relativePosition), ToFloat3(relativeVelocity), fuseLookAhead, effectiveFuseRadius, out var timeToClosestApproach, out var predictedMissDistance))
+			{
+				return false;
+			}
+			Vector3 detonationPoint = base.transform.position + velocity * timeToClosestApproach;
+			if (interceptorMissile)
+			{
+				Debug.Log("[Interceptor] Proximity fuze triggered: " + $"CPA={timeToClosestApproach:0.000}s, " + $"miss={predictedMissDistance:0.0}m, " + $"radius={effectiveFuseRadius:0.0}m, " + "seeker=" + (seekerLocked ? "locked" : "inertial") + ".");
+			}
+			DetonateWarhead(detonationPoint, interceptorMissile ? timeToClosestApproach : 0f);
+			UnityEngine.Object.Destroy(base.gameObject);
+			return true;
+		}
+
+		private void DetonateWarhead(Vector3 detonationPoint, float predictionSeconds = 0f)
+		{
+			if (interceptorMissile)
+			{
+				DetonateInterceptorWarhead(detonationPoint, predictionSeconds);
+				return;
+			}
+			int colliderCount = Physics.OverlapSphereNonAlloc(detonationPoint, warheadLethalRadius, OverlapScratch, -5, QueryTriggerInteraction.Collide);
+			bool damagedAnyTarget = false;
+			CombatTestTarget ownship = CombatTestTarget.Ownship;
+			bool ownshipDamaged = false;
+			DamagedScratch.Clear();
+			if (directGuidanceTarget != null)
+			{
+				ownshipDamaged = (damagedAnyTarget = TryDamageCombatTarget(directGuidanceTarget, detonationPoint)) && directGuidanceTarget == ownship;
+			}
+			for (int i = 0; i < colliderCount; i++)
+			{
+				CombatTestTarget candidate = OverlapScratch[i].GetComponentInParent<CombatTestTarget>();
+				bool damagedCandidate = TryDamageCombatTarget(candidate, detonationPoint);
+				damagedAnyTarget = damagedAnyTarget || damagedCandidate;
+				ownshipDamaged |= damagedCandidate && candidate == ownship;
+			}
+			PlayOwnshipFlakAirburst(detonationPoint, ownship, ownshipDamaged);
+			if (!damagedAnyTarget)
+			{
+				MechTestWeaponSystem.SpawnImpact(detonationPoint, (velocity.sqrMagnitude > 0.001f) ? (-velocity.normalized) : (-base.transform.forward), weaponKind, effectLibrary, impactFfxId);
+			}
+		}
+
+		private void PlayOwnshipFlakAirburst(Vector3 detonationPoint, CombatTestTarget ownship, bool fragmentsReached)
+		{
+			if (weaponKind == TestWeaponKind.Cannon && !(ownship == null) && IsHostileToOwnship(ownship))
+			{
+				ownship.PlayNearbyFlakAirburst(detonationPoint, fragmentsReached);
+			}
+		}
+
+		private bool IsHostileToOwnship(CombatTestTarget ownship)
+		{
+			if (owner == null)
+			{
+				return true;
+			}
+			CombatTestTarget ownerTarget = owner.GetComponentInParent<CombatTestTarget>();
+			if (ownerTarget != null)
+			{
+				return ownerTarget.TeamId != ownship.TeamId;
+			}
+			if (owner != ownship.transform && !owner.IsChildOf(ownship.transform))
+			{
+				return !ownship.transform.IsChildOf(owner);
+			}
+			return false;
+		}
+
+		private bool TryDamageCombatTarget(CombatTestTarget candidate, Vector3 detonationPoint)
+		{
+			if (candidate == null || !candidate.IsAlive || !DamagedScratch.Add(candidate))
+			{
+				return false;
+			}
+			float distance = Vector3.Distance(detonationPoint, candidate.AimPoint.position);
+			if (distance > warheadLethalRadius)
+			{
+				return false;
+			}
+			float falloff = Mathf.Lerp(0.25f, 1f, 1f - distance / warheadLethalRadius);
+			candidate.ApplyDamage(damage * falloff, detonationPoint, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId);
+			return true;
+		}
+
+		private bool UpdateDirectGuidanceSeekerEmission(float deltaTime, Vector3 targetPosition)
+		{
+			if (!seekerHandle.IsValid || radarController == null)
+			{
+				return false;
+			}
+			Vector3 direction = targetPosition - base.transform.position;
+			if (direction.sqrMagnitude <= 0.001f)
+			{
+				return false;
+			}
+			direction.Normalize();
+			Vector3 seekerForward = ((velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward);
+			if (!PnGuidance.WithinGimbalLimit(ToFloat3(direction), ToFloat3(seekerForward), seekerGimbalRadians))
+			{
+				return false;
+			}
+			seekerScanRemaining -= deltaTime;
+			if (seekerScanRemaining > 0f)
+			{
+				return true;
+			}
+			seekerScanRemaining = 0.05f;
+			radarController.ScheduleMissileSeekerDwell(in seekerHandle, direction, 6f, ++seekerDwellSequence);
+			return true;
+		}
+
+		private bool TryFindMissileClosestApproach(float deltaTime, out MechTestProjectile target, out float interceptTime, out Vector3 interceptPoint)
+		{
+			target = null;
+			interceptTime = float.PositiveInfinity;
+			interceptPoint = default(Vector3);
+			if (registry.Count == 0)
+			{
+				return false;
+			}
+			float contactRadius = collisionRadius + 0.25f;
+			float lethalRadius = (IsInterceptorRoundArmed() ? Mathf.Max(contactRadius, interceptorRoundLethalRadius) : contactRadius);
+			float window = Mathf.Max(deltaTime, 0.0001f);
+			float bestMiss = float.PositiveInfinity;
+			for (int i = 0; i < registry.Count; i++)
+			{
+				MechTestProjectile candidate = registry[i];
+				if (!(candidate == null) && !(candidate == this) && !candidate.IsOwnedBy(owner) && candidate.IsInterceptableMissile)
+				{
+					Vector3 relativePosition = candidate.transform.position - base.transform.position;
+					Vector3 relativeVelocity = candidate.velocity - velocity;
+					float relativeSpeedSquared = relativeVelocity.sqrMagnitude;
+					float cpaTime = ((relativeSpeedSquared > 0.001f) ? Mathf.Clamp((0f - Vector3.Dot(relativePosition, relativeVelocity)) / relativeSpeedSquared, 0f, window) : 0f);
+					float miss = (relativePosition + relativeVelocity * cpaTime).magnitude;
+					if (!(miss > lethalRadius) && (cpaTime < interceptTime || (Mathf.Approximately(cpaTime, interceptTime) && miss < bestMiss)))
+					{
+						target = candidate;
+						interceptTime = cpaTime;
+						bestMiss = miss;
+						interceptPoint = base.transform.position + velocity * cpaTime;
+					}
+				}
+			}
+			return target != null;
+		}
+
+		private bool TryApplyGunInterception(MechTestProjectile target, Vector3 interceptPoint)
+		{
+			if (target == null)
+			{
+				return false;
+			}
+			Vector3 hitDirection = ((velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward);
+			return target.ApplyPointDefenseDamage(GetPointDefenseDamage(), interceptPoint, hitDirection, weaponKind, effectLibrary, impactFfxId);
+		}
+
+		public void ConfigureInterceptorRound(float lethalRadiusMeters, float interceptionDamage = 0f, float armSeconds = 0f, float safeDistanceMeters = 0f)
+		{
+			interceptorRoundLethalRadius = Mathf.Max(0f, lethalRadiusMeters);
+			interceptorRoundDamage = Mathf.Max(0f, interceptionDamage);
+			interceptorRoundArmSeconds = Mathf.Max(0f, armSeconds);
+			interceptorRoundSafeDistanceMeters = Mathf.Max(0f, safeDistanceMeters);
+		}
+
+		private bool IsInterceptorRoundArmed()
+		{
+			if (!(interceptorRoundLethalRadius <= 0f))
+			{
+				if (projectileFlightTime >= interceptorRoundArmSeconds)
+				{
+					return distanceTravelled >= interceptorRoundSafeDistanceMeters;
+				}
+				return false;
+			}
+			return true;
+		}
+
+		private float GetPointDefenseDamage()
+		{
+			if (!IsInterceptorRoundArmed() || !(interceptorRoundDamage > 0f))
+			{
+				return damage;
+			}
+			return interceptorRoundDamage;
+		}
+
+		public void ConfigureCannonProximityFuse(float triggerRadiusMeters, float armSeconds, float safeDistanceMeters, float lethalRadiusMeters)
+		{
+			if (weaponKind == TestWeaponKind.Cannon)
+			{
+				proximityFuseRadius = Mathf.Max(0f, triggerRadiusMeters);
+				proximityFuseArmTime = Mathf.Max(0f, armSeconds);
+				proximityFuseSafeDistance = Mathf.Max(0f, safeDistanceMeters);
+				warheadLethalRadius = Mathf.Max(0f, lethalRadiusMeters);
+				cannonProximityFuseEnabled = proximityFuseRadius > 0f && warheadLethalRadius > 0f;
+			}
+		}
+
+		private bool TryFindCannonProximityPass(float deltaTime, out float detonationTime, out Vector3 detonationPoint, out float missDistance)
+		{
+			detonationTime = float.PositiveInfinity;
+			detonationPoint = default(Vector3);
+			missDistance = float.PositiveInfinity;
+			if (!cannonProximityFuseEnabled || weaponKind != TestWeaponKind.Cannon)
+			{
+				return false;
+			}
+			float searchRadius = proximityFuseRadius + velocity.magnitude * deltaTime + 40f;
+			int colliderCount = Physics.OverlapSphereNonAlloc(base.transform.position, searchRadius, OverlapScratch, -5, QueryTriggerInteraction.Collide);
+			float bestMissDistance = float.PositiveInfinity;
+			for (int i = 0; i < colliderCount; i++)
+			{
+				CombatTestTarget candidate = OverlapScratch[i].GetComponentInParent<CombatTestTarget>();
+				if (candidate == null || !candidate.IsAlive || IsOwnerTarget(candidate.transform))
+				{
+					continue;
+				}
+				Vector3 position = candidate.AimPoint.position;
+				Vector3 targetVelocity = ResolveCombatTargetVelocity(candidate);
+				Vector3 relativePosition = position - base.transform.position;
+				Vector3 relativeVelocity = targetVelocity - velocity;
+				if (Vector3.Dot(relativePosition, relativeVelocity) >= 0f)
+				{
+					continue;
+				}
+				CpaSolver.Result cpa = CpaSolver.Solve(new double3(relativePosition.x, relativePosition.y, relativePosition.z), new double3(relativeVelocity.x, relativeVelocity.y, relativeVelocity.z), double3.zero, Math.Max(deltaTime, 0.0001f));
+				if (!(cpa.Distance > (double)proximityFuseRadius))
+				{
+					float cpaTime = (float)cpa.Time;
+					float candidateMissDistance = (float)cpa.Distance;
+					if (cpaTime < detonationTime || (Mathf.Approximately(cpaTime, detonationTime) && candidateMissDistance < bestMissDistance))
+					{
+						detonationTime = cpaTime;
+						bestMissDistance = candidateMissDistance;
+						detonationPoint = base.transform.position + velocity * cpaTime;
+					}
+				}
+			}
+			missDistance = bestMissDistance;
+			return !float.IsPositiveInfinity(detonationTime);
+		}
+
+		private bool IsOwnerTarget(Transform candidate)
+		{
+			if (owner != null)
+			{
+				if (!(candidate == owner) && !candidate.IsChildOf(owner))
+				{
+					return owner.IsChildOf(candidate);
+				}
+				return true;
+			}
+			return false;
+		}
+
+		private static Vector3 ResolveCombatTargetVelocity(CombatTestTarget candidate)
+		{
+			MechFlightMotionController motion = candidate.GetComponent<MechFlightMotionController>();
+			if (motion != null)
+			{
+				return motion.Velocity;
+			}
+			Rigidbody body = candidate.GetComponent<Rigidbody>();
+			if (!(body != null))
+			{
+				return candidate.ProceduralVelocity;
+			}
+			return body.linearVelocity;
+		}
+
+		private void DetonateInterceptorWarhead(Vector3 detonationPoint, float predictionSeconds)
+		{
+			bool damagedAnyMissile = false;
+			DamagedProjectileScratch.Clear();
+			float predictionWindow = Mathf.Max(Time.fixedDeltaTime, predictionSeconds);
+			int eligibleMissileCount = 0;
+			float nearestPhysicalMissDistance = float.PositiveInfinity;
+			for (int i = 0; i < registry.Count; i++)
+			{
+				MechTestProjectile candidate = registry[i];
+				if (candidate == null || candidate == this || candidate.IsOwnedBy(owner) || !candidate.IsInterceptableMissile || !DamagedProjectileScratch.Add(candidate))
+				{
+					continue;
+				}
+				eligibleMissileCount++;
+				Vector3 relativePosition = candidate.transform.position - base.transform.position;
+				Vector3 relativeVelocity = candidate.velocity - velocity;
+				float relativeSpeedSquared = relativeVelocity.sqrMagnitude;
+				float physicalCpaTime = ((relativeSpeedSquared > 0.001f) ? Mathf.Clamp((0f - Vector3.Dot(relativePosition, relativeVelocity)) / relativeSpeedSquared, 0f, predictionWindow) : 0f);
+				float distance = (relativePosition + relativeVelocity * physicalCpaTime).magnitude;
+				nearestPhysicalMissDistance = Mathf.Min(nearestPhysicalMissDistance, distance);
+				if (!(distance > warheadLethalRadius))
+				{
+					Vector3 physicalDetonationPoint = base.transform.position + velocity * physicalCpaTime;
+					float falloff = Mathf.Lerp(0.45f, 1f, 1f - distance / warheadLethalRadius);
+					float healthBefore = candidate.interceptionHealth;
+					if (candidate.ApplyPointDefenseDamage(damage * falloff, physicalDetonationPoint, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, TestWeaponKind.Missile, effectLibrary, impactFfxId))
+					{
+						damagedAnyMissile = true;
+						Debug.Log("[Interceptor] Warhead damaged missile: " + $"CPA={physicalCpaTime:0.000}s, " + $"miss={distance:0.0}m, " + $"damage={damage * falloff:0.0}, " + $"health={healthBefore:0.0}->" + $"{candidate.interceptionHealth:0.0}, " + $"destroyed={!candidate.IsInterceptableMissile}.");
+					}
+				}
+			}
+			if (!damagedAnyMissile)
+			{
+				Debug.LogWarning("[Interceptor] Warhead detonated without a missile " + $"inside lethal radius {warheadLethalRadius:0.0}m; " + $"eligible={eligibleMissileCount}, nearest=" + $"{nearestPhysicalMissDistance:0.0}m.");
+				MechTestWeaponSystem.SpawnImpact(detonationPoint, (velocity.sqrMagnitude > 0.001f) ? (-velocity.normalized) : (-base.transform.forward), TestWeaponKind.Missile, effectLibrary, impactFfxId);
+			}
+		}
+
+		public bool ApplyPointDefenseDamage(float incomingDamage, Vector3 hitPoint, Vector3 hitDirection, TestWeaponKind incomingWeaponKind, MechEffectPrefabLibrary incomingEffectLibrary = null, int incomingImpactFfxId = 0)
+		{
+			if (!IsInterceptableMissile || incomingDamage <= 0f)
+			{
+				return false;
+			}
+			interceptionHealth -= incomingDamage;
+			if (interceptionHealth > 0f)
+			{
+				MechTestWeaponSystem.SpawnImpact(hitPoint, (hitDirection.sqrMagnitude > 0.001f) ? (-hitDirection.normalized) : (-base.transform.forward), incomingWeaponKind, incomingEffectLibrary, incomingImpactFfxId);
+				return true;
+			}
+			interceptionResolved = true;
+			Collider hitbox = GetComponent<Collider>();
+			if (hitbox != null)
+			{
+				hitbox.enabled = false;
+			}
+			if (missileFlightTime >= proximityFuseArmTime && distanceTravelled >= proximityFuseSafeDistance)
+			{
+				DetonateWarhead(base.transform.position);
+			}
+			else
+			{
+				MechTestWeaponSystem.SpawnImpact(hitPoint, (hitDirection.sqrMagnitude > 0.001f) ? (-hitDirection.normalized) : (-base.transform.forward), incomingWeaponKind, incomingEffectLibrary, incomingImpactFfxId);
+			}
+			UnityEngine.Object.Destroy(base.gameObject);
+			return true;
+		}
+
+		private bool TryFindHit(Vector3 travel, out RaycastHit selectedHit)
+		{
+			selectedHit = default(RaycastHit);
+			float distance = travel.magnitude;
+			if (distance <= Mathf.Epsilon)
+			{
+				return false;
+			}
+			int hitCount = Physics.SphereCastNonAlloc(base.transform.position, collisionRadius, travel / distance, SphereCastScratch, distance, -5, QueryTriggerInteraction.Collide);
+			float bestDistance = float.MaxValue;
+			bool found = false;
+			for (int i = 0; i < hitCount; i++)
+			{
+				RaycastHit hit = SphereCastScratch[i];
+				if (hit.distance >= bestDistance)
+				{
+					continue;
+				}
+				Transform colliderTransform = hit.collider.transform;
+				if (owner != null && (colliderTransform == owner || colliderTransform.IsChildOf(owner)))
+				{
+					continue;
+				}
+				MechTestProjectile hitProjectile = hit.collider.GetComponentInParent<MechTestProjectile>();
+				if (hitProjectile != null)
+				{
+					if (hitProjectile == this || hitProjectile.IsOwnedBy(owner) || (weaponKind == TestWeaponKind.Missile && !interceptorMissile) || !hitProjectile.IsInterceptableMissile)
+					{
+						continue;
+					}
+				}
+				else if (interceptorMissile && hit.collider.GetComponentInParent<CombatTestTarget>() != null)
+				{
+					continue;
+				}
+				bestDistance = hit.distance;
+				selectedHit = hit;
+				found = true;
+			}
+			return found;
+		}
+
+		private void HandleDirectImpact(RaycastHit hit)
+		{
+			MechTestProjectile hitProjectile = hit.collider.GetComponentInParent<MechTestProjectile>();
+			if (hitProjectile != null && hitProjectile.ApplyPointDefenseDamage(GetPointDefenseDamage(), hit.point, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId))
+			{
+				return;
+			}
+			CombatTestTarget hitTarget = hit.collider.GetComponentInParent<CombatTestTarget>();
+			if (hitTarget != null)
+			{
+				if (!interceptorMissile)
+				{
+					hitTarget.ApplyDamage(damage, hit.point, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId);
+					CombatTestTarget ownship = CombatTestTarget.Ownship;
+					if (hitTarget == ownship)
+					{
+						PlayOwnshipFlakAirburst(hit.point, ownship, fragmentsReached: true);
+					}
+				}
+			}
+			else
+			{
+				MechTestWeaponSystem.SpawnImpact(hit.point, hit.normal, weaponKind, effectLibrary, impactFfxId);
+			}
+		}
+
+		private void SetMotorVisual(bool active)
+		{
+			if (motorVisualActive == active)
+			{
+				return;
+			}
+			motorVisualActive = active;
+			missileAudio?.SetMotorActive(active);
+			missilePlume?.SetBurning(active);
+			if (projectileTrail != null)
+			{
+				projectileTrail.emitting = active;
+			}
+			for (int i = 0; i < propulsionParticles.Length; i++)
+			{
+				ParticleSystem particles = propulsionParticles[i];
+				if (!(particles == null))
+				{
+					if (active)
+					{
+						particles.Play(withChildren: true);
+					}
+					else
+					{
+						particles.Stop(withChildren: true, ParticleSystemStopBehavior.StopEmitting);
+					}
+				}
+			}
+		}
+
+		private void CreateRcsThrusterVisuals()
+		{
+			float[] ringPositions = new float[2] { 0.78f, 0.08f };
+			Vector3[] exhaustDirections = new Vector3[4]
+			{
+				Vector3.right,
+				Vector3.up,
+				Vector3.left,
+				Vector3.down
+			};
+			GameObject root = new GameObject("Missile_RCS_Thrusters");
+			root.transform.SetParent(base.transform, worldPositionStays: false);
+			root.transform.localScale = new Vector3(SafeReciprocal(base.transform.localScale.x), SafeReciprocal(base.transform.localScale.y), SafeReciprocal(base.transform.localScale.z));
+			rcsParticles = new ParticleSystem[8];
+			rcsExhaustDirectionsLocal = new Vector3[rcsParticles.Length];
+			rcsTorqueAxesLocal = new Vector3[rcsParticles.Length];
+			rcsPulsePhase = new float[rcsParticles.Length];
+			Material particleMaterial = GetRcsParticleMaterial();
+			MechEffectThermalAppearance thermal = root.AddComponent<MechEffectThermalAppearance>();
+			thermal.Configure(MechEffectThermalAppearance.Signature.HotSaturating);
+			int nozzleIndex = 0;
+			for (int ring = 0; ring < 2; ring++)
+			{
+				for (int directionIndex = 0; directionIndex < 4; directionIndex++)
+				{
+					Vector3 exhaustDirection = exhaustDirections[directionIndex];
+					GameObject obj = new GameObject($"RCS_{ring}_{directionIndex}");
+					obj.transform.SetParent(root.transform, worldPositionStays: false);
+					obj.transform.localPosition = exhaustDirection * 0.14f + Vector3.forward * ringPositions[ring];
+					Vector3 upReference = ((Mathf.Abs(Vector3.Dot(exhaustDirection, Vector3.up)) > 0.9f) ? Vector3.forward : Vector3.up);
+					obj.transform.localRotation = Quaternion.LookRotation(exhaustDirection, upReference);
+					ParticleSystem particles = obj.AddComponent<ParticleSystem>();
+					ConfigureRcsParticleSystem(particles, particleMaterial);
+					thermal.Track(particles.GetComponent<ParticleSystemRenderer>());
+					rcsPulsePhase[nozzleIndex] = (float)nozzleIndex * 0.37f % 1f;
+					rcsParticles[nozzleIndex] = particles;
+					rcsExhaustDirectionsLocal[nozzleIndex] = exhaustDirection;
+					Vector3 momentArmDirection = ((ring == 0) ? Vector3.forward : Vector3.back);
+					rcsTorqueAxesLocal[nozzleIndex] = Vector3.Cross(momentArmDirection, -exhaustDirection).normalized;
+					nozzleIndex++;
+				}
+			}
+		}
+
+		private static void ConfigureRcsParticleSystem(ParticleSystem particles, Material particleMaterial)
+		{
+			ParticleSystem.MainModule main = particles.main;
+			main.loop = true;
+			main.playOnAwake = false;
+			main.simulationSpace = ParticleSystemSimulationSpace.World;
+			main.maxParticles = 64;
+			main.startLifetime = new ParticleSystem.MinMaxCurve(0.05f, 0.1f);
+			main.startSpeed = new ParticleSystem.MinMaxCurve(9f, 15f);
+			main.startSize = new ParticleSystem.MinMaxCurve(0.03f, 0.055f);
+			main.startColor = Color.white;
+			ParticleSystem.EmissionModule emission = particles.emission;
+			emission.enabled = true;
+			emission.rateOverTime = 0f;
+			ParticleSystem.ShapeModule shape = particles.shape;
+			shape.enabled = true;
+			shape.shapeType = ParticleSystemShapeType.Cone;
+			shape.angle = 26f;
+			shape.radius = 0.01f;
+			shape.radiusThickness = 1f;
+			ParticleSystem.SizeOverLifetimeModule sizeOverLifetime = particles.sizeOverLifetime;
+			sizeOverLifetime.enabled = true;
+			sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0f, 0.45f), new Keyframe(0.35f, 1f), new Keyframe(1f, 1.65f)));
+			ParticleSystem.ColorOverLifetimeModule colorOverLifetime = particles.colorOverLifetime;
+			colorOverLifetime.enabled = true;
+			colorOverLifetime.color = new ParticleSystem.MinMaxGradient(new Gradient
+			{
+				colorKeys = new GradientColorKey[2]
+				{
+					new GradientColorKey(new Color(0.9f, 0.96f, 1f), 0f),
+					new GradientColorKey(Color.white, 1f)
+				},
+				alphaKeys = new GradientAlphaKey[3]
+				{
+					new GradientAlphaKey(0.95f, 0f),
+					new GradientAlphaKey(0.55f, 0.35f),
+					new GradientAlphaKey(0f, 1f)
+				}
+			});
+			ParticleSystemRenderer component = particles.GetComponent<ParticleSystemRenderer>();
+			component.renderMode = ParticleSystemRenderMode.Stretch;
+			component.lengthScale = 0.7f;
+			component.velocityScale = 0.02f;
+			MechEffectResources.ConfigureUnlitRenderer(component, particleMaterial);
+			particles.Play(withChildren: false);
+		}
+
+		private void UpdateRcsThrusterVisuals(float deltaTime)
+		{
+			if (rcsParticles.Length == 0)
+			{
+				return;
+			}
+			bool hasTranslationCommand = rcsAccelerationWorld.sqrMagnitude > 0.01f && rcsPropellantMassRemainingKg > 0f;
+			bool hasAttitudeCommand = rcsAttitudeTorqueLocal.sqrMagnitude > 0.01f && rcsAttitudeThrottle > 0.001f && rcsPropellantMassRemainingKg > 0f;
+			Vector3 exhaustDirectionWorld = (hasTranslationCommand ? (-rcsAccelerationWorld.normalized) : Vector3.zero);
+			float accelerationFraction = (hasTranslationCommand ? Mathf.Clamp01(rcsAccelerationWorld.magnitude / Mathf.Max(rcsThrustNewtons / Mathf.Max(CurrentMassKg, 0.001f), 0.001f)) : 0f);
+			for (int i = 0; i < rcsParticles.Length; i++)
+			{
+				ParticleSystem particles = rcsParticles[i];
+				if (!(particles == null))
+				{
+					Vector3 nozzleDirectionWorld = base.transform.TransformDirection(rcsExhaustDirectionsLocal[i]);
+					float translationAlignment = (hasTranslationCommand ? Mathf.Max(0f, Vector3.Dot(nozzleDirectionWorld, exhaustDirectionWorld)) : 0f);
+					float a = ((translationAlignment > 0.12f) ? (Mathf.InverseLerp(0.12f, 1f, translationAlignment) * Mathf.Lerp(0.55f, 1f, accelerationFraction)) : 0f);
+					float attitudeAlignment = ((hasAttitudeCommand && i < rcsTorqueAxesLocal.Length) ? Mathf.Max(0f, Vector3.Dot(rcsTorqueAxesLocal[i], rcsAttitudeTorqueLocal.normalized)) : 0f);
+					float attitudeOutput = ((attitudeAlignment > 0.12f) ? (Mathf.InverseLerp(0.12f, 1f, attitudeAlignment) * Mathf.Lerp(0.55f, 1f, rcsAttitudeThrottle)) : 0f);
+					float output = Mathf.Max(a, attitudeOutput);
+					ParticleSystem.EmissionModule emission = particles.emission;
+					if (output <= 0.001f)
+					{
+						rcsPulsePhase[i] = 0f;
+						emission.rateOverTime = 0f;
+					}
+					else
+					{
+						rcsPulsePhase[i] = Mathf.Repeat(rcsPulsePhase[i] + deltaTime * 14f, 1f);
+						float dutyCycle = Mathf.Lerp(0.18f, 1f, output);
+						emission.rateOverTime = ((rcsPulsePhase[i] < dutyCycle) ? 260f : 0f);
+					}
+				}
+			}
+		}
+
+		private static Material GetRcsParticleMaterial()
+		{
+			if (rcsParticleMaterial != null)
+			{
+				return rcsParticleMaterial;
+			}
+			rcsParticleMaterial = MechEffectResources.CreateAdditiveParticleMaterial("Runtime Missile RCS Plume", new Color(2.1f, 2.35f, 2.6f, 1f));
+			return rcsParticleMaterial;
+		}
+
+		private static float SafeReciprocal(float value)
+		{
+			if (!(Mathf.Abs(value) > 0.0001f))
+			{
+				return 1f;
+			}
+			return 1f / value;
+		}
+
+		private void OnDestroy()
+		{
+			ReleaseGuidanceChannel();
+			if (radarController != null)
+			{
+				if (irSourceRegistered)
+				{
+					radarController.UnregisterMissileIrSource(in seekerHandle);
+				}
+				if (linkTerminal.IsValid)
+				{
+					radarController.UnregisterMissileLinkTerminal(linkTerminal);
+				}
+				radarController.UnregisterMissileSeeker(in seekerHandle);
+			}
+			linkTerminal = default(LinkTerminalId);
+			seekerHandle = default(MechRadarController.MissileSeekerHandle);
+		}
+
+		private void ReleaseGuidanceChannel()
+		{
+			if (!guidanceChannelReleased)
+			{
+				radarController?.ReleaseGuidanceChannel(guidanceChannelToken);
+				guidanceChannelReleased = true;
+				guidanceChannelToken = 0;
+			}
+		}
+
+		private static float3 ToFloat3(Vector3 value)
+		{
+			return new float3(value.x, value.y, value.z);
+		}
+
+		private static Vector3 ToVector3(float3 value)
+		{
+			return new Vector3(value.x, value.y, value.z);
+		}
+	}
+
+	public enum MissileEngagementState : byte
+	{
+		Active,
+		Spent
+	}
+
+	public enum MissileFlightPhase : byte
+	{
+		LaunchDelay,
+		Boost,
+		MidcourseCoast,
+		SeekerAcquisition,
+		TerminalGuidance,
+		Ballistic,
+		ColdEjection,
+		AttitudeAlignment
+	}
+}
