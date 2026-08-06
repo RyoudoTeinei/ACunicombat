@@ -1062,7 +1062,7 @@ namespace ACunicombat.Mechs
 
         private void OnGUI()
         {
-            if (integratedRadarHudPresent)
+            if (MechAssemblyMenu.IsAnyMenuVisible || integratedRadarHudPresent)
             {
                 return;
             }

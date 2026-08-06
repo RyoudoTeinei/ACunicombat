@@ -19,6 +19,8 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class CombatTestTarget : MonoBehaviour
     {
+        private static CombatTestTarget ownship;
+
         private const string Ac6PartsApproxShaderName =
             "ACunicombat/AC6/Parts Approx";
         private const string DamageHitboxName =
@@ -53,6 +55,8 @@ namespace ACunicombat.Mechs
         private float resetAt = -1f;
         private int hitCount;
         private TestWeaponKind lastHitKind;
+        private MechImpactAudioController impactAudio;
+        private bool isOwnship;
 
         public string TargetId => targetId;
         public int TeamId => teamId;
@@ -66,6 +70,7 @@ namespace ACunicombat.Mechs
         public Transform AimPoint => aimPoint != null ? aimPoint : transform;
         public int HitCount => hitCount;
         public TestWeaponKind LastHitKind => lastHitKind;
+        public static CombatTestTarget Ownship => ownship;
         public CombatTestTargetMotionMode MotionMode => motionMode;
         public float FlightSpeedMetersPerSecond => flightSpeedMetersPerSecond;
         public Vector3 ProceduralVelocity => motionMode switch
@@ -159,12 +164,24 @@ namespace ACunicombat.Mechs
             flashUntil = Time.time + 0.11f;
             MechTestWeaponSystem.SpawnImpact(
                 hitPoint, -hitDirection, weaponKind, effectLibrary, impactFfxId);
+            EnsureImpactAudio();
+            impactAudio.PlayArmorImpact(
+                weaponKind, damage, hitPoint, isOwnship);
 
             if (health <= 0f)
             {
                 SetVisibleAndCollidable(false);
                 resetAt = Time.time + resetDelaySeconds;
             }
+        }
+
+        public void PlayNearbyFlakAirburst(
+            Vector3 detonationPoint,
+            bool fragmentsReached)
+        {
+            EnsureImpactAudio();
+            impactAudio.PlayFlakAirburst(
+                detonationPoint, fragmentsReached);
         }
 
         private void Awake()
@@ -177,9 +194,44 @@ namespace ACunicombat.Mechs
             }
 
             CacheComponents();
+            EnsureImpactAudio();
             origin = transform.position;
             originRotation = transform.rotation;
             health = maxHealth;
+        }
+
+        private void EnsureImpactAudio()
+        {
+            if (impactAudio == null)
+            {
+                impactAudio = GetComponent<MechImpactAudioController>();
+                if (impactAudio == null)
+                {
+                    impactAudio = gameObject.AddComponent<MechImpactAudioController>();
+                }
+            }
+
+            isOwnship = GetComponent<MechPlayerRig>() != null &&
+                        GetComponent<MechAiTargetController>() == null;
+            if (isOwnship)
+            {
+                ownship = this;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (ownship == this)
+            {
+                ownship = null;
+            }
+        }
+
+        [RuntimeInitializeOnLoadMethod(
+            RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetOwnship()
+        {
+            ownship = null;
         }
 
         private void Update()

@@ -47,6 +47,10 @@ namespace ACunicombat.Mechs
 
         [Header("Visual")]
         [SerializeField] private GameObject modelPrefab;
+        [Tooltip("Optional assembled model used by the standalone hangar preview. Falls back to Model Prefab.")]
+        [SerializeField] private GameObject previewModelPrefab;
+        [Tooltip("Optional static catalog image for internal parts that have no external model.")]
+        [SerializeField] private Texture2D previewImage;
         [SerializeField] private MechVisualRigMode visualRigMode = MechVisualRigMode.MountedPrefab;
         [SerializeField] private AnimationClip skinnedAnimationClip;
         [SerializeField] private MechPartSlot ancestorDriverSlot = MechPartSlot.None;
@@ -66,6 +70,7 @@ namespace ACunicombat.Mechs
 
         [Header("Gameplay")]
         [SerializeField] private MechPartStats stats = new MechPartStats();
+        [SerializeField] private MechInternalPartPerformance internalPerformance = new MechInternalPartPerformance();
         [SerializeField] private List<MechMountPointDefinition> mountPoints = new List<MechMountPointDefinition>();
         [SerializeField] private List<MechPartSlot> requiredInstalledSlots = new List<MechPartSlot>();
         [SerializeField] private string[] requiredLoadoutTags = Array.Empty<string>();
@@ -78,6 +83,8 @@ namespace ACunicombat.Mechs
         public string Manufacturer => manufacturer;
         public IReadOnlyList<string> Tags => tags;
         public GameObject ModelPrefab => modelPrefab;
+        public GameObject PreviewModelPrefab => previewModelPrefab != null ? previewModelPrefab : modelPrefab;
+        public Texture2D PreviewImage => previewImage;
         public MechVisualRigMode VisualRigMode => visualRigMode;
         public bool UsesSynchronizedSkinnedRig => visualRigMode == MechVisualRigMode.SynchronizedSkinned;
         public AnimationClip SkinnedAnimationClip => skinnedAnimationClip;
@@ -92,6 +99,7 @@ namespace ACunicombat.Mechs
         public string DefaultEquipmentActionId => defaultEquipmentActionId;
         public bool PlayDefaultEquipmentActionOnAssemble => playDefaultEquipmentActionOnAssemble;
         public MechPartStats Stats => stats;
+        public MechInternalPartPerformance InternalPerformance => internalPerformance;
         public IReadOnlyList<MechMountPointDefinition> MountPoints => mountPoints;
         public IReadOnlyList<MechPartSlot> RequiredInstalledSlots => requiredInstalledSlots;
         public IReadOnlyList<string> RequiredLoadoutTags => requiredLoadoutTags;
@@ -149,13 +157,18 @@ namespace ACunicombat.Mechs
             bool shouldPlayDefaultEquipmentActionOnAssemble = false,
             Vector3? newLocalPosition = null,
             Vector3? newLocalEulerAngles = null,
-            Vector3? newLocalScale = null)
+            Vector3? newLocalScale = null,
+            GameObject newPreviewModelPrefab = null,
+            Texture2D newPreviewImage = null,
+            MechInternalPartPerformance newInternalPerformance = null)
         {
             partId = newPartId;
             displayName = newDisplayName;
             slot = newSlot;
             category = newCategory;
             modelPrefab = newModelPrefab;
+            previewModelPrefab = newPreviewModelPrefab;
+            previewImage = newPreviewImage;
             visualRigMode = newVisualRigMode;
             skinnedAnimationClip = newSkinnedAnimationClip;
             ancestorDriverSlot = newAncestorDriverSlot;
@@ -188,6 +201,7 @@ namespace ACunicombat.Mechs
                 stats = new MechPartStats();
             }
             stats.CopyFrom(newStats);
+            internalPerformance = newInternalPerformance?.Clone() ?? new MechInternalPartPerformance();
             mountPoints = newMountPoints == null
                 ? new List<MechMountPointDefinition>()
                 : new List<MechMountPointDefinition>(newMountPoints);

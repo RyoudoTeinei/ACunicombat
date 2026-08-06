@@ -220,7 +220,7 @@ namespace ACunicombat.Mechs
 
         public void UpdateLook(in MechPlayerInputFrame frame)
         {
-            if (followTarget == null || motion == null)
+            if (MechAssemblyMenu.IsAnyMenuVisible || followTarget == null || motion == null)
             {
                 return;
             }
@@ -301,7 +301,7 @@ namespace ACunicombat.Mechs
 
         public void Follow(float deltaTime)
         {
-            if (followTarget == null || motion == null)
+            if (MechAssemblyMenu.IsAnyMenuVisible || followTarget == null || motion == null)
             {
                 return;
             }

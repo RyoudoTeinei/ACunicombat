@@ -26,6 +26,10 @@ Shader "ACunicombat/AC6/Parts Approx"
         _AlbedoDetailStrength("Albedo Detail Strength", Range(0, 1)) = 0.22
         _Metallic("Base Metallic", Range(0, 1)) = 0.38
         _Smoothness("Base Smoothness", Range(0, 1)) = 0.38
+        _WeatheringAmount("Weathering Amount", Range(0, 1)) = 0.24
+        _WeatheringColor("Exposed Surface Color", Color) = (0.055, 0.06, 0.065, 1)
+        _WeatheringScale("Weathering Scale", Range(4, 96)) = 38
+        _WeatheringSeed("Weathering Seed", Float) = 0
 
         // Per-zone surface response. A single global metallic/smoothness makes the whole mech
         // respond to the sun as one surface, which is what flattens it - the shimmer comes from
@@ -127,6 +131,7 @@ Shader "ACunicombat/AC6/Parts Approx"
             half4 _Zone5Color;
             half4 _Zone6Color;
             half4 _Zone7Color;
+            half4 _WeatheringColor;
             half _BumpScale;
             half _EmissionStrength;
             half _PaintInfluence;
@@ -136,6 +141,9 @@ Shader "ACunicombat/AC6/Parts Approx"
             half _AlbedoDetailStrength;
             half _Metallic;
             half _Smoothness;
+            half _WeatheringAmount;
+            half _WeatheringScale;
+            half _WeatheringSeed;
             half _Zone1Metallic;
             half _Zone1Smoothness;
             half _Zone2Metallic;
@@ -276,6 +284,37 @@ Shader "ACunicombat/AC6/Parts Approx"
                 return saturate(response);
             }
 
+            float WeatheringHash(float2 samplePosition)
+            {
+                return frac(sin(dot(samplePosition, float2(127.1, 311.7))) * 43758.5453);
+            }
+
+            float WeatheringNoise(float2 samplePosition)
+            {
+                float2 cell = floor(samplePosition);
+                float2 local = frac(samplePosition);
+                float2 blend = local * local * (3.0 - 2.0 * local);
+                float a = WeatheringHash(cell);
+                float b = WeatheringHash(cell + float2(1.0, 0.0));
+                float c = WeatheringHash(cell + float2(0.0, 1.0));
+                float d = WeatheringHash(cell + float2(1.0, 1.0));
+                return lerp(lerp(a, b, blend.x), lerp(c, d, blend.x), blend.y);
+            }
+
+            half BuildWeatheringMask(float2 uv, half3 sourceAlbedo, half3 materialMask)
+            {
+                half amount = saturate(_WeatheringAmount);
+                float2 samplePosition = uv * max(_WeatheringScale, 1.0h) + _WeatheringSeed;
+                half coarse = WeatheringNoise(samplePosition * 0.23);
+                half fine = WeatheringNoise(samplePosition);
+                half breakup = saturate(coarse * 0.62h + fine * 0.38h);
+                half materialEdge = saturate((fwidth(materialMask.r) + fwidth(materialMask.g)) * 18.0h);
+                half sourceDetail = saturate(abs(dot(sourceAlbedo, half3(0.299h, 0.587h, 0.114h)) - 0.5h) * 1.4h);
+                half field = saturate(breakup * 0.72h + materialEdge * 0.22h + sourceDetail * 0.06h);
+                half threshold = lerp(1.02h, 0.20h, amount);
+                return smoothstep(threshold, threshold + 0.16h, field) * amount;
+            }
+
             InputData BuildInputData(Varyings input, half3 normalTS)
             {
                 InputData inputData = (InputData)0;
@@ -336,6 +375,14 @@ Shader "ACunicombat/AC6/Parts Approx"
                     surfaceData.albedo =
                         BuildStableArmorAlbedo(baseSample.rgb, maskSample, input.uv);
                 }
+                half weatheringMask = BuildWeatheringMask(input.uv, baseSample.rgb, maskSample);
+                half exposedDetail = lerp(0.72h, 1.12h, saturate(dot(baseSample.rgb, half3(0.299h, 0.587h, 0.114h))));
+                surfaceData.albedo = lerp(
+                    surfaceData.albedo,
+                    _WeatheringColor.rgb * exposedDetail,
+                    weatheringMask * 0.88h);
+                surfaceMetallic = lerp(surfaceMetallic, 0.58h, weatheringMask);
+                surfaceSmoothness = lerp(surfaceSmoothness, 0.16h, weatheringMask);
                 surfaceData.alpha = 1.0h;
                 // MATBIN names this texture Mask3Map and routes it through the AC6
                 // color-material graph. It is not a metallic/smoothness/AO packing.
@@ -497,6 +544,45 @@ Shader "ACunicombat/AC6/Parts Approx"
             CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
             half4 _BaseColor;
+            half4 _EmissionColor;
+            half4 _PaintColor;
+            half4 _Zone1Color;
+            half4 _Zone2Color;
+            half4 _Zone3Color;
+            half4 _Zone4Color;
+            half4 _Zone5Color;
+            half4 _Zone6Color;
+            half4 _Zone7Color;
+            half4 _WeatheringColor;
+            half _BumpScale;
+            half _EmissionStrength;
+            half _PaintInfluence;
+            half _UseSourceAlbedo;
+            half _ZoneMode;
+            half _ZoneMaskStrength;
+            half _AlbedoDetailStrength;
+            half _Metallic;
+            half _Smoothness;
+            half _WeatheringAmount;
+            half _WeatheringScale;
+            half _WeatheringSeed;
+            half _Zone1Metallic;
+            half _Zone1Smoothness;
+            half _Zone2Metallic;
+            half _Zone2Smoothness;
+            half _Zone3Metallic;
+            half _Zone3Smoothness;
+            half _Zone4Metallic;
+            half _Zone4Smoothness;
+            half _Zone5Metallic;
+            half _Zone5Smoothness;
+            half _Zone6Metallic;
+            half _Zone6Smoothness;
+            half _Zone7Metallic;
+            half _Zone7Smoothness;
+            half _OcclusionStrength;
+            half _MaskMetallicInfluence;
+            half _MaskSmoothnessInfluence;
             half _Cutoff;
             CBUFFER_END
 

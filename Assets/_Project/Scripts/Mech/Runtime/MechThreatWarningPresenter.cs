@@ -263,6 +263,11 @@ namespace ACunicombat.Mechs
 
         private void OnGUI()
         {
+            if (MechAssemblyMenu.IsAnyMenuVisible)
+            {
+                return;
+            }
+
             ResolveEngineController();
             var startupAlpha = engineController != null
                 ? engineController.GetHudStartupAlpha(

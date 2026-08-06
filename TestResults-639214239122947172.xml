@@ -1,0 +1,746 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="101" result="Failed(Child)" total="101" passed="99" failed="2" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-08-03 21:05:09Z" end-time="2026-08-03 21:05:12Z" duration="2.2989591">
+  <test-suite type="TestSuite" id="1000" name="ACunicombat" fullname="ACunicombat" runstate="Runnable" testcasecount="101" result="Failed" site="Child" start-time="2026-08-03 21:05:09Z" end-time="2026-08-03 21:05:12Z" duration="2.298959" total="101" passed="99" failed="2" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1105" name="ACunicombat.Tests.EditMode.dll" fullname="E:/UnityDev/ACunicombat/Library/ScriptAssemblies/ACunicombat.Tests.EditMode.dll" runstate="Runnable" testcasecount="89" result="Failed" site="Child" start-time="2026-08-03 21:05:09Z" end-time="2026-08-03 21:05:12Z" duration="2.281990" total="89" passed="87" failed="2" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="18128" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1106" name="ACunicombat" fullname="ACunicombat" runstate="Runnable" testcasecount="89" result="Failed" site="Child" start-time="2026-08-03 21:05:09Z" end-time="2026-08-03 21:05:12Z" duration="2.281302" total="89" passed="87" failed="2" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1107" name="Tests" fullname="ACunicombat.Tests" runstate="Runnable" testcasecount="89" result="Failed" site="Child" start-time="2026-08-03 21:05:09Z" end-time="2026-08-03 21:05:12Z" duration="2.280769" total="89" passed="87" failed="2" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestSuite" id="1108" name="EditMode" fullname="ACunicombat.Tests.EditMode" runstate="Runnable" testcasecount="89" result="Failed" site="Child" start-time="2026-08-03 21:05:09Z" end-time="2026-08-03 21:05:12Z" duration="2.280146" total="89" passed="87" failed="2" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-suite type="TestFixture" id="1001" name="CpaSolverTests" fullname="ACunicombat.Tests.EditMode.CpaSolverTests" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" testcasecount="15" result="Passed" start-time="2026-08-03 21:05:09Z" end-time="2026-08-03 21:05:10Z" duration="0.029861" total="15" passed="15" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1006" name="AcceleratingCase_BeatsDenseSampling" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.AcceleratingCase_BeatsDenseSampling" methodname="AcceleratingCase_BeatsDenseSampling" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="821575692" result="Passed" start-time="2026-08-03 21:05:09Z" end-time="2026-08-03 21:05:09Z" duration="0.012473" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1005" name="CpaOutsideInterval_ClampsToEndpoint" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.CpaOutsideInterval_ClampsToEndpoint" methodname="CpaOutsideInterval_ClampsToEndpoint" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="428778075" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.002546" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1007" name="Deterministic_SameInputSameBits" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.Deterministic_SameInputSameBits" methodname="Deterministic_SameInputSameBits" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="363405091" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000229" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1004" name="LinearCrossing_FindsClosedFormCpa" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.LinearCrossing_FindsClosedFormCpa" methodname="LinearCrossing_FindsClosedFormCpa" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="800097356" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000151" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1011" name="MissileLeadPoint_AimsAheadOfCrossingTarget" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.MissileLeadPoint_AimsAheadOfCrossingTarget" methodname="MissileLeadPoint_AimsAheadOfCrossingTarget" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="58061157" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001340" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1012" name="MissileLeadTime_UsesBoundedFallbackForUnreachableTarget" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.MissileLeadTime_UsesBoundedFallbackForUnreachableTarget" methodname="MissileLeadTime_UsesBoundedFallbackForUnreachableTarget" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="2124363420" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000128" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1010" name="MissileLineOfSightRate_IsZeroForPureClosingMotion" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.MissileLineOfSightRate_IsZeroForPureClosingMotion" methodname="MissileLineOfSightRate_IsZeroForPureClosingMotion" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="857649265" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000608" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1009" name="MissileProximityPass_DetectsNonContactCrossing" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.MissileProximityPass_DetectsNonContactCrossing" methodname="MissileProximityPass_DetectsNonContactCrossing" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="112094321" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000438" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1013" name="MissileReachability_AcceptsClosingCoastIntercept" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.MissileReachability_AcceptsClosingCoastIntercept" methodname="MissileReachability_AcceptsClosingCoastIntercept" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="334088650" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000618" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1015" name="MissileReachability_AllowsPassedTargetWithTurnDeltaV" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.MissileReachability_AllowsPassedTargetWithTurnDeltaV" methodname="MissileReachability_AllowsPassedTargetWithTurnDeltaV" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="716371179" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000129" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1014" name="MissileReachability_RejectsPassedTargetWithoutTurnDeltaV" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.MissileReachability_RejectsPassedTargetWithoutTurnDeltaV" methodname="MissileReachability_RejectsPassedTargetWithoutTurnDeltaV" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="1869877220" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000195" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1016" name="MissileReachability_RespectsRemainingTravelDistance" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.MissileReachability_RespectsRemainingTravelDistance" methodname="MissileReachability_RespectsRemainingTravelDistance" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="658114227" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000110" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1008" name="MissileSeekerVolume_RejectsTargetsOutsideRangeOrFieldOfView" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.MissileSeekerVolume_RejectsTargetsOutsideRangeOrFieldOfView" methodname="MissileSeekerVolume_RejectsTargetsOutsideRangeOrFieldOfView" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="1562490620" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000459" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1003" name="ProtectedCpaWindow_RejectsPreciseMiss" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.ProtectedCpaWindow_RejectsPreciseMiss" methodname="ProtectedCpaWindow_RejectsPreciseMiss" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="986239892" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000172" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1002" name="ProtectedCpaWindow_UsesPropagatedUncertainty" fullname="ACunicombat.Tests.EditMode.CpaSolverTests.ProtectedCpaWindow_UsesPropagatedUncertainty" methodname="ProtectedCpaWindow_UsesPropagatedUncertainty" classname="ACunicombat.Tests.EditMode.CpaSolverTests" runstate="Runnable" seed="2100089906" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000073" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1017" name="DeterminismTests" fullname="ACunicombat.Tests.EditMode.DeterminismTests" classname="ACunicombat.Tests.EditMode.DeterminismTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.006556" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1018" name="HashChain_IsOrderSensitive" fullname="ACunicombat.Tests.EditMode.DeterminismTests.HashChain_IsOrderSensitive" methodname="HashChain_IsOrderSensitive" classname="ACunicombat.Tests.EditMode.DeterminismTests" runstate="Runnable" seed="1883470616" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001570" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1021" name="RadarEquation_FollowsR4" fullname="ACunicombat.Tests.EditMode.DeterminismTests.RadarEquation_FollowsR4" methodname="RadarEquation_FollowsR4" classname="ACunicombat.Tests.EditMode.DeterminismTests" runstate="Runnable" seed="1781523107" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000250" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1020" name="Rng_Float01_InRange" fullname="ACunicombat.Tests.EditMode.DeterminismTests.Rng_Float01_InRange" methodname="Rng_Float01_InRange" classname="ACunicombat.Tests.EditMode.DeterminismTests" runstate="Runnable" seed="1763011249" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.003269" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1019" name="Rng_SameSeedSameStream" fullname="ACunicombat.Tests.EditMode.DeterminismTests.Rng_SameSeedSameStream" methodname="Rng_SameSeedSameStream" classname="ACunicombat.Tests.EditMode.DeterminismTests" runstate="Runnable" seed="577393007" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000310" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1022" name="SnrDenominator_SumsInLinearDomain" fullname="ACunicombat.Tests.EditMode.DeterminismTests.SnrDenominator_SumsInLinearDomain" methodname="SnrDenominator_SumsInLinearDomain" classname="ACunicombat.Tests.EditMode.DeterminismTests" runstate="Runnable" seed="1130578298" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000248" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1023" name="DwellSchedulerTests" fullname="ACunicombat.Tests.EditMode.DwellSchedulerTests" classname="ACunicombat.Tests.EditMode.DwellSchedulerTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.033956" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1025" name="NotDue_NeverConsumed" fullname="ACunicombat.Tests.EditMode.DwellSchedulerTests.NotDue_NeverConsumed" methodname="NotDue_NeverConsumed" classname="ACunicombat.Tests.EditMode.DwellSchedulerTests" runstate="Runnable" seed="1219702167" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.030483" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1024" name="OverBudget_HighPriorityPreemptsEarlierDue" fullname="ACunicombat.Tests.EditMode.DwellSchedulerTests.OverBudget_HighPriorityPreemptsEarlierDue" methodname="OverBudget_HighPriorityPreemptsEarlierDue" classname="ACunicombat.Tests.EditMode.DwellSchedulerTests" runstate="Runnable" seed="1194647068" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.002373" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1026" name="WithinBudget_AllDueConsumedInPriorityOrder" fullname="ACunicombat.Tests.EditMode.DwellSchedulerTests.WithinBudget_AllDueConsumedInPriorityOrder" methodname="WithinBudget_AllDueConsumedInPriorityOrder" classname="ACunicombat.Tests.EditMode.DwellSchedulerTests" runstate="Runnable" seed="1820928679" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000449" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1027" name="ElectroOpticalSensorSystemTests" fullname="ACunicombat.Tests.EditMode.ElectroOpticalSensorSystemTests" classname="ACunicombat.Tests.EditMode.ElectroOpticalSensorSystemTests" runstate="Runnable" testcasecount="2" result="Failed" site="Child" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.008710" total="2" passed="1" failed="1" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <failure>
+                <message><![CDATA[One or more child tests had errors]]></message>
+              </failure>
+              <test-case id="1028" name="MissileInsideFieldOfView_ProducesAnonymousBearing" fullname="ACunicombat.Tests.EditMode.ElectroOpticalSensorSystemTests.MissileInsideFieldOfView_ProducesAnonymousBearing" methodname="MissileInsideFieldOfView_ProducesAnonymousBearing" classname="ACunicombat.Tests.EditMode.ElectroOpticalSensorSystemTests" runstate="Runnable" seed="1983376082" result="Failed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.007276" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <failure>
+                  <message><![CDATA[  Expected: 1
+  But was:  0
+]]></message>
+                  <stack-trace><![CDATA[at ACunicombat.Tests.EditMode.ElectroOpticalSensorSystemTests.MissileInsideFieldOfView_ProducesAnonymousBearing () [0x0012b] in E:\UnityDev\ACunicombat\Assets\_Project\Scripts\Sim\Tests\EditMode\ElectroOpticalSensorSystemTests.cs:51
+]]></stack-trace>
+                </failure>
+              </test-case>
+              <test-case id="1029" name="MissileOutsideFieldOfView_IsNotPublished" fullname="ACunicombat.Tests.EditMode.ElectroOpticalSensorSystemTests.MissileOutsideFieldOfView_IsNotPublished" methodname="MissileOutsideFieldOfView_IsNotPublished" classname="ACunicombat.Tests.EditMode.ElectroOpticalSensorSystemTests" runstate="Runnable" seed="1607330168" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000374" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1030" name="FireSolutionSolverTests" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" testcasecount="11" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.008637" total="11" passed="11" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1039" name="BallisticIntercept_AccountsForGrowingRocketAcceleration" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.BallisticIntercept_AccountsForGrowingRocketAcceleration" methodname="BallisticIntercept_AccountsForGrowingRocketAcceleration" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="1068606993" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001175" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1038" name="BallisticIntercept_LeadsAnAcceleratingTarget" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.BallisticIntercept_LeadsAnAcceleratingTarget" methodname="BallisticIntercept_LeadsAnAcceleratingTarget" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="1748218545" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000225" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1031" name="ConfirmedFreshTrack_ProducesAuthorizedIntercept" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.ConfirmedFreshTrack_ProducesAuthorizedIntercept" methodname="ConfirmedFreshTrack_ProducesAuthorizedIntercept" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="1060000954" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001209" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1037" name="GunSolution_SubtractsInheritedShooterVelocity" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.GunSolution_SubtractsInheritedShooterVelocity" methodname="GunSolution_SubtractsInheritedShooterVelocity" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="1226454994" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000429" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1040" name="InterceptorSolution_CanAuthorizeBeforeTwelveKilometers" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.InterceptorSolution_CanAuthorizeBeforeTwelveKilometers" methodname="InterceptorSolution_CanAuthorizeBeforeTwelveKilometers" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="1432288698" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001936" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1041" name="InterceptorSolution_ColdLaunchDelayIncreasesFlightTime" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.InterceptorSolution_ColdLaunchDelayIncreasesFlightTime" methodname="InterceptorSolution_ColdLaunchDelayIncreasesFlightTime" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="752466910" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000360" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1035" name="MissileSolution_IsInvariantToSharedWorldVelocity" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.MissileSolution_IsInvariantToSharedWorldVelocity" methodname="MissileSolution_IsInvariantToSharedWorldVelocity" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="1625127157" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001013" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1034" name="MissileSolution_UsesEjectionAndBoostSegments" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.MissileSolution_UsesEjectionAndBoostSegments" methodname="MissileSolution_UsesEjectionAndBoostSegments" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="1655899154" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000241" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1033" name="PredictedTrackState_IsNotPropagatedAgainFromLastMeasurement" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.PredictedTrackState_IsNotPropagatedAgainFromLastMeasurement" methodname="PredictedTrackState_IsNotPropagatedAgainFromLastMeasurement" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="1078554770" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000233" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1032" name="StaleTrack_DeniesWeaponRelease" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.StaleTrack_DeniesWeaponRelease" methodname="StaleTrack_DeniesWeaponRelease" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="510146961" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000135" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1036" name="VariableMassMissile_UsesPropellantMassAndMassFlow" fullname="ACunicombat.Tests.EditMode.FireSolutionSolverTests.VariableMassMissile_UsesPropellantMassAndMassFlow" methodname="VariableMassMissile_UsesPropellantMassAndMassFlow" classname="ACunicombat.Tests.EditMode.FireSolutionSolverTests" runstate="Runnable" seed="700597210" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000231" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1042" name="LaserRangefinderSystemTests" fullname="ACunicombat.Tests.EditMode.LaserRangefinderSystemTests" classname="ACunicombat.Tests.EditMode.LaserRangefinderSystemTests" runstate="Runnable" testcasecount="2" result="Failed" site="Child" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.007629" total="2" passed="1" failed="1" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <failure>
+                <message><![CDATA[One or more child tests had errors]]></message>
+              </failure>
+              <test-case id="1043" name="TargetInsideBeam_ProducesRangeAndLaserEmission" fullname="ACunicombat.Tests.EditMode.LaserRangefinderSystemTests.TargetInsideBeam_ProducesRangeAndLaserEmission" methodname="TargetInsideBeam_ProducesRangeAndLaserEmission" classname="ACunicombat.Tests.EditMode.LaserRangefinderSystemTests" runstate="Runnable" seed="2113209075" result="Failed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.006608" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <failure>
+                  <message><![CDATA[  Expected: 1
+  But was:  0
+]]></message>
+                  <stack-trace><![CDATA[at ACunicombat.Tests.EditMode.LaserRangefinderSystemTests.TargetInsideBeam_ProducesRangeAndLaserEmission () [0x00161] in E:\UnityDev\ACunicombat\Assets\_Project\Scripts\Sim\Tests\EditMode\LaserRangefinderSystemTests.cs:48
+]]></stack-trace>
+                </failure>
+              </test-case>
+              <test-case id="1044" name="TargetOutsideBeam_EmitsPulseWithoutPublishingReturn" fullname="ACunicombat.Tests.EditMode.LaserRangefinderSystemTests.TargetOutsideBeam_EmitsPulseWithoutPublishingReturn" methodname="TargetOutsideBeam_EmitsPulseWithoutPublishingReturn" classname="ACunicombat.Tests.EditMode.LaserRangefinderSystemTests" runstate="Runnable" seed="1226087615" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000449" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1045" name="MissileTrackFusionTests" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" testcasecount="13" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.011596" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1049" name="ActiveSeekerClosingAtLongRange_IsMarkedIncomingBeforeCpaWindow" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.ActiveSeekerClosingAtLongRange_IsMarkedIncomingBeforeCpaWindow" methodname="ActiveSeekerClosingAtLongRange_IsMarkedIncomingBeforeCpaWindow" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="633048538" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.004074" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1050" name="ActiveSeekerMovingAway_IsConfirmedButNotIncoming" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.ActiveSeekerMovingAway_IsConfirmedButNotIncoming" methodname="ActiveSeekerMovingAway_IsConfirmedButNotIncoming" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="2072846022" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000283" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1048" name="AssociatedLaserReturn_RefinesRangeAndUncertainty" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.AssociatedLaserReturn_RefinesRangeAndUncertainty" methodname="AssociatedLaserReturn_RefinesRangeAndUncertainty" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="277499218" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000572" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1057" name="CorrelatedTentativeTrack_IsShownBeforeVelocityConverges" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.CorrelatedTentativeTrack_IsShownBeforeVelocityConverges" methodname="CorrelatedTentativeTrack_IsShownBeforeVelocityConverges" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="131505337" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000232" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1056" name="CorroboratedAirVehicleTrack_IsNotRelabeledAsMissile" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.CorroboratedAirVehicleTrack_IsNotRelabeledAsMissile" methodname="CorroboratedAirVehicleTrack_IsNotRelabeledAsMissile" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="1002183021" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000141" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1055" name="CorroboratedUnknownRadarTrack_IsWarningOnly" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.CorroboratedUnknownRadarTrack_IsWarningOnly" methodname="CorroboratedUnknownRadarTrack_IsWarningOnly" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="540453942" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000195" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1058" name="DuplicateRadarTracksForOneMissile_AreConsolidated" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.DuplicateRadarTracksForOneMissile_AreConsolidated" methodname="DuplicateRadarTracksForOneMissile_AreConsolidated" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="246420951" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000452" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1052" name="FusedPositionEpoch_DoesNotApplyRadarPredictionTwice" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.FusedPositionEpoch_DoesNotApplyRadarPredictionTwice" methodname="FusedPositionEpoch_DoesNotApplyRadarPredictionTwice" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="589933765" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000228" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1047" name="IndependentBearingEvidence_ConfirmsRadarMissileTrack" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.IndependentBearingEvidence_ConfirmsRadarMissileTrack" methodname="IndependentBearingEvidence_ConfirmsRadarMissileTrack" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="511409663" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000401" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1051" name="MawCorrelatedUncertainCpa_IsMarkedIncomingAtLongRange" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.MawCorrelatedUncertainCpa_IsMarkedIncomingAtLongRange" methodname="MawCorrelatedUncertainCpa_IsMarkedIncomingAtLongRange" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="1628306365" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000231" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1046" name="RadarOnlyTrack_IsIncomingButNotFireControlConfirmed" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.RadarOnlyTrack_IsIncomingButNotFireControlConfirmed" methodname="RadarOnlyTrack_IsIncomingButNotFireControlConfirmed" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="1136499737" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000184" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1054" name="StatefulFusion_EstimatesAccelerationFromNewVelocityEvidence" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.StatefulFusion_EstimatesAccelerationFromNewVelocityEvidence" methodname="StatefulFusion_EstimatesAccelerationFromNewVelocityEvidence" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="1892438201" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.002828" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1053" name="StatefulFusion_HoldsWeaponsQualityAcrossBriefEvidenceLoss" fullname="ACunicombat.Tests.EditMode.MissileTrackFusionTests.StatefulFusion_HoldsWeaponsQualityAcrossBriefEvidenceLoss" methodname="StatefulFusion_HoldsWeaponsQualityAcrossBriefEvidenceLoss" classname="ACunicombat.Tests.EditMode.MissileTrackFusionTests" runstate="Runnable" seed="730434458" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000299" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1059" name="RadarRangeReliabilityTests" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" testcasecount="9" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.029773" total="9" passed="9" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1067" name="HighSnrDopplerPrecision_DoesNotBecomeEffectivelyInfinite" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.HighSnrDopplerPrecision_DoesNotBecomeEffectivelyInfinite" methodname="HighSnrDopplerPrecision_DoesNotBecomeEffectivelyInfinite" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" seed="2003337194" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000386" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-suite type="ParameterizedMethod" id="1070" name="MovingPlatforms_CenteredRevisitsMaintainOneConfirmedTrack" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.MovingPlatforms_CenteredRevisitsMaintainOneConfirmedTrack" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.026609" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1068" name="MovingPlatforms_CenteredRevisitsMaintainOneConfirmedTrack(5000.0d)" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.MovingPlatforms_CenteredRevisitsMaintainOneConfirmedTrack(5000.0d)" methodname="MovingPlatforms_CenteredRevisitsMaintainOneConfirmedTrack" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" seed="1772624264" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.022986" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1069" name="MovingPlatforms_CenteredRevisitsMaintainOneConfirmedTrack(50000.0d)" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.MovingPlatforms_CenteredRevisitsMaintainOneConfirmedTrack(50000.0d)" methodname="MovingPlatforms_CenteredRevisitsMaintainOneConfirmedTrack" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" seed="1162377012" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.003192" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="ParameterizedMethod" id="1065" name="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001503" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1060" name="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(5000.0d)" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(5000.0d)" methodname="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" seed="2064139796" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000749" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1061" name="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(20000.0d)" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(20000.0d)" methodname="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" seed="1972172941" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000080" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1062" name="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(50000.0d)" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(50000.0d)" methodname="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" seed="315259430" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000055" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1063" name="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(80000.0d)" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(80000.0d)" methodname="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" seed="19065462" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000052" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1064" name="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(100000.0d)" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(100000.0d)" methodname="ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" seed="274801196" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000051" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-case id="1066" name="ProductionMainRadar_DetectionProbabilityIsNotTheFiveKilometerLimit" fullname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests.ProductionMainRadar_DetectionProbabilityIsNotTheFiveKilometerLimit" methodname="ProductionMainRadar_DetectionProbabilityIsNotTheFiveKilometerLimit" classname="ACunicombat.Tests.EditMode.RadarRangeReliabilityTests" runstate="Runnable" seed="463779242" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000545" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1071" name="RadarSensorSystemTests" fullname="ACunicombat.Tests.EditMode.RadarSensorSystemTests" classname="ACunicombat.Tests.EditMode.RadarSensorSystemTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.003264" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1074" name="NarrowDwellBeam_ReducesAngularMeasurementVariance" fullname="ACunicombat.Tests.EditMode.RadarSensorSystemTests.NarrowDwellBeam_ReducesAngularMeasurementVariance" methodname="NarrowDwellBeam_ReducesAngularMeasurementVariance" classname="ACunicombat.Tests.EditMode.RadarSensorSystemTests" runstate="Runnable" seed="1327793510" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000829" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1072" name="RegisteredTargetInsideBeam_ProducesAnonymousMeasurement" fullname="ACunicombat.Tests.EditMode.RadarSensorSystemTests.RegisteredTargetInsideBeam_ProducesAnonymousMeasurement" methodname="RegisteredTargetInsideBeam_ProducesAnonymousMeasurement" classname="ACunicombat.Tests.EditMode.RadarSensorSystemTests" runstate="Runnable" seed="2125226318" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001389" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1073" name="UnregisteredAuxiliarySensor_DoesNotProcessPendingDwell" fullname="ACunicombat.Tests.EditMode.RadarSensorSystemTests.UnregisteredAuxiliarySensor_DoesNotProcessPendingDwell" methodname="UnregisteredAuxiliarySensor_DoesNotProcessPendingDwell" classname="ACunicombat.Tests.EditMode.RadarSensorSystemTests" runstate="Runnable" seed="2032109586" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000517" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1075" name="RadarTrackManagerTests" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" testcasecount="15" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.010962" total="15" passed="15" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1081" name="CoLocatedAircraftAndMissile_ReturnsRemainSeparateTracks" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.CoLocatedAircraftAndMissile_ReturnsRemainSeparateTracks" methodname="CoLocatedAircraftAndMissile_ReturnsRemainSeparateTracks" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="889383236" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000989" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1083" name="ConfirmedTrackWithoutObservation_AgesOutAndReleasesItsSlot" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.ConfirmedTrackWithoutObservation_AgesOutAndReleasesItsSlot" methodname="ConfirmedTrackWithoutObservation_AgesOutAndReleasesItsSlot" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="1656617170" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000619" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1088" name="CoveredTrackWithoutDetection_CountsOneMissPerFusionTick" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.CoveredTrackWithoutDetection_CountsOneMissPerFusionTick" methodname="CoveredTrackWithoutDetection_CountsOneMissPerFusionTick" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="369151653" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000913" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1087" name="DwellPointingElsewhere_DoesNotCountAsTrackMiss" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.DwellPointingElsewhere_DoesNotCountAsTrackMiss" methodname="DwellPointingElsewhere_DoesNotCountAsTrackMiss" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="1739235418" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000375" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1090" name="FastMovingOwnship_DopplerCompensationKeepsStationaryTargetOnOneTrack" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.FastMovingOwnship_DopplerCompensationKeepsStationaryTargetOnOneTrack" methodname="FastMovingOwnship_DopplerCompensationKeepsStationaryTargetOnOneTrack" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="2001903778" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001311" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1076" name="FirstMeasurement_CountsAsSingleTentativeHit" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.FirstMeasurement_CountsAsSingleTentativeHit" methodname="FirstMeasurement_CountsAsSingleTentativeHit" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="1742620708" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000228" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1082" name="FusionTicksWithoutObservation_DoNotImmediatelyCoastConfirmedTrack" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.FusionTicksWithoutObservation_DoNotImmediatelyCoastConfirmedTrack" methodname="FusionTicksWithoutObservation_DoNotImmediatelyCoastConfirmedTrack" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="1387922790" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000307" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1085" name="LongSessionTimestamp_StillConfirmsAndMaintainsOneTrack" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.LongSessionTimestamp_StillConfirmsAndMaintainsOneTrack" methodname="LongSessionTimestamp_StillConfirmsAndMaintainsOneTrack" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="762900001" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000266" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1078" name="MissileSignatureEvidence_PropagatesWithoutEntityIdentity" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.MissileSignatureEvidence_PropagatesWithoutEntityIdentity" methodname="MissileSignatureEvidence_PropagatesWithoutEntityIdentity" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="2007160725" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000529" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1080" name="NoisyOverlappingMissileDwells_DoNotAllocateDuplicateTracks" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.NoisyOverlappingMissileDwells_DoNotAllocateDuplicateTracks" methodname="NoisyOverlappingMissileDwells_DoNotAllocateDuplicateTracks" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="663727002" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000436" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1079" name="OverlappingDwellsInSameTick_RefineOneTrackAndCountOneHit" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.OverlappingDwellsInSameTick_RefineOneTrackAndCountOneHit" methodname="OverlappingDwellsInSameTick_RefineOneTrackAndCountOneHit" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="1892271149" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000292" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1086" name="RepeatedTransientTracks_DoNotExhaustTrackCapacity" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.RepeatedTransientTracks_DoNotExhaustTrackCapacity" methodname="RepeatedTransientTracks_DoNotExhaustTrackCapacity" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="1972882984" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.001198" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1089" name="SingleTargetAtOneHundredMetersPerSecond_DoesNotSplitIntoCoastTrail" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.SingleTargetAtOneHundredMetersPerSecond_DoesNotSplitIntoCoastTrail" methodname="SingleTargetAtOneHundredMetersPerSecond_DoesNotSplitIntoCoastTrail" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="147974941" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000765" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1084" name="StaleTrack_DoesNotAbsorbNewSameClassReturn" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.StaleTrack_DoesNotAbsorbNewSameClassReturn" methodname="StaleTrack_DoesNotAbsorbNewSameClassReturn" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="245790589" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000315" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1077" name="ThreeAssociatedHits_ConfirmTrackWithoutTruthIdentity" fullname="ACunicombat.Tests.EditMode.RadarTrackManagerTests.ThreeAssociatedHits_ConfirmTrackWithoutTruthIdentity" methodname="ThreeAssociatedHits_ConfirmTrackWithoutTruthIdentity" classname="ACunicombat.Tests.EditMode.RadarTrackManagerTests" runstate="Runnable" seed="853670332" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000756" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1091" name="RasterScanPatternTests" fullname="ACunicombat.Tests.EditMode.RasterScanPatternTests" classname="ACunicombat.Tests.EditMode.RasterScanPatternTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:12Z" duration="2.027761" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1092" name="OneFrame_CoversConfiguredVolumeWithSerpentineRows" fullname="ACunicombat.Tests.EditMode.RasterScanPatternTests.OneFrame_CoversConfiguredVolumeWithSerpentineRows" methodname="OneFrame_CoversConfiguredVolumeWithSerpentineRows" classname="ACunicombat.Tests.EditMode.RasterScanPatternTests" runstate="Runnable" seed="230526650" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:10Z" duration="0.000633" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1094" name="ProductionSearchRaster_HasUsefulDiagonalBeamOverlap" fullname="ACunicombat.Tests.EditMode.RasterScanPatternTests.ProductionSearchRaster_HasUsefulDiagonalBeamOverlap" methodname="ProductionSearchRaster_HasUsefulDiagonalBeamOverlap" classname="ACunicombat.Tests.EditMode.RasterScanPatternTests" runstate="Runnable" seed="1804191369" result="Passed" start-time="2026-08-03 21:05:10Z" end-time="2026-08-03 21:05:12Z" duration="2.026083" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1093" name="Reset_ReturnsCursorToFirstCell" fullname="ACunicombat.Tests.EditMode.RasterScanPatternTests.Reset_ReturnsCursorToFirstCell" methodname="Reset_ReturnsCursorToFirstCell" classname="ACunicombat.Tests.EditMode.RasterScanPatternTests" runstate="Runnable" seed="293406269" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000440" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1095" name="ResolutionMergeTests" fullname="ACunicombat.Tests.EditMode.ResolutionMergeTests" classname="ACunicombat.Tests.EditMode.ResolutionMergeTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.012635" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1096" name="CloseDetections_MergeToOne" fullname="ACunicombat.Tests.EditMode.ResolutionMergeTests.CloseDetections_MergeToOne" methodname="CloseDetections_MergeToOne" classname="ACunicombat.Tests.EditMode.ResolutionMergeTests" runstate="Runnable" seed="1974052676" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.001430" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1097" name="HighestSnrNotFirst_NothingLost" fullname="ACunicombat.Tests.EditMode.ResolutionMergeTests.HighestSnrNotFirst_NothingLost" methodname="HighestSnrNotFirst_NothingLost" classname="ACunicombat.Tests.EditMode.ResolutionMergeTests" runstate="Runnable" seed="1943179105" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.001057" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1100" name="MixtureVariance_CoversClusterSpread" fullname="ACunicombat.Tests.EditMode.ResolutionMergeTests.MixtureVariance_CoversClusterSpread" methodname="MixtureVariance_CoversClusterSpread" classname="ACunicombat.Tests.EditMode.ResolutionMergeTests" runstate="Runnable" seed="1308394623" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000127" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1098" name="NanDoppler_WithoutCapability_StillMerges" fullname="ACunicombat.Tests.EditMode.ResolutionMergeTests.NanDoppler_WithoutCapability_StillMerges" methodname="NanDoppler_WithoutCapability_StillMerges" classname="ACunicombat.Tests.EditMode.ResolutionMergeTests" runstate="Runnable" seed="778232406" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000382" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1099" name="SeparatedDetections_DoNotMerge" fullname="ACunicombat.Tests.EditMode.ResolutionMergeTests.SeparatedDetections_DoNotMerge" methodname="SeparatedDetections_DoNotMerge" classname="ACunicombat.Tests.EditMode.ResolutionMergeTests" runstate="Runnable" seed="468267770" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000266" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1101" name="TrackFilterConsistencyTests" fullname="ACunicombat.Tests.EditMode.TrackFilterConsistencyTests" classname="ACunicombat.Tests.EditMode.TrackFilterConsistencyTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.086533" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1104" name="LaserRefinement_ImprovesCrossRangeVelocityWithoutBreakingConsistency" fullname="ACunicombat.Tests.EditMode.TrackFilterConsistencyTests.LaserRefinement_ImprovesCrossRangeVelocityWithoutBreakingConsistency" methodname="LaserRefinement_ImprovesCrossRangeVelocityWithoutBreakingConsistency" classname="ACunicombat.Tests.EditMode.TrackFilterConsistencyTests" runstate="Runnable" seed="1758913361" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.049815" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[[radar-only] NEES=3.599 (期望 6, n=1320), 位置 RMSE=2.55 m, 横向速度 RMSE=2.14 m/s, 样本=1320
+[TrackFilterConsistency] [radar-only] NEES=3.599 (期望 6, n=1320), 位置 RMSE=2.55 m, 横向速度 RMSE=2.14 m/s, 样本=1320
+[radar+laser] NEES=3.430 (期望 6, n=1320), 位置 RMSE=0.68 m, 横向速度 RMSE=1.06 m/s, 样本=1320
+[TrackFilterConsistency] [radar+laser] NEES=3.430 (期望 6, n=1320), 位置 RMSE=0.68 m, 横向速度 RMSE=1.06 m/s, 样本=1320
+cross-range velocity RMSE: 2.14 -> 1.06 m/s
+[TrackFilterConsistency] cross-range velocity RMSE: 2.14 -> 1.06 m/s
+]]></output>
+              </test-case>
+              <test-case id="1102" name="RadarOnly_FilterCovarianceIsNotOverconfident" fullname="ACunicombat.Tests.EditMode.TrackFilterConsistencyTests.RadarOnly_FilterCovarianceIsNotOverconfident" methodname="RadarOnly_FilterCovarianceIsNotOverconfident" classname="ACunicombat.Tests.EditMode.TrackFilterConsistencyTests" runstate="Runnable" seed="307689147" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.017953" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[[radar-only] NEES=3.599 (期望 6, n=1320), 位置 RMSE=2.55 m, 横向速度 RMSE=2.14 m/s, 样本=1320
+[TrackFilterConsistency] [radar-only] NEES=3.599 (期望 6, n=1320), 位置 RMSE=2.55 m, 横向速度 RMSE=2.14 m/s, 样本=1320
+]]></output>
+              </test-case>
+              <test-case id="1103" name="RadarOnly_PosteriorResidualIsSmallerThanMeasurementNoise" fullname="ACunicombat.Tests.EditMode.TrackFilterConsistencyTests.RadarOnly_PosteriorResidualIsSmallerThanMeasurementNoise" methodname="RadarOnly_PosteriorResidualIsSmallerThanMeasurementNoise" classname="ACunicombat.Tests.EditMode.TrackFilterConsistencyTests" runstate="Runnable" seed="1231054926" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.018052" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[[radar-only] NEES=3.599 (期望 6, n=1320), 位置 RMSE=2.55 m, 横向速度 RMSE=2.14 m/s, 样本=1320
+[TrackFilterConsistency] [radar-only] NEES=3.599 (期望 6, n=1320), 位置 RMSE=2.55 m, 横向速度 RMSE=2.14 m/s, 样本=1320
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+    <test-suite type="Assembly" id="1122" name="Assembly-CSharp-Editor.dll" fullname="E:/UnityDev/ACunicombat/Library/ScriptAssemblies/Assembly-CSharp-Editor.dll" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.011614" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="18128" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1123" name="ACunicombat" fullname="ACunicombat" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.011313" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1124" name="Editor" fullname="ACunicombat.Editor" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.011176" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1125" name="Tests" fullname="ACunicombat.Editor.Tests" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.011039" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestFixture" id="1109" name="MechFlightReferenceFrameTests" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.010846" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1114" name="AirbornePitchEnvelope_RemainsUnlimited" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.AirbornePitchEnvelope_RemainsUnlimited" methodname="AirbornePitchEnvelope_RemainsUnlimited" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="869723200" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.002993" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1115" name="GroundedPitchEnvelope_PreventsPointingIntoSurface" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.GroundedPitchEnvelope_PreventsPointingIntoSurface" methodname="GroundedPitchEnvelope_PreventsPointingIntoSurface" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="1361963734" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000465" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1120" name="OrbitSync_BrakesBeforeClosingSpeedExceedsStoppingDistance" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.OrbitSync_BrakesBeforeClosingSpeedExceedsStoppingDistance" methodname="OrbitSync_BrakesBeforeClosingSpeedExceedsStoppingDistance" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="1854939458" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.001036" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1117" name="OrbitSync_LateralOverrideDoesNotFightPlayerTranslation" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.OrbitSync_LateralOverrideDoesNotFightPlayerTranslation" methodname="OrbitSync_LateralOverrideDoesNotFightPlayerTranslation" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="485033128" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000298" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1118" name="OrbitSync_LongitudinalBiasAllowsIntentionalRangeChange" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.OrbitSync_LongitudinalBiasAllowsIntentionalRangeChange" methodname="OrbitSync_LongitudinalBiasAllowsIntentionalRangeChange" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="2031762004" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000463" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1119" name="OrbitSync_LongitudinalOverrideDoesNotCounterThrottle" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.OrbitSync_LongitudinalOverrideDoesNotCounterThrottle" methodname="OrbitSync_LongitudinalOverrideDoesNotCounterThrottle" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="1295631914" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000288" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1116" name="OrbitSync_MatchesTargetVelocityWithoutTeleporting" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.OrbitSync_MatchesTargetVelocityWithoutTeleporting" methodname="OrbitSync_MatchesTargetVelocityWithoutTeleporting" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="547270390" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000302" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1121" name="OrbitSync_ParallelDirectionFallsBackWhenTargetIsStationary" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.OrbitSync_ParallelDirectionFallsBackWhenTargetIsStationary" methodname="OrbitSync_ParallelDirectionFallsBackWhenTargetIsStationary" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="421911343" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000448" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1113" name="ReferenceViewPitch_CanPassVerticalWithoutClamping" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.ReferenceViewPitch_CanPassVerticalWithoutClamping" methodname="ReferenceViewPitch_CanPassVerticalWithoutClamping" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="1657973821" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000943" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1112" name="ReferenceViewPitch_IsMeasuredFromDynamicHorizon" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.ReferenceViewPitch_IsMeasuredFromDynamicHorizon" methodname="ReferenceViewPitch_IsMeasuredFromDynamicHorizon" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="1767549417" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000468" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1110" name="ResetToRotation_UsesRequestedForwardAndUp" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.ResetToRotation_UsesRequestedForwardAndUp" methodname="ResetToRotation_UsesRequestedForwardAndUp" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="1488547068" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000455" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1111" name="ResetToward_PlacesTargetDirectionOnNewHorizon" fullname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests.ResetToward_PlacesTargetDirectionOnNewHorizon" methodname="ResetToward_PlacesTargetDirectionOnNewHorizon" classname="ACunicombat.Editor.Tests.MechFlightReferenceFrameTests" runstate="Runnable" seed="810161890" result="Passed" start-time="2026-08-03 21:05:12Z" end-time="2026-08-03 21:05:12Z" duration="0.000968" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[Saving results to: C:/Users/RT Lee/AppData/LocalLow/DefaultCompany/ACunicombat\TestResults.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

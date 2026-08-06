@@ -15,6 +15,7 @@ namespace ACunicombat.Mechs
         public Transform root;
     }
 
+    [DefaultExecutionOrder(-9000)]
     [DisallowMultipleComponent]
     public sealed class MechAssembler : MonoBehaviour
     {
@@ -52,9 +53,20 @@ namespace ACunicombat.Mechs
         public MechRuntimeState RuntimeState { get; private set; }
         public AnimationClip SynchronizedAnimationClip => synchronizedAnimationClip;
 
+        internal void ConfigureRuntimePreview()
+        {
+            assembleOnAwake = false;
+            createPlaceholdersForMissingModels = false;
+            applyMassToRigidbody = false;
+            logValidationIssues = false;
+        }
+
         private void Awake()
         {
-            if (assembleOnAwake)
+            var resolvedLoadout = MechLoadoutSelectionStore.ResolvePlayerLoadout(gameObject, loadout);
+            var selectionChanged = resolvedLoadout != loadout;
+            loadout = resolvedLoadout;
+            if (assembleOnAwake || selectionChanged)
             {
                 Assemble();
             }
@@ -130,9 +142,21 @@ namespace ACunicombat.Mechs
 
             ConfigureSynchronizedSkinnedParts(records);
 
+            if (IsPlayerAppearanceTarget(gameObject))
+            {
+                MechAppearanceApplicator.Apply(assemblyRoot.gameObject, MechAppearanceSelectionStore.Load());
+            }
+
             ApplyPhysics(stats);
             RuntimeState.Apply(loadout, stats, validation, records, mountPoints);
             LogValidation(validation);
+        }
+
+        private static bool IsPlayerAppearanceTarget(GameObject owner)
+        {
+            return owner != null &&
+                   (owner.name.StartsWith("Player_", StringComparison.OrdinalIgnoreCase) ||
+                    owner.name.Equals("Player", StringComparison.OrdinalIgnoreCase));
         }
 
         public MechValidationResult ValidateCurrentLoadout()
@@ -316,6 +340,17 @@ namespace ACunicombat.Mechs
             }
         }
 
+        internal static void ConfigureStandaloneVisual(GameObject instance, MechPartDefinition part)
+        {
+            if (instance == null || part == null)
+            {
+                return;
+            }
+
+            ConfigureMountedEquipmentAnimation(instance, part);
+            ApplyMaterialOverrides(instance, part);
+        }
+
         private void ConfigureSynchronizedSkinnedParts(IReadOnlyList<MechAssemblyRecord> records)
         {
             var animationBindings = new List<MechSynchronizedAnimationBinding>();
@@ -415,7 +450,7 @@ namespace ACunicombat.Mechs
             return placeholder;
         }
 
-        private void ApplyMaterialOverrides(GameObject instance, MechPartDefinition part)
+        private static void ApplyMaterialOverrides(GameObject instance, MechPartDefinition part)
         {
             var overrides = part.MaterialOverrides;
             if (overrides == null || overrides.Count == 0)

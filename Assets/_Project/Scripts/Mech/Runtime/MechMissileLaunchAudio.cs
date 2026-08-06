@@ -23,21 +23,18 @@ namespace ACunicombat.Mechs
         private AudioSource mechanicalSource;
         private float nextReleaseTime;
         private float mechanicalStopTime = -1f;
+        private MechAudioVariantSet interiorLaunchVariants;
+        private MechAudioVariantSet launcherMechanicalVariants;
 
         private void Awake()
         {
-            if (interiorLaunchClip == null)
-            {
-                interiorLaunchClip = Resources.Load<AudioClip>(
-                    "Audio/Missile/ownship_interior_launch");
-            }
-            if (launcherMechanicalClip == null)
-            {
-                launcherMechanicalClip = Resources.Load<AudioClip>(
-                    "Audio/Missile/launcher_mechanical");
-            }
-            interiorLaunchClip?.LoadAudioData();
-            launcherMechanicalClip?.LoadAudioData();
+            const string root = "Audio/Missile/";
+            interiorLaunchVariants = MechAudioVariantSet.Load(
+                root, "ownship_interior_launch", "ownship_interior_launch_", 6,
+                interiorLaunchClip);
+            launcherMechanicalVariants = MechAudioVariantSet.Load(
+                root, "launcher_mechanical", "launcher_mechanical_", 3,
+                launcherMechanicalClip);
 
             interiorSource = CreateStructureSource();
             mechanicalSource = CreateStructureSource();
@@ -52,20 +49,26 @@ namespace ACunicombat.Mechs
             }
 
             nextReleaseTime = now + ReleaseCoalesceSeconds;
-            if (interiorLaunchClip != null)
+            var interiorClip = interiorLaunchVariants.Next();
+            if (interiorClip != null)
             {
                 interiorSource.PlayOneShot(
-                    interiorLaunchClip,
+                    interiorClip,
                     interiorVolume);
             }
 
-            if (!coldLaunch || launcherMechanicalClip == null)
+            if (!coldLaunch)
             {
                 return;
             }
 
+            var mechanicalClip = launcherMechanicalVariants.Next();
+            if (mechanicalClip == null)
+            {
+                return;
+            }
             mechanicalSource.Stop();
-            mechanicalSource.clip = launcherMechanicalClip;
+            mechanicalSource.clip = mechanicalClip;
             mechanicalSource.volume = mechanicalVolume;
             mechanicalSource.Play();
             mechanicalStopTime = now + MechanicalDurationSeconds;

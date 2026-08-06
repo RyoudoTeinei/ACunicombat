@@ -64,6 +64,7 @@ namespace ACunicombat.Mechs
         private AudioSource afterburnerWepSource;
         private AudioSource jetThrustSource;
         private AudioSource nozzleThrustSource;
+        private MechAudioVariantSet afterburnerIgnitionVariants;
 
         public bool StartupActive => startupActive;
         public float StartupProgress => startupDurationSeconds <= Mathf.Epsilon
@@ -305,9 +306,13 @@ namespace ACunicombat.Mechs
             var assaultBoost = ready && motion.AssaultBoostActive;
             if (assaultBoost && !previousAssaultBoost && afterburnerIgnitionSource != null)
             {
-                afterburnerIgnitionSource.PlayOneShot(
-                    afterburnerIgnitionSource.clip,
-                    useInteriorMix ? 0.72f : 1f);
+                var ignitionClip = afterburnerIgnitionVariants.Next();
+                if (ignitionClip != null)
+                {
+                    afterburnerIgnitionSource.PlayOneShot(
+                        ignitionClip,
+                        useInteriorMix ? 0.72f : 1f);
+                }
             }
             previousAssaultBoost = assaultBoost;
             afterburnerGain = Mathf.MoveTowards(
@@ -341,6 +346,11 @@ namespace ACunicombat.Mechs
 
         private void LoadAndCreateSources()
         {
+            afterburnerIgnitionVariants = MechAudioVariantSet.Load(
+                AudioRoot,
+                "afterburner_ignition",
+                "afterburner_ignition_",
+                4);
             interiorStartupSource = CreateSource(
                 "Engine Startup Interior",
                 Load("engine_start_cockpit"),
@@ -364,7 +374,7 @@ namespace ACunicombat.Mechs
             rearMaximumSource = CreateSource("Engine Rear Maximum", Load("engine_rear_max"), true, 1f);
             afterburnerIgnitionSource = CreateSource(
                 "Afterburner Ignition",
-                Load("afterburner_ignition"),
+                afterburnerIgnitionVariants.First,
                 false,
                 0f);
             afterburnerBurnSource = CreateSource("Afterburner Burn", Load("afterburner_burn"), true, 0f);

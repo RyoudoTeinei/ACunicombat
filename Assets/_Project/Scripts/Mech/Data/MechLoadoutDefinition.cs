@@ -96,6 +96,18 @@ namespace ACunicombat.Mechs
             }
         }
 
+        public void ConfigureRuntime(
+            string newLoadoutId,
+            string newDisplayName,
+            IEnumerable<MechPartAssignment> newAssignments)
+        {
+            loadoutId = newLoadoutId;
+            displayName = newDisplayName;
+            assignments = newAssignments == null
+                ? new List<MechPartAssignment>()
+                : new List<MechPartAssignment>(newAssignments);
+        }
+
 #if UNITY_EDITOR
         public void EditorConfigure(string newLoadoutId, string newDisplayName, IEnumerable<MechPartAssignment> newAssignments)
         {

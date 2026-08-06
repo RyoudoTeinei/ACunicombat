@@ -109,6 +109,12 @@ namespace ACunicombat.Mechs
         /// <summary>每帧调用（由 MechPlayerRig 驱动，保证与运动层同帧序）。</summary>
         public MechPlayerInputFrame Sample()
         {
+            if (MechAssemblyMenu.IsAnyMenuVisible)
+            {
+                Current = default;
+                return Current;
+            }
+
             if (externalControl)
             {
                 Current = externalFrame;

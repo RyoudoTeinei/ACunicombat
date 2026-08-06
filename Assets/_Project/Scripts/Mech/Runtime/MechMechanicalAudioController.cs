@@ -69,6 +69,10 @@ namespace ACunicombat.Mechs
         private AudioSource hydraulicLoopSource;
         private AudioSource hydraulicStopSource;
         private AudioSource pneumaticSource;
+        private MechAudioVariantSet jointMechanicalVariants;
+        private MechAudioVariantSet hydraulicStartVariants;
+        private MechAudioVariantSet hydraulicStopVariants;
+        private MechAudioVariantSet pneumaticVariants;
 
         private sealed class MonitoredTransform
         {
@@ -250,7 +254,10 @@ namespace ACunicombat.Mechs
                 hydraulicActive = true;
                 hydraulicPeak = smoothedHydraulicActivity;
                 pneumaticReleasedForCycle = false;
-                PlayOneShot(hydraulicStartSource, hydraulicTransientVolume);
+                PlayOneShot(
+                    hydraulicStartSource,
+                    hydraulicStartVariants,
+                    hydraulicTransientVolume);
             }
             else if (hydraulicActive)
             {
@@ -258,7 +265,10 @@ namespace ACunicombat.Mechs
                 if (smoothedHydraulicActivity <= hydraulicStopThreshold)
                 {
                     hydraulicActive = false;
-                    PlayOneShot(hydraulicStopSource, hydraulicStopVolume);
+                    PlayOneShot(
+                        hydraulicStopSource,
+                        hydraulicStopVariants,
+                        hydraulicStopVolume);
                     if (hydraulicPeak >= 0.55f && !pneumaticReleasedForCycle)
                     {
                         PlayPneumaticRelease();
@@ -323,7 +333,8 @@ namespace ACunicombat.Mechs
                 return;
             }
             nextMechanicalTime = Time.unscaledTime + 0.18f;
-            PlayOneShot(jointMechanicalSource, volume);
+            PlayOneShot(
+                jointMechanicalSource, jointMechanicalVariants, volume);
         }
 
         private void PlayPneumaticRelease()
@@ -333,7 +344,7 @@ namespace ACunicombat.Mechs
                 return;
             }
             nextPneumaticTime = Time.unscaledTime + 1.1f;
-            PlayOneShot(pneumaticSource, pneumaticVolume);
+            PlayOneShot(pneumaticSource, pneumaticVariants, pneumaticVolume);
         }
 
         private bool PartCountChanged()
@@ -427,17 +438,26 @@ namespace ACunicombat.Mechs
 
         private void LoadAndCreateSources()
         {
+            jointMechanicalVariants = MechAudioVariantSet.Load(
+                AudioRoot, "joint_mechanical", "joint_mechanical_", 6);
+            hydraulicStartVariants = MechAudioVariantSet.Load(
+                AudioRoot, "hydraulic_start", "hydraulic_start_", 3);
+            hydraulicStopVariants = MechAudioVariantSet.Load(
+                AudioRoot, "hydraulic_stop", "hydraulic_stop_", 2);
+            pneumaticVariants = MechAudioVariantSet.Load(
+                AudioRoot, "pneumatic_release", "pneumatic_release_", 8);
+
             servoStartSource = CreateSource("Servo Start", Load("servo_start"), false);
             servoSlowSource = CreateSource("Servo Slow Loop", Load("servo_slow_loop"), true);
             servoFastSource = CreateSource("Servo Fast Loop", Load("servo_fast_loop"), true);
             servoStopSource = CreateSource("Servo Stop", Load("servo_stop"), false);
             jointMechanicalSource = CreateSource(
                 "Joint Mechanical Transient",
-                Load("joint_mechanical"),
+                jointMechanicalVariants.First,
                 false);
             hydraulicStartSource = CreateSource(
                 "Hydraulic Start",
-                Load("hydraulic_start"),
+                hydraulicStartVariants.First,
                 false);
             hydraulicLoopSource = CreateSource(
                 "Hydraulic Loop",
@@ -445,11 +465,11 @@ namespace ACunicombat.Mechs
                 true);
             hydraulicStopSource = CreateSource(
                 "Hydraulic Stop",
-                Load("hydraulic_stop"),
+                hydraulicStopVariants.First,
                 false);
             pneumaticSource = CreateSource(
                 "Pneumatic Release",
-                Load("pneumatic_release"),
+                pneumaticVariants.First,
                 false);
         }
 
@@ -518,6 +538,18 @@ namespace ACunicombat.Mechs
             if (source != null && source.clip != null)
             {
                 source.PlayOneShot(source.clip, Mathf.Clamp01(volume));
+            }
+        }
+
+        private static void PlayOneShot(
+            AudioSource source,
+            MechAudioVariantSet variants,
+            float volume)
+        {
+            var clip = variants?.Next();
+            if (source != null && clip != null)
+            {
+                source.PlayOneShot(clip, Mathf.Clamp01(volume));
             }
         }
 

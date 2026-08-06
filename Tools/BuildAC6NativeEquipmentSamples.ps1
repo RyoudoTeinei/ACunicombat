@@ -71,6 +71,8 @@ $specs = @(
     [pscustomobject]@{ Key = 'WP_L_4250'; Binder = 'wp_l_4250.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4250'; Flver = 'WP_L_4250.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_4290'; Binder = 'wp_r_4290.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4290'; Flver = 'WP_R_4290.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_4410'; Binder = 'wp_r_4410.partsbnd.dcx'; TextureBinder = 'wp_4410.tpf.dcx'; RawDir = $null; Flver = 'WP_R_4410.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_L_5110'; Binder = 'wp_l_5110.partsbnd.dcx'; TextureBinder = 'wp_5110.tpf.dcx'; RawDir = $null; Flver = 'WP_L_5110.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_R_5110'; Binder = 'wp_r_5110.partsbnd.dcx'; TextureBinder = 'wp_5110.tpf.dcx'; RawDir = $null; Flver = 'WP_R_5110.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'BS_A_1010'; Binder = 'bs_a_1010.partsbnd.dcx'; TextureBinder = $null; RawDir = 'parts\bs_a_1010'; Flver = 'BS_A_1010.flver'; Kind = 'Booster' },
     [pscustomobject]@{ Key = 'BS_A_2010'; Binder = 'bs_a_2010.partsbnd.dcx'; TextureBinder = $null; RawDir = 'parts\bs_a_2010'; Flver = 'BS_A_2010.flver'; Kind = 'Booster' },
     [pscustomobject]@{ Key = 'BS_A_3010'; Binder = 'bs_a_3010.partsbnd.dcx'; TextureBinder = $null; RawDir = 'parts\bs_a_3010'; Flver = 'BS_A_3010.flver'; Kind = 'Booster' }
@@ -92,7 +94,20 @@ $manifestPath = Join-Path $assetOutput 'AC6NativeEquipmentManifest.json'
 $manifestByKey = @{}
 if ($Keys.Count -gt 0 -and (Test-Path -LiteralPath $manifestPath)) {
     foreach ($entry in @(Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json)) {
-        $manifestByKey[$entry.key] = $entry
+        if ($entry.PSObject.Properties.Name -contains 'key') {
+            $manifestByKey[$entry.key] = $entry
+            continue
+        }
+
+        # Older PowerShell runs serialized Hashtable.Values as a wrapper with a `value`
+        # array. Flatten that shape so an incremental build preserves every prior entry.
+        if ($entry.PSObject.Properties.Name -contains 'value') {
+            foreach ($nestedEntry in @($entry.value)) {
+                if ($nestedEntry.PSObject.Properties.Name -contains 'key') {
+                    $manifestByKey[$nestedEntry.key] = $nestedEntry
+                }
+            }
+        }
     }
 }
 foreach ($spec in $specs) {
@@ -190,15 +205,17 @@ foreach ($spec in $specs) {
     }
 
     $outputGlb = Join-Path $assetOutput ($spec.Key + '_NATIVE.glb')
+    $stagedGlb = Join-Path $work ($spec.Key + '_NATIVE.glb')
     $reportPath = Join-Path $work 'export-report.json'
     $gltfArgs = @(
         $gltfExporter, '--skeleton-json', $skeletonJson, '--flver', $flver,
-        '--tex-dir', $png, '--report', $reportPath, '--out', $outputGlb
+        '--tex-dir', $png, '--report', $reportPath, '--out', $stagedGlb
     )
     foreach ($posePath in $posePaths) {
         $gltfArgs += @('--anim', $posePath)
     }
     Invoke-Checked -FilePath $dotnet -ArgumentList $gltfArgs
+    Copy-Item -LiteralPath $stagedGlb -Destination $outputGlb -Force
 
     $compendiumName = $null
     if ($null -ne $compendium) {
@@ -218,7 +235,7 @@ foreach ($spec in $specs) {
     }
 }
 
-$manifest = @($manifestByKey.Values | Sort-Object key)
+$manifest = @($manifestByKey.GetEnumerator() | ForEach-Object { $_.Value } | Sort-Object key)
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 Write-Host "`nNative equipment pipeline complete: $assetOutput"
 Write-Host "Manifest: $manifestPath"

@@ -62,11 +62,17 @@ namespace ACunicombat.Mechs
         private bool hasListenerDistance;
         private bool flybyArmed;
         private bool flybyPlayed;
+        private MechAudioVariantSet coldEjectionVariants;
+        private MechAudioVariantSet coldIgnitionVariants;
+        private MechAudioVariantSet hotIgnitionVariants;
+        private MechAudioVariantSet flybyVariants;
 
         private void Awake()
         {
-            LoadDefaultClips();
-            PreloadClips();
+            LoadVariantSets();
+            motorLoopClip ??= Resources.Load<AudioClip>(
+                "Audio/Missile/motor_loop_close");
+            motorLoopClip?.LoadAudioData();
             ejectionSource = CreateWorldSource();
             ignitionSource = CreateWorldSource();
             motorSource = CreateWorldSource();
@@ -90,13 +96,18 @@ namespace ACunicombat.Mechs
             listenerTransform = FindListenerTransform();
             ResetFlybyTracking();
 
-            if (!coldLaunch || coldEjectionClip == null)
+            if (!coldLaunch)
             {
                 return;
             }
 
+            var ejectionClip = coldEjectionVariants.Next();
+            if (ejectionClip == null)
+            {
+                return;
+            }
             ejectionSource.Stop();
-            ejectionSource.clip = coldEjectionClip;
+            ejectionSource.clip = ejectionClip;
             ejectionSource.volume = coldEjectionVolume;
             ejectionSource.pitch = InstancePitch();
             ejectionSource.Play();
@@ -136,7 +147,9 @@ namespace ACunicombat.Mechs
         private void StartMotorAudio()
         {
             var ignitionClip =
-                coldLaunch ? coldIgnitionClip : hotIgnitionClip;
+                coldLaunch
+                    ? coldIgnitionVariants.Next()
+                    : hotIgnitionVariants.Next();
             ignitionBaseVolume =
                 coldLaunch
                     ? coldIgnitionVolume
@@ -271,7 +284,7 @@ namespace ACunicombat.Mechs
         private void UpdateFlyby()
         {
             if (flybyPlayed ||
-                flybyClip == null ||
+                flybyVariants.First == null ||
                 Time.unscaledTime - configuredTime <
                 FlybyArmDelaySeconds)
             {
@@ -315,7 +328,7 @@ namespace ACunicombat.Mechs
                      minimumListenerDistance <=
                      FlybyMaximumDistanceMeters)
             {
-                flybySource.clip = flybyClip;
+                flybySource.clip = flybyVariants.Next();
                 flybySource.volume = flybyVolume;
                 flybySource.pitch = InstancePitch();
                 flybySource.Play();
@@ -333,27 +346,20 @@ namespace ACunicombat.Mechs
             flybySource?.Stop();
         }
 
-        private void LoadDefaultClips()
+        private void LoadVariantSets()
         {
-            coldEjectionClip ??= Resources.Load<AudioClip>(
-                "Audio/Missile/cold_ejection");
-            coldIgnitionClip ??= Resources.Load<AudioClip>(
-                "Audio/Missile/cold_ignition");
-            hotIgnitionClip ??= Resources.Load<AudioClip>(
-                "Audio/Missile/hot_ignition_medium");
-            motorLoopClip ??= Resources.Load<AudioClip>(
-                "Audio/Missile/motor_loop_close");
-            flybyClip ??= Resources.Load<AudioClip>(
-                "Audio/Missile/flyby_close");
-        }
-
-        private void PreloadClips()
-        {
-            coldEjectionClip?.LoadAudioData();
-            coldIgnitionClip?.LoadAudioData();
-            hotIgnitionClip?.LoadAudioData();
-            motorLoopClip?.LoadAudioData();
-            flybyClip?.LoadAudioData();
+            const string root = "Audio/Missile/";
+            coldEjectionVariants = MechAudioVariantSet.Load(
+                root, "cold_ejection", "cold_ejection_", 3,
+                coldEjectionClip);
+            coldIgnitionVariants = MechAudioVariantSet.Load(
+                root, "cold_ignition", "cold_ignition_", 3,
+                coldIgnitionClip);
+            hotIgnitionVariants = MechAudioVariantSet.Load(
+                root, "hot_ignition_medium", "hot_ignition_medium_", 3,
+                hotIgnitionClip);
+            flybyVariants = MechAudioVariantSet.Load(
+                root, "flyby_close", "flyby_close_", 7, flybyClip);
         }
 
         private AudioSource CreateWorldSource()
