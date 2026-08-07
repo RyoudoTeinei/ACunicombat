@@ -81,11 +81,11 @@ namespace ACunicombat.Mechs
 		[Header("Direct hit confirmation")]
 		[SerializeField]
 		[Min(0.1f)]
-		private float hitConfirmationDurationSeconds = 0.36f;
+		private float hitConfirmationDurationSeconds = 0.56f;
 
 		[SerializeField]
 		[Min(0.1f)]
-		private float missileHitConfirmationDurationSeconds = 0.75f;
+		private float missileHitConfirmationDurationSeconds = 1.05f;
 
 		[Header("Track readout")]
 		[SerializeField]
