@@ -10,6 +10,12 @@ namespace ACunicombat.Mechs
         Flak43 = 2,
     }
 
+    public enum CannonAudioProfile : byte
+    {
+        Cannon57Mm = 0,
+        Gau8A = 1,
+    }
+
     /// <summary>
     /// Layered hand-weapon audio driven by confirmed projectile spawns.
     /// The automatic cannon treats a held trigger as one burst so its first-shot
@@ -19,6 +25,7 @@ namespace ACunicombat.Mechs
     public sealed class MechHandWeaponAudio : MonoBehaviour
     {
         private const float RifleBurstQuietSeconds = 0.14f;
+        private const float Gau8BurstQuietSeconds = 0.22f;
 
         [Header("Legacy 30 mm automatic cannon")]
         [SerializeField] private AudioClip rifleFirstCloseClip;
@@ -71,6 +78,20 @@ namespace ACunicombat.Mechs
         [SerializeField, Range(0f, 1f)] private float cannonShellVolume = 0.24f;
         [SerializeField, Min(0f)] private float cannonShellDelaySeconds = 0.48f;
 
+        [Header("GAU-8/A 30 mm rotary cannon")]
+        [SerializeField] private AudioClip gau8LoopShotClip;
+        [SerializeField] private AudioClip gau8LoopBassClip;
+        [SerializeField] private AudioClip gau8RotorLoopClip;
+        [SerializeField, Range(0f, 1f)] private float gau8FirstSnarlVolume = 0.46f;
+        [SerializeField, Range(0f, 1f)] private float gau8LoopShotVolume = 0.42f;
+        [SerializeField, Range(0f, 1f)] private float gau8LoopBassVolume = 0.25f;
+        [SerializeField, Range(0f, 1f)] private float gau8LastSnarlVolume = 0.38f;
+        [SerializeField, Range(0f, 1f)] private float gau8RotorStartVolume = 0.28f;
+        [SerializeField, Range(0f, 1f)] private float gau8RotorLoopVolume = 0.16f;
+        [SerializeField, Range(0f, 1f)] private float gau8RotorStopVolume = 0.26f;
+        [SerializeField, Min(0.01f)] private float gau8LoopFadeInSeconds = 0.05f;
+        [SerializeField, Min(0.01f)] private float gau8LoopFadeOutSeconds = 0.09f;
+
         [Header("57 mm autoloader")]
         [SerializeField] private AudioClip cannonAutoloaderTurnClip;
         [SerializeField] private AudioClip cannonAutoloaderServoClip;
@@ -98,6 +119,10 @@ namespace ACunicombat.Mechs
         private AudioSource rifleFarSource;
         private AudioSource cannonSource;
         private AudioSource shellExternalSource;
+        private AudioSource gau8TransientSource;
+        private AudioSource gau8ShotLoopSource;
+        private AudioSource gau8BassLoopSource;
+        private AudioSource gau8RotorLoopSource;
         private AudioSource reloadExternalSource;
         private AudioSource structureSource;
         private AudioSource rifleInteriorTailSource;
@@ -107,6 +132,8 @@ namespace ACunicombat.Mechs
         private bool rifleBurstUsesFarLayer;
         private bool rifleBurstOwnship;
         private float lastRifleShotTime = float.NegativeInfinity;
+        private bool gau8BurstActive;
+        private float lastGau8ShotTime = float.NegativeInfinity;
         private MechAudioVariantSet rifleFirstCloseVariants;
         private MechAudioVariantSet rifleShotVariants;
         private MechAudioVariantSet rifleLowVariants;
@@ -127,6 +154,10 @@ namespace ACunicombat.Mechs
         private MechAudioVariantSet flak43LastInteriorVariants;
         private MechAudioVariantSet cannonShotVariants;
         private MechAudioVariantSet cannonShellVariants;
+        private MechAudioVariantSet gau8FirstSnarlVariants;
+        private MechAudioVariantSet gau8LastSnarlVariants;
+        private MechAudioVariantSet gau8RotorStartVariants;
+        private MechAudioVariantSet gau8RotorStopVariants;
         private MechAudioVariantSet cannonAutoloaderTurnVariants;
         private MechAudioVariantSet cannonAutoloaderServoVariants;
         private MechAudioVariantSet cannonAutoloaderShellPushVariants;
@@ -150,6 +181,13 @@ namespace ACunicombat.Mechs
                 flakFarMaximumDistanceMeters);
             cannonSource = CreateExternalSource("Cannon Shot Audio");
             shellExternalSource = CreateExternalSource("Cannon Shell Audio");
+            gau8TransientSource = CreateExternalSource("GAU-8 Transient Audio");
+            gau8ShotLoopSource = CreateLoopingExternalSource(
+                "GAU-8 Shot Loop Audio", gau8LoopShotClip);
+            gau8BassLoopSource = CreateLoopingExternalSource(
+                "GAU-8 Bass Loop Audio", gau8LoopBassClip);
+            gau8RotorLoopSource = CreateLoopingExternalSource(
+                "GAU-8 Rotor Loop Audio", gau8RotorLoopClip);
             reloadExternalSource = CreateExternalSource("Weapon Reload Audio");
             structureSource = CreateStructureSource();
             rifleInteriorTailSource = CreateStructureSource();
@@ -297,8 +335,17 @@ namespace ACunicombat.Mechs
             }
         }
 
-        public void PlayCannonShot(Vector3 muzzlePosition, bool ownship)
+        public void PlayCannonShot(
+            Vector3 muzzlePosition,
+            bool ownship,
+            CannonAudioProfile profile)
         {
+            if (profile == CannonAudioProfile.Gau8A)
+            {
+                PlayGau8Shot(muzzlePosition);
+                return;
+            }
+
             cannonSource.transform.position = muzzlePosition;
             shellExternalSource.transform.position = muzzlePosition;
             PlayOneShot(
@@ -314,8 +361,42 @@ namespace ACunicombat.Mechs
             }
         }
 
-        public void PlayCannonReload(Vector3 weaponPosition, bool ownship)
+        private void PlayGau8Shot(Vector3 muzzlePosition)
         {
+            var now = Time.unscaledTime;
+            var startsBurst =
+                !gau8BurstActive ||
+                now - lastGau8ShotTime > Gau8BurstQuietSeconds;
+            gau8BurstActive = true;
+            lastGau8ShotTime = now;
+            MoveGau8Sources(muzzlePosition);
+
+            if (!startsBurst)
+            {
+                return;
+            }
+
+            gau8TransientSource.Stop();
+            PlayOneShot(
+                gau8TransientSource,
+                gau8RotorStartVariants.Next(),
+                gau8RotorStartVolume);
+            PlayOneShot(
+                gau8TransientSource,
+                gau8FirstSnarlVariants.Next(),
+                gau8FirstSnarlVolume);
+        }
+
+        public void PlayCannonReload(
+            Vector3 weaponPosition,
+            bool ownship,
+            CannonAudioProfile profile)
+        {
+            if (profile == CannonAudioProfile.Gau8A)
+            {
+                return;
+            }
+
             StartCoroutine(PlayCannonReloadSequence(weaponPosition, ownship));
         }
 
@@ -325,6 +406,13 @@ namespace ACunicombat.Mechs
         }
 
         private void Update()
+        {
+            UpdateRifleBurst();
+            UpdateGau8Burst();
+            UpdateGau8Loops(Time.unscaledDeltaTime);
+        }
+
+        private void UpdateRifleBurst()
         {
             if (!rifleBurstActive ||
                 rifleTriggerHeld ||
@@ -356,6 +444,42 @@ namespace ACunicombat.Mechs
                     }
                     break;
             }
+        }
+
+        private void UpdateGau8Burst()
+        {
+            if (!gau8BurstActive ||
+                Time.unscaledTime - lastGau8ShotTime <
+                Gau8BurstQuietSeconds)
+            {
+                return;
+            }
+
+            gau8BurstActive = false;
+            PlayOneShot(
+                gau8TransientSource,
+                gau8LastSnarlVariants.Next(),
+                gau8LastSnarlVolume);
+            PlayOneShot(
+                gau8TransientSource,
+                gau8RotorStopVariants.Next(),
+                gau8RotorStopVolume);
+        }
+
+        private void UpdateGau8Loops(float deltaTime)
+        {
+            UpdateLoopingSource(
+                gau8ShotLoopSource,
+                gau8BurstActive ? gau8LoopShotVolume : 0f,
+                deltaTime);
+            UpdateLoopingSource(
+                gau8BassLoopSource,
+                gau8BurstActive ? gau8LoopBassVolume : 0f,
+                deltaTime);
+            UpdateLoopingSource(
+                gau8RotorLoopSource,
+                gau8BurstActive ? gau8RotorLoopVolume : 0f,
+                deltaTime);
         }
 
         private void PlayFlak43Tail()
@@ -478,12 +602,17 @@ namespace ACunicombat.Mechs
             rifleFarSource?.Stop();
             cannonSource?.Stop();
             shellExternalSource?.Stop();
+            gau8TransientSource?.Stop();
+            gau8ShotLoopSource?.Stop();
+            gau8BassLoopSource?.Stop();
+            gau8RotorLoopSource?.Stop();
             reloadExternalSource?.Stop();
             structureSource?.Stop();
             rifleInteriorTailSource?.Stop();
             rifleBurstActive = false;
             rifleTriggerHeld = false;
             rifleBurstOwnship = false;
+            gau8BurstActive = false;
         }
 
         private void LoadVariantSets()
@@ -552,6 +681,25 @@ namespace ACunicombat.Mechs
             cannonShellVariants = MechAudioVariantSet.Load(
                 weaponRoot, "cannon_shell_drop", "cannon_shell_drop_", 7,
                 cannonShellClip);
+            const string gau8Root = "Audio/Weapons/GAU8A/";
+            gau8FirstSnarlVariants = MechAudioVariantSet.Load(
+                gau8Root, "gau8a_first_snarl_001",
+                "gau8a_first_snarl_", 3);
+            gau8LoopShotClip = LoadClip(
+                gau8LoopShotClip, gau8Root + "gau8a_loop_shot");
+            gau8LoopBassClip = LoadClip(
+                gau8LoopBassClip, gau8Root + "gau8a_loop_bass");
+            gau8LastSnarlVariants = MechAudioVariantSet.Load(
+                gau8Root, "gau8a_last_snarl_001",
+                "gau8a_last_snarl_", 3);
+            gau8RotorStartVariants = MechAudioVariantSet.Load(
+                gau8Root, "gau8a_rotor_start_001",
+                "gau8a_rotor_start_", 2);
+            gau8RotorLoopClip = LoadClip(
+                gau8RotorLoopClip, gau8Root + "gau8a_rotor_loop");
+            gau8RotorStopVariants = MechAudioVariantSet.Load(
+                gau8Root, "gau8a_rotor_stop_001",
+                "gau8a_rotor_stop_", 2);
             cannonAutoloaderTurnVariants = MechAudioVariantSet.Load(
                 reloadRoot, "cannon_autoloader_turn_noise",
                 "cannon_autoloader_turn_noise_", 3,
@@ -592,10 +740,30 @@ namespace ACunicombat.Mechs
             }
         }
 
+        private static AudioClip LoadClip(
+            AudioClip configuredClip,
+            string resourcePath)
+        {
+            return configuredClip != null
+                ? configuredClip
+                : Resources.Load<AudioClip>(resourcePath);
+        }
+
         private AudioSource CreateExternalSource(string sourceName)
         {
             return CreateExternalSource(
                 sourceName, minimumDistanceMeters, maximumDistanceMeters);
+        }
+
+        private AudioSource CreateLoopingExternalSource(
+            string sourceName,
+            AudioClip clip)
+        {
+            var source = CreateExternalSource(sourceName);
+            source.clip = clip;
+            source.loop = true;
+            source.volume = 0f;
+            return source;
         }
 
         private AudioSource CreateExternalSource(
@@ -641,6 +809,47 @@ namespace ACunicombat.Mechs
             rifleFarSource.transform.position = position;
         }
 
+        private void MoveGau8Sources(Vector3 position)
+        {
+            gau8TransientSource.transform.position = position;
+            gau8ShotLoopSource.transform.position = position;
+            gau8BassLoopSource.transform.position = position;
+            gau8RotorLoopSource.transform.position = position;
+        }
+
+        private void UpdateLoopingSource(
+            AudioSource source,
+            float targetVolume,
+            float deltaTime)
+        {
+            if (source == null || source.clip == null)
+            {
+                return;
+            }
+
+            targetVolume = Mathf.Clamp01(targetVolume);
+            if (targetVolume > 0f && !source.isPlaying)
+            {
+                source.volume = 0f;
+                source.Play();
+            }
+
+            var fadeSeconds = targetVolume > source.volume
+                ? gau8LoopFadeInSeconds
+                : gau8LoopFadeOutSeconds;
+            source.volume = Mathf.MoveTowards(
+                source.volume,
+                targetVolume,
+                deltaTime / Mathf.Max(0.01f, fadeSeconds));
+
+            if (targetVolume <= 0f &&
+                source.volume <= 0.001f &&
+                source.isPlaying)
+            {
+                source.Stop();
+            }
+        }
+
         private bool UseFlakFarLayer(
             Vector3 muzzlePosition,
             bool ownship)
@@ -664,6 +873,340 @@ namespace ACunicombat.Mechs
                 new Keyframe(0.22f, 0.82f),
                 new Keyframe(0.65f, 0.25f),
                 new Keyframe(1f, 0f));
+        }
+    }
+
+    [DisallowMultipleComponent]
+    internal sealed class MechPointDefenseAudio : MonoBehaviour
+    {
+        private sealed class ShoulderChannel
+        {
+            public GameObject Root;
+            public AudioSource RotorTransient;
+            public AudioSource RotorLoop;
+            public AudioSource GunLoop;
+            public AudioSource GunBass;
+            public AudioSource ShotGrain;
+            public Transform Anchor;
+            public bool Spinning;
+            public bool HighRateProfile;
+            public float RoundsPerMinute = 3000f;
+            public float LastShotTime = float.NegativeInfinity;
+        }
+
+        private const string ResourceRoot = "Audio/Weapons/M134/";
+        private const float HighRateThresholdRpm = 4500f;
+
+        [Header("M134 continuous fire")]
+        [SerializeField] private AudioClip m1343000LoopClip;
+        [SerializeField] private AudioClip m1343000BassClip;
+        [SerializeField] private AudioClip m1346000LoopClip;
+        [SerializeField] private AudioClip m1346000BassClip;
+        [SerializeField] private AudioClip rotorLoopClip;
+        [SerializeField, Range(0f, 1f)] private float m1343000LoopVolume = 0.42f;
+        [SerializeField, Range(0f, 1f)] private float m1343000BassVolume = 0.27f;
+        [SerializeField, Range(0f, 1f)] private float m1346000LoopVolume = 0.38f;
+        [SerializeField, Range(0f, 1f)] private float m1346000BassVolume = 0.24f;
+
+        [Header("M134 grains and rotor")]
+        [SerializeField] private AudioClip shotGrainClip;
+        [SerializeField] private AudioClip rotorStartClip;
+        [SerializeField] private AudioClip rotorStopClip;
+        [SerializeField, Range(0f, 1f)] private float shotGrainVolume = 0.2f;
+        [SerializeField, Range(0f, 1f)] private float rotorStartVolume = 0.44f;
+        [SerializeField, Range(0f, 1f)] private float rotorLoopVolume = 0.22f;
+        [SerializeField, Range(0f, 1f)] private float rotorStopVolume = 0.42f;
+        [SerializeField, Min(0f)] private float loopFadeInSeconds = 0.05f;
+        [SerializeField, Min(0f)] private float loopFadeOutSeconds = 0.08f;
+        [SerializeField, Min(0.05f)] private float minimumShotLoopHoldSeconds = 0.12f;
+
+        private ShoulderChannel leftChannel;
+        private ShoulderChannel rightChannel;
+        private MechAudioVariantSet shotGrainVariants;
+        private MechAudioVariantSet rotorStartVariants;
+        private MechAudioVariantSet rotorStopVariants;
+
+        private void Awake()
+        {
+            m1343000LoopClip ??= Resources.Load<AudioClip>(
+                ResourceRoot + "m134_3000_loop");
+            m1343000BassClip ??= Resources.Load<AudioClip>(
+                ResourceRoot + "m134_3000_bass");
+            m1346000LoopClip ??= Resources.Load<AudioClip>(
+                ResourceRoot + "m134_6000_loop");
+            m1346000BassClip ??= Resources.Load<AudioClip>(
+                ResourceRoot + "m134_6000_bass");
+            rotorLoopClip ??= Resources.Load<AudioClip>(
+                ResourceRoot + "minigun_rotor_loop");
+
+            LoadClipData(m1343000LoopClip);
+            LoadClipData(m1343000BassClip);
+            LoadClipData(m1346000LoopClip);
+            LoadClipData(m1346000BassClip);
+            LoadClipData(rotorLoopClip);
+
+            shotGrainVariants = MechAudioVariantSet.Load(
+                ResourceRoot, "m134_close_001", "m134_close_", 16,
+                shotGrainClip);
+            rotorStartVariants = MechAudioVariantSet.Load(
+                ResourceRoot, "minigun_rotor_start_001",
+                "minigun_rotor_start_", 3, rotorStartClip);
+            rotorStopVariants = MechAudioVariantSet.Load(
+                ResourceRoot, "minigun_rotor_stop_001",
+                "minigun_rotor_stop_", 3, rotorStopClip);
+
+            leftChannel = CreateChannel("Left Shoulder M134 Audio");
+            rightChannel = CreateChannel("Right Shoulder M134 Audio");
+        }
+
+        public void SetRotorState(
+            MechPartSlot slot,
+            bool shouldSpin,
+            Transform anchor,
+            float roundsPerMinute)
+        {
+            var channel = ResolveChannel(slot);
+            if (channel == null)
+            {
+                return;
+            }
+
+            if (anchor != null)
+            {
+                channel.Anchor = anchor;
+            }
+            channel.RoundsPerMinute = Mathf.Max(60f, roundsPerMinute);
+            FollowAnchor(channel);
+            if (channel.Spinning == shouldSpin)
+            {
+                return;
+            }
+
+            channel.Spinning = shouldSpin;
+            if (shouldSpin)
+            {
+                PlayOneShot(
+                    channel.RotorTransient,
+                    rotorStartVariants.Next(),
+                    rotorStartVolume);
+                return;
+            }
+
+            channel.LastShotTime = float.NegativeInfinity;
+            PlayOneShot(
+                channel.RotorTransient,
+                rotorStopVariants.Next(),
+                rotorStopVolume);
+        }
+
+        public void PlayShot(
+            MechPartSlot slot,
+            Transform anchor,
+            float roundsPerMinute)
+        {
+            var channel = ResolveChannel(slot);
+            if (channel == null)
+            {
+                return;
+            }
+
+            if (anchor != null)
+            {
+                channel.Anchor = anchor;
+            }
+            channel.RoundsPerMinute = Mathf.Max(60f, roundsPerMinute);
+            channel.HighRateProfile =
+                channel.RoundsPerMinute >= HighRateThresholdRpm;
+            channel.LastShotTime = Time.unscaledTime;
+            FollowAnchor(channel);
+            PlayOneShot(
+                channel.ShotGrain,
+                shotGrainVariants.Next(),
+                shotGrainVolume);
+        }
+
+        private void Update()
+        {
+            var now = Time.unscaledTime;
+            var deltaTime = Time.unscaledDeltaTime;
+            UpdateChannel(leftChannel, now, deltaTime);
+            UpdateChannel(rightChannel, now, deltaTime);
+        }
+
+        private void OnDisable()
+        {
+            StopChannel(leftChannel);
+            StopChannel(rightChannel);
+        }
+
+        private void UpdateChannel(
+            ShoulderChannel channel,
+            float now,
+            float deltaTime)
+        {
+            if (channel == null)
+            {
+                return;
+            }
+
+            FollowAnchor(channel);
+            var cycleSeconds = 60f / Mathf.Max(60f, channel.RoundsPerMinute);
+            var holdSeconds = Mathf.Max(
+                minimumShotLoopHoldSeconds,
+                cycleSeconds * 2.5f);
+            var firing =
+                channel.Spinning &&
+                now - channel.LastShotTime <= holdSeconds;
+            var gunLoopClip = channel.HighRateProfile
+                ? m1346000LoopClip
+                : m1343000LoopClip;
+            var gunBassClip = channel.HighRateProfile
+                ? m1346000BassClip
+                : m1343000BassClip;
+            var gunLoopVolume = channel.HighRateProfile
+                ? m1346000LoopVolume
+                : m1343000LoopVolume;
+            var gunBassVolume = channel.HighRateProfile
+                ? m1346000BassVolume
+                : m1343000BassVolume;
+
+            UpdateLoop(
+                channel.RotorLoop,
+                rotorLoopClip,
+                channel.Spinning ? rotorLoopVolume : 0f,
+                deltaTime);
+            UpdateLoop(
+                channel.GunLoop,
+                gunLoopClip,
+                firing ? gunLoopVolume : 0f,
+                deltaTime);
+            UpdateLoop(
+                channel.GunBass,
+                gunBassClip,
+                firing ? gunBassVolume : 0f,
+                deltaTime);
+        }
+
+        private ShoulderChannel ResolveChannel(MechPartSlot slot)
+        {
+            return slot switch
+            {
+                MechPartSlot.LeftBackWeapon => leftChannel,
+                MechPartSlot.RightBackWeapon => rightChannel,
+                _ => null,
+            };
+        }
+
+        private ShoulderChannel CreateChannel(string name)
+        {
+            var root = new GameObject(name);
+            root.transform.SetParent(transform, false);
+            return new ShoulderChannel
+            {
+                Root = root,
+                RotorTransient = CreateSource(root, false),
+                RotorLoop = CreateSource(root, true),
+                GunLoop = CreateSource(root, true),
+                GunBass = CreateSource(root, true),
+                ShotGrain = CreateSource(root, false),
+            };
+        }
+
+        private static AudioSource CreateSource(GameObject root, bool loop)
+        {
+            var source = root.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.loop = loop;
+            source.volume = loop ? 0f : 1f;
+            source.spatialBlend = 1f;
+            source.dopplerLevel = 0.1f;
+            source.minDistance = 4f;
+            source.maxDistance = 3000f;
+            source.rolloffMode = AudioRolloffMode.Logarithmic;
+            source.priority = 96;
+            return source;
+        }
+
+        private void UpdateLoop(
+            AudioSource source,
+            AudioClip clip,
+            float targetVolume,
+            float deltaTime)
+        {
+            if (source == null || clip == null)
+            {
+                return;
+            }
+
+            if (source.clip != clip)
+            {
+                source.Stop();
+                source.clip = clip;
+                source.volume = 0f;
+            }
+            if (targetVolume > 0f && !source.isPlaying)
+            {
+                source.Play();
+            }
+
+            var fadeSeconds = targetVolume > source.volume
+                ? loopFadeInSeconds
+                : loopFadeOutSeconds;
+            var amplitude = Mathf.Max(
+                Mathf.Max(targetVolume, source.volume),
+                0.01f);
+            var maxDelta = fadeSeconds > 0f
+                ? amplitude * deltaTime / fadeSeconds
+                : 1f;
+            source.volume = Mathf.MoveTowards(
+                source.volume,
+                targetVolume,
+                maxDelta);
+            if (targetVolume <= 0f && source.volume <= 0.001f)
+            {
+                source.volume = 0f;
+                source.Stop();
+            }
+        }
+
+        private static void FollowAnchor(ShoulderChannel channel)
+        {
+            if (channel?.Root != null && channel.Anchor != null)
+            {
+                channel.Root.transform.position = channel.Anchor.position;
+            }
+        }
+
+        private static void StopChannel(ShoulderChannel channel)
+        {
+            if (channel == null)
+            {
+                return;
+            }
+
+            channel.Spinning = false;
+            channel.LastShotTime = float.NegativeInfinity;
+            channel?.RotorTransient?.Stop();
+            channel?.RotorLoop?.Stop();
+            channel?.GunLoop?.Stop();
+            channel?.GunBass?.Stop();
+            channel?.ShotGrain?.Stop();
+        }
+
+        private static void PlayOneShot(
+            AudioSource source,
+            AudioClip clip,
+            float volume)
+        {
+            if (source != null && clip != null && volume > 0f)
+            {
+                source.PlayOneShot(clip, volume);
+            }
+        }
+
+        private static void LoadClipData(AudioClip clip)
+        {
+            clip?.LoadAudioData();
         }
     }
 }

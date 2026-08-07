@@ -22,6 +22,16 @@ namespace ACunicombat.Mechs
 
 		private const float PanelGap = 14f;
 
+		private const float PartMetricRowHeight = 46f;
+
+		private const float PartMetricRowStride = 48f;
+
+		private const float PartMetricTrackHeight = 8f;
+
+		private const float AggregateMetricRowHeight = 38f;
+
+		private const float AggregateMetricRowStride = 40f;
+
 		private static readonly Color ComparisonImprovementColor = new Color(0.36f, 0.7f, 1f, 1f);
 
 		private static readonly Color ComparisonRegressionColor = new Color(1f, 0.33f, 0.3f, 1f);
@@ -104,6 +114,8 @@ namespace ACunicombat.Mechs
 
 		private float previousTimeScale = 1f;
 
+		private bool ownsMenuPause;
+
 		private bool stylesReady;
 
 		private GUIStyle titleStyle;
@@ -171,6 +183,10 @@ namespace ACunicombat.Mechs
 		private GUIStyle comparisonBaselineStyle;
 
 		private GUIStyle comparisonArrowStyle;
+
+		private GUIStyle aggregateLabelStyle;
+
+		private GUIStyle aggregateValueStyle;
 
 		private Texture2D panelTexture;
 
@@ -258,15 +274,32 @@ namespace ACunicombat.Mechs
 			CopySelection(MechLoadoutSelectionStore.ReadSelection(assembler.Loadout));
 			appearance = MechAppearanceSelectionStore.Load();
 			previewRenderer.SetAppearance(appearance);
-			SetVisible(!MechLoadoutSelectionStore.ConsumeSkipNextOpen());
+			bool skipMenu = MechLoadoutSelectionStore.ConsumeSkipNextOpen();
+			if (skipMenu)
+			{
+				RestoreGameplayState(restoreStalePause: true);
+			}
+			SetVisible(!skipMenu);
+		}
+
+		private void OnEnable()
+		{
+			if (visible)
+			{
+				IsAnyMenuVisible = true;
+				AcquireMenuPause();
+			}
+		}
+
+		private void OnDisable()
+		{
+			RestoreGameplayState(restoreStalePause: false);
+			IsAnyMenuVisible = false;
 		}
 
 		private void OnDestroy()
 		{
-			if (visible)
-			{
-				Time.timeScale = previousTimeScale;
-			}
+			RestoreGameplayState(restoreStalePause: false);
 			IsAnyMenuVisible = false;
 			DestroyTexture(panelTexture);
 			DestroyTexture(headerTexture);
@@ -328,28 +361,56 @@ namespace ACunicombat.Mechs
 
 		private void SetVisible(bool value)
 		{
+			IsAnyMenuVisible = value;
+			previewRenderer?.SetRenderingEnabled(value);
 			if (visible != value)
 			{
 				visible = value;
-				IsAnyMenuVisible = value;
-				previewRenderer?.SetRenderingEnabled(value);
 				if (visible)
 				{
-					previousTimeScale = Time.timeScale;
-					previousCursorLockMode = Cursor.lockState;
-					previousCursorVisible = Cursor.visible;
-					Time.timeScale = 0f;
-					Cursor.lockState = CursorLockMode.None;
-					Cursor.visible = true;
+					AcquireMenuPause();
 					summaryDirty = true;
 					previewDirty = true;
 				}
 				else
 				{
-					Time.timeScale = previousTimeScale;
-					Cursor.lockState = previousCursorLockMode;
-					Cursor.visible = previousCursorVisible;
+					RestoreGameplayState(restoreStalePause: false);
 				}
+			}
+		}
+
+		private void AcquireMenuPause()
+		{
+			if (!ownsMenuPause)
+			{
+				// A script reload can preserve Time.timeScale while recreating this component.
+				// Never adopt that stale zero as the gameplay time scale to restore later.
+				previousTimeScale = Time.timeScale > Mathf.Epsilon ? Time.timeScale : 1f;
+				previousCursorLockMode = Cursor.lockState;
+				previousCursorVisible = Cursor.visible;
+				ownsMenuPause = true;
+			}
+
+			Time.timeScale = 0f;
+			Cursor.lockState = CursorLockMode.None;
+			Cursor.visible = true;
+		}
+
+		private void RestoreGameplayState(bool restoreStalePause)
+		{
+			if (ownsMenuPause)
+			{
+				Time.timeScale = previousTimeScale > Mathf.Epsilon ? previousTimeScale : 1f;
+				Cursor.lockState = previousCursorLockMode;
+				Cursor.visible = previousCursorVisible;
+				ownsMenuPause = false;
+				return;
+			}
+
+			if (restoreStalePause && Time.timeScale <= Mathf.Epsilon)
+			{
+				Debug.LogWarning("[MechAssemblyMenu] Cleared a stale menu pause before entering combat.", this);
+				Time.timeScale = 1f;
 			}
 		}
 
@@ -722,7 +783,9 @@ namespace ACunicombat.Mechs
 			MechPartCatalogEntry equippedEntry = catalog.Find(equippedPartId);
 			MechPartDefinition equippedPart = equippedEntry?.LoadPart();
 			bool hasImportedInternalData = part.InternalPerformance != null && part.InternalPerformance.HasData;
-			float viewHeight = (entry.IsWeapon ? 1700f : (hasImportedInternalData ? 980f : 1460f));
+			float viewHeight = entry.IsWeapon
+				? (part.HasTag("point-defense") ? 2100f : 1500f)
+				: (hasImportedInternalData ? 1180f : 1760f);
 			Rect view = new Rect(0f, 0f, rect.width - 18f, viewHeight);
 			selectedStatsScroll = GUI.BeginScrollView(rect, selectedStatsScroll, view);
 			float y = 0f;
@@ -787,32 +850,35 @@ namespace ACunicombat.Mechs
 		private void DrawWeaponPerformanceStats(Rect view, ref float y, MechPartCatalogEntry entry, MechPartDefinition part, MechPartCatalogEntry equippedEntry, MechPartDefinition equippedPart)
 		{
 			MechWeaponPerformanceSnapshot weapon = default(MechWeaponPerformanceSnapshot);
-			bool configured = entry.IsTested && weaponSystem != null && weaponSystem.TryGetWeaponPerformance(entry.PartId, out weapon);
+			bool configured = weaponSystem != null && weaponSystem.TryGetWeaponPerformance(entry.PartId, out weapon);
 			MechWeaponPerformanceSnapshot equippedWeapon = default(MechWeaponPerformanceSnapshot);
-			bool equippedConfigured = equippedEntry != null && equippedEntry.IsTested && weaponSystem != null && weaponSystem.TryGetWeaponPerformance(equippedEntry.PartId, out equippedWeapon);
+			bool equippedConfigured = equippedEntry != null && weaponSystem != null && weaponSystem.TryGetWeaponPerformance(equippedEntry.PartId, out equippedWeapon);
 			string unavailable = "未录入";
 			DrawPartMetricGroup(view, ref y, "武器性能");
 			DrawPartTextRow(view, ref y, "武器类别", configured ? weapon.WeaponType : unavailable, equippedConfigured ? equippedWeapon.WeaponType : null);
 			if (configured)
 			{
 				DrawPartMetric(view, ref y, "攻击力", weapon.DirectHitDamage, 500f, $"{weapon.DirectHitDamage:0}", Compared(equippedConfigured, equippedWeapon.DirectHitDamage), equippedConfigured ? $"{equippedWeapon.DirectHitDamage:0}" : null);
-				if (weapon.IsPointDefense)
+				if (weapon.HasEffectiveRange)
 				{
-					DrawPartMetric(view, ref y, "拦截伤害", weapon.InterceptionDamage, 150f, $"{weapon.InterceptionDamage:0}", Compared(equippedConfigured && equippedWeapon.IsPointDefense, equippedWeapon.InterceptionDamage), (equippedConfigured && equippedWeapon.IsPointDefense) ? $"{equippedWeapon.InterceptionDamage:0}" : null);
+					DrawPartMetric(view, ref y, "有效射程", weapon.EffectiveRangeMeters, 50000f, FormatDistance(weapon.EffectiveRangeMeters), Compared(equippedConfigured && equippedWeapon.HasEffectiveRange, equippedWeapon.EffectiveRangeMeters), (equippedConfigured && equippedWeapon.HasEffectiveRange) ? FormatDistance(equippedWeapon.EffectiveRangeMeters) : null);
 				}
-				float weaponRange = (weapon.HasEffectiveRange ? weapon.EffectiveRangeMeters : weapon.MaximumRangeMeters);
-				float equippedRange = (equippedWeapon.HasEffectiveRange ? equippedWeapon.EffectiveRangeMeters : equippedWeapon.MaximumRangeMeters);
-				DrawPartMetric(view, ref y, "有效射程", weaponRange, 50000f, weapon.HasEffectiveRange ? FormatDistance(weapon.EffectiveRangeMeters) : ("动态 / 上限 " + FormatDistance(weapon.MaximumRangeMeters)), Compared(equippedConfigured, equippedRange), (!equippedConfigured) ? null : (equippedWeapon.HasEffectiveRange ? FormatDistance(equippedWeapon.EffectiveRangeMeters) : ("动态 / 上限 " + FormatDistance(equippedWeapon.MaximumRangeMeters))));
+				else
+				{
+					DrawPartTextRow(view, ref y, "有效射程", "未标定", (equippedConfigured && equippedWeapon.HasEffectiveRange) ? FormatDistance(equippedWeapon.EffectiveRangeMeters) : null);
+				}
+				DrawPartMetric(view, ref y, "最大射程", weapon.MaximumRangeMeters, 50000f, FormatDistance(weapon.MaximumRangeMeters), Compared(equippedConfigured, equippedWeapon.MaximumRangeMeters), equippedConfigured ? FormatDistance(equippedWeapon.MaximumRangeMeters) : null);
 			}
 			else
 			{
 				DrawPartTextRow(view, ref y, "攻击力", unavailable);
 				DrawPartTextRow(view, ref y, "有效射程", unavailable);
+				DrawPartTextRow(view, ref y, "最大射程", unavailable);
 			}
 			DrawPartMetricGroup(view, ref y, "弹道与精度");
 			if (configured)
 			{
-				DrawPartMetric(view, ref y, weapon.IsGuidedMissile ? "出筒速度" : "弹丸初速", weapon.MuzzleVelocityMetersPerSecond, 2000f, $"{weapon.MuzzleVelocityMetersPerSecond:0} m/s", Compared(equippedConfigured, equippedWeapon.MuzzleVelocityMetersPerSecond), equippedConfigured ? $"{equippedWeapon.MuzzleVelocityMetersPerSecond:0} m/s" : null);
+				DrawPartMetric(view, ref y, weapon.IsGuidedMissile ? "出筒速度" : "弹丸初速", weapon.MuzzleVelocityMetersPerSecond, 3000f, $"{weapon.MuzzleVelocityMetersPerSecond:0} m/s", Compared(equippedConfigured, equippedWeapon.MuzzleVelocityMetersPerSecond), equippedConfigured ? $"{equippedWeapon.MuzzleVelocityMetersPerSecond:0} m/s" : null);
 				if (weapon.HasFireRate)
 				{
 					DrawPartMetric(view, ref y, "射速", weapon.FireRateRoundsPerMinute, 1200f, $"{weapon.FireRateRoundsPerMinute:0.#} rpm", Compared(equippedConfigured && equippedWeapon.HasFireRate, equippedWeapon.FireRateRoundsPerMinute), (equippedConfigured && equippedWeapon.HasFireRate) ? $"{equippedWeapon.FireRateRoundsPerMinute:0.#} rpm" : null);
@@ -851,7 +917,8 @@ namespace ACunicombat.Mechs
 			{
 				DrawPartTextRow(view, ref y, "单发后坐冲量", weapon.HasRecoilImpulse ? $"{weapon.RecoilImpulseNewtonSeconds:0.#} N·s" : (weapon.IsGuidedMissile ? "不适用" : "未标定"));
 				DrawPartMetric(view, ref y, "弹匣容量", weapon.MagazineCapacity, 64f, $"{weapon.MagazineCapacity} 发", Compared(equippedConfigured, equippedWeapon.MagazineCapacity), equippedConfigured ? $"{equippedWeapon.MagazineCapacity} 发" : null);
-				DrawPartMetric(view, ref y, "总弹药量", weapon.TotalAmmunition, 1000f, $"{weapon.TotalAmmunition} 发", Compared(equippedConfigured, equippedWeapon.TotalAmmunition), equippedConfigured ? $"{equippedWeapon.TotalAmmunition} 发" : null);
+				float totalAmmoScale = weapon.IsPointDefense ? 1000f : 500f;
+				DrawPartMetric(view, ref y, "总弹药量", weapon.TotalAmmunition, totalAmmoScale, $"{weapon.TotalAmmunition} 发", Compared(equippedConfigured, equippedWeapon.TotalAmmunition), equippedConfigured ? $"{equippedWeapon.TotalAmmunition} 发" : null);
 				DrawPartMetric(view, ref y, "装填时间", weapon.ReloadTimeSeconds, 10f, (weapon.ReloadTimeSeconds > 0f) ? $"{weapon.ReloadTimeSeconds:0.00} s" : "即时换架", Compared(equippedConfigured, equippedWeapon.ReloadTimeSeconds), (!equippedConfigured) ? null : ((equippedWeapon.ReloadTimeSeconds > 0f) ? $"{equippedWeapon.ReloadTimeSeconds:0.00} s" : "即时换架"), higherIsBetter: false);
 			}
 			else
@@ -952,12 +1019,12 @@ namespace ACunicombat.Mechs
 			RefreshSummary();
 			MechAggregatedStats current = cachedStats ?? new MechAggregatedStats();
 			MechAggregatedStats equipped = cachedEquippedStats ?? current;
-			statsScroll = GUI.BeginScrollView(rect, statsScroll, new Rect(0f, 0f, rect.width - 18f, 930f));
-			Rect row = new Rect(0f, 0f, rect.width - 22f, 30f);
+			statsScroll = GUI.BeginScrollView(rect, statsScroll, new Rect(0f, 0f, rect.width - 18f, 1450f));
+			Rect row = new Rect(0f, 0f, rect.width - 22f, AggregateMetricRowHeight);
 			float y = 0f;
 			if (selectingPart)
 			{
-				DrawComparisonColumnHeader(row, ref y);
+				DrawAggregateComparisonHeader(row, ref y);
 			}
 			DrawGroup(ref y, row, "结构");
 			DrawAggregateValueRow(row, ref y, "总质量", current.totalMassKg, equipped.totalMassKg, "0", " kg", higherIsBetter: false, 100000f);
@@ -985,6 +1052,7 @@ namespace ACunicombat.Mechs
 			DrawCapacityBar(row, ref y, "承载负载", current.totalMassKg, current.supportedMassKg, "kg");
 			DrawCapacityBar(row, ref y, "峰值能源负载", current.peakPowerDrawMw, current.powerOutputMw, "MW");
 			DrawCapacityBar(row, ref y, "散热负载", current.heatGenerationMw, current.heatDissipationMw, "MW");
+			DrawFireControlErrorChart(row, ref y, current, equipped);
 			GUI.EndScrollView();
 		}
 
@@ -1092,7 +1160,9 @@ namespace ACunicombat.Mechs
 
 		private void ReloadScene()
 		{
-			Time.timeScale = previousTimeScale;
+			RestoreGameplayState(restoreStalePause: true);
+			visible = false;
+			IsAnyMenuVisible = false;
 			Scene scene = SceneManager.GetActiveScene();
 			SceneManager.LoadScene((scene.buildIndex >= 0) ? scene.buildIndex : 0);
 		}
@@ -1163,16 +1233,16 @@ namespace ACunicombat.Mechs
 
 		private void DrawPartMetricGroup(Rect area, ref float y, string title)
 		{
-			y += 8f;
-			GUI.Label(new Rect(area.x, y, area.width, 28f), title, headingStyle);
-			GUI.DrawTexture(new Rect(area.x, y + 27f, area.width - 4f, 1f), frameTexture);
-			y += 34f;
+			y += 10f;
+			GUI.Label(new Rect(area.x + 4f, y, area.width - 4f, 30f), title, headingStyle);
+			GUI.DrawTexture(new Rect(area.x, y + 29f, area.width - 4f, 1f), frameTexture);
+			y += 38f;
 		}
 
 		private void DrawPartTextRow(Rect area, ref float y, string label, string value, string equippedValue = null)
 		{
-			Rect row = new Rect(area.x, y, area.width - 4f, 38f);
-			GUI.DrawTexture(row, ((Mathf.FloorToInt(y / 38f) & 1) == 0) ? rowTexture : alternateRowTexture);
+			Rect row = new Rect(area.x, y, area.width - 4f, PartMetricRowHeight);
+			GUI.DrawTexture(row, ((Mathf.FloorToInt(y / PartMetricRowStride) & 1) == 0) ? rowTexture : alternateRowTexture);
 			if (selectingPart && equippedValue != null)
 			{
 				GetComparisonRowRects(row, out var labelRect, out var track, out var equippedRect, out var arrowRect, out var candidateRect);
@@ -1188,21 +1258,22 @@ namespace ACunicombat.Mechs
 					DrawColorSwatch(new Rect(track.x, track.y, track.width, track.height), new Color(ComparisonImprovementColor.r, ComparisonImprovementColor.g, ComparisonImprovementColor.b, 0.72f));
 				}
 				GUI.Label(equippedRect, equippedValue, comparisonBaselineStyle);
-				DrawComparisonArrow(arrowRect, ">", changed, better: true);
+				DrawComparisonFlowArrow(equippedRect, candidateRect);
+				DrawComparisonArrow(arrowRect, string.Empty, changed, better: true);
 				GUI.Label(candidateRect, value, changed ? comparisonPositiveStyle : valueStyle);
 			}
 			else
 			{
-				GUI.Label(new Rect(row.x + 8f, row.y, row.width * 0.46f - 8f, row.height), label, labelStyle);
+				GUI.Label(new Rect(row.x + 12f, row.y, row.width * 0.46f - 12f, row.height), label, labelStyle);
 				GUI.Label(new Rect(row.x + row.width * 0.46f, row.y, row.width * 0.54f - 10f, row.height), value, valueStyle);
 			}
-			y += 40f;
+			y += PartMetricRowStride;
 		}
 
 		private void DrawPartMetric(Rect area, ref float y, string label, float value, float displayMaximum, string valueText, float? equippedValue = null, string equippedValueText = null, bool higherIsBetter = true, float displayMinimum = 0f)
 		{
-			Rect row = new Rect(area.x, y, area.width - 4f, 38f);
-			GUI.DrawTexture(row, ((Mathf.FloorToInt(y / 38f) & 1) == 0) ? rowTexture : alternateRowTexture);
+			Rect row = new Rect(area.x, y, area.width - 4f, PartMetricRowHeight);
+			GUI.DrawTexture(row, ((Mathf.FloorToInt(y / PartMetricRowStride) & 1) == 0) ? rowTexture : alternateRowTexture);
 			if (selectingPart && equippedValue.HasValue)
 			{
 				GetComparisonRowRects(row, out var labelRect, out var track, out var equippedRect, out var arrowRect, out var candidateRect);
@@ -1217,15 +1288,17 @@ namespace ACunicombat.Mechs
 				GUI.Label(labelRect, label, labelStyle);
 				DrawComparisonTrack(track, value, baseline, displayMinimum, displayMaximum, changed, better);
 				GUI.Label(equippedRect, equippedValueText ?? baseline.ToString("0.##"), comparisonBaselineStyle);
-				DrawComparisonArrow(arrowRect, (!changed) ? ">" : ((delta > 0f) ? "▲" : "▼"), changed, better);
+				DrawComparisonFlowArrow(equippedRect, candidateRect);
+				DrawComparisonArrow(arrowRect, (!changed) ? string.Empty : ((delta > 0f) ? "▲" : "▼"), changed, better);
 				GUI.Label(candidateRect, valueText, (!changed) ? valueStyle : (better ? comparisonPositiveStyle : comparisonNegativeStyle));
 			}
 			else
 			{
-				float labelWidth = row.width * 0.29f;
-				float valueWidth = Mathf.Clamp(row.width * 0.22f, 92f, 150f);
-				Rect track2 = new Rect(row.x + labelWidth, row.y + 16f, Mathf.Max(36f, row.width - labelWidth - valueWidth - 18f), 5f);
-				GUI.Label(new Rect(row.x + 8f, row.y, labelWidth - 12f, row.height), label, labelStyle);
+				float labelWidth = row.width * 0.21f;
+				float valueWidth = Mathf.Clamp(row.width * 0.19f, 110f, 210f);
+				float availableTrackWidth = Mathf.Max(72f, row.width - labelWidth - valueWidth - 24f);
+				Rect track2 = new Rect(row.x + labelWidth, row.y + row.height * 0.5f - PartMetricTrackHeight * 0.5f, availableTrackWidth * 0.7f, PartMetricTrackHeight);
+				GUI.Label(new Rect(row.x + 12f, row.y, labelWidth - 16f, row.height), label, labelStyle);
 				GUI.DrawTexture(track2, sliderTrackTexture);
 				Rect fill = track2;
 				fill.width *= Mathf.Clamp01(Mathf.InverseLerp(displayMinimum, displayMaximum, value));
@@ -1233,11 +1306,11 @@ namespace ACunicombat.Mechs
 				{
 					GUI.DrawTexture(fill, metricFillTexture);
 				}
-				GUI.DrawTexture(new Rect(track2.x, track2.y - 3f, 1f, 11f), metricFillTexture);
-				GUI.DrawTexture(new Rect(track2.xMax, track2.y - 3f, 1f, 11f), frameTexture);
+				GUI.DrawTexture(new Rect(track2.x, track2.y - 3f, 2f, 14f), metricFillTexture);
+				GUI.DrawTexture(new Rect(track2.xMax - 1f, track2.y - 3f, 2f, 14f), frameTexture);
 				GUI.Label(new Rect(row.xMax - valueWidth, row.y, valueWidth - 8f, row.height), valueText, valueStyle);
 			}
-			y += 40f;
+			y += PartMetricRowStride;
 		}
 
 		private void DrawPartComparisonMetric(Rect area, ref float y, string label, float value, float? equippedValue, float displayMaximum, string format, string suffix, bool higherIsBetter, float displayMinimum = 0f)
@@ -1251,23 +1324,53 @@ namespace ACunicombat.Mechs
 			GUI.DrawTexture(rect, sectionHeaderTexture);
 			GetComparisonRowRects(rect, out var labelRect, out var trackRect, out var equippedRect, out var arrowRect, out var candidateRect);
 			GUI.Label(labelRect, "性能比较", overlineStyle);
-			GUI.Label(trackRect, "变化", overlineStyle);
+			GUI.Label(trackRect, "性能比例", overlineStyle);
 			GUI.Label(equippedRect, "当前", comparisonBaselineStyle);
-			GUI.Label(arrowRect, ">", comparisonArrowStyle);
+			DrawComparisonFlowArrow(equippedRect, candidateRect);
 			GUI.Label(candidateRect, "候选", valueStyle);
-			y += 34f;
+			y += 36f;
 		}
 
 		private static void GetComparisonRowRects(Rect row, out Rect labelRect, out Rect trackRect, out Rect equippedRect, out Rect arrowRect, out Rect candidateRect)
 		{
-			float labelWidth = Mathf.Clamp(row.width * 0.34f, 124f, 184f);
-			float trackWidth = Mathf.Clamp(row.width * 0.17f, 58f, 112f);
-			float equippedWidth = Mathf.Clamp(row.width * 0.18f, 66f, 104f);
-			labelRect = new Rect(row.x + 8f, row.y, labelWidth - 12f, row.height);
-			trackRect = new Rect(row.x + labelWidth + 4f, row.y + row.height * 0.5f - 2.5f, trackWidth, 5f);
-			equippedRect = new Rect(trackRect.xMax + 6f, row.y, equippedWidth, row.height);
-			arrowRect = new Rect(equippedRect.xMax + 2f, row.y, 22f, row.height);
-			candidateRect = new Rect(arrowRect.xMax + 2f, row.y, Mathf.Max(54f, row.xMax - arrowRect.xMax - 10f), row.height);
+			if (row.width < 700f)
+			{
+				float compactLabelWidth = Mathf.Clamp(row.width * 0.3f, 112f, 150f);
+				float compactTrackWidth = Mathf.Clamp(row.width * 0.18f, 56f, 84f);
+				float compactEquippedWidth = Mathf.Clamp(row.width * 0.18f, 68f, 92f);
+				float compactArrowWidth = 22f;
+				labelRect = new Rect(row.x + 12f, row.y, compactLabelWidth - 16f, row.height);
+				float compactTrackStart = row.x + compactLabelWidth + 4f;
+				trackRect = new Rect(compactTrackStart, row.y + row.height * 0.5f - PartMetricTrackHeight * 0.5f, compactTrackWidth * 0.7f, PartMetricTrackHeight);
+				equippedRect = new Rect(compactTrackStart + compactTrackWidth + 6f, row.y, compactEquippedWidth, row.height);
+				candidateRect = new Rect(equippedRect.xMax + 20f, row.y, Mathf.Max(56f, row.xMax - equippedRect.xMax - compactArrowWidth - 32f), row.height);
+				arrowRect = new Rect(candidateRect.xMax + 2f, row.y, compactArrowWidth, row.height);
+				return;
+			}
+
+			float labelWidth = Mathf.Clamp(row.width * 0.19f, 132f, 210f);
+			float equippedWidth = Mathf.Clamp(row.width * 0.14f, 92f, 156f);
+			float candidateWidth = Mathf.Clamp(row.width * 0.18f, 118f, 210f);
+			float arrowWidth = 30f;
+			float rightPadding = 8f;
+			float trackStart = row.x + labelWidth + 8f;
+			float trackEnd = row.xMax - rightPadding - arrowWidth - candidateWidth - equippedWidth - 42f;
+			labelRect = new Rect(row.x + 12f, row.y, labelWidth - 16f, row.height);
+			float availableTrackWidth = Mathf.Max(96f, trackEnd - trackStart);
+			trackRect = new Rect(trackStart, row.y + row.height * 0.5f - PartMetricTrackHeight * 0.5f, availableTrackWidth * 0.7f, PartMetricTrackHeight);
+			equippedRect = new Rect(trackStart + availableTrackWidth + 14f, row.y, equippedWidth, row.height);
+			candidateRect = new Rect(equippedRect.xMax + 28f, row.y, candidateWidth, row.height);
+			arrowRect = new Rect(candidateRect.xMax + 2f, row.y, arrowWidth, row.height);
+		}
+
+		private void DrawComparisonFlowArrow(Rect equippedRect, Rect candidateRect)
+		{
+			Rect flowRect = new Rect(
+				equippedRect.xMax,
+				equippedRect.y,
+				Mathf.Max(12f, candidateRect.x - equippedRect.xMax),
+				equippedRect.height);
+			GUI.Label(flowRect, ">", comparisonArrowStyle);
 		}
 
 		private void DrawComparisonTrack(Rect track, float candidate, float equipped, float displayMinimum, float displayMaximum, bool changed, bool better)
@@ -1292,8 +1395,8 @@ namespace ACunicombat.Mechs
 				float differenceWidth = Mathf.Max(2f, Mathf.Abs(candidateRatio - equippedRatio) * track.width);
 				DrawColorSwatch(new Rect(Mathf.Clamp(track.x + differenceStart * track.width, track.x, Mathf.Max(track.x, track.xMax - differenceWidth)), track.y, differenceWidth, track.height), better ? ComparisonImprovementColor : ComparisonRegressionColor);
 			}
-			DrawColorSwatch(new Rect(Mathf.Lerp(track.x + 0.5f, track.xMax - 0.5f, equippedRatio) - 0.5f, track.y - 3f, 1f, 11f), ComparisonBaselineColor);
-			DrawColorSwatch(new Rect(Mathf.Lerp(track.x + 1f, track.xMax - 1f, candidateRatio) - 1f, track.y - 4f, 2f, 13f), (!changed) ? new Color(0.755f, 0.85f, 0.9f, 1f) : (better ? ComparisonImprovementColor : ComparisonRegressionColor));
+			DrawColorSwatch(new Rect(Mathf.Lerp(track.x + 1f, track.xMax - 1f, equippedRatio) - 1f, track.y - 4f, 2f, 16f), ComparisonBaselineColor);
+			DrawColorSwatch(new Rect(Mathf.Lerp(track.x + 1.5f, track.xMax - 1.5f, candidateRatio) - 1.5f, track.y - 5f, 3f, 18f), (!changed) ? new Color(0.755f, 0.85f, 0.9f, 1f) : (better ? ComparisonImprovementColor : ComparisonRegressionColor));
 		}
 
 		private void DrawComparisonArrow(Rect rect, string symbol, bool changed, bool better)
@@ -1321,11 +1424,11 @@ namespace ACunicombat.Mechs
 
 		private void DrawAggregateValueRow(Rect area, ref float y, string label, float candidate, float equipped, string format, string suffix, bool higherIsBetter, float displayMaximum, float displayMinimum = 0f)
 		{
-			Rect row = new Rect(area.x, y, area.width, area.height);
-			GUI.DrawTexture(row, ((Mathf.FloorToInt(y / area.height) & 1) == 0) ? rowTexture : alternateRowTexture);
+			Rect row = new Rect(area.x, y, area.width, AggregateMetricRowHeight);
+			GUI.DrawTexture(row, ((Mathf.FloorToInt(y / AggregateMetricRowStride) & 1) == 0) ? rowTexture : alternateRowTexture);
 			if (selectingPart)
 			{
-				GetComparisonRowRects(row, out var labelRect, out var track, out var equippedRect, out var arrowRect, out var candidateRect);
+				GetAggregateComparisonRects(row, out var labelRect, out var equippedRect, out var flowRect, out var candidateRect, out var arrowRect);
 				float delta = candidate - equipped;
 				bool changed = HasMeaningfulDifference(candidate, equipped);
 				bool better = (higherIsBetter ? (delta > 0f) : (delta < 0f));
@@ -1333,18 +1436,49 @@ namespace ACunicombat.Mechs
 				{
 					DrawColorSwatch(new Rect(row.x, row.y, 3f, row.height), better ? ComparisonImprovementColor : ComparisonRegressionColor);
 				}
-				GUI.Label(labelRect, label, labelStyle);
-				DrawComparisonTrack(track, candidate, equipped, displayMinimum, displayMaximum, changed, better);
+				GUI.Label(labelRect, label, aggregateLabelStyle);
 				GUI.Label(equippedRect, equipped.ToString(format), comparisonBaselineStyle);
-				DrawComparisonArrow(arrowRect, (!changed) ? ">" : ((delta > 0f) ? "▲" : "▼"), changed, better);
-				GUI.Label(candidateRect, candidate.ToString(format) + suffix, (!changed) ? valueStyle : (better ? comparisonPositiveStyle : comparisonNegativeStyle));
+				GUI.Label(flowRect, ">", comparisonArrowStyle);
+				DrawComparisonArrow(arrowRect, (!changed) ? string.Empty : ((delta > 0f) ? "▲" : "▼"), changed, better);
+				GUI.Label(candidateRect, candidate.ToString(format) + suffix, (!changed) ? aggregateValueStyle : (better ? comparisonPositiveStyle : comparisonNegativeStyle));
 			}
 			else
 			{
-				GUI.Label(new Rect(row.x + 8f, row.y, row.width * 0.54f - 8f, row.height), label, labelStyle);
-				GUI.Label(new Rect(row.x + row.width * 0.54f, row.y, row.width * 0.46f - 8f, row.height), candidate.ToString(format) + suffix, valueStyle);
+				GUI.Label(new Rect(row.x + 12f, row.y, row.width * 0.54f - 12f, row.height), label, aggregateLabelStyle);
+				GUI.Label(new Rect(row.x + row.width * 0.54f, row.y, row.width * 0.46f - 8f, row.height), candidate.ToString(format) + suffix, aggregateValueStyle);
 			}
-			y += area.height + 1f;
+			y += AggregateMetricRowStride;
+		}
+
+		private void DrawAggregateComparisonHeader(Rect area, ref float y)
+		{
+			Rect row = new Rect(area.x, y, area.width, 30f);
+			GUI.DrawTexture(row, sectionHeaderTexture);
+			GetAggregateComparisonRects(row, out var labelRect, out var equippedRect, out var flowRect, out var candidateRect, out var arrowRect);
+			GUI.Label(labelRect, "性能比较", overlineStyle);
+			GUI.Label(equippedRect, "当前", comparisonBaselineStyle);
+			GUI.Label(flowRect, ">", comparisonArrowStyle);
+			GUI.Label(candidateRect, "候选", aggregateValueStyle);
+			y += 36f;
+		}
+
+		private static void GetAggregateComparisonRects(
+			Rect row,
+			out Rect labelRect,
+			out Rect equippedRect,
+			out Rect flowRect,
+			out Rect candidateRect,
+			out Rect arrowRect)
+		{
+			float labelWidth = row.width * 0.4f;
+			float equippedWidth = row.width * 0.23f;
+			float flowWidth = 20f;
+			float arrowWidth = 24f;
+			labelRect = new Rect(row.x + 12f, row.y, labelWidth - 16f, row.height);
+			equippedRect = new Rect(row.x + labelWidth, row.y, equippedWidth, row.height);
+			flowRect = new Rect(equippedRect.xMax, row.y, flowWidth, row.height);
+			candidateRect = new Rect(flowRect.xMax, row.y, Mathf.Max(64f, row.xMax - flowRect.xMax - arrowWidth - 6f), row.height);
+			arrowRect = new Rect(candidateRect.xMax, row.y, arrowWidth, row.height);
 		}
 
 		private void DrawCapacityBar(Rect area, ref float y, string label, float current, float capacity, string unit)
@@ -1373,6 +1507,201 @@ namespace ACunicombat.Mechs
 			}
 			GUI.DrawTexture(new Rect(track.x + track.width * 0.8f, track.y - 3f, 1f, 13f), frameTexture);
 			y += 25f;
+		}
+
+		private void DrawFireControlErrorChart(
+			Rect area,
+			ref float y,
+			MechAggregatedStats candidate,
+			MechAggregatedStats equipped)
+		{
+			y += 10f;
+			GUI.Label(new Rect(area.x, y, area.width, 28f), "标称火控预测误差", headingStyle);
+			y += 31f;
+
+			var candidateProfile = MechFireControlPerformanceModel.FromStats(candidate);
+			var equippedProfile = MechFireControlPerformanceModel.FromStats(equipped);
+			float maximumRangeMeters = Mathf.Max(
+				1000f,
+				candidateProfile.RadarMaximumRangeMeters,
+				equippedProfile.RadarMaximumRangeMeters);
+			float maximumErrorMeters = Mathf.Max(
+				MechFireControlPerformanceModel.EstimatePredictionErrorMeters(
+					candidateProfile,
+					candidateProfile.RadarMaximumRangeMeters,
+					MechFireControlTrackMode.TrackWhileScan),
+				MechFireControlPerformanceModel.EstimatePredictionErrorMeters(
+					equippedProfile,
+					equippedProfile.RadarMaximumRangeMeters,
+					MechFireControlTrackMode.TrackWhileScan));
+			maximumErrorMeters = NiceGraphMaximum(maximumErrorMeters * 1.08f);
+
+			Rect chart = new Rect(area.x, y, area.width, 238f);
+			DrawColorSwatch(chart, new Color(0.025f, 0.055f, 0.075f, 0.92f));
+			DrawOutline(chart);
+			GUI.Label(
+				new Rect(chart.x + 10f, chart.y + 5f, chart.width - 20f, 20f),
+				"1σ / 1秒预测",
+				overlineStyle);
+
+			Color candidateColor = new Color(0.36f, 0.7f, 1f, 1f);
+			Color equippedColor = new Color(0.82f, 0.88f, 0.92f, 0.88f);
+			float legendY = chart.y + 26f;
+			if (selectingPart)
+			{
+				DrawColorSwatch(new Rect(chart.x + 12f, legendY + 7f, 18f, 3f), equippedColor);
+				GUI.Label(new Rect(chart.x + 35f, legendY, 92f, 20f), "当前装备", mutedStyle);
+				DrawColorSwatch(new Rect(chart.x + 124f, legendY + 7f, 18f, 3f), candidateColor);
+				GUI.Label(new Rect(chart.x + 147f, legendY, 72f, 20f), "候选", mutedStyle);
+			}
+			else
+			{
+				DrawColorSwatch(new Rect(chart.x + 12f, legendY + 7f, 18f, 3f), candidateColor);
+				GUI.Label(new Rect(chart.x + 35f, legendY, 92f, 20f), "当前机体", mutedStyle);
+			}
+			GUI.Label(
+				new Rect(chart.xMax - 176f, legendY, 166f, 20f),
+				"实线 STT  ·  虚线 TWS",
+				mutedStyle);
+
+			Rect plot = new Rect(chart.x + 48f, chart.y + 58f, chart.width - 64f, 142f);
+			DrawFireControlGraphGrid(plot, maximumRangeMeters, maximumErrorMeters);
+			if (selectingPart)
+			{
+				DrawFireControlCurve(
+					plot,
+					equippedProfile,
+					MechFireControlTrackMode.SingleTargetTrack,
+					maximumRangeMeters,
+					maximumErrorMeters,
+					equippedColor,
+					dashed: false);
+				DrawFireControlCurve(
+					plot,
+					equippedProfile,
+					MechFireControlTrackMode.TrackWhileScan,
+					maximumRangeMeters,
+					maximumErrorMeters,
+					new Color(equippedColor.r, equippedColor.g, equippedColor.b, 0.58f),
+					dashed: true);
+			}
+			DrawFireControlCurve(
+				plot,
+				candidateProfile,
+				MechFireControlTrackMode.SingleTargetTrack,
+				maximumRangeMeters,
+				maximumErrorMeters,
+				candidateColor,
+				dashed: false);
+			DrawFireControlCurve(
+				plot,
+				candidateProfile,
+				MechFireControlTrackMode.TrackWhileScan,
+				maximumRangeMeters,
+				maximumErrorMeters,
+				new Color(candidateColor.r, candidateColor.g, candidateColor.b, 0.62f),
+				dashed: true);
+
+			y += chart.height + 16f;
+		}
+
+		private void DrawFireControlGraphGrid(
+			Rect plot,
+			float maximumRangeMeters,
+			float maximumErrorMeters)
+		{
+			Color gridColor = new Color(0.26f, 0.42f, 0.5f, 0.34f);
+			for (int i = 0; i <= 4; i++)
+			{
+				float ratio = i / 4f;
+				float x = Mathf.Lerp(plot.x, plot.xMax, ratio);
+				float y = Mathf.Lerp(plot.yMax, plot.y, ratio);
+				DrawColorSwatch(new Rect(x, plot.y, 1f, plot.height), gridColor);
+				DrawColorSwatch(new Rect(plot.x, y, plot.width, 1f), gridColor);
+			}
+
+			GUI.Label(new Rect(plot.x - 46f, plot.y - 8f, 42f, 20f), $"{maximumErrorMeters:0.#} m", mutedStyle);
+			GUI.Label(new Rect(plot.x - 46f, plot.center.y - 9f, 42f, 20f), $"{maximumErrorMeters * 0.5f:0.#}", mutedStyle);
+			GUI.Label(new Rect(plot.x - 46f, plot.yMax - 12f, 42f, 20f), "0", mutedStyle);
+			GUI.Label(new Rect(plot.x - 8f, plot.yMax + 2f, 46f, 20f), "0", mutedStyle);
+			GUI.Label(
+				new Rect(plot.center.x - 32f, plot.yMax + 2f, 64f, 20f),
+				$"{maximumRangeMeters * 0.0005f:0.#} km",
+				mutedStyle);
+			GUI.Label(
+				new Rect(plot.xMax - 68f, plot.yMax + 2f, 68f, 20f),
+				$"{maximumRangeMeters * 0.001f:0.#} km",
+				mutedStyle);
+		}
+
+		private static void DrawFireControlCurve(
+			Rect plot,
+			in MechFireControlPerformanceProfile profile,
+			MechFireControlTrackMode mode,
+			float maximumRangeMeters,
+			float maximumErrorMeters,
+			Color color,
+			bool dashed)
+		{
+			const int segmentCount = 28;
+			float curveMaximumRangeMeters = Mathf.Min(
+				maximumRangeMeters,
+				profile.RadarMaximumRangeMeters);
+			float initialErrorMeters = MechFireControlPerformanceModel.EstimatePredictionErrorMeters(
+				profile,
+				0f,
+				mode);
+			Vector2 previous = new Vector2(
+				plot.x,
+				Mathf.Lerp(
+					plot.yMax,
+					plot.y,
+					Mathf.Clamp01(initialErrorMeters / maximumErrorMeters)));
+			for (int i = 1; i <= segmentCount; i++)
+			{
+				float curveRatio = i / (float)segmentCount;
+				float rangeMeters = curveMaximumRangeMeters * curveRatio;
+				float plotRatio = rangeMeters / maximumRangeMeters;
+				float errorMeters = MechFireControlPerformanceModel.EstimatePredictionErrorMeters(
+					profile,
+					rangeMeters,
+					mode);
+				Vector2 current = new Vector2(
+					Mathf.Lerp(plot.x, plot.xMax, plotRatio),
+					Mathf.Lerp(plot.yMax, plot.y, Mathf.Clamp01(errorMeters / maximumErrorMeters)));
+				if (!dashed || (i & 1) == 0)
+				{
+					DrawGraphLine(previous, current, color, dashed ? 1.5f : 2.5f);
+				}
+				previous = current;
+			}
+		}
+
+		private static void DrawGraphLine(Vector2 start, Vector2 end, Color color, float width)
+		{
+			Vector2 delta = end - start;
+			float length = delta.magnitude;
+			if (length <= 0.01f)
+			{
+				return;
+			}
+
+			Matrix4x4 previousMatrix = GUI.matrix;
+			Color previousColor = GUI.color;
+			GUIUtility.RotateAroundPivot(Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg, start);
+			GUI.color = color;
+			GUI.DrawTexture(new Rect(start.x, start.y - width * 0.5f, length, width), Texture2D.whiteTexture);
+			GUI.color = previousColor;
+			GUI.matrix = previousMatrix;
+		}
+
+		private static float NiceGraphMaximum(float value)
+		{
+			value = Mathf.Max(1f, value);
+			float magnitude = Mathf.Pow(10f, Mathf.Floor(Mathf.Log10(value)));
+			float normalized = value / magnitude;
+			float rounded = normalized <= 1f ? 1f : normalized <= 2f ? 2f : normalized <= 5f ? 5f : 10f;
+			return rounded * magnitude;
 		}
 
 		private void DrawStatusTag(Rect rect, MechPartCatalogEntry entry, bool onSelectedRow)
@@ -1499,13 +1828,13 @@ namespace ACunicombat.Mechs
 				Color mutedText = new Color(0.445f, 0.555f, 0.63f);
 				Color darkText = new Color(0.035f, 0.075f, 0.105f);
 				titleStyle = NewStyle(Scaled(25), text, TextAnchor.MiddleLeft);
-				headingStyle = NewStyle(Scaled(17), new Color(0.8f, 0.875f, 0.915f), TextAnchor.MiddleLeft);
-				labelStyle = NewStyle(Scaled(14), secondaryText, TextAnchor.MiddleLeft);
+				headingStyle = NewStyle(Scaled(18), new Color(0.8f, 0.875f, 0.915f), TextAnchor.MiddleLeft);
+				labelStyle = NewStyle(Scaled(16), secondaryText, TextAnchor.MiddleLeft);
 				mutedStyle = NewStyle(Scaled(13), mutedText, TextAnchor.MiddleCenter);
 				breadcrumbStyle = NewStyle(Scaled(13), mutedText, TextAnchor.MiddleRight);
 				idStyle = NewStyle(Scaled(13), mutedText, TextAnchor.MiddleLeft);
 				placeholderStyle = NewStyle(Scaled(13), new Color(0.35f, 0.46f, 0.535f), TextAnchor.MiddleLeft);
-				valueStyle = NewStyle(Scaled(14), text, TextAnchor.MiddleRight);
+				valueStyle = NewStyle(Scaled(16), text, TextAnchor.MiddleRight);
 				testedStyle = NewStyle(Scaled(12), new Color(0.57f, 0.835f, 0.78f), TextAnchor.MiddleCenter);
 				untestedStyle = NewStyle(Scaled(12), new Color(0.925f, 0.675f, 0.33f), TextAnchor.MiddleCenter);
 				warningStyle = NewStyle(Scaled(13), new Color(0.95f, 0.575f, 0.3f), TextAnchor.UpperLeft);
@@ -1516,12 +1845,17 @@ namespace ACunicombat.Mechs
 				darkHeadingStyle = NewStyle(Scaled(17), darkText, TextAnchor.MiddleLeft);
 				darkLabelStyle = NewStyle(Scaled(13), new Color(0.075f, 0.135f, 0.175f), TextAnchor.MiddleLeft);
 				darkCenteredStyle = NewStyle(Scaled(13), new Color(0.075f, 0.135f, 0.175f), TextAnchor.MiddleCenter);
-				comparisonPositiveStyle = NewStyle(Scaled(14), ComparisonImprovementColor, TextAnchor.MiddleRight);
+				comparisonPositiveStyle = NewStyle(Scaled(16), ComparisonImprovementColor, TextAnchor.MiddleRight);
 				comparisonPositiveStyle.fontStyle = FontStyle.Bold;
-				comparisonNegativeStyle = NewStyle(Scaled(14), ComparisonRegressionColor, TextAnchor.MiddleRight);
+				comparisonNegativeStyle = NewStyle(Scaled(16), ComparisonRegressionColor, TextAnchor.MiddleRight);
 				comparisonNegativeStyle.fontStyle = FontStyle.Bold;
-				comparisonBaselineStyle = NewStyle(Scaled(13), ComparisonBaselineColor, TextAnchor.MiddleRight);
-				comparisonArrowStyle = NewStyle(Scaled(13), ComparisonBaselineColor, TextAnchor.MiddleCenter);
+				comparisonBaselineStyle = NewStyle(Scaled(16), text, TextAnchor.MiddleRight);
+				comparisonBaselineStyle.fontStyle = FontStyle.Bold;
+				comparisonArrowStyle = NewStyle(Scaled(15), ComparisonBaselineColor, TextAnchor.MiddleCenter);
+				aggregateLabelStyle = NewStyle(Scaled(16), secondaryText, TextAnchor.MiddleLeft);
+				aggregateLabelStyle.fontStyle = FontStyle.Bold;
+				aggregateValueStyle = NewStyle(Scaled(16), text, TextAnchor.MiddleRight);
+				aggregateValueStyle.fontStyle = FontStyle.Bold;
 				sectionStyle = new GUIStyle(GUI.skin.box);
 				sectionStyle.normal.background = sectionTexture;
 				sectionStyle.padding = new RectOffset(0, 0, 0, 0);

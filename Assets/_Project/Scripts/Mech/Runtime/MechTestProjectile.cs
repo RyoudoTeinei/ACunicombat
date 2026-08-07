@@ -76,6 +76,8 @@ namespace ACunicombat.Mechs
 
 		private MechRadarController radarController;
 
+		private MechRadarController dataLinkController;
+
 		private CombatTestTarget directGuidanceTarget;
 
 		private MechTestProjectile directProjectileTarget;
@@ -228,6 +230,8 @@ namespace ACunicombat.Mechs
 
 		private LinkTerminalId linkTerminal;
 
+		private float friendlyLinkReportRemaining;
+
 		private ulong lastLinkSequence;
 
 		private readonly LinkMessage[] linkInboxScratch = new LinkMessage[8];
@@ -271,8 +275,6 @@ namespace ACunicombat.Mechs
 		private float interceptionHealth;
 
 		private float interceptorRoundLethalRadius;
-
-		private float interceptorRoundDamage;
 
 		private float interceptorRoundArmSeconds;
 
@@ -383,6 +385,17 @@ namespace ACunicombat.Mechs
 			return false;
 		}
 
+		private bool SharesTeamWith(MechTestProjectile candidate)
+		{
+			if (candidate == null || owner == null || candidate.owner == null)
+			{
+				return false;
+			}
+			CombatTestTarget ownerTarget = owner.GetComponentInParent<CombatTestTarget>();
+			CombatTestTarget candidateOwnerTarget = candidate.owner.GetComponentInParent<CombatTestTarget>();
+			return ownerTarget != null && candidateOwnerTarget != null && ownerTarget.TeamId == candidateOwnerTarget.TeamId;
+		}
+
 		public bool TryPredictThreatTo(Transform defendedTarget, Vector3 defendedVelocity, float protectedRadius, float predictionHorizon, out float timeToClosestApproach, out float missDistance)
 		{
 			timeToClosestApproach = 0f;
@@ -435,6 +448,18 @@ namespace ACunicombat.Mechs
 		{
 			owner = newOwner;
 			radarController = newRadarController;
+			dataLinkController = newOwner != null
+				? newOwner.GetComponent<MechRadarController>() ??
+				  newOwner.GetComponentInParent<MechRadarController>()
+				: null;
+			if (dataLinkController == null &&
+				newRadarController != null &&
+				newOwner != null &&
+				ResolveCombatantRoot(newOwner) ==
+				ResolveCombatantRoot(newRadarController.transform))
+			{
+				dataLinkController = newRadarController;
+			}
 			directGuidanceTarget = newDirectGuidanceTarget;
 			directProjectileTarget = newDirectProjectileTarget;
 			interceptorMissile = newInterceptorMissile;
@@ -494,7 +519,7 @@ namespace ACunicombat.Mechs
 			{
 				ConfigureMissileDynamics(missileProfile, accelerationMetersPerSecondSquared, turnRateDegreesPerSecond, newMotorBurnDuration, newSeekerActivationDelay, newSeekerMaximumRange, newSeekerHalfAngleDegrees, newSeekerGimbalDegrees, newMaximumLateralAcceleration, newManeuverDeltaV, newRcsLateralAcceleration, newRcsDeltaV, newProximityFuseRadius, newProximityFuseArmTime, newProximityFuseSafeDistance, newWarheadLethalRadius);
 			}
-			hasCachedGuidanceTrack = weaponKind == TestWeaponKind.Missile && targetTrackId.IsValid && radarController != null && radarController.TryGetTrack(targetTrackId, out cachedGuidanceTrack);
+			hasCachedGuidanceTrack = weaponKind == TestWeaponKind.Missile && targetTrackId.IsValid && dataLinkController != null && dataLinkController.TryGetTrack(targetTrackId, out cachedGuidanceTrack);
 			guidanceMemoryRemaining = (hasCachedGuidanceTrack ? GetGuidanceMemorySeconds() : 0f);
 			projectileTrail = GetComponent<TrailRenderer>();
 			propulsionParticles = GetComponentsInChildren<ParticleSystem>(includeInactive: true);
@@ -509,13 +534,25 @@ namespace ACunicombat.Mechs
 				radarController.TryRegisterMissileSeeker(base.transform.position, velocity, seekerMaximumRange, seekerHalfAngleRadians * 2f * 57.29578f, owner != null && ResolveCombatantRoot(owner) != ResolveCombatantRoot(radarController.transform), out seekerHandle);
 				if (seekerHandle.IsValid)
 				{
-					if (radarController.TryRegisterMissileLinkTerminal(in seekerHandle, out linkTerminal) && targetTrackId.IsValid)
-					{
-						radarController.BeginGuidanceUplink(linkTerminal, targetTrackId, !interceptorMissile);
-					}
 					radarController.RegisterMissileIrSource(in seekerHandle, 28f);
 					irSourceRegistered = true;
 					irMotorStateRegistered = false;
+				}
+			}
+			if (weaponKind == TestWeaponKind.Missile &&
+				dataLinkController != null &&
+				dataLinkController.TryRegisterMissileLinkTerminal(
+					base.transform.position,
+					velocity,
+					out linkTerminal))
+			{
+				friendlyLinkReportRemaining = 0f;
+				if (targetTrackId.IsValid)
+				{
+					dataLinkController.BeginGuidanceUplink(
+						linkTerminal,
+						targetTrackId,
+						!interceptorMissile);
 				}
 			}
 			missilePhase = (coldLaunchEnabled ? MissileFlightPhase.ColdEjection : ((!(launchDelay > 0f)) ? MissileFlightPhase.Boost : MissileFlightPhase.LaunchDelay));
@@ -698,6 +735,22 @@ namespace ACunicombat.Mechs
 			if (weaponKind == TestWeaponKind.Missile)
 			{
 				radarController?.UpdateMissileSeekerState(in seekerHandle, base.transform.position, velocity);
+				if (dataLinkController != null && linkTerminal.IsValid)
+				{
+					dataLinkController.UpdateMissileLinkTerminalState(
+						linkTerminal,
+						base.transform.position,
+						velocity);
+					friendlyLinkReportRemaining -= dt;
+					if (friendlyLinkReportRemaining <= 0f)
+					{
+						dataLinkController.SendFriendlyMissileTrackReport(
+							linkTerminal,
+							base.transform.position,
+							velocity);
+						friendlyLinkReportRemaining = 0.1f;
+					}
+				}
 			}
 			distanceTravelled += travel.magnitude;
 			if (weaponKind != TestWeaponKind.Missile && velocity.sqrMagnitude > 0.001f)
@@ -946,9 +999,9 @@ namespace ACunicombat.Mechs
 				rcsAttitudeTorqueLocal = Vector3.zero;
 				rcsAttitudeThrottle = 0f;
 				ReleaseGuidanceChannel();
-				if (radarController != null && linkTerminal.IsValid)
+				if (dataLinkController != null && linkTerminal.IsValid)
 				{
-					radarController.UnregisterMissileLinkTerminal(linkTerminal);
+					dataLinkController.UnregisterMissileLinkTerminal(linkTerminal);
 					linkTerminal = default(LinkTerminalId);
 				}
 			}
@@ -1208,13 +1261,13 @@ namespace ACunicombat.Mechs
 		private bool TryUpdateDatalinkTrack(float deltaTime, out TrackSnapshot track)
 		{
 			track = default(TrackSnapshot);
-			if (radarController == null)
+			if (dataLinkController == null)
 			{
 				return false;
 			}
 			if (linkTerminal.IsValid)
 			{
-				int messageCount = radarController.CopyLinkMessages(linkTerminal, linkInboxScratch);
+				int messageCount = dataLinkController.CopyLinkMessages(linkTerminal, linkInboxScratch);
 				for (int i = 0; i < messageCount; i++)
 				{
 					LinkMessage message = linkInboxScratch[i];
@@ -1356,7 +1409,7 @@ namespace ACunicombat.Mechs
 				return false;
 			}
 			float falloff = Mathf.Lerp(0.25f, 1f, 1f - distance / warheadLethalRadius);
-			candidate.ApplyDamage(damage * falloff, detonationPoint, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId);
+			candidate.ApplyDamage(damage * falloff, detonationPoint, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId, owner);
 			return true;
 		}
 
@@ -1403,7 +1456,7 @@ namespace ACunicombat.Mechs
 			for (int i = 0; i < registry.Count; i++)
 			{
 				MechTestProjectile candidate = registry[i];
-				if (!(candidate == null) && !(candidate == this) && !candidate.IsOwnedBy(owner) && candidate.IsInterceptableMissile)
+				if (!(candidate == null) && !(candidate == this) && !candidate.IsOwnedBy(owner) && !SharesTeamWith(candidate) && candidate.IsInterceptableMissile)
 				{
 					Vector3 relativePosition = candidate.transform.position - base.transform.position;
 					Vector3 relativeVelocity = candidate.velocity - velocity;
@@ -1432,10 +1485,9 @@ namespace ACunicombat.Mechs
 			return target.ApplyPointDefenseDamage(GetPointDefenseDamage(), interceptPoint, hitDirection, weaponKind, effectLibrary, impactFfxId);
 		}
 
-		public void ConfigureInterceptorRound(float lethalRadiusMeters, float interceptionDamage = 0f, float armSeconds = 0f, float safeDistanceMeters = 0f)
+		public void ConfigureInterceptorRound(float lethalRadiusMeters, float armSeconds = 0f, float safeDistanceMeters = 0f)
 		{
 			interceptorRoundLethalRadius = Mathf.Max(0f, lethalRadiusMeters);
-			interceptorRoundDamage = Mathf.Max(0f, interceptionDamage);
 			interceptorRoundArmSeconds = Mathf.Max(0f, armSeconds);
 			interceptorRoundSafeDistanceMeters = Mathf.Max(0f, safeDistanceMeters);
 		}
@@ -1455,16 +1507,12 @@ namespace ACunicombat.Mechs
 
 		private float GetPointDefenseDamage()
 		{
-			if (!IsInterceptorRoundArmed() || !(interceptorRoundDamage > 0f))
-			{
-				return damage;
-			}
-			return interceptorRoundDamage;
+			return damage;
 		}
 
 		public void ConfigureCannonProximityFuse(float triggerRadiusMeters, float armSeconds, float safeDistanceMeters, float lethalRadiusMeters)
 		{
-			if (weaponKind == TestWeaponKind.Cannon)
+			if (weaponKind == TestWeaponKind.Cannon || weaponKind == TestWeaponKind.Rifle)
 			{
 				proximityFuseRadius = Mathf.Max(0f, triggerRadiusMeters);
 				proximityFuseArmTime = Mathf.Max(0f, armSeconds);
@@ -1479,7 +1527,7 @@ namespace ACunicombat.Mechs
 			detonationTime = float.PositiveInfinity;
 			detonationPoint = default(Vector3);
 			missDistance = float.PositiveInfinity;
-			if (!cannonProximityFuseEnabled || weaponKind != TestWeaponKind.Cannon)
+			if (!cannonProximityFuseEnabled || (weaponKind != TestWeaponKind.Cannon && weaponKind != TestWeaponKind.Rifle))
 			{
 				return false;
 			}
@@ -1556,7 +1604,7 @@ namespace ACunicombat.Mechs
 			for (int i = 0; i < registry.Count; i++)
 			{
 				MechTestProjectile candidate = registry[i];
-				if (candidate == null || candidate == this || candidate.IsOwnedBy(owner) || !candidate.IsInterceptableMissile || !DamagedProjectileScratch.Add(candidate))
+				if (candidate == null || candidate == this || candidate.IsOwnedBy(owner) || SharesTeamWith(candidate) || !candidate.IsInterceptableMissile || !DamagedProjectileScratch.Add(candidate))
 				{
 					continue;
 				}
@@ -1642,7 +1690,7 @@ namespace ACunicombat.Mechs
 				MechTestProjectile hitProjectile = hit.collider.GetComponentInParent<MechTestProjectile>();
 				if (hitProjectile != null)
 				{
-					if (hitProjectile == this || hitProjectile.IsOwnedBy(owner) || (weaponKind == TestWeaponKind.Missile && !interceptorMissile) || !hitProjectile.IsInterceptableMissile)
+					if (hitProjectile == this || hitProjectile.IsOwnedBy(owner) || SharesTeamWith(hitProjectile) || (weaponKind == TestWeaponKind.Missile && !interceptorMissile) || !hitProjectile.IsInterceptableMissile)
 					{
 						continue;
 					}
@@ -1670,7 +1718,7 @@ namespace ACunicombat.Mechs
 			{
 				if (!interceptorMissile)
 				{
-					hitTarget.ApplyDamage(damage, hit.point, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId);
+					hitTarget.ApplyDamage(damage, hit.point, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId, owner);
 					CombatTestTarget ownship = CombatTestTarget.Ownship;
 					if (hitTarget == ownship)
 					{
@@ -1870,11 +1918,11 @@ namespace ACunicombat.Mechs
 				{
 					radarController.UnregisterMissileIrSource(in seekerHandle);
 				}
-				if (linkTerminal.IsValid)
-				{
-					radarController.UnregisterMissileLinkTerminal(linkTerminal);
-				}
 				radarController.UnregisterMissileSeeker(in seekerHandle);
+			}
+			if (dataLinkController != null && linkTerminal.IsValid)
+			{
+				dataLinkController.UnregisterMissileLinkTerminal(linkTerminal);
 			}
 			linkTerminal = default(LinkTerminalId);
 			seekerHandle = default(MechRadarController.MissileSeekerHandle);

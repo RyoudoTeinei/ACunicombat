@@ -115,7 +115,7 @@ namespace ACunicombat.Mechs
             source.loop = false;
             source.spatialBlend = 0f;
             source.dopplerLevel = 0f;
-            source.priority = 80;
+            source.priority = 32;
             return source;
         }
     }

@@ -155,7 +155,23 @@ public static class AC6FullPartCatalogBuilder
 		new GeneratorPartSource("65030100", "IB-C03G: NGI 000", 8989, 8950f, 4400f, 4340f, 4f, 3.2f, 3100f, 102f, 131182)
 	};
 
-	private static readonly HashSet<string> TestedWeaponKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "WP_L_1310", "WP_R_1610", "WP_L_4250", "WP_R_4290", "WP_L_5110", "WP_R_5110" };
+	private static readonly HashSet<string> TestedWeaponKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		"WP_L_1310",
+		"WP_R_1310",
+		"WP_L_1610",
+		"WP_R_1610",
+		"WP_L_1630",
+		"WP_R_1630",
+		"WP_L_1720",
+		"WP_R_1720",
+		"WP_L_4250",
+		"WP_R_4250",
+		"WP_L_4290",
+		"WP_R_4290",
+		"WP_L_5110",
+		"WP_R_5110"
+	};
 
 	private static readonly Dictionary<string, string> KnownPartKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 	{
@@ -172,6 +188,11 @@ public static class AC6FullPartCatalogBuilder
 	internal static int OriginalFcsSourceCount => OriginalFcsParts.Length;
 
 	internal static int OriginalGeneratorSourceCount => OriginalGeneratorParts.Length;
+
+	internal static bool IsTestedWeapon(string partId)
+	{
+		return TestedWeaponKeys.Contains(ResolveSourceKey(partId));
+	}
 
 	[InitializeOnLoadMethod]
 	private static void ScheduleInitialCatalogBuild()
@@ -234,9 +255,8 @@ public static class AC6FullPartCatalogBuilder
 				{
 					sourceKeys.Add(key);
 				}
-				bool tested = MechSlotRules.IsWeaponSlot(source.Slot) && TestedWeaponKeys.Contains(key);
-				bool isShaoWei = string.Equals(key, "WP_L_5110", StringComparison.OrdinalIgnoreCase) || string.Equals(key, "WP_R_5110", StringComparison.OrdinalIgnoreCase);
-				entries.Add(CreateEntry(clone, tested ? MechPartTestStatus.Tested : MechPartTestStatus.Untested, (!tested) ? (MechSlotRules.IsWeaponSlot(source.Slot) ? "已导入视觉资源，但尚未完成当前战斗系统的功能验证。" : string.Empty) : (isShaoWei ? "已接入自动点防御、弹药、热管理与动画流程；待实战调优。" : "当前战斗原型正在使用，已验证安装、开火、弹药与装填流程。")));
+				bool tested = MechSlotRules.IsWeaponSlot(source.Slot) && IsTestedWeapon(source.PartId);
+				entries.Add(CreateEntry(clone, tested ? MechPartTestStatus.Tested : MechPartTestStatus.Untested, (!tested) ? (MechSlotRules.IsWeaponSlot(source.Slot) ? "已导入视觉资源，但尚未完成当前战斗系统的功能验证。" : string.Empty) : "当前战斗原型正在使用，已验证安装、开火、弹药与装填流程。"));
 			}
 		}
 		int internalCount = AddOriginalInternalParts(entries, ids);
@@ -268,7 +288,16 @@ public static class AC6FullPartCatalogBuilder
 				GameObject previewModel = LoadAssembledWeaponPreview(item) ?? model;
 				MechPartDefinition part = BuildImportedPart(item, id, model, previewModel);
 				bool needsRigReview = IsRigReviewRequired(item);
-				entries.Add(CreateEntry(part, needsRigReview ? MechPartTestStatus.NeedsReview : MechPartTestStatus.Untested, MechSlotRules.IsWeaponSlot(part.Slot) ? "视觉资源已批量导入；枪口、动作、弹药和火控适配尚未验证。" : (needsRigReview ? $"统一骨架对齐偏差较大：位置 {item.maxPositionError:0.000} m，旋转 {item.maxRotationErrorDeg:0.0}°；允许实验安装，但动画与挂点需要复核。" : string.Empty)));
+				bool tested = MechSlotRules.IsWeaponSlot(part.Slot) && IsTestedWeapon(item.key);
+				MechPartTestStatus status = tested
+					? MechPartTestStatus.Tested
+					: (needsRigReview ? MechPartTestStatus.NeedsReview : MechPartTestStatus.Untested);
+				string note = tested
+					? "当前战斗原型正在使用，已验证安装、开火、弹药与装填流程。"
+					: (MechSlotRules.IsWeaponSlot(part.Slot)
+						? "视觉资源已批量导入；枪口、动作、弹药和火控适配尚未验证。"
+						: (needsRigReview ? $"统一骨架对齐偏差较大：位置 {item.maxPositionError:0.000} m，旋转 {item.maxRotationErrorDeg:0.0}°；允许实验安装，但动画与挂点需要复核。" : string.Empty));
+				entries.Add(CreateEntry(part, status, note));
 				importedCount++;
 			}
 		}
@@ -373,6 +402,11 @@ public static class AC6FullPartCatalogBuilder
 		string newDisplayName = DisplayName(item.key);
 		int newCategory = ((!isFrame) ? (isBooster ? 10 : 20) : 0);
 		MechPartStats newStats = BuildStats(slot);
+		if (string.Equals(item.key, "WP_L_1610", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(item.key, "WP_R_1610", StringComparison.OrdinalIgnoreCase))
+		{
+			newStats.massKg = 4310f;
+		}
 		IReadOnlyList<MechMountPointDefinition> newMountPoints;
 		if (!isFrame)
 		{

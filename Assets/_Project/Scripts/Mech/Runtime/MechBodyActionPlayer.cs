@@ -262,6 +262,16 @@ namespace ACunicombat.Mechs
                 false,
                 true);
 
+        /// <summary>Holds the active left-arm action at a local clip time.</summary>
+        public bool HoldLeftArmPose(float actionTimeSeconds) =>
+            HoldOverlayLayerPose(
+                LeftArmLayerIndex,
+                actionTimeSeconds);
+
+        /// <summary>Releases a held left-arm pose and continues from that point.</summary>
+        public void ReleaseLeftArmPose() =>
+            ReleaseOverlayLayerPose(LeftArmLayerIndex);
+
         public void ClearUpperBody(float fadeOutSeconds = -1f)
         {
             ClearOverlayLayer(UpperBodyLayerIndex, fadeOutSeconds);

@@ -53,6 +53,10 @@ namespace ACunicombat.Mechs
 		private Key cycleTargetKey = Key.G;
 
 		[Header("Radar operator audio")]
+		[SerializeField]
+		[Range(0f, 1f)]
+		private float radarAudioMasterVolume = 0.7f;
+
 		[Tooltip("Tab 雷达操作界面开启且未进入 STT 时循环播放。")]
 		[SerializeField]
 		private AudioClip operationScanLoopClip;
@@ -73,6 +77,11 @@ namespace ACunicombat.Mechs
 		[SerializeField]
 		[Min(3f)]
 		private float friendlyMissileMarkerRadius = 7f;
+
+		[Header("Direct hit confirmation")]
+		[SerializeField]
+		[Min(0.1f)]
+		private float hitConfirmationDurationSeconds = 0.36f;
 
 		[Header("Track readout")]
 		[SerializeField]
@@ -151,6 +160,12 @@ namespace ACunicombat.Mechs
 		private GUIStyle pitchStyle;
 
 		private GUIStyle zoomStyle;
+
+		private GUIStyle hitConfirmationStyle;
+
+		private float hitConfirmationStartedAt = float.NegativeInfinity;
+
+		private float hitConfirmationUntil = float.NegativeInfinity;
 
 		private float pitchLadderRollDegrees;
 
@@ -232,8 +247,14 @@ namespace ACunicombat.Mechs
 			radarOperatorAudioSource.spatialBlend = 0f;
 		}
 
+		private void OnEnable()
+		{
+			CombatTestTarget.DamageApplied += HandleDamageApplied;
+		}
+
 		private void OnDisable()
 		{
+			CombatTestTarget.DamageApplied -= HandleDamageApplied;
 			radarOperatorAudioSource?.Stop();
 			radar?.SetTrackOperationMode(enabled: false);
 		}
@@ -267,7 +288,8 @@ namespace ACunicombat.Mechs
 				viewCamera = Camera.main;
 			}
 			Keyboard keyboard = Keyboard.current;
-			if (keyboard != null)
+			bool systemsMenuVisible = MechSystemsRadialMenu.IsAnyMenuVisible;
+			if (!systemsMenuVisible && keyboard != null)
 			{
 				if (WasPressed(keyboard, operationModeKey))
 				{
@@ -282,7 +304,10 @@ namespace ACunicombat.Mechs
 					radar.CycleCandidate(1);
 				}
 			}
-			radar.UpdateDesignation(viewCamera, GetAimViewportPoint(), Time.unscaledDeltaTime);
+			if (!systemsMenuVisible)
+			{
+				radar.UpdateDesignation(viewCamera, GetAimViewportPoint(), Time.unscaledDeltaTime);
+			}
 			trackCount = radar.CopyTracks(tracks);
 			displayTrackCount = CountDisplayTracks();
 			echoCount = radar.CopyEchoes(echoes);
@@ -298,17 +323,20 @@ namespace ACunicombat.Mechs
 			}
 			AudioClip desiredClip = null;
 			float desiredVolume = 0f;
-			if (radar.TrackOperationMode && IsStartupModuleOnline(MechStartupHudModule.RadarScan))
+			if (radar.RadarPowerEnabled && radar.TrackOperationMode &&
+				IsStartupModuleOnline(MechStartupHudModule.RadarScan))
 			{
 				if (radar.HasStt)
 				{
 					desiredClip = sttLockLoopClip;
-					desiredVolume = sttLockLoopVolume;
+					desiredVolume =
+						sttLockLoopVolume * radarAudioMasterVolume;
 				}
 				else
 				{
 					desiredClip = operationScanLoopClip;
-					desiredVolume = operationScanLoopVolume;
+					desiredVolume =
+						operationScanLoopVolume * radarAudioMasterVolume;
 				}
 			}
 			if (radarOperatorAudioSource.clip != desiredClip)
@@ -343,7 +371,9 @@ namespace ACunicombat.Mechs
 			DrawTacticalPlot(IsStartupModuleOnline(MechStartupHudModule.TrackData));
 			GUI.color = previousColor;
 			SetStartupGuiAlpha(MechStartupHudModule.RadarStatus);
-			DrawRadarStatus(IsStartupModuleOnline(MechStartupHudModule.RadarScan), IsStartupModuleOnline(MechStartupHudModule.TrackData));
+			DrawRadarStatus(
+				radar.RadarPowerEnabled && IsStartupModuleOnline(MechStartupHudModule.RadarScan),
+				IsStartupModuleOnline(MechStartupHudModule.TrackData));
 			GUI.color = previousColor;
 			SetStartupGuiAlpha(MechStartupHudModule.TrackData);
 			DrawFriendlyMissileMarkers();
@@ -374,6 +404,89 @@ namespace ACunicombat.Mechs
 			GUI.color = previousColor;
 			SetStartupGuiAlpha(MechStartupHudModule.TrackData);
 			DrawIncomingMissileMarkersOnTop();
+			GUI.color = previousColor;
+			DrawHitConfirmation();
+			GUI.color = previousColor;
+		}
+
+		private void HandleDamageApplied(
+			CombatTestTarget target,
+			Transform damageSource,
+			TestWeaponKind weaponKind,
+			float appliedDamage)
+		{
+			if (target == null || appliedDamage <= 0f || !IsDamageSourceThisMech(damageSource))
+			{
+				return;
+			}
+
+			CombatTestTarget localTarget = GetComponent<CombatTestTarget>();
+			if (target == localTarget ||
+				(localTarget != null && target.TeamId == localTarget.TeamId))
+			{
+				return;
+			}
+
+			hitConfirmationStartedAt = Time.unscaledTime;
+			hitConfirmationUntil =
+				hitConfirmationStartedAt + Mathf.Max(0.1f, hitConfirmationDurationSeconds);
+		}
+
+		private bool IsDamageSourceThisMech(Transform damageSource)
+		{
+			if (damageSource == null)
+			{
+				return false;
+			}
+
+			MechPlayerRig localRig = GetComponent<MechPlayerRig>();
+			MechPlayerRig sourceRig = damageSource.GetComponentInParent<MechPlayerRig>();
+			if (localRig != null && sourceRig != null)
+			{
+				return localRig == sourceRig;
+			}
+
+			return damageSource == transform ||
+				damageSource.IsChildOf(transform) ||
+				transform.IsChildOf(damageSource);
+		}
+
+		private void DrawHitConfirmation()
+		{
+			float now = Time.unscaledTime;
+			if (now >= hitConfirmationUntil)
+			{
+				return;
+			}
+
+			float duration = Mathf.Max(0.1f, hitConfirmationUntil - hitConfirmationStartedAt);
+			float age = Mathf.Max(0f, now - hitConfirmationStartedAt);
+			float remaining = Mathf.Max(0f, hitConfirmationUntil - now);
+			float alpha = Mathf.Min(
+				Mathf.Clamp01(age / 0.045f),
+				Mathf.Clamp01(remaining / Mathf.Min(0.14f, duration * 0.5f)));
+			float pulse = 1f + 0.08f * Mathf.Exp(-age * 18f);
+			Vector2 center = new Vector2(Screen.width * 0.5f, Screen.height * 0.39f);
+			Rect labelRect = new Rect(
+				center.x - 62f * pulse,
+				center.y - 17f * pulse,
+				124f * pulse,
+				34f * pulse);
+			Color color = new Color(HudBrightGreen.r, HudBrightGreen.g, HudBrightGreen.b, alpha);
+			Color markerColor = new Color(HudBrightGreen.r, HudBrightGreen.g, HudBrightGreen.b, alpha * 0.9f);
+			DrawLine(
+				new Vector2(labelRect.x - 18f, center.y),
+				new Vector2(labelRect.x - 5f, center.y),
+				markerColor,
+				2f);
+			DrawLine(
+				new Vector2(labelRect.xMax + 5f, center.y),
+				new Vector2(labelRect.xMax + 18f, center.y),
+				markerColor,
+				2f);
+			Color previousColor = GUI.color;
+			GUI.color = MultiplyGuiTint(color, previousColor);
+			GUI.Label(labelRect, "命中", hitConfirmationStyle);
 			GUI.color = previousColor;
 		}
 
@@ -419,25 +532,29 @@ namespace ACunicombat.Mechs
 				Rect cannonRect = new Rect(panelX, firstRowY + 44f, entryWidth, 40f);
 				Rect rightMissileRect = new Rect(leftMissileRect.xMax + 20f, firstRowY, entryWidth, 40f);
 				Rect rifleRect = new Rect(rightMissileRect.x, firstRowY + 44f, entryWidth, 40f);
-				if (weaponSystem.LeftShaoWeiInstalled)
-				{
-					DrawWeaponAmmoEntry(leftMissileRect, "L CIWS", weaponSystem.LeftShaoWeiRoundsRemaining, weaponSystem.ShaoWeiMagazineCapacity, weaponSystem.LeftShaoWeiMagazinesRemaining, weaponSystem.LeftShaoWeiUnavailable, weaponSystem.LeftShaoWeiRecoveryRemainingSeconds, weaponSystem.ShaoWeiRecoveryDurationSeconds, "恢");
-				}
-				else
-				{
-					DrawWeaponAmmoEntry(leftMissileRect, "L MSL", weaponSystem.LeftMissileRoundsRemaining, weaponSystem.LeftMissileMagazineCapacity, weaponSystem.LeftMissileMagazinesRemaining, reloading: false, 0f, 0f, string.Empty);
-				}
-				DrawWeaponAmmoEntry(cannonRect, "L 57MM", weaponSystem.CannonRoundsRemaining, weaponSystem.CannonMagazineCapacity, weaponSystem.CannonMagazinesRemaining, weaponSystem.CannonReloading, weaponSystem.CannonReloadRemainingSeconds, weaponSystem.CannonReloadDurationSeconds, "装");
-				if (weaponSystem.RightShaoWeiInstalled)
-				{
-					DrawWeaponAmmoEntry(rightMissileRect, "R CIWS", weaponSystem.RightShaoWeiRoundsRemaining, weaponSystem.ShaoWeiMagazineCapacity, weaponSystem.RightShaoWeiMagazinesRemaining, weaponSystem.RightShaoWeiUnavailable, weaponSystem.RightShaoWeiRecoveryRemainingSeconds, weaponSystem.ShaoWeiRecoveryDurationSeconds, "恢");
-				}
-				else
-				{
-					DrawWeaponAmmoEntry(rightMissileRect, "R MSL", weaponSystem.RightMissileRoundsRemaining, weaponSystem.RightMissileMagazineCapacity, weaponSystem.RightMissileMagazinesRemaining, reloading: false, 0f, 0f, string.Empty);
-				}
-				DrawWeaponAmmoEntry(rifleRect, "R 30MM", weaponSystem.RifleRoundsRemaining, weaponSystem.RifleMagazineCapacity, weaponSystem.RifleMagazinesRemaining, weaponSystem.RifleReloading, weaponSystem.RifleReloadRemainingSeconds, weaponSystem.RifleReloadDurationSeconds, "换");
+				DrawWeaponSlotAmmo(leftMissileRect, MechPartSlot.LeftBackWeapon, "L");
+				DrawWeaponSlotAmmo(cannonRect, MechPartSlot.LeftHandWeapon, "L");
+				DrawWeaponSlotAmmo(rightMissileRect, MechPartSlot.RightBackWeapon, "R");
+				DrawWeaponSlotAmmo(rifleRect, MechPartSlot.RightHandWeapon, "R");
 			}
+		}
+
+		private void DrawWeaponSlotAmmo(Rect bounds, MechPartSlot slot, string sideLabel)
+		{
+			if (weaponSystem == null || !weaponSystem.TryGetWeaponHudState(slot, out var state))
+			{
+				return;
+			}
+			DrawWeaponAmmoEntry(
+				bounds,
+				$"{sideLabel} {state.Label}",
+				state.RoundsRemaining,
+				state.MagazineCapacity,
+				state.MagazinesRemaining,
+				state.Reloading,
+				state.ReloadRemainingSeconds,
+				state.ReloadDurationSeconds,
+				state.ReloadLabel);
 		}
 
 		private void DrawWeaponAmmoEntry(Rect bounds, string weaponLabel, int roundsRemaining, int magazineCapacity, int magazinesRemaining, bool reloading, float reloadRemainingSeconds, float reloadDurationSeconds, string reloadLabel)
@@ -678,7 +795,9 @@ namespace ACunicombat.Mechs
 				DrawLine(new Vector2(elevationX - 10f, elevationY), new Vector2(elevationX + 10f, elevationY), HudBrightGreen, 2.5f);
 			}
 			statusStyle.normal.textColor = HudGreen;
-			string radarStatusText = ((!showScan) ? "航迹 --/--\nSTT OFF\n\n发射机 BIT\n制导 OFF" : ((!showTrackData) ? "航迹 --/--\nSTT OFF\n\n扫描 ON\n处理器 BIT" : ($"航迹 {displayTrackCount}/{radarStatus.TrackCapacity}\n" + "STT " + sttText + "\n\n" + $"负载 {radarStatus.DwellLoad * 100f:0}%\n" + $"制导 {radarStatus.GuidanceChannelsUsed}/" + $"{radarStatus.GuidanceChannelCapacity}")));
+			string radarStatusText = !radar.RadarPowerEnabled
+				? $"航迹 {(showTrackData ? displayTrackCount : 0)}/{radarStatus.TrackCapacity}\nSTT OFF\n\n雷达 OFF\n被动接收"
+				: ((!showScan) ? "航迹 --/--\nSTT OFF\n\n发射机 BIT\n制导 OFF" : ((!showTrackData) ? "航迹 --/--\nSTT OFF\n\n扫描 ON\n处理器 BIT" : ($"航迹 {displayTrackCount}/{radarStatus.TrackCapacity}\n" + "STT " + sttText + "\n\n" + $"负载 {radarStatus.DwellLoad * 100f:0}%\n" + $"制导 {radarStatus.GuidanceChannelsUsed}/" + $"{radarStatus.GuidanceChannelCapacity}")));
 			GUI.Label(new Rect(rect.x + 458f, rect.y + 66f, 92f, 220f), radarStatusText, statusStyle);
 		}
 
@@ -979,20 +1098,13 @@ namespace ACunicombat.Mechs
 				}
 				Vector2 markerCenter = new Vector2(screen.x, (float)Screen.height - screen.y);
 				DrawDiamond(markerCenter, markerRadius, markerColor, !weaponsQuality, weaponsQuality ? 1.6f : 1.2f);
-				int num;
-				if (weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack)
+				bool shaoWeiTrackSelected = weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack && weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId);
+				bool handPointDefenseTrackSelected = weaponSystem != null && weaponSystem.HasPointDefenseTrack && weaponSystem.PointDefenseTrackId.Equals(track.TrackId);
+				if (shaoWeiTrackSelected || handPointDefenseTrackSelected)
 				{
-					num = (weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId) ? 1 : 0);
-					if (num != 0)
-					{
-						Color pointDefenseColor = ((weaponSystem.ShaoWeiPointDefenseWithhold == MechTestWeaponSystem.PointDefenseWithholdReason.None) ? HudBrightGreen : HudAmber);
-						float lockExtent = markerRadius + 13f;
-						DrawCornerFrame(new Rect(markerCenter.x - lockExtent, markerCenter.y - lockExtent, lockExtent * 2f, lockExtent * 2f), pointDefenseColor, 8f, 1.8f, dashed: false);
-					}
-				}
-				else
-				{
-					num = 0;
+					Color pointDefenseColor = (shaoWeiTrackSelected && weaponSystem.ShaoWeiPointDefenseWithhold == MechTestWeaponSystem.PointDefenseWithholdReason.None) ? HudBrightGreen : HudAmber;
+					float lockExtent = markerRadius + 13f;
+					DrawCornerFrame(new Rect(markerCenter.x - lockExtent, markerCenter.y - lockExtent, lockExtent * 2f, lockExtent * 2f), pointDefenseColor, 8f, 1.8f, dashed: false);
 				}
 				if (weaponSystem != null && weaponSystem.HasInterceptorLaunchSolution && weaponSystem.InterceptorTrackId.Equals(track.TrackId))
 				{
@@ -1001,12 +1113,12 @@ namespace ACunicombat.Mechs
 				}
 				float distanceKilometers = relative.magnitude / 1000f;
 				string distanceText = ((distanceKilometers < 10f) ? $"导弹 {distanceKilometers:0.00} km" : $"导弹 {distanceKilometers:0.0} km");
-				if (num != 0)
+				if (shaoWeiTrackSelected)
 				{
 					distanceText += $"  CIWS {weaponSystem.ShaoWeiPointDefenseHitProbability * 100f:0.#}%";
 				}
 				Vector2 labelCenter = new Vector2(screen.x, (float)Screen.height - screen.y + markerRadius + 12f);
-				float labelWidth = ((num != 0) ? 180f : 100f);
+				float labelWidth = (shaoWeiTrackSelected ? 180f : 100f);
 				Rect position2 = ClampToScreen(new Rect(labelCenter.x - labelWidth * 0.5f, labelCenter.y, labelWidth, 24f), 4f);
 				smallStyle.alignment = TextAnchor.UpperCenter;
 				smallStyle.normal.textColor = markerColor;
@@ -1523,6 +1635,17 @@ namespace ACunicombat.Mechs
 					fontStyle = FontStyle.Bold,
 					alignment = TextAnchor.MiddleCenter,
 					wordWrap = false
+				};
+			}
+			if (hitConfirmationStyle == null)
+			{
+				hitConfirmationStyle = new GUIStyle(GUI.skin.label)
+				{
+					fontSize = 20,
+					fontStyle = FontStyle.Bold,
+					alignment = TextAnchor.MiddleCenter,
+					wordWrap = false,
+					richText = false
 				};
 			}
 		}

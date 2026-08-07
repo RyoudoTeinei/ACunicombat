@@ -26,7 +26,9 @@ function New-Group {
         [int]$Last,
         [string]$MetaTemplate,
         [int[]]$SourceIndices,
-        [string]$SourceSuffix = ""
+        [string]$SourceSuffix = "",
+        [bool]$SourceNumbered = $true,
+        [bool]$DestinationNumbered = $true
     )
 
     [PSCustomObject]@{
@@ -44,6 +46,8 @@ function New-Group {
         MetaTemplate = $MetaTemplate
         SourceIndices = $SourceIndices
         SourceSuffix = $SourceSuffix
+        SourceNumbered = $SourceNumbered
+        DestinationNumbered = $DestinationNumbered
     }
 }
 
@@ -120,6 +124,85 @@ $groups = @(
     New-Group "flak43_last_close" "Assets/tanks/weapon/cannons/auto_cannons/grains" "flak43_last_close" "-" 3 "Weapons\Flak43" "flak43_last_close" "_" 3 1 3 "Weapons\2a42_close.ogg.meta"
     New-Group "flak43_last_far" "Assets/tanks/weapon/cannons/auto_cannons/grains" "flak43_last_far" "-" 3 "Weapons\Flak43" "flak43_last_far" "_" 3 1 3 "Weapons\2a42_close.ogg.meta"
     New-Group "flak43_last_interior" "Assets/tanks/weapon/cannons/auto_cannons/grains" "flak43_last_interior" "-" 3 "Weapons\Flak43" "flak43_last_interior" "_" 3 1 3 "Weapons\2a42_close.ogg.meta"
+    New-Group -Name "m134_3000_loop" `
+        -SourceDirectory "Assets/weapons/all_guns" `
+        -SourcePrefix "m134_3000_loop" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "Weapons\M134" `
+        -DestinationPrefix "m134_3000_loop" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Weapons\Flak43\flak43_close_001.ogg.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
+    New-Group -Name "m134_3000_bass" `
+        -SourceDirectory "Assets/weapons/all_guns" `
+        -SourcePrefix "m134_3000_bass" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "Weapons\M134" `
+        -DestinationPrefix "m134_3000_bass" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Weapons\Flak43\flak43_close_001.ogg.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
+    New-Group -Name "m134_6000_loop" `
+        -SourceDirectory "Assets/weapons/all_guns" `
+        -SourcePrefix "m134_6000_loop" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "Weapons\M134" `
+        -DestinationPrefix "m134_6000_loop" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Weapons\Flak43\flak43_close_001.ogg.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
+    New-Group -Name "m134_6000_bass" `
+        -SourceDirectory "Assets/weapons/all_guns" `
+        -SourcePrefix "m134_6000_bass" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "Weapons\M134" `
+        -DestinationPrefix "m134_6000_bass" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Weapons\Flak43\flak43_close_001.ogg.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
+    New-Group "m134_close" "Assets/weapons/grains/minigun" "m134_close" "-" 3 "Weapons\M134" "m134_close" "_" 3 1 16 "Weapons\Flak43\flak43_close_001.ogg.meta"
+    New-Group "minigun_rotor_start" "Assets/weapons/grains/minigun" "minigun_rotor_start" "-" 3 "Weapons\M134" "minigun_rotor_start" "_" 3 1 3 "Weapons\Flak43\flak43_close_001.ogg.meta"
+    New-Group -Name "minigun_rotor_loop" `
+        -SourceDirectory "Assets/weapons/grains/minigun" `
+        -SourcePrefix "minigun_rotor_loop" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "Weapons\M134" `
+        -DestinationPrefix "minigun_rotor_loop" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Weapons\Flak43\flak43_close_001.ogg.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
+    New-Group "minigun_rotor_stop" "Assets/weapons/grains/minigun" "minigun_rotor_stop" "-" 3 "Weapons\M134" "minigun_rotor_stop" "_" 3 1 3 "Weapons\Flak43\flak43_close_001.ogg.meta"
+    New-Group "gau8a_first_snarl" "Assets/weapons/grains" "gau8a_first_snarl" "-" 3 "Weapons\GAU8A" "gau8a_first_snarl" "_" 3 1 3 "Weapons\M134\m134_close_001.ogg.meta"
+    New-Group -Name "gau8a_loop_shot" `
+        -SourceDirectory "Assets/weapons/grains" `
+        -SourcePrefix "gau8a_loop_shot" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "Weapons\GAU8A" `
+        -DestinationPrefix "gau8a_loop_shot" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Weapons\M134\m134_close_001.ogg.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
+    New-Group -Name "gau8a_loop_bass" `
+        -SourceDirectory "Assets/weapons/grains" `
+        -SourcePrefix "gau8a_loop_bass" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "Weapons\GAU8A" `
+        -DestinationPrefix "gau8a_loop_bass" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Weapons\M134\m134_close_001.ogg.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
+    New-Group "gau8a_last_snarl" "Assets/weapons/grains" "gau8a_last_snarl" "-" 3 "Weapons\GAU8A" "gau8a_last_snarl" "_" 3 1 3 "Weapons\M134\m134_close_001.ogg.meta"
+    New-Group "gau8a_rotor_start" "Assets/weapons/grains" "gau8a_rotor_start" "-" 3 "Weapons\GAU8A" "gau8a_rotor_start" "_" 3 1 2 "Weapons\M134\m134_close_001.ogg.meta"
+    New-Group -Name "gau8a_rotor_loop" `
+        -SourceDirectory "Assets/weapons/grains" `
+        -SourcePrefix "gau8a_rotor_loop" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "Weapons\GAU8A" `
+        -DestinationPrefix "gau8a_rotor_loop" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Weapons\M134\m134_close_001.ogg.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
+    New-Group "gau8a_rotor_stop" "Assets/weapons/grains" "gau8a_rotor_stop" "-" 3 "Weapons\GAU8A" "gau8a_rotor_stop" "_" 3 1 2 "Weapons\M134\m134_close_001.ogg.meta"
     New-Group "cannon_57_shot" "Assets/tanks/weapon/cannons/cannon_57mm_qf6" "cannon_57mm_qf6_shot" "_" 2 "Weapons" "cannon_57mm_qf6_shot" "_" 3 2 3 "Weapons\cannon_57mm_qf6_shot.ogg.meta"
     New-Group "shell_drop" "Assets/tanks/weapon/cannons" "cannon_shell_drop" "_" 2 "Weapons" "cannon_shell_drop" "_" 3 2 7 "Weapons\cannon_shell_drop.ogg.meta"
 
@@ -169,8 +252,8 @@ foreach ($group in $groups) {
         $expectedCount += $group.Last - $group.First + 1
     }
 }
-if ($expectedCount -ne 286) {
-    throw "Variant manifest expected 286 files but describes $expectedCount."
+if ($expectedCount -ne 326) {
+    throw "Variant manifest expected 326 files but describes $expectedCount."
 }
 
 $completed = 0
@@ -202,10 +285,22 @@ foreach ($group in $groups) {
         }
         $destinationNumber =
             Format-Index $destinationIndex $group.DestinationDigits
-        $sourceName = (
+        $sourceStem = if ($group.SourceNumbered) {
             "$($group.SourcePrefix)$($group.SourceSeparator)" +
-            "$sourceNumber$($group.SourceSuffix).wav")
-        $destinationName = "$($group.DestinationPrefix)$($group.DestinationSeparator)$destinationNumber.ogg"
+                "$sourceNumber$($group.SourceSuffix)"
+        }
+        else {
+            "$($group.SourcePrefix)$($group.SourceSuffix)"
+        }
+        $destinationStem = if ($group.DestinationNumbered) {
+            "$($group.DestinationPrefix)$($group.DestinationSeparator)" +
+                $destinationNumber
+        }
+        else {
+            $group.DestinationPrefix
+        }
+        $sourceName = "$sourceStem.wav"
+        $destinationName = "$destinationStem.ogg"
         $sourceRelativePath = "$($group.SourceDirectory)/$sourceName"
         $url = "$rawRoot/$sourceRelativePath"
         $downloadPath = Join-Path $groupDownloadRoot $sourceName

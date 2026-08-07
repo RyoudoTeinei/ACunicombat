@@ -17,6 +17,11 @@ namespace ACunicombat.Sensors
         public float MainlobePowerDb;
         public float SidelobeLevelDb;
         public float ClutterPowerDb;
+        /// <summary>
+        /// Multiplies range, angle and Doppler measurement sigma without changing the physical
+        /// beam footprint. Values at or below zero preserve the legacy scale of 1.
+        /// </summary>
+        public float MeasurementPrecisionScale;
         public ResolutionMerge.Resolutions Resolutions;
     }
 

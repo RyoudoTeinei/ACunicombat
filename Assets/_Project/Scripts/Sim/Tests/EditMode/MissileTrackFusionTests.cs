@@ -9,6 +9,75 @@ namespace ACunicombat.Tests.EditMode
     public class MissileTrackFusionTests
     {
         [Test]
+        public void AuthenticatedFriendlyReport_MarksMatchingMissileTrackFriendly()
+        {
+            var track = new MissileTrackSnapshot
+            {
+                TrackId = new TrackId(new Handle(7, 1)),
+                Position = new double3(100.0, 0.0, 1_000.0),
+                Velocity = new double3(10.0, 0.0, -200.0),
+                PositionUncertaintyMeters = 8f,
+                SourceMask = MissileTrackSourceMask.Radar,
+                LastUpdateTime = 20.0,
+            };
+
+            var matched = MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(
+                in track,
+                new double3(99.0, 0.0, 1_020.0),
+                new double3(10.0, 0.0, -200.0),
+                19.9,
+                20.0,
+                1.0,
+                120f,
+                180f,
+                out var score);
+
+            Assert.That(matched, Is.True);
+            MissileTrackFusion.ApplyFriendlyDataLinkIdentity(ref track, score);
+            Assert.That(track.IsFriendly, Is.True);
+            Assert.That(
+                track.SourceMask & MissileTrackSourceMask.DataLink,
+                Is.EqualTo(MissileTrackSourceMask.DataLink));
+        }
+
+        [Test]
+        public void FriendlyReport_DoesNotAssociateAcrossPositionOrTimeGate()
+        {
+            var track = new MissileTrackSnapshot
+            {
+                Position = new double3(0.0, 0.0, 1_000.0),
+                Velocity = new double3(0.0, 0.0, -100.0),
+                PositionUncertaintyMeters = 5f,
+                LastUpdateTime = 10.0,
+            };
+
+            Assert.That(
+                MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(
+                    in track,
+                    new double3(500.0, 0.0, 1_000.0),
+                    track.Velocity,
+                    10.0,
+                    10.0,
+                    1.0,
+                    120f,
+                    180f,
+                    out _),
+                Is.False);
+            Assert.That(
+                MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(
+                    in track,
+                    track.Position,
+                    track.Velocity,
+                    8.0,
+                    10.0,
+                    1.0,
+                    120f,
+                    180f,
+                    out _),
+                Is.False);
+        }
+
+        [Test]
         public void RadarOnlyTrack_IsIncomingButNotFireControlConfirmed()
         {
             var output = new MissileTrackSnapshot[2];

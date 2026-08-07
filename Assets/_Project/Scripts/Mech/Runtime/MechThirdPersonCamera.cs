@@ -62,6 +62,9 @@ namespace ACunicombat.Mechs
         [SerializeField, Range(0.05f, 1f)] private float overviewZoomAimSensitivity = 0.55f;
         [SerializeField, Range(0.02f, 1f)] private float precisionZoomAimSensitivity = 0.24f;
         [SerializeField, Range(0.01f, 1f)] private float maximumZoomAimSensitivity = 0.13f;
+        [SerializeField] private bool zoomTracksSttTarget = true;
+        [SerializeField, Min(1f)] private float zoomTrackingPitchRateDegrees = 75f;
+        [SerializeField, Min(1f)] private float zoomTrackingYawCaptureDegrees = 18f;
 
         private float pitchDegrees = 8f;
         private Vector3 localLag;
@@ -125,6 +128,13 @@ namespace ACunicombat.Mechs
             1 => 10,
             _ => 3,
         };
+
+        public bool ZoomTracksSttTarget => zoomTracksSttTarget;
+
+        public void SetZoomTracksSttTarget(bool enabled)
+        {
+            zoomTracksSttTarget = enabled;
+        }
 
         public void Configure(Transform target, MechFlightMotionController motionController)
         {
@@ -220,12 +230,19 @@ namespace ACunicombat.Mechs
 
         public void UpdateLook(in MechPlayerInputFrame frame)
         {
-            if (MechAssemblyMenu.IsAnyMenuVisible || followTarget == null || motion == null)
+            if (MechAssemblyMenu.IsAnyMenuVisible ||
+                MechSystemsRadialMenu.IsAnyMenuVisible ||
+                followTarget == null || motion == null)
             {
                 return;
             }
 
             EnsureAimCursorInitialized();
+            if (TryTrackSttWhileZoomed())
+            {
+                return;
+            }
+
             var screenSize = new Vector2(
                 Mathf.Max(1f, Screen.width),
                 Mathf.Max(1f, Screen.height));
@@ -299,9 +316,58 @@ namespace ACunicombat.Mechs
             };
         }
 
+        private bool TryTrackSttWhileZoomed()
+        {
+            if (!zoomTracksSttTarget || !IsZoomActive)
+            {
+                return false;
+            }
+
+            ResolveCombatReferences();
+            if (radar == null || !radar.SttTrackId.IsValid ||
+                !radar.TryGetTrack(radar.SttTrackId, out var sttTrack))
+            {
+                return false;
+            }
+
+            var focusPoint = followTarget.position + motion.ReferenceUp * focusHeight;
+            var direction = radar.PredictTrackPosition(in sttTrack) - focusPoint;
+            if (direction.sqrMagnitude <= 0.001f)
+            {
+                return false;
+            }
+
+            var localDirection = Quaternion.Inverse(motion.ReferenceRotation) *
+                direction.normalized;
+            var desiredYaw = Mathf.Atan2(localDirection.x, localDirection.z) *
+                Mathf.Rad2Deg;
+            var horizontal = Mathf.Sqrt(
+                localDirection.x * localDirection.x +
+                localDirection.z * localDirection.z);
+            var desiredPitch = -Mathf.Atan2(localDirection.y, horizontal) *
+                Mathf.Rad2Deg;
+            var yawError = Mathf.DeltaAngle(motion.LogicalYawDegrees, desiredYaw);
+            motion.SetYawTurnInput(Mathf.Clamp(
+                yawError / Mathf.Max(1f, zoomTrackingYawCaptureDegrees),
+                -1f,
+                1f));
+            pitchDegrees = motion.ConstrainPitchForCurrentMode(
+                Mathf.MoveTowardsAngle(
+                    pitchDegrees,
+                    desiredPitch,
+                    Mathf.Max(1f, zoomTrackingPitchRateDegrees) *
+                    Time.unscaledDeltaTime));
+            aimViewportPoint = Vector2.MoveTowards(
+                aimViewportPoint,
+                aimViewportCenter,
+                Time.unscaledDeltaTime * 2.5f);
+            return true;
+        }
+
         public void Follow(float deltaTime)
         {
-            if (MechAssemblyMenu.IsAnyMenuVisible || followTarget == null || motion == null)
+            if (MechAssemblyMenu.IsAnyMenuVisible ||
+                followTarget == null || motion == null)
             {
                 return;
             }

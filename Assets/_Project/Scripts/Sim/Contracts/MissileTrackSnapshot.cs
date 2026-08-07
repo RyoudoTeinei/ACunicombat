@@ -12,6 +12,7 @@ namespace ACunicombat.Sensing.Contracts
         Maw = 1 << 2,
         ElectroOptical = 1 << 3,
         LaserRangefinder = 1 << 4,
+        DataLink = 1 << 5,
     }
 
     public enum MissileTrackQuality : byte
@@ -36,7 +37,9 @@ namespace ACunicombat.Sensing.Contracts
         public float PositionUncertaintyMeters;
         public float CpaUncertaintyMeters;
         public float Confidence;
+        public float IdentityConfidence;
         public MissileTrackSourceMask SourceMask;
+        public TrackAffiliation Affiliation;
         public MissileTrackQuality Quality;
         public bool Confirmed;
         public bool Incoming;
@@ -50,6 +53,10 @@ namespace ACunicombat.Sensing.Contracts
 
         public bool IsWeaponsQuality =>
             Quality >= MissileTrackQuality.WeaponsQuality;
+
+        public bool IsFriendly =>
+            Affiliation == TrackAffiliation.Friendly &&
+            IdentityConfidence >= 0.5f;
 
         public double3 PredictPosition(double time)
         {

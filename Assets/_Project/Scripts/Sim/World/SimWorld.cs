@@ -86,6 +86,11 @@ namespace ACunicombat.Simulation.World
 
         public bool IsAlive(SimEntityId id)
         {
+            if (!alive.IsCreated || !generations.IsCreated)
+            {
+                return false;
+            }
+
             var index = id.Value.Index;
             return id.IsValid && index < MaxEntities && alive[index]
                    && generations[index] == id.Value.Generation;

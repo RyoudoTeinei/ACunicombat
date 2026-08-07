@@ -2,28 +2,22 @@ using ACunicombat.Sensing.Contracts;
 using ACunicombat.Sensors;
 using ACunicombat.Simulation.Core;
 using ACunicombat.Simulation.Driver;
+using ACunicombat.Simulation.Kinematics;
 using ACunicombat.Simulation.World;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace ACunicombat.Mechs
 {
     /// <summary>
-    /// 测试辐射源：给场景目标一台会辐射的雷达，玩家 RWR 才有东西可听。
-    /// 两种模式按距离自动切换（真值侧 AI 行为，合法读 Transform）：
-    ///   - 搜索：360° 圆扫（默认 120°/s，~3s 一帧），波形 3 → RWR 级别 Spiked；
-    ///   - 锁定：玩家进入锁定距离后对准玩家高驻留率照射，波形 1 → 统计涌现 Locked。
-    /// 模式切换靠重注册 profile 换 WaveformId——发射事件照抄 profile，无需改传感器层。
-    /// 驻留走共享调度器预算（16/Tick），本组件 ≤1 条/Tick，优先级恒 WideSearch
-    /// 不与玩家的 STT/TWS 抢队。SensorId 从 63 向下分配，与导弹导引头（从 1 向上）
-    /// 共用 64 槽空间，两端相遇前互不冲突。
+    /// Test radar emitter replicated into every observing mech's isolated
+    /// simulation driver. Each observer therefore receives the same physical
+    /// emissions without sharing mutable radar, RWR, tracking, or datalink IDs.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class MechTestRadarEmitter : MonoBehaviour
     {
-        private const int IndexCeiling = 63;
-        private const int IndexFloor = 48;
-        private static int nextIndex = IndexCeiling;
-
+        private const int MaximumObservers = 16;
         private const ushort SearchWaveformId = 3;
         private const ushort LockWaveformId = 1;
 
@@ -33,56 +27,119 @@ namespace ACunicombat.Mechs
         [SerializeField] private float beamWidthDegrees = 10f;
         [SerializeField] private float sweepDegreesPerSecond = 120f;
         [SerializeField] private float searchIntervalSeconds = 0.06f;
-        [Tooltip("玩家进入该距离后切换为对玩家的高驻留率照射（演示锁定告警升级）。0=禁用。")]
+        [Tooltip("目标进入该距离后切换为高驻留率定向照射。0=禁用。")]
         [SerializeField] private float lockRangeMeters = 50_000f;
         [SerializeField] private float lockIntervalSeconds = 0.04f;
         [SerializeField] private Transform designatedTarget;
 
-        private SimulationDriver driver;
+        private struct ObserverRegistration
+        {
+            public bool Active;
+            public SimulationDriver Driver;
+            public Transform Observer;
+            public SensorId SensorId;
+            public SimEntityId EntityId;
+            public bool LockModeRegistered;
+            public double NextDwellTime;
+            public double LastSweepTime;
+            public float SweepAzimuthDegrees;
+            public ulong DwellSequence;
+        }
+
+        private readonly ObserverRegistration[] observers =
+            new ObserverRegistration[MaximumObservers];
         private CombatTestTarget target;
-        private Transform playerTransform;
-        private SensorId emitterSensorId;
-        private SimEntityId emitterEntity;
-        private bool initialized;
-        private bool registrationFailed;
-        private bool lockModeRegistered;
-        private double nextDwellTime;
-        private double lastSweepTime;
-        private float sweepAzimuthDegrees;
-        private ulong dwellSequence;
         private Vector3 previousPosition;
 
-        public bool HasPlayerLock =>
-            initialized &&
-            lockModeRegistered &&
-            playerTransform != null;
+        public bool HasPlayerLock
+        {
+            get
+            {
+                for (var i = 0; i < observers.Length; i++)
+                {
+                    if (observers[i].Active &&
+                        observers[i].LockModeRegistered)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
 
         public void ConfigureTarget(
             Transform newTarget,
             float engagementRangeMeters = 50_000f)
         {
             designatedTarget = newTarget;
-            playerTransform = newTarget;
             lockRangeMeters = Mathf.Clamp(
                 engagementRangeMeters,
                 100f,
                 maxRangeMeters);
         }
 
+        public void RegisterObserverDriver(
+            SimulationDriver observerDriver,
+            Transform observer,
+            int sensorIndex)
+        {
+            if (observerDriver == null || observer == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < observers.Length; i++)
+            {
+                if (!observers[i].Active ||
+                    observers[i].Driver != observerDriver)
+                {
+                    continue;
+                }
+
+                observers[i].Observer = observer;
+                return;
+            }
+
+            for (var i = 0; i < observers.Length; i++)
+            {
+                if (observers[i].Active)
+                {
+                    continue;
+                }
+
+                var sensorId = new SensorId(
+                    new Handle(Mathf.Clamp(sensorIndex, 48, 63), 1));
+                var entityId = observerDriver.RegisterEntity(
+                    BuildState(transform.position, Vector3.zero));
+                observers[i] = new ObserverRegistration
+                {
+                    Active = true,
+                    Driver = observerDriver,
+                    Observer = observer,
+                    SensorId = sensorId,
+                    EntityId = entityId,
+                    LastSweepTime = observerDriver.SimTimeSeconds,
+                    SweepAzimuthDegrees = sensorIndex * 67f % 360f,
+                };
+                RegisterSensorProfile(ref observers[i], false);
+                return;
+            }
+
+            Debug.LogWarning(
+                "[MechTestRadarEmitter] 观察方注册容量已满。",
+                this);
+        }
+
         private void Awake()
         {
             target = GetComponent<CombatTestTarget>();
-            playerTransform = designatedTarget;
+            previousPosition = transform.position;
         }
 
         private void FixedUpdate()
         {
-            if (registrationFailed || (target != null && !target.IsAlive))
-            {
-                return; // 死掉的雷达不再辐射；实体注销走 OnDestroy。
-            }
-
-            if (!initialized && !TryInitialize())
+            if (target != null && !target.IsAlive)
             {
                 return;
             }
@@ -91,138 +148,159 @@ namespace ACunicombat.Mechs
             var position = transform.position;
             var velocity = (position - previousPosition) / dt;
             previousPosition = position;
-            driver.SetEntityState(emitterEntity, new ACunicombat.Simulation.Kinematics.KinematicState
-            {
-                PositionWorld = new Unity.Mathematics.double3(position.x, position.y, position.z),
-                VelocityWorld = new Unity.Mathematics.double3(velocity.x, velocity.y, velocity.z),
-            });
 
-            var now = driver.SimTimeSeconds;
-            if (now + 1e-6 < nextDwellTime)
+            for (var i = 0; i < observers.Length; i++)
+            {
+                if (!observers[i].Active || observers[i].Driver == null)
+                {
+                    continue;
+                }
+
+                ref var registration = ref observers[i];
+                registration.Driver.SetEntityState(
+                    registration.EntityId,
+                    BuildState(position, velocity));
+                ScheduleEmission(ref registration, position);
+            }
+        }
+
+        private void ScheduleEmission(
+            ref ObserverRegistration registration,
+            Vector3 position)
+        {
+            var observer = registration.Observer != null
+                ? registration.Observer
+                : designatedTarget;
+            var now = registration.Driver.SimTimeSeconds;
+            if (now + 1e-6 < registration.NextDwellTime)
             {
                 return;
             }
 
-            if (playerTransform == null)
-            {
-                playerTransform = designatedTarget;
-            }
-
             var lockMode = lockRangeMeters > 0f &&
-                           playerTransform != null &&
-                           (playerTransform.position - position).sqrMagnitude <=
+                           observer != null &&
+                           (observer.position - position).sqrMagnitude <=
                            lockRangeMeters * lockRangeMeters;
-            if (lockMode != lockModeRegistered)
+            if (lockMode != registration.LockModeRegistered)
             {
-                RegisterSensorProfile(lockMode);
-                lockModeRegistered = lockMode;
+                RegisterSensorProfile(ref registration, lockMode);
+                registration.LockModeRegistered = lockMode;
             }
 
             Vector3 beamDirection;
             if (lockMode)
             {
-                beamDirection = (playerTransform.position - position).normalized;
+                beamDirection = (observer.position - position).normalized;
             }
             else
             {
-                sweepAzimuthDegrees = Mathf.Repeat(
-                    sweepAzimuthDegrees +
-                    sweepDegreesPerSecond * (float)(now - lastSweepTime),
+                registration.SweepAzimuthDegrees = Mathf.Repeat(
+                    registration.SweepAzimuthDegrees +
+                    sweepDegreesPerSecond *
+                    (float)(now - registration.LastSweepTime),
                     360f);
-                beamDirection = Quaternion.Euler(0f, sweepAzimuthDegrees, 0f) * Vector3.forward;
+                beamDirection =
+                    Quaternion.Euler(
+                        0f,
+                        registration.SweepAzimuthDegrees,
+                        0f) * Vector3.forward;
             }
 
-            lastSweepTime = now;
-            driver.ScheduleRadarDwell(new Dwell
+            registration.LastSweepTime = now;
+            registration.Driver.ScheduleRadarDwell(new Dwell
             {
-                SensorId = emitterSensorId,
+                SensorId = registration.SensorId,
                 DueTime = now,
                 DwellTimeSeconds = lockMode ? 0.03f : 0.008f,
-                BeamDirection = new Unity.Mathematics.float3(
-                    beamDirection.x, beamDirection.y, beamDirection.z),
+                BeamDirection = new float3(
+                    beamDirection.x,
+                    beamDirection.y,
+                    beamDirection.z),
                 BeamWidthRadians = beamWidthDegrees * Mathf.Deg2Rad,
                 Priority = DwellPriority.WideSearch,
-                Sequence = ++dwellSequence,
+                Sequence = ++registration.DwellSequence,
             });
-            nextDwellTime = now + (lockMode ? lockIntervalSeconds : searchIntervalSeconds);
+            registration.NextDwellTime = now +
+                (lockMode ? lockIntervalSeconds : searchIntervalSeconds);
         }
 
-        private bool TryInitialize()
+        private void RegisterSensorProfile(
+            ref ObserverRegistration registration,
+            bool lockOnObserver)
         {
-            driver = FindAnyObjectByType<SimulationDriver>();
-            if (driver == null)
-            {
-                return false; // 玩家雷达控制器负责创建驱动器；这里只等待。
-            }
-
-            if (nextIndex < IndexFloor)
-            {
-                registrationFailed = true;
-                Debug.LogWarning("[MechTestRadarEmitter] 测试辐射源槽位耗尽（48-63 共 16 个）。", this);
-                return false;
-            }
-
-            var index = nextIndex--;
-            emitterSensorId = new SensorId(new Handle(index, 1));
-            previousPosition = transform.position;
-            emitterEntity = driver.RegisterEntity(new ACunicombat.Simulation.Kinematics.KinematicState
-            {
-                PositionWorld = new Unity.Mathematics.double3(
-                    transform.position.x, transform.position.y, transform.position.z),
-            });
-            RegisterSensorProfile(lockOnPlayer: false);
-            lockModeRegistered = false;
-            lastSweepTime = driver.SimTimeSeconds;
-            // 相位错开：不同辐射源不在同一帧扎堆照射。
-            sweepAzimuthDegrees = (index * 67f) % 360f;
-            initialized = true;
-            return true;
+            registration.Driver.RegisterAuxiliaryRadarSensor(
+                new RadarSensorProfile
+                {
+                    SensorId = registration.SensorId,
+                    EmitterId = new EmitterId(
+                        registration.SensorId.Value),
+                    PlatformId = new PlatformId(
+                        registration.SensorId.Value),
+                    OwnerEntityId = registration.EntityId,
+                    DwellConfig = new RadarDwellConfig
+                    {
+                        ConstantsDb = 210f,
+                        IntegrationGainDb = 6f,
+                        NoisePowerDb = 0f,
+                        DetectThresholdLowDb = 3f,
+                        DetectThresholdHighDb = 10f,
+                        RangeResolutionMeters = 15f,
+                        BeamWidthRadians =
+                            beamWidthDegrees * Mathf.Deg2Rad,
+                        VelocityResolutionMps = 2f,
+                    },
+                    Capability =
+                        SensorCapability.Range |
+                        SensorCapability.Doppler,
+                    MaxRangeMeters = maxRangeMeters,
+                    FrequencyBand = 1,
+                    WaveformId = lockOnObserver
+                        ? LockWaveformId
+                        : SearchWaveformId,
+                    MainlobePowerDb = mainlobePowerDb,
+                    SidelobeLevelDb = sidelobeLevelDb,
+                    ClutterPowerDb = -45f,
+                    Resolutions = new ResolutionMerge.Resolutions
+                    {
+                        RangeMeters = 15f,
+                        AngleRadians = 1.5f * Mathf.Deg2Rad,
+                        VelocityMps = 2f,
+                    },
+                });
         }
 
-        private void RegisterSensorProfile(bool lockOnPlayer)
+        private static KinematicState BuildState(
+            Vector3 position,
+            Vector3 velocity)
         {
-            driver.RegisterAuxiliaryRadarSensor(new RadarSensorProfile
+            return new KinematicState
             {
-                SensorId = emitterSensorId,
-                EmitterId = new EmitterId(emitterSensorId.Value),
-                PlatformId = new PlatformId(emitterSensorId.Value),
-                OwnerEntityId = emitterEntity,
-                DwellConfig = new RadarDwellConfig
-                {
-                    ConstantsDb = 210f,
-                    IntegrationGainDb = 6f,
-                    NoisePowerDb = 0f,
-                    DetectThresholdLowDb = 3f,
-                    DetectThresholdHighDb = 10f,
-                    RangeResolutionMeters = 15f,
-                    BeamWidthRadians = beamWidthDegrees * Mathf.Deg2Rad,
-                    VelocityResolutionMps = 2f,
-                },
-                Capability = SensorCapability.Range | SensorCapability.Doppler,
-                MaxRangeMeters = maxRangeMeters,
-                FrequencyBand = 1,
-                WaveformId = lockOnPlayer ? LockWaveformId : SearchWaveformId,
-                MainlobePowerDb = mainlobePowerDb,
-                SidelobeLevelDb = sidelobeLevelDb,
-                ClutterPowerDb = -45f,
-                Resolutions = new ResolutionMerge.Resolutions
-                {
-                    RangeMeters = 15f,
-                    AngleRadians = 1.5f * Mathf.Deg2Rad,
-                    VelocityMps = 2f,
-                },
-            });
+                PositionWorld = new double3(
+                    position.x,
+                    position.y,
+                    position.z),
+                VelocityWorld = new double3(
+                    velocity.x,
+                    velocity.y,
+                    velocity.z),
+            };
         }
 
         private void OnDestroy()
         {
-            if (!initialized || driver == null)
+            for (var i = 0; i < observers.Length; i++)
             {
-                return;
-            }
+                if (!observers[i].Active || observers[i].Driver == null)
+                {
+                    continue;
+                }
 
-            driver.UnregisterRadarSensor(emitterSensorId);
-            driver.UnregisterEntity(emitterEntity);
+                observers[i].Driver.UnregisterRadarSensor(
+                    observers[i].SensorId);
+                observers[i].Driver.UnregisterEntity(
+                    observers[i].EntityId);
+                observers[i] = default;
+            }
         }
     }
 }

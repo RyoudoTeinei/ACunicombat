@@ -296,8 +296,11 @@ namespace ACunicombat.Mechs
                     if (fired)
                     {
                         rifleBurstShotsRemaining--;
+                        weapons.TryGetWeaponSlot(
+                            MechWeaponRole.AutomaticCannon,
+                            out var rifleSlot);
                         weaponAnimationLayer?.NotifyExternalFire(
-                            rightHand: true,
+                            rightHand: rifleSlot == MechPartSlot.RightHandWeapon,
                             holdSeconds: rifleShotIntervalSeconds + 0.04f);
                     }
                     else if (weapons.RifleReloading)
@@ -329,8 +332,11 @@ namespace ACunicombat.Mechs
                 nextHandWeaponTime = Time.time + (fired ? 4.4f : 0.25f);
                 if (fired)
                 {
+                    weapons.TryGetWeaponSlot(
+                        MechWeaponRole.HandCannon,
+                        out var cannonSlot);
                     weaponAnimationLayer?.NotifyExternalFire(
-                        rightHand: false,
+                        rightHand: cannonSlot == MechPartSlot.RightHandWeapon,
                         holdSeconds: 0.14f);
                 }
             }
@@ -345,12 +351,17 @@ namespace ACunicombat.Mechs
             {
                 // Launch permission comes from the AI sensor track. The test
                 // missile's own active seeker handles terminal acquisition.
-                weapons.CommandFireMissileAtEstimate(
-                    MechPartSlot.RightBackWeapon,
-                    objective,
-                    track.Position,
-                    track.Velocity,
-                    track.UncertaintyMeters);
+                if (weapons.TryGetWeaponSlot(
+                        MechWeaponRole.AirToAirMissile,
+                        out var missileSlot))
+                {
+                    weapons.CommandFireMissileAtEstimate(
+                        missileSlot,
+                        objective,
+                        track.Position,
+                        track.Velocity,
+                        track.UncertaintyMeters);
+                }
                 nextMissileTime = Time.time + missileCooldownSeconds;
             }
         }

@@ -118,6 +118,14 @@ namespace ACunicombat.Mechs
 		[SerializeField]
 		private MechThermalVisionController thermalVision;
 
+		public void NotifyShoulderWeaponFired(MechPartSlot slot)
+		{
+			if (thermalSignature != null)
+			{
+				thermalSignature.NotifyWeaponFired(slot == MechPartSlot.LeftBackWeapon);
+			}
+		}
+
 		[SerializeField]
 		private CombatTestTarget combatTarget;
 
@@ -277,6 +285,15 @@ namespace ACunicombat.Mechs
 			if (!aiControlled && GetComponent<MechAssemblyMenu>() == null)
 			{
 				base.gameObject.AddComponent<MechAssemblyMenu>();
+			}
+			if (!aiControlled && input != null && cam != null &&
+				GetComponent<MechSystemsRadialMenu>() == null)
+			{
+				base.gameObject.AddComponent<MechSystemsRadialMenu>();
+			}
+			if (!aiControlled && motion != null)
+			{
+				motion.SetVectorThrustEnabled(true);
 			}
 		}
 
@@ -445,11 +462,6 @@ namespace ACunicombat.Mechs
 				lastFrame.InertialThrustLockHeld = false;
 			}
 			quickBoostActivationConsumed = false;
-			if (lastFrame.VectorThrustToggleEdge)
-			{
-				motion.SetVectorThrustEnabled(!motion.VectorThrustEnabled);
-				Debug.Log("[MechPlayerRig] Vector thrust: " + (motion.VectorThrustEnabled ? "ON" : "OFF") + ".", this);
-			}
 			if (lastFrame.ThrustVisualizationToggleEdge)
 			{
 				thrustVisualizer?.ToggleVisible();
@@ -1171,9 +1183,16 @@ namespace ACunicombat.Mechs
 			float width = Mathf.Clamp((float)Screen.width * 0.34f, 300f, 520f);
 			Rect rect = new Rect((float)Screen.width * 0.5f - width * 0.5f, (float)Screen.height - 86f, width, 14f);
 			float normalized = combatTarget.HealthFraction;
+			float shieldNormalized = combatTarget.ShieldFraction;
 			Color color = ((normalized <= 0.2f) ? new Color(1f, 0.2f, 0.14f, 0.98f) : ((normalized <= 0.5f) ? new Color(1f, 0.72f, 0.18f, 0.98f) : new Color(0.34f, 0.94f, 0.82f, 0.98f)));
 			DrawInstrumentRect(new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f), new Color(0.01f, 0.05f, 0.045f, 0.9f));
 			DrawInstrumentRect(new Rect(rect.x, rect.y, rect.width * normalized, rect.height), color);
+			if (combatTarget.HasShield && shieldNormalized > 0f)
+			{
+				DrawInstrumentRect(
+					new Rect(rect.x, rect.y, rect.width * shieldNormalized, rect.height),
+					new Color(0.12f, 0.58f, 1f, 0.9f));
+			}
 			for (int i = 1; i < 10; i++)
 			{
 				DrawInstrumentRect(new Rect(rect.x + rect.width * (float)i / 10f - 0.5f, rect.y, 1f, rect.height), new Color(0.01f, 0.08f, 0.065f, 0.72f));

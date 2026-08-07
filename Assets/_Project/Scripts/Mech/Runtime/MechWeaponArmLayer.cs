@@ -141,22 +141,34 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            var rightReloading =
+                weaponSystem != null &&
+                weaponSystem.IsHandWeaponReloading(
+                    MechPartSlot.RightHandWeapon);
+            var leftReloading =
+                weaponSystem != null &&
+                weaponSystem.IsHandWeaponReloading(
+                    MechPartSlot.LeftHandWeapon);
             var rightFireHeld =
                 (frame.SecondaryFireHeld ||
                  Time.time <= externalRightFireUntil) &&
-                (weaponSystem == null ||
-                 !weaponSystem.RifleReloading);
+                !rightReloading;
             var rightFireEdge =
                 (frame.SecondaryFireEdge || externalRightFireEdge) &&
                 rightFireHeld;
             var leftFireHeld =
                 (frame.PrimaryFireHeld ||
                  Time.time <= externalLeftFireUntil) &&
-                (weaponSystem == null ||
-                 !weaponSystem.CannonReloading);
+                !leftReloading;
             var leftFireEdge =
                 (frame.PrimaryFireEdge || externalLeftFireEdge) &&
                 leftFireHeld;
+            var rightSustainedFire = UsesSustainedFirePose(
+                MechPartSlot.RightHandWeapon,
+                rightArm.repeatFireWhileHeld);
+            var leftSustainedFire = UsesSustainedFirePose(
+                MechPartSlot.LeftHandWeapon,
+                leftArm.repeatFireWhileHeld);
             externalRightFireEdge = false;
             externalLeftFireEdge = false;
 
@@ -169,22 +181,71 @@ namespace ACunicombat.Mechs
                 activeSideIsRight = false;
             }
 
-            TickArm(
-                rightState,
-                in rightArm,
-                true,
-                rightFireHeld,
-                rightFireEdge,
-                frame.SecondaryFireHeld,
-                deltaTime);
-            TickArm(
-                leftState,
-                in leftArm,
-                false,
-                leftFireHeld,
-                leftFireEdge,
-                frame.PrimaryFireHeld,
-                deltaTime);
+            if (rightReloading)
+            {
+                SettleArmForReload(rightState, in rightArm, true);
+            }
+            else
+            {
+                TickArm(
+                    rightState,
+                    in rightArm,
+                    true,
+                    rightFireHeld,
+                    rightFireEdge,
+                    frame.SecondaryFireHeld,
+                    rightSustainedFire,
+                    deltaTime);
+            }
+
+            if (leftReloading)
+            {
+                SettleArmForReload(leftState, in leftArm, false);
+            }
+            else
+            {
+                TickArm(
+                    leftState,
+                    in leftArm,
+                    false,
+                    leftFireHeld,
+                    leftFireEdge,
+                    frame.PrimaryFireHeld,
+                    leftSustainedFire,
+                    deltaTime);
+            }
+        }
+
+        private void SettleArmForReload(
+            ArmRuntimeState state,
+            in ArmActionSet set,
+            bool isRight)
+        {
+            state.FireQueued = false;
+            state.IdleElapsed = 0f;
+            if (state.Phase == ArmPhase.Lowered ||
+                state.Phase == ArmPhase.Holding)
+            {
+                return;
+            }
+
+            if (state.Phase == ArmPhase.SustainedFiring)
+            {
+                ReleaseHeldPose(isRight);
+            }
+
+            PlayArm(isRight, set.holdActionId);
+            SetPhase(state, ArmPhase.Holding);
+        }
+
+        private bool UsesSustainedFirePose(
+            MechPartSlot slot,
+            bool fallback)
+        {
+            return weaponSystem == null
+                ? fallback
+                : weaponSystem.GetEquippedWeaponRole(slot) ==
+                  MechWeaponRole.AutomaticCannon;
         }
 
         private void SuppressArm(ArmRuntimeState state, bool isRight)
@@ -206,6 +267,7 @@ namespace ACunicombat.Mechs
             bool fireHeld,
             bool fireEdge,
             bool keepRaised,
+            bool sustainedFire,
             float deltaTime)
         {
             state.PhaseElapsed += deltaTime;
@@ -229,7 +291,7 @@ namespace ACunicombat.Mechs
                     if (state.PhaseElapsed >= set.raiseSeconds)
                     {
                         if (state.FireQueued ||
-                            (fireHeld && set.repeatFireWhileHeld))
+                            (fireHeld && sustainedFire))
                         {
                             state.FireQueued = false;
                             PlayArm(isRight, set.fireActionId);
@@ -246,7 +308,7 @@ namespace ACunicombat.Mechs
 
                 case ArmPhase.Holding:
                     if (fireEdge ||
-                        (fireHeld && set.repeatFireWhileHeld))
+                        (fireHeld && sustainedFire))
                     {
                         state.FireQueued = false;
                         PlayArm(isRight, set.fireActionId);
@@ -262,12 +324,12 @@ namespace ACunicombat.Mechs
                     break;
 
                 case ArmPhase.Firing:
-                    if (isRight &&
-                        set.repeatFireWhileHeld &&
+                    if (sustainedFire &&
                         fireHeld &&
                         state.PhaseElapsed >=
                         set.sustainedFirePoseSeconds &&
-                        player.HoldRightArmPose(
+                        HoldArmPose(
+                            isRight,
                             set.sustainedFirePoseSeconds))
                     {
                         SetPhase(
@@ -278,7 +340,7 @@ namespace ACunicombat.Mechs
 
                     if (state.PhaseElapsed >= set.fireSeconds)
                     {
-                        if ((fireHeld && set.repeatFireWhileHeld) ||
+                        if ((fireHeld && sustainedFire) ||
                             state.FireQueued)
                         {
                             state.FireQueued = false;
@@ -297,7 +359,7 @@ namespace ACunicombat.Mechs
                 case ArmPhase.SustainedFiring:
                     if (!fireHeld)
                     {
-                        player.ReleaseRightArmPose();
+                        ReleaseHeldPose(isRight);
                         state.Phase = ArmPhase.Firing;
                         state.PhaseElapsed =
                             set.sustainedFirePoseSeconds;
@@ -313,6 +375,17 @@ namespace ACunicombat.Mechs
             {
                 player.ReleaseRightArmPose();
             }
+            else
+            {
+                player.ReleaseLeftArmPose();
+            }
+        }
+
+        private bool HoldArmPose(bool isRight, float actionTimeSeconds)
+        {
+            return isRight
+                ? player.HoldRightArmPose(actionTimeSeconds)
+                : player.HoldLeftArmPose(actionTimeSeconds);
         }
 
         private void PlayArm(bool isRight, string actionId)
@@ -395,7 +468,7 @@ namespace ACunicombat.Mechs
                 raiseSeconds = 0.5f,
                 fireSeconds = 0.4f,
                 repeatFireWhileHeld = false,
-                sustainedFirePoseSeconds = 0f,
+                sustainedFirePoseSeconds = 0.2f,
             };
         }
 

@@ -20,6 +20,12 @@ namespace ACunicombat.Mechs
         private const float FlybyMaximumDistanceMeters = 35f;
         private const float FlybyApproachEpsilonMeters = 0.05f;
         private const float OwnshipIgnitionCoalesceSeconds = 0.2f;
+        private const int OwnshipIgnitionPriority = 40;
+        private const int OwnshipEjectionPriority = 48;
+        private const int OwnshipMotorPriority = 64;
+        private const int ExternalTransientPriority = 144;
+        private const int ExternalMotorPriority = 176;
+        private const int FlybyPriority = 128;
 
         private static float nextOwnshipIgnitionTime;
 
@@ -83,6 +89,7 @@ namespace ACunicombat.Mechs
                 AudioSourceCurveType.CustomRolloff,
                 CreateMotorRolloffCurve());
             flybySource = CreateWorldSource();
+            flybySource.priority = FlybyPriority;
             flybySource.maxDistance =
                 Mathf.Min(maximumDistanceMeters, 55f);
         }
@@ -92,6 +99,15 @@ namespace ACunicombat.Mechs
             coldLaunch = isColdLaunch;
             ownshipLaunch = isOwnshipLaunch;
             ignitionSource.spatialBlend = ownshipLaunch ? 0f : 1f;
+            ejectionSource.priority = ownshipLaunch
+                ? OwnshipEjectionPriority
+                : ExternalTransientPriority;
+            ignitionSource.priority = ownshipLaunch
+                ? OwnshipIgnitionPriority
+                : ExternalTransientPriority;
+            motorSource.priority = ownshipLaunch
+                ? OwnshipMotorPriority
+                : ExternalMotorPriority;
             configuredTime = Time.unscaledTime;
             listenerTransform = FindListenerTransform();
             ResetFlybyTracking();
@@ -375,7 +391,7 @@ namespace ACunicombat.Mechs
             source.SetCustomCurve(
                 AudioSourceCurveType.CustomRolloff,
                 CreateExternalRolloffCurve());
-            source.priority = 160;
+            source.priority = ExternalTransientPriority;
             return source;
         }
 

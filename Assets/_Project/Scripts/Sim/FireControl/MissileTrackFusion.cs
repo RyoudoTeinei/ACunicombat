@@ -129,6 +129,64 @@ namespace ACunicombat.FireControl
     /// </summary>
     public static class MissileTrackFusion
     {
+        public static bool TryScoreFriendlyDataLinkAssociation(
+            in MissileTrackSnapshot track,
+            double3 reportPosition,
+            double3 reportVelocity,
+            double reportTimestamp,
+            double now,
+            double retentionSeconds,
+            float maximumPositionGateMeters,
+            float velocityGateMetersPerSecond,
+            out double score)
+        {
+            score = double.PositiveInfinity;
+            var age = math.max(0.0, now - reportTimestamp);
+            if (age > retentionSeconds)
+            {
+                return false;
+            }
+
+            var predictedReportPosition =
+                reportPosition + reportVelocity * age;
+            var positionError = math.distance(
+                predictedReportPosition,
+                track.PredictPosition(now));
+            var positionGate = math.min(
+                maximumPositionGateMeters,
+                math.max(
+                    12.0,
+                    track.PositionUncertaintyMeters * 3.0 + age * 20.0));
+            if (positionError > positionGate)
+            {
+                return false;
+            }
+
+            var velocityError = math.distance(
+                reportVelocity,
+                track.PredictVelocity(now));
+            if (velocityError > velocityGateMetersPerSecond)
+            {
+                return false;
+            }
+
+            score = positionError / positionGate +
+                    velocityError / velocityGateMetersPerSecond;
+            return true;
+        }
+
+        public static void ApplyFriendlyDataLinkIdentity(
+            ref MissileTrackSnapshot track,
+            double associationScore)
+        {
+            track.Affiliation = TrackAffiliation.Friendly;
+            track.IdentityConfidence = math.clamp(
+                (float)(1.0 - associationScore * 0.2),
+                0.6f,
+                1f);
+            track.SourceMask |= MissileTrackSourceMask.DataLink;
+        }
+
         public static int Fuse(
             in MissileTrackFusionConfig config,
             TrackSnapshot[] radarTracks,

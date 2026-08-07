@@ -43,8 +43,6 @@ namespace ACunicombat.Mechs
         /// <summary>E commands the anatomical right shoulder weapon.</summary>
         public bool RightShoulderFireHeld;
         public bool RightShoulderFireEdge;
-        /// <summary>Digit 1 toggles vector thrust.</summary>
-        public bool VectorThrustToggleEdge;
         /// <summary>Digit 2 toggles runtime thrust-force visualization.</summary>
         public bool ThrustVisualizationToggleEdge;
         /// <summary>Backquote (`~) cycles thermal vision: off → white hot → black hot.</summary>
@@ -109,7 +107,8 @@ namespace ACunicombat.Mechs
         /// <summary>每帧调用（由 MechPlayerRig 驱动，保证与运动层同帧序）。</summary>
         public MechPlayerInputFrame Sample()
         {
-            if (MechAssemblyMenu.IsAnyMenuVisible)
+            if (MechAssemblyMenu.IsAnyMenuVisible ||
+                MechSystemsRadialMenu.IsAnyMenuVisible)
             {
                 Current = default;
                 return Current;
@@ -157,7 +156,6 @@ namespace ACunicombat.Mechs
             frame.LeftShoulderFireEdge = keyboard.qKey.wasPressedThisFrame;
             frame.RightShoulderFireHeld = keyboard.eKey.isPressed;
             frame.RightShoulderFireEdge = keyboard.eKey.wasPressedThisFrame;
-            frame.VectorThrustToggleEdge = keyboard.digit1Key.wasPressedThisFrame;
             frame.ThrustVisualizationToggleEdge = keyboard.digit2Key.wasPressedThisFrame;
             frame.ThermalVisionCycleEdge = keyboard.backquoteKey.wasPressedThisFrame;
 

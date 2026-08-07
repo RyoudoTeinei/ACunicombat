@@ -23,6 +23,7 @@ namespace ACunicombat.Mechs
     public sealed class MechEngineController : MonoBehaviour
     {
         private const string AudioRoot = "Audio/Engine/";
+        private const float SilentLoopVolume = 0.0001f;
 
         [Header("Startup")]
         [SerializeField, Range(0f, 7.5f)] private float startupDurationSeconds = 7.5f;
@@ -178,7 +179,6 @@ namespace ACunicombat.Mechs
             engineLoad = 0f;
             motion.SetEngineAvailable(!startupActive);
 
-            StartLoopSources();
             if (!startupActive)
             {
                 return;
@@ -415,20 +415,6 @@ namespace ACunicombat.Mechs
             SetSpatialBlend(afterburnerWepSource, blend);
         }
 
-        private void StartLoopSources()
-        {
-            PlayLoop(turbineIdleSource);
-            PlayLoop(turbineCruiseSource);
-            PlayLoop(turbineMaximumSource);
-            PlayLoop(rearLowSource);
-            PlayLoop(rearCruiseSource);
-            PlayLoop(rearMaximumSource);
-            PlayLoop(afterburnerBurnSource);
-            PlayLoop(afterburnerWepSource);
-            PlayLoop(jetThrustSource);
-            PlayLoop(nozzleThrustSource);
-        }
-
         private static AudioClip Load(string clipName)
         {
             var clip = Resources.Load<AudioClip>(AudioRoot + clipName);
@@ -453,19 +439,33 @@ namespace ACunicombat.Mechs
             source.Play();
         }
 
-        private static void PlayLoop(AudioSource source)
+        private static void MoveVolume(AudioSource source, float target, float step)
         {
-            if (source != null && source.clip != null && !source.isPlaying)
+            if (source == null)
+            {
+                return;
+            }
+
+            var clampedTarget = Mathf.Clamp01(target);
+            if (source.loop &&
+                clampedTarget > SilentLoopVolume &&
+                !source.isPlaying &&
+                source.clip != null)
             {
                 source.Play();
             }
-        }
 
-        private static void MoveVolume(AudioSource source, float target, float step)
-        {
-            if (source != null)
+            source.volume = Mathf.MoveTowards(
+                source.volume,
+                clampedTarget,
+                step);
+            if (source.loop &&
+                clampedTarget <= SilentLoopVolume &&
+                source.volume <= SilentLoopVolume &&
+                source.isPlaying)
             {
-                source.volume = Mathf.MoveTowards(source.volume, Mathf.Clamp01(target), step);
+                source.Stop();
+                source.volume = 0f;
             }
         }
 

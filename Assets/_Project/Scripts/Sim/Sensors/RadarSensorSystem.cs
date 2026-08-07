@@ -227,6 +227,12 @@ namespace ACunicombat.Sensors
                 var sigmaVelocity = RadarMath.SigmaVelocity(
                     measurementConfig,
                     snrLinear);
+                var measurementPrecisionScale = profile.MeasurementPrecisionScale > 0f
+                    ? profile.MeasurementPrecisionScale
+                    : 1f;
+                sigmaRange *= measurementPrecisionScale;
+                sigmaAngle *= measurementPrecisionScale;
+                sigmaVelocity *= measurementPrecisionScale;
                 BuildPerpendicularBasis(trueDirection, out var tangentA, out var tangentB);
                 var noisyDirection = math.normalizesafe(
                     trueDirection

@@ -1628,7 +1628,7 @@ public static class AC6SkinnedModularSampleBuilder
 			new NativeWeaponSpec("WP_L_0250", "Native Left Blade 0250", MechPartSlot.LeftHandWeapon, "a000_000000", 6100f, isMelee: true),
 			new NativeWeaponSpec("WP_L_1310", "Native Left Grenade Launcher 1310", MechPartSlot.LeftHandWeapon, "a000_800210", 4900f),
 			new NativeWeaponSpec("WP_R_1310", "Native Right Grenade Launcher 1310", MechPartSlot.RightHandWeapon, "a000_000000", 4900f),
-			new NativeWeaponSpec("WP_R_1610", "MA-J-200 RANSETSU-RF", MechPartSlot.RightHandWeapon, "a000_800210", 4210f),
+			new NativeWeaponSpec("WP_R_1610", "MA-J-200 RANSETSU-RF", MechPartSlot.RightHandWeapon, "a000_800210", 4310f),
 			new NativeWeaponSpec("WP_L_1410", "Native Left Bazooka 1410", MechPartSlot.LeftHandWeapon, "a000_000000", 4600f),
 			new NativeWeaponSpec("WP_L_4210", "Native Left Plasma Missile 4210", MechPartSlot.LeftBackWeapon, "a000_800000", 4200f),
 			new NativeWeaponSpec("WP_R_4210", "Native Right Plasma Missile 4210", MechPartSlot.RightBackWeapon, "a000_800000", 4200f),

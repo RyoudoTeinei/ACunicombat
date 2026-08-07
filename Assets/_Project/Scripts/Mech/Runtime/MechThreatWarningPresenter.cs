@@ -29,6 +29,8 @@ namespace ACunicombat.Mechs
         [SerializeField] private float immediateMissileReceivedPowerDb = -6f;
 
         [Header("RWR 告警音频")]
+        [Tooltip("RWR 全部单响、跟踪、锁定与导弹告警的总音量。")]
+        [SerializeField, Range(0f, 1f)] private float rwrMasterVolume = 0.7f;
         [Tooltip("被搜索扫描单响。")]
         [SerializeField] private AudioClip spikeClip;
         [Tooltip("被跟踪期间以两声一组播放的接触音。")]
@@ -148,6 +150,8 @@ namespace ACunicombat.Mechs
 
         private void UpdateAudio()
         {
+            oneShotSource.volume = rwrMasterVolume;
+            loopSource.volume = rwrMasterVolume;
             ResolveEngineController();
             if (engineController != null &&
                 engineController.GetHudStartupAlpha(
