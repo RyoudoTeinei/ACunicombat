@@ -169,7 +169,7 @@ namespace ACunicombat.Mechs
             cameraObject.transform.SetParent(previewStage.transform, false);
             previewCamera = cameraObject.AddComponent<Camera>();
             previewCamera.clearFlags = CameraClearFlags.SolidColor;
-            previewCamera.backgroundColor = new Color(0.025f, 0.045f, 0.066f, 1f);
+            previewCamera.backgroundColor = new Color(0.055f, 0.070f, 0.082f, 1f);
             previewCamera.cullingMask = 1 << PreviewLayer;
             previewCamera.nearClipPlane = 0.03f;
             previewCamera.farClipPlane = 5000f;
@@ -181,20 +181,20 @@ namespace ACunicombat.Mechs
             ConfigurePostProcessing(cameraObject);
             CreateDirectionalLight(
                 "PreviewKey",
-                new Color(1f, 0.96f, 0.89f),
-                1.35f,
+                new Color(1f, 0.97f, 0.92f),
+                1.85f,
                 new Vector3(28f, -38f, 0f),
                 LightShadows.Soft);
             CreateDirectionalLight(
                 "PreviewFill",
-                new Color(0.73f, 0.78f, 0.82f),
-                0.20f,
+                new Color(0.82f, 0.87f, 0.91f),
+                0.42f,
                 new Vector3(14f, 142f, 8f),
                 LightShadows.None);
             CreateDirectionalLight(
                 "PreviewRim",
-                new Color(0.82f, 0.87f, 0.90f),
-                0.42f,
+                new Color(0.86f, 0.90f, 0.94f),
+                0.68f,
                 new Vector3(-32f, 205f, 0f),
                 LightShadows.None);
             overheadBankLight = CreateSpotLight(
@@ -235,10 +235,10 @@ namespace ACunicombat.Mechs
             tonemapping.mode.Override(TonemappingMode.ACES);
 
             var color = previewVolumeProfile.Add<ColorAdjustments>(true);
-            color.postExposure.Override(-0.45f);
-            color.contrast.Override(8f);
-            color.saturation.Override(-4f);
-            color.colorFilter.Override(new Color(1f, 0.985f, 0.965f, 1f));
+            color.postExposure.Override(-0.05f);
+            color.contrast.Override(5f);
+            color.saturation.Override(-2f);
+            color.colorFilter.Override(new Color(1f, 0.99f, 0.975f, 1f));
 
             var volumeObject = new GameObject("PreviewPostProcessing")
             {
@@ -324,7 +324,7 @@ namespace ACunicombat.Mechs
             hangarReflectionProbe = probeObject.AddComponent<ReflectionProbe>();
             hangarReflectionProbe.mode = ReflectionProbeMode.Custom;
             hangarReflectionProbe.customBakedTexture = hangarReflectionCubemap;
-            hangarReflectionProbe.intensity = 0.78f;
+            hangarReflectionProbe.intensity = 1.05f;
             hangarReflectionProbe.boxProjection = true;
             hangarReflectionProbe.importance = 100;
             hangarReflectionProbe.blendDistance = 0.5f;
@@ -350,7 +350,7 @@ namespace ACunicombat.Mechs
                 CubemapFace.PositiveZ,
                 CubemapFace.NegativeZ
             };
-            var overheadDirection = new Vector3(-0.18f, 0.96f, -0.22f).normalized;
+            var overheadDirection = new Vector3(-0.12f, 0.98f, -0.16f).normalized;
             var leftBankDirection = new Vector3(-0.82f, 0.35f, -0.45f).normalized;
             var rearBankDirection = new Vector3(0.66f, 0.48f, 0.57f).normalized;
 
@@ -363,13 +363,15 @@ namespace ACunicombat.Mechs
                     for (var x = 0; x < size; x++)
                     {
                         var direction = CubemapTexelDirection(face, x, y, size);
-                        var overhead = SoftPanel(direction, overheadDirection, 0.70f, 6f);
-                        var left = SoftPanel(direction, leftBankDirection, 0.82f, 8f);
-                        var rear = SoftPanel(direction, rearBankDirection, 0.84f, 10f);
-                        var color = new Color(0.018f, 0.022f, 0.027f, 1f);
-                        color += new Color(1.45f, 1.28f, 1.02f, 0f) * overhead;
-                        color += new Color(0.42f, 0.58f, 0.82f, 0f) * left;
-                        color += new Color(0.30f, 0.43f, 0.72f, 0f) * rear;
+                        var overhead = SoftPanel(direction, overheadDirection, 0.08f, 1.8f);
+                        var left = SoftPanel(direction, leftBankDirection, 0.38f, 2.8f);
+                        var rear = SoftPanel(direction, rearBankDirection, 0.46f, 3.4f);
+                        var floorBounce = Mathf.Pow(Mathf.Clamp01(-direction.y), 1.5f);
+                        var color = new Color(0.085f, 0.100f, 0.115f, 1f);
+                        color += new Color(0.95f, 0.90f, 0.80f, 0f) * overhead;
+                        color += new Color(0.32f, 0.40f, 0.50f, 0f) * left;
+                        color += new Color(0.24f, 0.31f, 0.43f, 0f) * rear;
+                        color += new Color(0.065f, 0.075f, 0.085f, 0f) * floorBounce;
                         color.a = 1f;
                         pixels[y * size + x] = color;
                     }
@@ -467,19 +469,19 @@ namespace ACunicombat.Mechs
                 overheadBankLight,
                 center + new Vector3(-0.18f, 1.72f, -0.34f) * radius,
                 center,
-                radius * radius * 1.2f,
+                radius * radius * 1.6f,
                 radius * 4.2f);
             PositionSpotLight(
                 leftBankLight,
                 center + new Vector3(-1.55f, 0.62f, -0.92f) * radius,
                 center,
-                radius * radius * 0.56f,
+                radius * radius * 0.78f,
                 radius * 4.5f);
             PositionSpotLight(
                 rearBankLight,
                 center + new Vector3(1.25f, 0.78f, 1.05f) * radius,
                 center + Vector3.up * contentBounds.extents.y * 0.16f,
-                radius * radius * 0.68f,
+                radius * radius * 0.92f,
                 radius * 4.2f);
 
             if (hangarReflectionProbe != null)
