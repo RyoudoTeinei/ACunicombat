@@ -83,6 +83,10 @@ namespace ACunicombat.Mechs
 		[Min(0.1f)]
 		private float hitConfirmationDurationSeconds = 0.36f;
 
+		[SerializeField]
+		[Min(0.1f)]
+		private float missileHitConfirmationDurationSeconds = 0.75f;
+
 		[Header("Track readout")]
 		[SerializeField]
 		[Min(0.1f)]
@@ -166,6 +170,8 @@ namespace ACunicombat.Mechs
 		private float hitConfirmationStartedAt = float.NegativeInfinity;
 
 		private float hitConfirmationUntil = float.NegativeInfinity;
+
+		private string hitConfirmationText = "命中";
 
 		private float pitchLadderRollDegrees;
 
@@ -428,8 +434,14 @@ namespace ACunicombat.Mechs
 			}
 
 			hitConfirmationStartedAt = Time.unscaledTime;
+			float confirmationDuration = weaponKind == TestWeaponKind.Missile
+				? missileHitConfirmationDurationSeconds
+				: hitConfirmationDurationSeconds;
 			hitConfirmationUntil =
-				hitConfirmationStartedAt + Mathf.Max(0.1f, hitConfirmationDurationSeconds);
+				hitConfirmationStartedAt + Mathf.Max(0.1f, confirmationDuration);
+			hitConfirmationText = weaponKind == TestWeaponKind.Missile
+				? "导弹命中"
+				: "命中";
 		}
 
 		private bool IsDamageSourceThisMech(Transform damageSource)
@@ -468,10 +480,10 @@ namespace ACunicombat.Mechs
 			float pulse = 1f + 0.08f * Mathf.Exp(-age * 18f);
 			Vector2 center = new Vector2(Screen.width * 0.5f, Screen.height * 0.39f);
 			Rect labelRect = new Rect(
-				center.x - 62f * pulse,
-				center.y - 17f * pulse,
-				124f * pulse,
-				34f * pulse);
+				center.x - 76f * pulse,
+				center.y - 19f * pulse,
+				152f * pulse,
+				38f * pulse);
 			Color color = new Color(HudBrightGreen.r, HudBrightGreen.g, HudBrightGreen.b, alpha);
 			Color markerColor = new Color(HudBrightGreen.r, HudBrightGreen.g, HudBrightGreen.b, alpha * 0.9f);
 			DrawLine(
@@ -486,7 +498,7 @@ namespace ACunicombat.Mechs
 				2f);
 			Color previousColor = GUI.color;
 			GUI.color = MultiplyGuiTint(color, previousColor);
-			GUI.Label(labelRect, "命中", hitConfirmationStyle);
+			GUI.Label(labelRect, hitConfirmationText, hitConfirmationStyle);
 			GUI.color = previousColor;
 		}
 
@@ -1641,7 +1653,7 @@ namespace ACunicombat.Mechs
 			{
 				hitConfirmationStyle = new GUIStyle(GUI.skin.label)
 				{
-					fontSize = 20,
+					fontSize = 24,
 					fontStyle = FontStyle.Bold,
 					alignment = TextAnchor.MiddleCenter,
 					wordWrap = false,

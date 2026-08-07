@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace ACunicombat.Mechs
 {
@@ -259,7 +260,7 @@ namespace ACunicombat.Mechs
             if (material == null ||
                 material.IsKeywordEnabled("_EMISSION") ||
                 material.IsKeywordEnabled("_EMISSIVE") ||
-                material.renderQueue > (int)UnityEngine.Rendering.RenderQueue.GeometryLast)
+                material.renderQueue > (int)RenderQueue.GeometryLast)
             {
                 return false;
             }
@@ -268,9 +269,26 @@ namespace ACunicombat.Mechs
             return name.IndexOf("Emissive", StringComparison.OrdinalIgnoreCase) < 0 &&
                    name.IndexOf("Eye", StringComparison.OrdinalIgnoreCase) < 0 &&
                    name.IndexOf("Limiter", StringComparison.OrdinalIgnoreCase) < 0 &&
-                   name.IndexOf("Marking", StringComparison.OrdinalIgnoreCase) < 0 &&
-                   name.IndexOf("Making", StringComparison.OrdinalIgnoreCase) < 0 &&
-                   name.IndexOf("Decal", StringComparison.OrdinalIgnoreCase) < 0;
+                   name.IndexOf("Decal", StringComparison.OrdinalIgnoreCase) < 0 &&
+                   !IsMarkingMaterial(material);
+        }
+
+        internal static bool IsMarkingMaterial(Material material)
+        {
+            if (material == null)
+            {
+                return false;
+            }
+
+            var name = material.name ?? string.Empty;
+            var shaderName = material.shader != null ? material.shader.name : string.Empty;
+            return ContainsMarkingToken(name) || ContainsMarkingToken(shaderName);
+        }
+
+        private static bool ContainsMarkingToken(string value)
+        {
+            return value.IndexOf("Marking", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("Making", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static int[] CreatePropertyIds(string prefix, string suffix, int count)
@@ -304,6 +322,7 @@ namespace ACunicombat.Mechs
 
         private readonly Dictionary<Material, Material> convertedMaterials = new Dictionary<Material, Material>();
         private readonly List<Material> ownedMaterials = new List<Material>();
+        private Material hiddenOverlayMaterial;
 
         public void Synchronize(GameObject root)
         {
@@ -313,10 +332,6 @@ namespace ACunicombat.Mechs
             }
 
             var appearanceShader = Shader.Find(AppearanceShaderName);
-            if (appearanceShader == null)
-            {
-                return;
-            }
 
             var renderers = root.GetComponentsInChildren<Renderer>(true);
             for (var rendererIndex = 0; rendererIndex < renderers.Length; rendererIndex++)
@@ -332,7 +347,23 @@ namespace ACunicombat.Mechs
                 for (var materialIndex = 0; materialIndex < materials.Length; materialIndex++)
                 {
                     var source = materials[materialIndex];
-                    if (!ShouldConvert(source, appearanceShader))
+                    if (source == hiddenOverlayMaterial)
+                    {
+                        continue;
+                    }
+
+                    if (MechAppearanceApplicator.IsMarkingMaterial(source))
+                    {
+                        var hiddenMaterial = GetOrCreateHiddenOverlayMaterial();
+                        if (hiddenMaterial != null)
+                        {
+                            materials[materialIndex] = hiddenMaterial;
+                            changed = true;
+                        }
+                        continue;
+                    }
+
+                    if (appearanceShader == null || !ShouldConvert(source, appearanceShader))
                     {
                         continue;
                     }
@@ -357,6 +388,42 @@ namespace ACunicombat.Mechs
                     renderer.sharedMaterials = materials;
                 }
             }
+        }
+
+        private Material GetOrCreateHiddenOverlayMaterial()
+        {
+            if (hiddenOverlayMaterial != null)
+            {
+                return hiddenOverlayMaterial;
+            }
+
+            var shader = Shader.Find("Universal Render Pipeline/Unlit")
+                         ?? Shader.Find("Unlit/Color");
+            if (shader == null)
+            {
+                return null;
+            }
+
+            hiddenOverlayMaterial = new Material(shader)
+            {
+                name = "AC6_HiddenOverlaySlot",
+                hideFlags = HideFlags.DontSave,
+                renderQueue = (int)RenderQueue.Transparent
+            };
+            if (hiddenOverlayMaterial.HasProperty("_BaseColor")) hiddenOverlayMaterial.SetColor("_BaseColor", Color.clear);
+            if (hiddenOverlayMaterial.HasProperty("_Color")) hiddenOverlayMaterial.SetColor("_Color", Color.clear);
+            if (hiddenOverlayMaterial.HasProperty("_Surface")) hiddenOverlayMaterial.SetFloat("_Surface", 1f);
+            if (hiddenOverlayMaterial.HasProperty("_Blend")) hiddenOverlayMaterial.SetFloat("_Blend", 0f);
+            if (hiddenOverlayMaterial.HasProperty("_SrcBlend")) hiddenOverlayMaterial.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+            if (hiddenOverlayMaterial.HasProperty("_DstBlend")) hiddenOverlayMaterial.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+            if (hiddenOverlayMaterial.HasProperty("_ZWrite")) hiddenOverlayMaterial.SetInt("_ZWrite", 0);
+            hiddenOverlayMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            hiddenOverlayMaterial.DisableKeyword("_ALPHATEST_ON");
+            hiddenOverlayMaterial.SetShaderPassEnabled("DepthOnly", false);
+            hiddenOverlayMaterial.SetShaderPassEnabled("ShadowCaster", false);
+            hiddenOverlayMaterial.SetOverrideTag("RenderType", "Transparent");
+            ownedMaterials.Add(hiddenOverlayMaterial);
+            return hiddenOverlayMaterial;
         }
 
         private static bool ShouldConvert(Material source, Shader appearanceShader)
@@ -410,7 +477,7 @@ namespace ACunicombat.Mechs
             converted.SetFloat("_AlbedoDetailStrength", 1f);
             converted.SetFloat("_Metallic", 0.38f);
             converted.SetFloat("_Smoothness", 0.38f);
-            converted.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
+            converted.renderQueue = (int)RenderQueue.Geometry;
             converted.SetOverrideTag("RenderType", "Opaque");
             return converted;
         }
@@ -480,6 +547,7 @@ namespace ACunicombat.Mechs
 
             ownedMaterials.Clear();
             convertedMaterials.Clear();
+            hiddenOverlayMaterial = null;
         }
     }
 }

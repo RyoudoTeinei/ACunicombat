@@ -139,6 +139,36 @@ public sealed class MechAppearanceTests
     }
 
     [Test]
+    public void ApplicatorHidesEmptyAc6MarkingSlots()
+    {
+        var sourceShader = Shader.Find("Universal Render Pipeline/Lit");
+        Assert.That(sourceShader, Is.Not.Null);
+
+        var gameObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        var markingMaterial = new Material(sourceShader) { name = "Prats_Making_mat" };
+        try
+        {
+            var renderer = gameObject.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = markingMaterial;
+
+            MechAppearanceApplicator.Apply(gameObject, new MechAppearanceSettings());
+
+            var hiddenMaterial = renderer.sharedMaterial;
+            Assert.That(hiddenMaterial, Is.Not.SameAs(markingMaterial));
+            Assert.That(hiddenMaterial.name, Is.EqualTo("AC6_HiddenOverlaySlot"));
+            Assert.That(hiddenMaterial.renderQueue, Is.EqualTo((int)UnityEngine.Rendering.RenderQueue.Transparent));
+            Assert.That(hiddenMaterial.GetColor("_BaseColor").a, Is.EqualTo(0f));
+            Assert.That(hiddenMaterial.GetShaderPassEnabled("DepthOnly"), Is.False);
+            Assert.That(hiddenMaterial.GetShaderPassEnabled("ShadowCaster"), Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(gameObject);
+            Object.DestroyImmediate(markingMaterial);
+        }
+    }
+
+    [Test]
     public void ApplicatorCopiesGltfFastBaseAndNormalTextures()
     {
         var gltfShader = Shader.Find("Shader Graphs/glTF-pbrMetallicRoughness");
