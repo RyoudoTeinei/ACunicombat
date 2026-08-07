@@ -18,6 +18,11 @@ namespace ACunicombat.Mechs
         private Camera previewCamera;
         private RenderTexture targetTexture;
         private VolumeProfile previewVolumeProfile;
+        private ReflectionProbe hangarReflectionProbe;
+        private Cubemap hangarReflectionCubemap;
+        private Light overheadBankLight;
+        private Light leftBankLight;
+        private Light rearBankLight;
         private Texture2D staticPreviewImage;
         private Bounds contentBounds;
         private float orbitYaw = -18f;
@@ -192,6 +197,25 @@ namespace ACunicombat.Mechs
                 0.42f,
                 new Vector3(-32f, 205f, 0f),
                 LightShadows.None);
+            overheadBankLight = CreateSpotLight(
+                "HangarOverheadBank",
+                new Color(1f, 0.94f, 0.84f),
+                82f,
+                58f,
+                LightShadows.Soft);
+            leftBankLight = CreateSpotLight(
+                "HangarLeftBank",
+                new Color(0.76f, 0.86f, 1f),
+                74f,
+                50f,
+                LightShadows.None);
+            rearBankLight = CreateSpotLight(
+                "HangarRearBank",
+                new Color(0.66f, 0.78f, 1f),
+                68f,
+                46f,
+                LightShadows.None);
+            CreateHangarReflectionEnvironment();
         }
 
         private void ConfigurePostProcessing(GameObject cameraObject)
@@ -257,6 +281,134 @@ namespace ACunicombat.Mechs
             }
         }
 
+        private Light CreateSpotLight(
+            string objectName,
+            Color color,
+            float spotAngle,
+            float innerSpotAngle,
+            LightShadows shadows)
+        {
+            var lightObject = new GameObject(objectName)
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = PreviewLayer
+            };
+            lightObject.transform.SetParent(previewStage.transform, false);
+            var light = lightObject.AddComponent<Light>();
+            light.type = LightType.Spot;
+            light.color = color;
+            light.spotAngle = spotAngle;
+            light.innerSpotAngle = innerSpotAngle;
+            light.cullingMask = 1 << PreviewLayer;
+            light.shadows = shadows;
+            if (shadows != LightShadows.None)
+            {
+                light.shadowStrength = 0.42f;
+                light.shadowBias = 0.025f;
+                light.shadowNormalBias = 0.18f;
+                light.shadowResolution = LightShadowResolution.Medium;
+            }
+
+            return light;
+        }
+
+        private void CreateHangarReflectionEnvironment()
+        {
+            hangarReflectionCubemap = CreateHangarReflectionCubemap(32);
+            var probeObject = new GameObject("HangarReflectionProbe")
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = PreviewLayer
+            };
+            probeObject.transform.SetParent(previewStage.transform, false);
+            hangarReflectionProbe = probeObject.AddComponent<ReflectionProbe>();
+            hangarReflectionProbe.mode = ReflectionProbeMode.Custom;
+            hangarReflectionProbe.customBakedTexture = hangarReflectionCubemap;
+            hangarReflectionProbe.intensity = 0.78f;
+            hangarReflectionProbe.boxProjection = true;
+            hangarReflectionProbe.importance = 100;
+            hangarReflectionProbe.blendDistance = 0.5f;
+            hangarReflectionProbe.cullingMask = 1 << PreviewLayer;
+        }
+
+        private static Cubemap CreateHangarReflectionCubemap(int size)
+        {
+            var cubemap = new Cubemap(size, TextureFormat.RGBAHalf, true)
+            {
+                name = "HangarLightingReflection",
+                hideFlags = HideFlags.HideAndDontSave,
+                filterMode = FilterMode.Trilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+
+            var faces = new[]
+            {
+                CubemapFace.PositiveX,
+                CubemapFace.NegativeX,
+                CubemapFace.PositiveY,
+                CubemapFace.NegativeY,
+                CubemapFace.PositiveZ,
+                CubemapFace.NegativeZ
+            };
+            var overheadDirection = new Vector3(-0.18f, 0.96f, -0.22f).normalized;
+            var leftBankDirection = new Vector3(-0.82f, 0.35f, -0.45f).normalized;
+            var rearBankDirection = new Vector3(0.66f, 0.48f, 0.57f).normalized;
+
+            for (var faceIndex = 0; faceIndex < faces.Length; faceIndex++)
+            {
+                var face = faces[faceIndex];
+                var pixels = new Color[size * size];
+                for (var y = 0; y < size; y++)
+                {
+                    for (var x = 0; x < size; x++)
+                    {
+                        var direction = CubemapTexelDirection(face, x, y, size);
+                        var overhead = SoftPanel(direction, overheadDirection, 0.70f, 6f);
+                        var left = SoftPanel(direction, leftBankDirection, 0.82f, 8f);
+                        var rear = SoftPanel(direction, rearBankDirection, 0.84f, 10f);
+                        var color = new Color(0.018f, 0.022f, 0.027f, 1f);
+                        color += new Color(1.45f, 1.28f, 1.02f, 0f) * overhead;
+                        color += new Color(0.42f, 0.58f, 0.82f, 0f) * left;
+                        color += new Color(0.30f, 0.43f, 0.72f, 0f) * rear;
+                        color.a = 1f;
+                        pixels[y * size + x] = color;
+                    }
+                }
+
+                cubemap.SetPixels(pixels, face);
+            }
+
+            cubemap.Apply(true, true);
+            return cubemap;
+        }
+
+        private static float SoftPanel(Vector3 direction, Vector3 panelDirection, float threshold, float power)
+        {
+            var normalized = Mathf.InverseLerp(threshold, 1f, Vector3.Dot(direction, panelDirection));
+            return Mathf.Pow(normalized, power);
+        }
+
+        private static Vector3 CubemapTexelDirection(CubemapFace face, int x, int y, int size)
+        {
+            var u = (2f * (x + 0.5f) / size) - 1f;
+            var v = (2f * (y + 0.5f) / size) - 1f;
+            switch (face)
+            {
+                case CubemapFace.PositiveX:
+                    return new Vector3(1f, -v, -u).normalized;
+                case CubemapFace.NegativeX:
+                    return new Vector3(-1f, -v, u).normalized;
+                case CubemapFace.PositiveY:
+                    return new Vector3(u, 1f, v).normalized;
+                case CubemapFace.NegativeY:
+                    return new Vector3(u, -1f, -v).normalized;
+                case CubemapFace.PositiveZ:
+                    return new Vector3(u, -v, 1f).normalized;
+                default:
+                    return new Vector3(-u, -v, -1f).normalized;
+            }
+        }
+
         private void PrepareContent(GameObject root)
         {
             SetLayerRecursively(root.transform, PreviewLayer);
@@ -284,6 +436,12 @@ namespace ACunicombat.Mechs
             {
                 skinnedRenderers[i].updateWhenOffscreen = true;
             }
+
+            var renderers = root.GetComponentsInChildren<Renderer>(true);
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                renderers[i].reflectionProbeUsage = ReflectionProbeUsage.BlendProbes;
+            }
         }
 
         private void FrameContent()
@@ -292,7 +450,61 @@ namespace ACunicombat.Mechs
             orbitYaw = -18f;
             orbitPitch = 7f;
             zoom = DefaultZoom;
+            UpdateHangarLighting();
             ApplyCameraPose();
+        }
+
+        private void UpdateHangarLighting()
+        {
+            if (!hasRenderableContent)
+            {
+                return;
+            }
+
+            var center = contentBounds.center;
+            var radius = Mathf.Max(0.5f, contentBounds.extents.magnitude);
+            PositionSpotLight(
+                overheadBankLight,
+                center + new Vector3(-0.18f, 1.72f, -0.34f) * radius,
+                center,
+                radius * radius * 1.2f,
+                radius * 4.2f);
+            PositionSpotLight(
+                leftBankLight,
+                center + new Vector3(-1.55f, 0.62f, -0.92f) * radius,
+                center,
+                radius * radius * 0.56f,
+                radius * 4.5f);
+            PositionSpotLight(
+                rearBankLight,
+                center + new Vector3(1.25f, 0.78f, 1.05f) * radius,
+                center + Vector3.up * contentBounds.extents.y * 0.16f,
+                radius * radius * 0.68f,
+                radius * 4.2f);
+
+            if (hangarReflectionProbe != null)
+            {
+                hangarReflectionProbe.transform.position = center;
+                hangarReflectionProbe.size = Vector3.one * radius * 3.6f;
+                hangarReflectionProbe.blendDistance = radius * 0.35f;
+            }
+        }
+
+        private static void PositionSpotLight(
+            Light light,
+            Vector3 position,
+            Vector3 target,
+            float intensity,
+            float range)
+        {
+            if (light == null)
+            {
+                return;
+            }
+
+            light.transform.SetPositionAndRotation(position, Quaternion.LookRotation(target - position, Vector3.up));
+            light.intensity = intensity;
+            light.range = range;
         }
 
         private void ApplyCameraPose()
@@ -388,6 +600,12 @@ namespace ACunicombat.Mechs
             {
                 Destroy(previewVolumeProfile);
                 previewVolumeProfile = null;
+            }
+
+            if (hangarReflectionCubemap != null)
+            {
+                Destroy(hangarReflectionCubemap);
+                hangarReflectionCubemap = null;
             }
         }
 
