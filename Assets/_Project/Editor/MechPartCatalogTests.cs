@@ -74,6 +74,8 @@ namespace ACunicombat.Editor.Tests
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_4250"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_4290"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_4290"), (IResolveConstraint)(object)Is.True);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_L_4290"), (IResolveConstraint)(object)Is.True);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_R_4290"), (IResolveConstraint)(object)Is.True);
 		}
 
 		[Test]

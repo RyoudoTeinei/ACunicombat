@@ -178,6 +178,7 @@ public static class AC6FullPartCatalogBuilder
 		["AC6_NATIVE_WP_L_1310"] = "WP_L_1310",
 		["AC6_NATIVE_WP_R_1610"] = "WP_R_1610",
 		["AC6_NATIVE_WP_L_4250"] = "WP_L_4250",
+		["AC6_NATIVE_WP_L_4290"] = "WP_L_4290",
 		["AC6_NATIVE_WP_R_4290"] = "WP_R_4290",
 		["AC6_NATIVE_WP_L_5110"] = "WP_L_5110",
 		["AC6_NATIVE_WP_R_5110"] = "WP_R_5110"

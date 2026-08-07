@@ -1621,7 +1621,7 @@ public static class AC6SkinnedModularSampleBuilder
 
 	private static Dictionary<string, MechPartDefinition> LoadWeaponParts(ICollection<string> missing, PaintPresetRecord paintPreset, MaterialCatalogRecord materialCatalog)
 	{
-		NativeWeaponSpec[] specs = new NativeWeaponSpec[14]
+		NativeWeaponSpec[] specs = new NativeWeaponSpec[15]
 		{
 			new NativeWeaponSpec("WP_L_0010", "Native Pile Bunker ASHMEAD 0010", MechPartSlot.LeftHandWeapon, "a000_000000", 4180f, isMelee: true),
 			new NativeWeaponSpec("WP_L_0230", "Native Left Laser Blade 0230", MechPartSlot.LeftHandWeapon, "a000_000000", 4700f, isMelee: true),
@@ -1633,6 +1633,7 @@ public static class AC6SkinnedModularSampleBuilder
 			new NativeWeaponSpec("WP_L_4210", "Native Left Plasma Missile 4210", MechPartSlot.LeftBackWeapon, "a000_800000", 4200f),
 			new NativeWeaponSpec("WP_R_4210", "Native Right Plasma Missile 4210", MechPartSlot.RightBackWeapon, "a000_800000", 4200f),
 			new NativeWeaponSpec("WP_L_4250", "BML-G1/P07VTC-12", MechPartSlot.LeftBackWeapon, "a000_800000", 5010f),
+			new NativeWeaponSpec("WP_L_4290", "BML-G2/P03MLT-06", MechPartSlot.LeftBackWeapon, "a000_800000", 3840f),
 			new NativeWeaponSpec("WP_R_4290", "BML-G2/P03MLT-06", MechPartSlot.RightBackWeapon, "a000_800000", 3840f),
 			new NativeWeaponSpec("WP_R_4410", "Native Right Songbirds 4410", MechPartSlot.RightBackWeapon, "a000_800000", 5500f),
 			new NativeWeaponSpec("WP_L_5110", "DF-GA-09 SHAO-WEI", MechPartSlot.LeftBackWeapon, "a000_800000", 3960f, isMelee: false, isPointDefense: true),
