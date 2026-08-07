@@ -12,6 +12,8 @@ using UnityEngine.SceneManagement;
 
 public static class AC6SkinnedModularSampleBuilder
 {
+	private const string WeatheringMaskAssetPath = "Assets/_Project/Resources/AC6Materials/SYSTEX_camouflage01.png";
+
 	[Serializable]
 	private sealed class PaintPresetRecord
 	{
@@ -584,6 +586,9 @@ public static class AC6SkinnedModularSampleBuilder
 		destination.SetTexture("_BumpMap", normalMap);
 		destination.SetTexture("_Mask3Map", mask);
 		destination.SetTexture("_EmissionMap", emissionMap);
+		Texture2D weatheringMask = AssetDatabase.LoadAssetAtPath<Texture2D>(WeatheringMaskAssetPath);
+		destination.SetTexture("_WeatheringMaskMap", weatheringMask);
+		destination.SetFloat("_UseWeatheringMask", weatheringMask != null ? 1f : 0f);
 		bool hasZoneMask = isPaintSurface && mask != null;
 		destination.SetColor("_BaseColor", (!isPaintSurface || hasZoneMask) ? Color.white : (unmaskedPaintTint ?? ParseHtmlColor(preset.baseColor, Color.white)));
 		destination.SetFloat("_UseSourceAlbedo", hasZoneMask ? 0f : 1f);
@@ -594,7 +599,7 @@ public static class AC6SkinnedModularSampleBuilder
 		{
 			destination.SetColor($"_Zone{zoneIndex + 1}Color", zoneColors[zoneIndex]);
 		}
-		destination.SetFloat("_AlbedoDetailStrength", isPaintSurface ? 0.18f : 0.32f);
+		destination.SetFloat("_AlbedoDetailStrength", isPaintSurface ? 0.32f : 0.40f);
 		destination.SetFloat("_Metallic", profile?.recommendedMetallic ?? 0.12f);
 		destination.SetFloat("_Smoothness", profile?.recommendedSmoothness ?? 0.3f);
 		destination.SetFloat("_BumpScale", 0.8f);

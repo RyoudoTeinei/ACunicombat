@@ -11,6 +11,7 @@ public static class AC6ModularPartsImporter
     private const string ImportRoot = "Assets/_Imported/AC6_ModularParts";
     private const string DataRoot = "Assets/_Project/Data/Mechs/AC6ImportedSamples";
     private const string LoadoutPath = DataRoot + "/AC6_Modular_Test_Loadout.asset";
+    private const string WeatheringMaskAssetPath = "Assets/_Project/Resources/AC6Materials/SYSTEX_camouflage01.png";
 
     [MenuItem("Tools/ACunicombat/Legacy/Mech Imports/Import AC6 Modular Sample Parts")]
     public static void ImportSampleParts()
@@ -473,6 +474,9 @@ public static class AC6ModularPartsImporter
         SetTexture(material, "_Mask3Map", textures.maskMap);
         SetTexture(material, "_EmissionMap", textures.emissionMap);
         SetTexture(material, "_PaintAlbedoMap", textures.paintAlbedoMap);
+        var weatheringMask = AssetDatabase.LoadAssetAtPath<Texture2D>(WeatheringMaskAssetPath);
+        SetTexture(material, "_WeatheringMaskMap", weatheringMask);
+        SetFloat(material, "_UseWeatheringMask", weatheringMask != null ? 1f : 0f);
 
         if (textures.normalMap != null)
         {
@@ -502,9 +506,9 @@ public static class AC6ModularPartsImporter
         {
             paintColor = zonePalette.zone2;
             paintInfluence = 0f;
-            albedoDetailStrength = 0.07f;
-            metallic = 0.56f;
-            smoothness = 0.44f;
+            albedoDetailStrength = 0.32f;
+            metallic = 0.10f;
+            smoothness = 0.38f;
             bumpScale = 0.85f;
             maskMetallicInfluence = 0.05f;
             maskSmoothnessInfluence = 0.08f;

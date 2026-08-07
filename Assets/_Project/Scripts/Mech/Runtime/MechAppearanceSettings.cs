@@ -135,10 +135,18 @@ namespace ACunicombat.Mechs
         private static readonly int RoughnessFactorId = Shader.PropertyToID("_RoughnessFactor");
         private static readonly int WeatheringAmountId = Shader.PropertyToID("_WeatheringAmount");
         private static readonly int WeatheringColorId = Shader.PropertyToID("_WeatheringColor");
+        private static readonly int WeatheringMaskMapId = Shader.PropertyToID("_WeatheringMaskMap");
+        private static readonly int UseWeatheringMaskId = Shader.PropertyToID("_UseWeatheringMask");
         private static readonly int ZoneModeId = Shader.PropertyToID("_ZoneMode");
         private static readonly int[] ZoneColorIds = CreatePropertyIds("_Zone", "Color", 7);
         private static readonly int[] ZoneMetallicIds = CreatePropertyIds("_Zone", "Metallic", 7);
         private static readonly int[] ZoneSmoothnessIds = CreatePropertyIds("_Zone", "Smoothness", 7);
+        private static readonly float[] ZoneMetallicMinimums = { 0.02f, 0.04f, 0.03f, 0.04f, 0.12f, 0.08f, 0f };
+        private static readonly float[] ZoneMetallicMaximums = { 0.12f, 0.18f, 0.15f, 0.20f, 0.38f, 0.30f, 0.04f };
+        private static readonly float[] ZoneSmoothnessMinimums = { 0.22f, 0.18f, 0.20f, 0.24f, 0.28f, 0.20f, 0.08f };
+        private static readonly float[] ZoneSmoothnessMaximums = { 0.62f, 0.56f, 0.60f, 0.66f, 0.70f, 0.58f, 0.25f };
+        private static Texture2D weatheringMask;
+        private static bool weatheringMaskLoaded;
 
         public static void Apply(GameObject root, MechAppearanceSettings source)
         {
@@ -211,24 +219,30 @@ namespace ACunicombat.Mechs
                 block.SetColor(BaseColorId, settings.baseColor);
             }
 
-            // AC6 exposes six steps on each axis. These calibrated URP values preserve the
-            // same two independent controls without pretending its proprietary BRDF is Unity's.
+            // AC6 exposes six steps on each axis. Its colour zones are primarily painted regions,
+            // so reflectiveness must not turn the whole machine into coloured bare metal. Device
+            // and support zones retain a wider metallic range while the four paint colours stay
+            // predominantly dielectric.
             var reflection = settings.reflectivenessLevel / 5f;
             var luster = settings.lusterLevel / 5f;
-            var baseMetallic = Mathf.Lerp(0.04f, 0.72f, reflection);
-            var baseSmoothness = Mathf.Lerp(0.16f, 0.88f, luster);
-            var metallicOffsets = new[] { -0.08f, 0.04f, -0.04f, 0.14f, 0.09f, 0.02f, -0.35f };
-            var smoothnessOffsets = new[] { -0.06f, 0.04f, -0.02f, 0.10f, 0.06f, 0.01f, -0.28f };
+            var baseMetallic = Mathf.Lerp(0.03f, 0.28f, reflection);
+            var baseSmoothness = Mathf.Lerp(0.18f, 0.72f, luster);
             for (var i = 0; i < ZoneMetallicIds.Length; i++)
             {
-                block.SetFloat(ZoneMetallicIds[i], Mathf.Clamp01(baseMetallic + metallicOffsets[i]));
-                block.SetFloat(ZoneSmoothnessIds[i], Mathf.Clamp01(baseSmoothness + smoothnessOffsets[i]));
+                block.SetFloat(ZoneMetallicIds[i], Mathf.Lerp(ZoneMetallicMinimums[i], ZoneMetallicMaximums[i], reflection));
+                block.SetFloat(ZoneSmoothnessIds[i], Mathf.Lerp(ZoneSmoothnessMinimums[i], ZoneSmoothnessMaximums[i], luster));
             }
 
             block.SetFloat(MetallicId, baseMetallic);
             block.SetFloat(SmoothnessId, baseSmoothness);
             block.SetFloat(WeatheringAmountId, settings.weatheringAmount);
             block.SetColor(WeatheringColorId, Color.Lerp(new Color(0.055f, 0.060f, 0.065f), settings.deviceColor, 0.12f));
+            var mask = LoadWeatheringMask();
+            if (mask != null && material.HasProperty(WeatheringMaskMapId))
+            {
+                block.SetTexture(WeatheringMaskMapId, mask);
+                block.SetFloat(UseWeatheringMaskId, 1f);
+            }
         }
 
         private static void ApplyGenericMaterial(
@@ -243,8 +257,8 @@ namespace ACunicombat.Mechs
 
             var reflection = settings.reflectivenessLevel / 5f;
             var luster = settings.lusterLevel / 5f;
-            var metallic = Mathf.Lerp(0.04f, 0.72f, reflection);
-            var smoothness = Mathf.Lerp(0.16f, 0.88f, luster);
+            var metallic = Mathf.Lerp(0.03f, 0.28f, reflection);
+            var smoothness = Mathf.Lerp(0.18f, 0.72f, luster);
 
             if (material.HasProperty(BaseColorFactorId)) block.SetColor(BaseColorFactorId, settings.baseColor);
             if (material.HasProperty(BaseColorId)) block.SetColor(BaseColorId, settings.baseColor);
@@ -253,6 +267,17 @@ namespace ACunicombat.Mechs
             if (material.HasProperty(MetallicId)) block.SetFloat(MetallicId, metallic);
             if (material.HasProperty(SmoothnessId)) block.SetFloat(SmoothnessId, smoothness);
             if (material.HasProperty(RoughnessFactorId)) block.SetFloat(RoughnessFactorId, 1f - smoothness);
+        }
+
+        private static Texture2D LoadWeatheringMask()
+        {
+            if (!weatheringMaskLoaded)
+            {
+                weatheringMask = Resources.Load<Texture2D>("AC6Materials/SYSTEX_camouflage01");
+                weatheringMaskLoaded = true;
+            }
+
+            return weatheringMask;
         }
 
         internal static bool IsPaintableMaterial(Material material)

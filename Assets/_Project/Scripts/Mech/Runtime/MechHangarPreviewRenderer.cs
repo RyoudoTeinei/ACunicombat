@@ -1,4 +1,6 @@
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace ACunicombat.Mechs
 {
@@ -15,6 +17,7 @@ namespace ACunicombat.Mechs
         private GameObject contentRoot;
         private Camera previewCamera;
         private RenderTexture targetTexture;
+        private VolumeProfile previewVolumeProfile;
         private Texture2D staticPreviewImage;
         private Bounds contentBounds;
         private float orbitYaw = -18f;
@@ -170,12 +173,67 @@ namespace ACunicombat.Mechs
             previewCamera.allowMSAA = true;
             previewCamera.enabled = false;
 
-            CreateDirectionalLight("PreviewKey", new Color(1f, 0.97f, 0.91f), 2.3f, new Vector3(28f, -38f, 0f));
-            CreateDirectionalLight("PreviewFill", new Color(0.62f, 0.70f, 0.78f), 0.55f, new Vector3(14f, 142f, 8f));
-            CreateDirectionalLight("PreviewRim", new Color(0.78f, 0.86f, 0.91f), 0.95f, new Vector3(-32f, 205f, 0f));
+            ConfigurePostProcessing(cameraObject);
+            CreateDirectionalLight(
+                "PreviewKey",
+                new Color(1f, 0.96f, 0.89f),
+                1.35f,
+                new Vector3(28f, -38f, 0f),
+                LightShadows.Soft);
+            CreateDirectionalLight(
+                "PreviewFill",
+                new Color(0.73f, 0.78f, 0.82f),
+                0.20f,
+                new Vector3(14f, 142f, 8f),
+                LightShadows.None);
+            CreateDirectionalLight(
+                "PreviewRim",
+                new Color(0.82f, 0.87f, 0.90f),
+                0.42f,
+                new Vector3(-32f, 205f, 0f),
+                LightShadows.None);
         }
 
-        private void CreateDirectionalLight(string objectName, Color color, float intensity, Vector3 eulerAngles)
+        private void ConfigurePostProcessing(GameObject cameraObject)
+        {
+            var cameraData = previewCamera.GetUniversalAdditionalCameraData();
+            cameraData.renderPostProcessing = true;
+            cameraData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
+            cameraData.antialiasingQuality = AntialiasingQuality.High;
+            cameraData.volumeLayerMask = 1 << PreviewLayer;
+            cameraData.volumeTrigger = cameraObject.transform;
+
+            previewVolumeProfile = ScriptableObject.CreateInstance<VolumeProfile>();
+            previewVolumeProfile.name = "MechHangarPreviewProfile";
+            previewVolumeProfile.hideFlags = HideFlags.HideAndDontSave;
+
+            var tonemapping = previewVolumeProfile.Add<Tonemapping>(true);
+            tonemapping.mode.Override(TonemappingMode.ACES);
+
+            var color = previewVolumeProfile.Add<ColorAdjustments>(true);
+            color.postExposure.Override(-0.45f);
+            color.contrast.Override(8f);
+            color.saturation.Override(-4f);
+            color.colorFilter.Override(new Color(1f, 0.985f, 0.965f, 1f));
+
+            var volumeObject = new GameObject("PreviewPostProcessing")
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = PreviewLayer
+            };
+            volumeObject.transform.SetParent(previewStage.transform, false);
+            var volume = volumeObject.AddComponent<Volume>();
+            volume.isGlobal = true;
+            volume.priority = 1000f;
+            volume.sharedProfile = previewVolumeProfile;
+        }
+
+        private void CreateDirectionalLight(
+            string objectName,
+            Color color,
+            float intensity,
+            Vector3 eulerAngles,
+            LightShadows shadows)
         {
             var lightObject = new GameObject(objectName)
             {
@@ -189,7 +247,14 @@ namespace ACunicombat.Mechs
             light.color = color;
             light.intensity = intensity;
             light.cullingMask = 1 << PreviewLayer;
-            light.shadows = LightShadows.None;
+            light.shadows = shadows;
+            if (shadows != LightShadows.None)
+            {
+                light.shadowStrength = 0.78f;
+                light.shadowBias = 0.03f;
+                light.shadowNormalBias = 0.22f;
+                light.shadowResolution = LightShadowResolution.High;
+            }
         }
 
         private void PrepareContent(GameObject root)
@@ -284,11 +349,11 @@ namespace ACunicombat.Mechs
             }
 
             DestroyTarget();
-            targetTexture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32)
+            targetTexture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGBHalf)
             {
                 name = "MechHangarPreview",
                 hideFlags = HideFlags.HideAndDontSave,
-                antiAliasing = 2,
+                antiAliasing = 1,
                 useMipMap = false,
                 autoGenerateMips = false
             };
@@ -317,6 +382,12 @@ namespace ACunicombat.Mechs
             if (previewStage != null)
             {
                 Destroy(previewStage);
+            }
+
+            if (previewVolumeProfile != null)
+            {
+                Destroy(previewVolumeProfile);
+                previewVolumeProfile = null;
             }
         }
 

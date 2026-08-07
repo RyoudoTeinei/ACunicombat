@@ -28,6 +28,8 @@ Shader "ACunicombat/AC6/Parts Approx"
         _Smoothness("Base Smoothness", Range(0, 1)) = 0.38
         _WeatheringAmount("Weathering Amount", Range(0, 1)) = 0.24
         _WeatheringColor("Exposed Surface Color", Color) = (0.055, 0.06, 0.065, 1)
+        _WeatheringMaskMap("AC6 Repair / Damage Mask", 2D) = "white" {}
+        _UseWeatheringMask("Use AC6 Repair / Damage Mask", Range(0, 1)) = 0
         _WeatheringScale("Weathering Scale", Range(4, 96)) = 38
         _WeatheringSeed("Weathering Seed", Float) = 0
 
@@ -118,6 +120,8 @@ Shader "ACunicombat/AC6/Parts Approx"
             SAMPLER(sampler_Mask3Map);
             TEXTURE2D(_PaintAlbedoMap);
             SAMPLER(sampler_PaintAlbedoMap);
+            TEXTURE2D(_WeatheringMaskMap);
+            SAMPLER(sampler_WeatheringMaskMap);
 
             CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
@@ -142,6 +146,7 @@ Shader "ACunicombat/AC6/Parts Approx"
             half _Metallic;
             half _Smoothness;
             half _WeatheringAmount;
+            half _UseWeatheringMask;
             half _WeatheringScale;
             half _WeatheringSeed;
             half _Zone1Metallic;
@@ -266,7 +271,10 @@ Shader "ACunicombat/AC6/Parts Approx"
                 albedo = lerp(albedo, _Zone7Color.rgb, mask1.b);
 
                 half sourceLuma = dot(sourceAlbedo, half3(0.299h, 0.587h, 0.114h));
-                half panelDetail = lerp(0.94h, 1.06h, saturate(sourceLuma));
+                // Keep the imported plate, fastener and recess contrast while replacing its
+                // original paint hue. The old +/-6% range became almost flat after the material's
+                // detail-strength blend and made every coloured region look injection moulded.
+                half panelDetail = lerp(0.76h, 1.18h, saturate(sourceLuma));
                 return albedo * lerp(1.0h, panelDetail, _AlbedoDetailStrength);
             }
 
@@ -307,10 +315,19 @@ Shader "ACunicombat/AC6/Parts Approx"
                 float2 samplePosition = uv * max(_WeatheringScale, 1.0h) + _WeatheringSeed;
                 half coarse = WeatheringNoise(samplePosition * 0.23);
                 half fine = WeatheringNoise(samplePosition);
-                half breakup = saturate(coarse * 0.62h + fine * 0.38h);
-                half materialEdge = saturate((fwidth(materialMask.r) + fwidth(materialMask.g)) * 18.0h);
+                half proceduralBreakup = saturate(coarse * 0.62h + fine * 0.38h);
+                // AC6's Repair_Damage material supplies SYSTEX_camouflage01 as Mask1Map. It is
+                // a red-only macro breakup mask, not an AO or metallic packing. Normalize its
+                // measured 0.26-0.70 range and retain procedural noise only as the fallback.
+                half repairDamage = SAMPLE_TEXTURE2D(
+                    _WeatheringMaskMap,
+                    sampler_WeatheringMaskMap,
+                    uv).r;
+                repairDamage = saturate((repairDamage - 0.24h) * 2.2h);
+                half breakup = lerp(proceduralBreakup, repairDamage, saturate(_UseWeatheringMask));
+                half materialEdge = saturate((fwidth(materialMask.r) + fwidth(materialMask.g)) * 10.0h);
                 half sourceDetail = saturate(abs(dot(sourceAlbedo, half3(0.299h, 0.587h, 0.114h)) - 0.5h) * 1.4h);
-                half field = saturate(breakup * 0.72h + materialEdge * 0.22h + sourceDetail * 0.06h);
+                half field = saturate(breakup * 0.82h + materialEdge * 0.10h + sourceDetail * 0.08h);
                 half threshold = lerp(1.02h, 0.20h, amount);
                 return smoothstep(threshold, threshold + 0.16h, field) * amount;
             }
@@ -564,6 +581,7 @@ Shader "ACunicombat/AC6/Parts Approx"
             half _Metallic;
             half _Smoothness;
             half _WeatheringAmount;
+            half _UseWeatheringMask;
             half _WeatheringScale;
             half _WeatheringSeed;
             half _Zone1Metallic;

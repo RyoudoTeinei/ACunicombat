@@ -57,7 +57,9 @@ public sealed class MechAppearanceTests
             Assert.That(block.GetColor("_Zone4Color"), Is.EqualTo(Color.yellow));
             Assert.That(block.GetColor("_Zone5Color"), Is.EqualTo(Color.cyan));
             Assert.That(block.GetFloat("_WeatheringAmount"), Is.EqualTo(0.73f).Within(0.0001f));
-            Assert.That(block.GetFloat("_Zone1Metallic"), Is.GreaterThan(block.GetFloat("_Zone1Smoothness")));
+            Assert.That(block.GetFloat("_Zone1Metallic"), Is.EqualTo(0.12f).Within(0.0001f));
+            Assert.That(block.GetFloat("_Zone5Metallic"), Is.GreaterThan(block.GetFloat("_Zone1Metallic")));
+            Assert.That(block.GetFloat("_Zone1Smoothness"), Is.EqualTo(0.22f).Within(0.0001f));
         }
         finally
         {
