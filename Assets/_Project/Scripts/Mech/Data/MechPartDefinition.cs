@@ -71,6 +71,15 @@ namespace ACunicombat.Mechs
         [Header("Gameplay")]
         [SerializeField] private MechPartStats stats = new MechPartStats();
         [SerializeField] private MechInternalPartPerformance internalPerformance = new MechInternalPartPerformance();
+        [SerializeField] private MechHeadSensorPerformance headSensorPerformance = new MechHeadSensorPerformance();
+        [SerializeField] private MechArmPerformance armPerformance = new MechArmPerformance();
+        [SerializeField] private MechCorePerformance corePerformance = new MechCorePerformance();
+        [SerializeField] private MechLegPerformance legPerformance = new MechLegPerformance();
+        [SerializeField] private MechBoosterPerformance boosterPerformance = new MechBoosterPerformance();
+        [SerializeField] private MechGeneratorPerformance generatorPerformance = new MechGeneratorPerformance();
+        [SerializeField] private MechRadarPerformance radarPerformance = new MechRadarPerformance();
+        [SerializeField] private MechFireControlPerformance fireControlPerformance = new MechFireControlPerformance();
+        [SerializeField] private MechWeaponPerformance weaponPerformance = new MechWeaponPerformance();
         [SerializeField] private List<MechMountPointDefinition> mountPoints = new List<MechMountPointDefinition>();
         [SerializeField] private List<MechPartSlot> requiredInstalledSlots = new List<MechPartSlot>();
         [SerializeField] private string[] requiredLoadoutTags = Array.Empty<string>();
@@ -100,6 +109,15 @@ namespace ACunicombat.Mechs
         public bool PlayDefaultEquipmentActionOnAssemble => playDefaultEquipmentActionOnAssemble;
         public MechPartStats Stats => stats;
         public MechInternalPartPerformance InternalPerformance => internalPerformance;
+        public MechHeadSensorPerformance HeadSensorPerformance => headSensorPerformance;
+        public MechArmPerformance ArmPerformance => armPerformance;
+        public MechCorePerformance CorePerformance => corePerformance;
+        public MechLegPerformance LegPerformance => legPerformance;
+        public MechBoosterPerformance BoosterPerformance => boosterPerformance;
+        public MechGeneratorPerformance GeneratorPerformance => generatorPerformance;
+        public MechRadarPerformance RadarPerformance => radarPerformance;
+        public MechFireControlPerformance FireControlPerformance => fireControlPerformance;
+        public MechWeaponPerformance WeaponPerformance => weaponPerformance;
         public IReadOnlyList<MechMountPointDefinition> MountPoints => mountPoints;
         public IReadOnlyList<MechPartSlot> RequiredInstalledSlots => requiredInstalledSlots;
         public IReadOnlyList<string> RequiredLoadoutTags => requiredLoadoutTags;
@@ -160,7 +178,16 @@ namespace ACunicombat.Mechs
             Vector3? newLocalScale = null,
             GameObject newPreviewModelPrefab = null,
             Texture2D newPreviewImage = null,
-            MechInternalPartPerformance newInternalPerformance = null)
+            MechInternalPartPerformance newInternalPerformance = null,
+            MechHeadSensorPerformance newHeadSensorPerformance = null,
+            MechArmPerformance newArmPerformance = null,
+            MechCorePerformance newCorePerformance = null,
+            MechLegPerformance newLegPerformance = null,
+            MechBoosterPerformance newBoosterPerformance = null,
+            MechGeneratorPerformance newGeneratorPerformance = null,
+            MechRadarPerformance newRadarPerformance = null,
+            MechFireControlPerformance newFireControlPerformance = null,
+            MechWeaponPerformance newWeaponPerformance = null)
         {
             partId = newPartId;
             displayName = newDisplayName;
@@ -202,6 +229,15 @@ namespace ACunicombat.Mechs
             }
             stats.CopyFrom(newStats);
             internalPerformance = newInternalPerformance?.Clone() ?? new MechInternalPartPerformance();
+            headSensorPerformance = newHeadSensorPerformance?.Clone() ?? new MechHeadSensorPerformance();
+            armPerformance = newArmPerformance?.Clone() ?? new MechArmPerformance();
+            corePerformance = newCorePerformance?.Clone() ?? new MechCorePerformance();
+            legPerformance = newLegPerformance?.Clone() ?? new MechLegPerformance();
+            boosterPerformance = newBoosterPerformance?.Clone() ?? new MechBoosterPerformance();
+            generatorPerformance = newGeneratorPerformance?.Clone() ?? new MechGeneratorPerformance();
+            radarPerformance = newRadarPerformance?.Clone() ?? new MechRadarPerformance();
+            fireControlPerformance = newFireControlPerformance?.Clone() ?? new MechFireControlPerformance();
+            weaponPerformance = newWeaponPerformance?.Clone() ?? new MechWeaponPerformance();
             mountPoints = newMountPoints == null
                 ? new List<MechMountPointDefinition>()
                 : new List<MechMountPointDefinition>(newMountPoints);

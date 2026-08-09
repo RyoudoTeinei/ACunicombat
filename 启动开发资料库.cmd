@@ -53,7 +53,11 @@ if not defined DOTNET (
   goto failed
 )
 
-if not exist "%DLL%" (
+set "NEED_BUILD="
+if not exist "%DLL%" set "NEED_BUILD=1"
+if exist "%DLL%" for /f "usebackq delims=" %%B in (`powershell -NoProfile -Command "$dll=Get-Item -LiteralPath $env:DLL; $newer=Get-ChildItem -LiteralPath $env:TOOL_DIR -File -Recurse -ErrorAction SilentlyContinue ^| Where-Object { $_.FullName -notmatch '\\(bin^|obj)\\' -and $_.Extension -in @('.cs','.csproj','.html','.css','.js') -and $_.LastWriteTimeUtc -gt $dll.LastWriteTimeUtc }; if($newer){'1'}"`) do set "NEED_BUILD=%%B"
+
+if defined NEED_BUILD (
   echo Building the development library...
   "%DOTNET%" build "%PROJECT%" --configfile "%TOOL_DIR%\NuGet.Config"
   if errorlevel 1 goto failed

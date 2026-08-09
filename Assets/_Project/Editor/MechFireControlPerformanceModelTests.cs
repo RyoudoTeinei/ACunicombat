@@ -1,4 +1,5 @@
 using ACunicombat.Mechs;
+using ACunicombat.Tracking;
 using NUnit.Framework;
 
 namespace ACunicombat.Editor.Tests
@@ -65,6 +66,69 @@ namespace ACunicombat.Editor.Tests
 			Assert.That(farStt, Is.LessThan(farTws));
 		}
 
+		[Test]
+		public void SpecializedRadar_DoesNotOverrideFireControlComputer()
+		{
+			var stats = SpecializedStats();
+			var originalFireControl = MechFireControlPerformanceModel.BuildFireControlProfile(
+				stats,
+				MechFireControlPerformanceModel.BuildRadarProfile(stats));
+
+			stats.radarPerformance.referenceDetectionRangeKm = 120f;
+			stats.radarPerformance.trackCapacity = 24;
+			stats.radarPerformance.twsUpdateRateHz = 12f;
+			var modifiedFireControl = MechFireControlPerformanceModel.BuildFireControlProfile(
+				stats,
+				MechFireControlPerformanceModel.BuildRadarProfile(stats));
+
+			Assert.That(modifiedFireControl.GuidanceChannelCapacity, Is.EqualTo(originalFireControl.GuidanceChannelCapacity));
+			Assert.That(modifiedFireControl.MaximumPredictionTimeSeconds, Is.EqualTo(originalFireControl.MaximumPredictionTimeSeconds));
+			Assert.That(modifiedFireControl.NominalAngularErrorMilliradians, Is.EqualTo(originalFireControl.NominalAngularErrorMilliradians));
+		}
+
+		[Test]
+		public void SpecializedFireControl_DoesNotOverrideRadar()
+		{
+			var stats = SpecializedStats();
+			var originalRadar = MechFireControlPerformanceModel.BuildRadarProfile(stats);
+
+			stats.fireControlPerformance.baseSolutionErrorMrad = 0.08f;
+			stats.fireControlPerformance.guidanceChannelCapacity = 12;
+			stats.fireControlPerformance.maximumPredictionTimeS = 10f;
+			var modifiedRadar = MechFireControlPerformanceModel.BuildRadarProfile(stats);
+
+			Assert.That(modifiedRadar.MaximumRangeMeters, Is.EqualTo(originalRadar.MaximumRangeMeters));
+			Assert.That(modifiedRadar.TrackCapacity, Is.EqualTo(originalRadar.TrackCapacity));
+			Assert.That(modifiedRadar.TwsRevisitIntervalSeconds, Is.EqualTo(originalRadar.TwsRevisitIntervalSeconds));
+		}
+
+		private static MechAggregatedStats SpecializedStats() => new MechAggregatedStats
+		{
+			radarPerformance = new MechRadarPerformance
+			{
+				referenceDetectionRangeKm = 42f,
+				stableTrackRangeKm = 30f,
+				trackCapacity = 8,
+				rangeAccuracyM = 12f,
+				angularAccuracyMrad = 26.17994f,
+				radialVelocityAccuracyMps = 2f,
+				searchDwellRateHz = 25f,
+				twsUpdateRateHz = 4.166667f,
+				sttUpdateRateHz = 28.57143f
+			},
+			fireControlPerformance = new MechFireControlPerformance
+			{
+				baseSolutionErrorMrad = 0.262f,
+				maximumPredictionTimeS = 6f,
+				simultaneousSolutionCapacity = 8,
+				weaponControlChannels = 4,
+				guidanceChannelCapacity = 3,
+				multiTargetEngagementCapacity = 3,
+				solutionUpdateRateHz = 30f,
+				solutionLatencyMs = 35f
+			}
+		};
+
 		private static MechAggregatedStats Stats(
 			float sensorPrecision,
 			float radarRefreshHz,
@@ -75,5 +139,20 @@ namespace ACunicombat.Editor.Tests
 			radarRefreshHz = radarRefreshHz,
 			fireControlQuality = fireControlQuality
 		};
+	}
+
+	public sealed class RadarTrackManagerCapacityTests
+	{
+		[TestCase(8, 8)]
+		[TestCase(64, RadarTrackManager.MaxTracks)]
+		[TestCase(0, 1)]
+		public void ConfigureLimits_UsesInstalledCapacityWithinSafetyLimit(
+			int requested,
+			int expected)
+		{
+			var manager = new RadarTrackManager();
+			manager.ConfigureLimits(requested, 3.0);
+			Assert.That(manager.Capacity, Is.EqualTo(expected));
+		}
 	}
 }

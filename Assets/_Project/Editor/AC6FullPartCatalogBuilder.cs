@@ -173,6 +173,20 @@ public static class AC6FullPartCatalogBuilder
 		"WP_R_5110"
 	};
 
+	private static readonly HashSet<string> TestedFrameKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		"HD_M_1010",
+		"AM_M_1010",
+		"BD_M_1010",
+		"LG_M_1010"
+	};
+
+	private static readonly HashSet<string> TestedInternalKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		"BS_A_1010",
+		"AC6_SKIN_SAMPLE_GENERATOR"
+	};
+
 	private static readonly Dictionary<string, string> KnownPartKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 	{
 		["AC6_NATIVE_WP_L_1310"] = "WP_L_1310",
@@ -193,6 +207,13 @@ public static class AC6FullPartCatalogBuilder
 	internal static bool IsTestedWeapon(string partId)
 	{
 		return TestedWeaponKeys.Contains(ResolveSourceKey(partId));
+	}
+
+	internal static bool IsTestedPart(string partId)
+	{
+		string sourceKey = ResolveSourceKey(partId);
+		return IsTestedWeapon(partId) || TestedFrameKeys.Contains(sourceKey) ||
+			TestedInternalKeys.Contains(sourceKey) || TestedInternalKeys.Contains(partId);
 	}
 
 	[InitializeOnLoadMethod]
@@ -237,6 +258,7 @@ public static class AC6FullPartCatalogBuilder
 	public static bool BuildAvailableCatalog(out string report)
 	{
 		report = string.Empty;
+		AC6SkinnedModularSampleBuilder.RefreshGeneratedFrameGameplayData(out var refreshedFrameCount);
 		EnsureFolder("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Resources");
 		EnsureFolder("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Resources/AC6Parts");
 		List<MechPartCatalogEntry> entries = new List<MechPartCatalogEntry>();
@@ -256,8 +278,13 @@ public static class AC6FullPartCatalogBuilder
 				{
 					sourceKeys.Add(key);
 				}
-				bool tested = MechSlotRules.IsWeaponSlot(source.Slot) && IsTestedWeapon(source.PartId);
-				entries.Add(CreateEntry(clone, tested ? MechPartTestStatus.Tested : MechPartTestStatus.Untested, (!tested) ? (MechSlotRules.IsWeaponSlot(source.Slot) ? "已导入视觉资源，但尚未完成当前战斗系统的功能验证。" : string.Empty) : "当前战斗原型正在使用，已验证安装、开火、弹药与装填流程。"));
+				bool tested = IsTestedPart(source.PartId);
+				string note = tested
+					? BuildTestedNote(source)
+					: (MechSlotRules.IsWeaponSlot(source.Slot)
+						? "已导入视觉资源，但尚未完成当前战斗系统的功能验证。"
+						: "视觉资源已导入；结构、热管理与部件专属性能尚未完成战斗验证。");
+				entries.Add(CreateEntry(clone, tested ? MechPartTestStatus.Tested : MechPartTestStatus.Untested, note));
 			}
 		}
 		int internalCount = AddOriginalInternalParts(entries, ids);
@@ -289,15 +316,15 @@ public static class AC6FullPartCatalogBuilder
 				GameObject previewModel = LoadAssembledWeaponPreview(item) ?? model;
 				MechPartDefinition part = BuildImportedPart(item, id, model, previewModel);
 				bool needsRigReview = IsRigReviewRequired(item);
-				bool tested = MechSlotRules.IsWeaponSlot(part.Slot) && IsTestedWeapon(item.key);
+				bool tested = IsTestedPart(item.key);
 				MechPartTestStatus status = tested
 					? MechPartTestStatus.Tested
 					: (needsRigReview ? MechPartTestStatus.NeedsReview : MechPartTestStatus.Untested);
 				string note = tested
-					? "当前战斗原型正在使用，已验证安装、开火、弹药与装填流程。"
+					? BuildTestedNote(part)
 					: (MechSlotRules.IsWeaponSlot(part.Slot)
 						? "视觉资源已批量导入；枪口、动作、弹药和火控适配尚未验证。"
-						: (needsRigReview ? $"统一骨架对齐偏差较大：位置 {item.maxPositionError:0.000} m，旋转 {item.maxRotationErrorDeg:0.0}°；允许实验安装，但动画与挂点需要复核。" : string.Empty));
+						: (needsRigReview ? $"统一骨架对齐偏差较大：位置 {item.maxPositionError:0.000} m，旋转 {item.maxRotationErrorDeg:0.0}°；允许实验安装，但动画与挂点需要复核。" : "视觉资源已导入；结构、热管理与部件专属性能尚未完成战斗验证。"));
 				entries.Add(CreateEntry(part, status, note));
 				importedCount++;
 			}
@@ -312,8 +339,22 @@ public static class AC6FullPartCatalogBuilder
 		EditorUtility.SetDirty(catalog);
 		AssetDatabase.SaveAssets();
 		AssetDatabase.Refresh();
-		report = $"目录已生成：{entries.Count} 个部件，当前测试部件 {sampleParts.Count} 个，原版内部件 {internalCount} 个，全量三维部件新增 {importedCount} 个，跳过 {skippedCount} 项。";
+		report = $"目录已生成：{entries.Count} 个部件，刷新框架玩法数据 {refreshedFrameCount} 个，当前测试部件 {sampleParts.Count} 个，原版内部件 {internalCount} 个，全量三维部件新增 {importedCount} 个，跳过 {skippedCount} 项。";
 		return entries.Count > 0;
+	}
+
+	private static string BuildTestedNote(MechPartDefinition part)
+	{
+		return part.Slot switch
+		{
+			MechPartSlot.Head => "标准头部基准数值已录入，已验证视觉装配，并作为当前光电、红外与激光测距测试基线。",
+			MechPartSlot.Arms => "标准手臂基准数值已录入，已验证视觉装配、武器挂载、瞄准动作与内置喷口数据。",
+			MechPartSlot.Core => "标准核心基准数值已录入，已验证视觉装配、热管理、姿态控制与内置喷口数据。",
+			MechPartSlot.Legs => "标准腿部基准数值已录入，已验证视觉装配、承载、上升、反向、横向与 RCS 喷口数据。",
+			MechPartSlot.Booster => "标准主推进器基准数值已录入，已验证视觉装配、主向推进、AB、QB 与装配驱动功耗。",
+			MechPartSlot.Generator => "标准发电机基准数值已录入，储能容量、回充功率与启动参数已接入机动能量系统。",
+			_ => "当前战斗原型正在使用，已验证安装、开火、弹药与装填流程。"
+		};
 	}
 
 	private static int AddOriginalInternalParts(ICollection<MechPartCatalogEntry> entries, ISet<string> ids)
@@ -362,7 +403,7 @@ public static class AC6FullPartCatalogBuilder
 					boosterEmitterColorId = source2.BoosterEmitterColorId
 				};
 				MechPartDefinition part2 = BuildOriginalInternalPart(id2, source2.Name, MechPartSlot.Generator, source2.Weight, source2.IconId, performance2);
-				entries.Add(CreateEntry(part2, MechPartTestStatus.NeedsReview, "原版参数与菜单图已导入；EN 容量和输出尚未换算为本项目的 MW/MJ 能源模型，暂不作为可用战斗部件。"));
+				entries.Add(CreateEntry(part2, MechPartTestStatus.NeedsReview, "原版参数与菜单图已导入；EN 容量和输出尚未换算为本项目的功率与热容量模型，暂不作为可用战斗部件。"));
 				added++;
 			}
 		}
@@ -418,7 +459,7 @@ public static class AC6FullPartCatalogBuilder
 		{
 			newMountPoints = BuildFrameMountPoints(slot);
 		}
-		mechPartDefinition.EditorConfigure(id, newDisplayName, slot, (MechPartCategory)newCategory, model, newStats, newMountPoints, tags, null, isFrame ? MechVisualRigMode.SynchronizedSkinned : MechVisualRigMode.MountedPrefab, clip, AncestorDriver(slot), AncestorBones(slot), isBooster, null, null, shouldPlayDefaultEquipmentActionOnAssemble: false, Vector3.zero, isBooster ? new Vector3(180f, 0f, 0f) : (MechSlotRules.IsWeaponSlot(slot) ? new Vector3(0f, 180f, 0f) : Vector3.zero), Vector3.one, previewModel);
+		mechPartDefinition.EditorConfigure(id, newDisplayName, slot, (MechPartCategory)newCategory, model, newStats, newMountPoints, tags, null, isFrame ? MechVisualRigMode.SynchronizedSkinned : MechVisualRigMode.MountedPrefab, clip, AncestorDriver(slot), AncestorBones(slot), isBooster, null, null, shouldPlayDefaultEquipmentActionOnAssemble: false, Vector3.zero, isBooster ? new Vector3(180f, 0f, 0f) : (MechSlotRules.IsWeaponSlot(slot) ? new Vector3(0f, 180f, 0f) : Vector3.zero), Vector3.one, previewModel, newArmPerformance: BuildArmPerformance(slot, 1f), newCorePerformance: BuildCorePerformance(slot, 1f, item.key), newLegPerformance: BuildLegPerformance(slot, 1f), newBoosterPerformance: BuildBoosterPerformance(slot, item.key), newWeaponPerformance: AC6TestWeaponProfileFactory.Create(id));
 		EditorUtility.SetDirty(mechPartDefinition);
 		return mechPartDefinition;
 	}
@@ -426,7 +467,10 @@ public static class AC6FullPartCatalogBuilder
 	private static MechPartDefinition ClonePartToResources(MechPartDefinition source)
 	{
 		MechPartDefinition mechPartDefinition = LoadOrCreate<MechPartDefinition>("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Resources/AC6Parts/" + Sanitize(source.PartId) + ".asset");
-		mechPartDefinition.EditorConfigure(source.PartId, source.DisplayName, source.Slot, source.Category, source.ModelPrefab, source.Stats, source.MountPoints, source.Tags, source.MaterialOverrides, source.VisualRigMode, source.SkinnedAnimationClip, source.AncestorDriverSlot, source.AncestorDrivenBoneNames, source.InstantiateVisualAtAllMounts, source.EquipmentAnimations, source.DefaultEquipmentActionId, source.PlayDefaultEquipmentActionOnAssemble, source.LocalPosition, source.LocalEulerAngles, source.LocalScale, source.PreviewModelPrefab, source.PreviewImage, source.InternalPerformance);
+		MechWeaponPerformance weaponPerformance = source.WeaponPerformance != null && source.WeaponPerformance.IsConfigured
+			? source.WeaponPerformance
+			: AC6TestWeaponProfileFactory.Create(source.PartId);
+		mechPartDefinition.EditorConfigure(source.PartId, source.DisplayName, source.Slot, source.Category, source.ModelPrefab, source.Stats, source.MountPoints, source.Tags, source.MaterialOverrides, source.VisualRigMode, source.SkinnedAnimationClip, source.AncestorDriverSlot, source.AncestorDrivenBoneNames, source.InstantiateVisualAtAllMounts, source.EquipmentAnimations, source.DefaultEquipmentActionId, source.PlayDefaultEquipmentActionOnAssemble, source.LocalPosition, source.LocalEulerAngles, source.LocalScale, source.PreviewModelPrefab, source.PreviewImage, source.InternalPerformance, source.HeadSensorPerformance, source.ArmPerformance, source.CorePerformance, source.LegPerformance, source.BoosterPerformance, source.GeneratorPerformance, source.RadarPerformance, source.FireControlPerformance, weaponPerformance);
 		EditorUtility.SetDirty(mechPartDefinition);
 		return mechPartDefinition;
 	}
@@ -482,8 +526,16 @@ public static class AC6FullPartCatalogBuilder
 				massKg = 12000f,
 				armorPoints = 1750f,
 				structurePoints = 1450f,
+				stability = 26f,
+				idlePowerDrawMw = 0.95f,
+				peakPowerDrawMw = 3.8f,
+				idleHeatMw = 0.28f,
+				activeHeatMw = 1.25f,
+				heatGenerationMw = 1.25f,
 				heatDissipationMw = 18f,
-				hardpointCapacityKg = 16000f
+				heatCapacityMj = 240f,
+				hardpointCapacityKg = 16000f,
+				rcsThrustKn = 360f
 			};
 		case MechPartSlot.Arms:
 			return new MechPartStats
@@ -491,6 +543,12 @@ public static class AC6FullPartCatalogBuilder
 				massKg = 6900f,
 				armorPoints = 850f,
 				structurePoints = 680f,
+				idlePowerDrawMw = 0.55f,
+				peakPowerDrawMw = 2.6f,
+				idleHeatMw = 0.14f,
+				activeHeatMw = 0.95f,
+				heatGenerationMw = 0.95f,
+				heatCapacityMj = 80f,
 				weaponRecoilControl = 58f
 			};
 		case MechPartSlot.Legs:
@@ -499,17 +557,25 @@ public static class AC6FullPartCatalogBuilder
 				massKg = 9800f,
 				armorPoints = 1250f,
 				structurePoints = 1050f,
-				supportedMassKg = 65000f,
-				stability = 44f
+				stability = 44f,
+				idlePowerDrawMw = 0.8f,
+				peakPowerDrawMw = 1.6f,
+				idleHeatMw = 0.22f,
+				activeHeatMw = 0.72f,
+				heatGenerationMw = 0.72f,
+				heatDissipationMw = 2.4f,
+				heatCapacityMj = 160f
 			};
 		case MechPartSlot.Booster:
 			return new MechPartStats
 			{
 				massKg = 2600f,
-				mainThrustKn = 760f,
-				lateralThrustKn = 280f,
-				reverseThrustKn = 210f,
-				peakPowerDrawMw = 38f
+				idlePowerDrawMw = 0.3f,
+				peakPowerDrawMw = 24f,
+				idleHeatMw = 0.14f,
+				activeHeatMw = 8.5f,
+				heatGenerationMw = 8.5f,
+				heatCapacityMj = 90f
 			};
 		default:
 			if (!MechSlotRules.IsWeaponSlot(slot))
@@ -522,6 +588,137 @@ public static class AC6FullPartCatalogBuilder
 				peakPowerDrawMw = 4f
 			};
 		}
+	}
+
+	private static MechBoosterPerformance BuildBoosterPerformance(MechPartSlot slot, string key)
+	{
+		if (slot != MechPartSlot.Booster)
+		{
+			return null;
+		}
+
+		TryCode(key, out var code);
+		return new MechBoosterPerformance
+		{
+			mainThrustKn = code == 3010 ? 720f : code == 2010 ? 610f : 660f,
+			assaultBoostThrustKn = code == 3010 ? 3900f : code == 2010 ? 3300f : 3500f,
+			quickBoostThrustKn = code == 3010 ? 17500f : code == 2010 ? 15500f : 16000f,
+			quickBoostDurationS = code == 3010 ? 0.3f : code == 2010 ? 0.25f : 0.28f,
+			quickBoostRecoveryS = code == 3010 ? 0.5f : code == 2010 ? 0.36f : 0.42f,
+			horizontalVectorLimitDeg = code == 3010 ? 17f : code == 2010 ? 23f : 20f,
+			verticalVectorLimitDeg = code == 3010 ? 31f : code == 2010 ? 39f : 35f,
+			assaultBoostPowerDrawKw = code == 3010 ? 52000f : code == 2010 ? 40000f : 45000f,
+			quickBoostPowerDrawKw = code == 3010 ? 205000f : code == 2010 ? 165000f : 180000f
+		};
+	}
+
+	private static MechArmPerformance BuildArmPerformance(MechPartSlot slot, float scale)
+	{
+		if (slot != MechPartSlot.Arms)
+		{
+			return null;
+		}
+
+		return new MechArmPerformance
+		{
+			weaponLoadLimitKg = 8000f * scale,
+			recoilImpulseLimitNs = 22000f * scale,
+			recoilRecoveryRateNsPerSecond = 85000f * scale,
+			aimTraverseRateDegPerSecond = 105f / Mathf.Sqrt(Mathf.Max(0.5f, scale)),
+			aimAngularAccelerationDegPerSecondSquared = 420f / Mathf.Max(0.5f, scale),
+			weaponPointingErrorMrad = 0.18f * Mathf.Max(0.8f, scale),
+			thrusterNozzles = new[]
+			{
+				new MechArmThrusterNozzle
+				{
+					nozzleId = "arm-lateral",
+					role = MechArmThrusterRole.Lateral,
+					localPositionM = new Vector3(0.82f, 0.08f, 0f),
+					localThrustDirection = Vector3.left,
+					maximumThrustKn = 40f * scale,
+					gimbalLimitDeg = 8f,
+					maximumPowerKw = 420f * scale,
+					maximumHeatKw = 180f * scale
+				},
+				new MechArmThrusterNozzle
+				{
+					nozzleId = "arm-rcs-forward",
+					role = MechArmThrusterRole.Rcs,
+					localPositionM = new Vector3(0.78f, 0.32f, 0.28f),
+					localThrustDirection = Vector3.forward,
+					maximumThrustKn = 75f * scale,
+					maximumPowerKw = 260f * scale,
+					maximumHeatKw = 120f * scale
+				},
+				new MechArmThrusterNozzle
+				{
+					nozzleId = "arm-rcs-rear",
+					role = MechArmThrusterRole.Rcs,
+					localPositionM = new Vector3(0.78f, -0.18f, -0.24f),
+					localThrustDirection = Vector3.back,
+					maximumThrustKn = 75f * scale,
+					maximumPowerKw = 260f * scale,
+					maximumHeatKw = 120f * scale
+				}
+			}
+		};
+	}
+
+	private static MechCorePerformance BuildCorePerformance(MechPartSlot slot, float scale, string sourceKey)
+	{
+		if (slot != MechPartSlot.Core)
+		{
+			return null;
+		}
+
+		float reverseThrust = sourceKey != null && sourceKey.EndsWith("3010", StringComparison.OrdinalIgnoreCase)
+			? 280f * scale
+			: sourceKey != null && sourceKey.EndsWith("2010", StringComparison.OrdinalIgnoreCase)
+				? 330f * scale
+				: 305f * scale;
+		float downwardThrust = 450f * scale;
+		return new MechCorePerformance
+		{
+			forwardExhaustNozzles = new[]
+			{
+				new MechCoreThrusterNozzle { nozzleId = "core-forward-left", localPositionM = new Vector3(-0.72f, 0.25f, 0.58f), localExhaustDirection = Vector3.forward, maximumThrustKn = reverseThrust * 0.5f, gimbalLimitDeg = 6f, maximumPowerKw = 550f * scale, maximumHeatKw = 220f * scale },
+				new MechCoreThrusterNozzle { nozzleId = "core-forward-right", localPositionM = new Vector3(0.72f, 0.25f, 0.58f), localExhaustDirection = Vector3.forward, maximumThrustKn = reverseThrust * 0.5f, gimbalLimitDeg = 6f, maximumPowerKw = 550f * scale, maximumHeatKw = 220f * scale }
+			},
+			upwardExhaustNozzles = new[]
+			{
+				new MechCoreThrusterNozzle { nozzleId = "core-up-front-left", localPositionM = new Vector3(-0.68f, 0.74f, 0.42f), localExhaustDirection = Vector3.up, maximumThrustKn = downwardThrust * 0.25f, gimbalLimitDeg = 5f, maximumPowerKw = 300f * scale, maximumHeatKw = 120f * scale },
+				new MechCoreThrusterNozzle { nozzleId = "core-up-front-right", localPositionM = new Vector3(0.68f, 0.74f, 0.42f), localExhaustDirection = Vector3.up, maximumThrustKn = downwardThrust * 0.25f, gimbalLimitDeg = 5f, maximumPowerKw = 300f * scale, maximumHeatKw = 120f * scale },
+				new MechCoreThrusterNozzle { nozzleId = "core-up-rear-left", localPositionM = new Vector3(-0.68f, 0.74f, -0.42f), localExhaustDirection = Vector3.up, maximumThrustKn = downwardThrust * 0.25f, gimbalLimitDeg = 5f, maximumPowerKw = 300f * scale, maximumHeatKw = 120f * scale },
+				new MechCoreThrusterNozzle { nozzleId = "core-up-rear-right", localPositionM = new Vector3(0.68f, 0.74f, -0.42f), localExhaustDirection = Vector3.up, maximumThrustKn = downwardThrust * 0.25f, gimbalLimitDeg = 5f, maximumPowerKw = 300f * scale, maximumHeatKw = 120f * scale }
+			}
+		};
+	}
+
+	private static MechLegPerformance BuildLegPerformance(MechPartSlot slot, float scale)
+	{
+		if (slot != MechPartSlot.Legs)
+		{
+			return null;
+		}
+
+		return new MechLegPerformance
+		{
+			maximumSupportedMassKg = 65000f * scale,
+			primaryThrusterNozzles = new[]
+			{
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-front", localPositionM = new Vector3(0.42f, -0.72f, 0.3f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale },
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-rear", localPositionM = new Vector3(0.42f, -0.78f, -0.24f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale }
+			},
+			lateralThrusterNozzles = new[]
+			{
+				new MechLegThrusterNozzle { nozzleId = "leg-lateral", localPositionM = new Vector3(0.48f, -0.35f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 8f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 20f * scale }
+			},
+			rcsThrusterNozzles = new[]
+			{
+				new MechLegThrusterNozzle { nozzleId = "leg-rcs-forward", localPositionM = new Vector3(0.44f, -0.18f, 0.32f), localThrustDirection = Vector3.forward, maximumThrustKn = 60f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 25f * scale },
+				new MechLegThrusterNozzle { nozzleId = "leg-rcs-rear", localPositionM = new Vector3(0.44f, -0.58f, -0.3f), localThrustDirection = Vector3.back, maximumThrustKn = 60f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 25f * scale }
+			}
+		};
 	}
 
 	private static IReadOnlyList<MechMountPointDefinition> BuildFrameMountPoints(MechPartSlot slot)

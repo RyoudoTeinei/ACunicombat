@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace ACunicombat.Mechs
 {
@@ -18,9 +19,24 @@ namespace ACunicombat.Mechs
         LinearFlight,
     }
 
+    public readonly struct CombatDamageBreakdown
+    {
+        public CombatDamageBreakdown(float armorDamage, float structureDamage)
+        {
+            ArmorDamage = armorDamage;
+            StructureDamage = structureDamage;
+        }
+
+        public float ArmorDamage { get; }
+        public float StructureDamage { get; }
+        public float TotalDurabilityDamage => ArmorDamage + StructureDamage;
+    }
+
     [DisallowMultipleComponent]
     public sealed class CombatTestTarget : MonoBehaviour
     {
+        public const float ArmoredStructureDamageMultiplier = 0.25f;
+
         private static CombatTestTarget ownship;
 
         public static event Action<CombatTestTarget, Transform, TestWeaponKind, float>
@@ -33,11 +49,10 @@ namespace ACunicombat.Mechs
 
         [SerializeField] private string targetId = "SIM-TGT-01";
         [SerializeField] private int teamId = 2;
-        [SerializeField] private float maxHealth = 2400f;
-        [Header("Shield")]
-        [SerializeField] private float maxShield = 1500f;
-        [SerializeField] private float shieldRechargeDelaySeconds = 4f;
-        [SerializeField] private float shieldRechargePerSecond = 200f;
+        [Header("Protection")]
+        [SerializeField, Min(0f)] private float maxArmor;
+        [FormerlySerializedAs("maxHealth")]
+        [SerializeField, Min(1f)] private float maxStructure = 2400f;
         [SerializeField] private float radarCrossSectionSquareMeters = 18f;
         [SerializeField] private float thermalSignature = 8f;
         [SerializeField] private float electromagneticSignature = 10f;
@@ -58,9 +73,8 @@ namespace ACunicombat.Mechs
         private MaterialPropertyBlock propertyBlock;
         private Vector3 origin;
         private Quaternion originRotation;
-        private float health;
-        private float shield;
-        private float shieldRechargeAt;
+        private float armor;
+        private float structure;
         private float motionElapsedSeconds;
         private float flashUntil;
         private float resetAt = -1f;
@@ -71,14 +85,14 @@ namespace ACunicombat.Mechs
 
         public string TargetId => targetId;
         public int TeamId => teamId;
-        public bool IsAlive => health > 0f;
-        public float Health => health;
-        public float MaxHealth => maxHealth;
-        public float HealthFraction => maxHealth > 0f ? Mathf.Clamp01(health / maxHealth) : 0f;
-        public float Shield => shield;
-        public float MaxShield => maxShield;
-        public float ShieldFraction => maxShield > 0f ? Mathf.Clamp01(shield / maxShield) : 0f;
-        public bool HasShield => maxShield > 0f;
+        public bool IsAlive => structure > 0f;
+        public float Armor => armor;
+        public float MaxArmor => maxArmor;
+        public float Structure => structure;
+        public float MaxStructure => maxStructure;
+        public float Health => IsAlive ? armor + structure : 0f;
+        public float MaxHealth => maxArmor + maxStructure;
+        public float HealthFraction => MaxHealth > 0f ? Mathf.Clamp01(Health / MaxHealth) : 0f;
         public float RadarCrossSectionSquareMeters => radarCrossSectionSquareMeters;
         public float ThermalSignature => thermalSignature;
         public float ElectromagneticSignature => electromagneticSignature;
@@ -113,7 +127,8 @@ namespace ACunicombat.Mechs
             float movementSpeedMetersPerSecond)
         {
             aimPoint = newAimPoint;
-            maxHealth = Mathf.Max(1f, newMaxHealth);
+            maxArmor = 0f;
+            maxStructure = Mathf.Max(1f, newMaxHealth);
             moveLaterally = shouldMoveLaterally;
             motionMode = shouldMoveLaterally
                 ? CombatTestTargetMotionMode.LateralOscillation
@@ -134,7 +149,8 @@ namespace ACunicombat.Mechs
             bool shouldOrientAlongFlightPath = true)
         {
             aimPoint = newAimPoint;
-            maxHealth = Mathf.Max(1f, newMaxHealth);
+            maxArmor = 0f;
+            maxStructure = Mathf.Max(1f, newMaxHealth);
             motionMode = CombatTestTargetMotionMode.LinearFlight;
             moveLaterally = false;
             flightSpeedMetersPerSecond = Mathf.Max(0f, speedMetersPerSecond);
@@ -160,16 +176,27 @@ namespace ACunicombat.Mechs
             teamId = newTeamId;
         }
 
-        public void ConfigureShield(
-            float newMaxShield,
-            float rechargeDelaySeconds,
-            float rechargePerSecond)
+        public void ConfigureProtection(float newMaxArmor, float newMaxStructure)
         {
-            maxShield = Mathf.Max(0f, newMaxShield);
-            shieldRechargeDelaySeconds = Mathf.Max(0f, rechargeDelaySeconds);
-            shieldRechargePerSecond = Mathf.Max(0f, rechargePerSecond);
-            shield = maxShield;
-            shieldRechargeAt = Time.time + shieldRechargeDelaySeconds;
+            maxArmor = Mathf.Max(0f, newMaxArmor);
+            maxStructure = Mathf.Max(1f, newMaxStructure);
+            armor = maxArmor;
+            structure = maxStructure;
+            resetAt = -1f;
+        }
+
+        public static CombatDamageBreakdown CalculateProtectionDamage(
+            float currentArmor,
+            float currentStructure,
+            float incomingDamage)
+        {
+            float sanitizedDamage = Mathf.Max(0f, incomingDamage);
+            float protectedDamage = Mathf.Min(Mathf.Max(0f, currentArmor), sanitizedDamage);
+            float overflowDamage = Mathf.Max(0f, sanitizedDamage - protectedDamage);
+            float structureDamage = protectedDamage * ArmoredStructureDamageMultiplier + overflowDamage;
+            return new CombatDamageBreakdown(
+                protectedDamage,
+                Mathf.Min(Mathf.Max(0f, currentStructure), structureDamage));
         }
 
         public void ApplyDamage(
@@ -186,35 +213,31 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var shieldDamage = Mathf.Min(shield, damage);
-            shield = Mathf.Max(0f, shield - shieldDamage);
-            var armorDamage = Mathf.Max(0f, damage - shieldDamage);
-            if (shieldDamage > 0f || armorDamage > 0f)
-            {
-                shieldRechargeAt = Time.time + shieldRechargeDelaySeconds;
-            }
-            health = Mathf.Max(0f, health - armorDamage);
+            CombatDamageBreakdown breakdown = CalculateProtectionDamage(armor, structure, damage);
+            armor = Mathf.Max(0f, armor - breakdown.ArmorDamage);
+            structure = Mathf.Max(0f, structure - breakdown.StructureDamage);
+            bool damageApplied = breakdown.TotalDurabilityDamage > 0f;
             hitCount++;
             lastHitKind = weaponKind;
             DamageApplied?.Invoke(
                 this,
                 damageSource,
                 weaponKind,
-                shieldDamage + armorDamage);
-            if (armorDamage > 0f)
+                damage);
+            if (damageApplied)
             {
                 flashUntil = Time.time + 0.11f;
             }
             MechTestWeaponSystem.SpawnImpact(
                 hitPoint, -hitDirection, weaponKind, effectLibrary, impactFfxId);
-            if (armorDamage > 0f)
+            if (damageApplied)
             {
                 EnsureImpactAudio();
                 impactAudio.PlayArmorImpact(
-                    weaponKind, armorDamage, hitPoint, isOwnship);
+                    weaponKind, damage, hitPoint, isOwnship);
             }
 
-            if (health <= 0f)
+            if (structure <= 0f)
             {
                 SetVisibleAndCollidable(false);
                 resetAt = Time.time + resetDelaySeconds;
@@ -243,9 +266,8 @@ namespace ACunicombat.Mechs
             EnsureImpactAudio();
             origin = transform.position;
             originRotation = transform.rotation;
-            health = maxHealth;
-            shield = maxShield;
-            shieldRechargeAt = Time.time + shieldRechargeDelaySeconds;
+            armor = maxArmor;
+            structure = maxStructure;
         }
 
         private void EnsureImpactAudio()
@@ -294,15 +316,6 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            if (shield < maxShield &&
-                Time.time >= shieldRechargeAt &&
-                shieldRechargePerSecond > 0f)
-            {
-                shield = Mathf.Min(
-                    maxShield,
-                    shield + shieldRechargePerSecond * Time.deltaTime);
-            }
-
             ApplyHitFlash(Time.time < flashUntil);
         }
 
@@ -335,9 +348,8 @@ namespace ACunicombat.Mechs
 
         private void ResetTarget()
         {
-            health = maxHealth;
-            shield = maxShield;
-            shieldRechargeAt = Time.time + shieldRechargeDelaySeconds;
+            armor = maxArmor;
+            structure = maxStructure;
             resetAt = -1f;
             flashUntil = -1f;
             motionElapsedSeconds = 0f;

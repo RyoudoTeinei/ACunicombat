@@ -48,7 +48,8 @@ public static class MechSystemEditorMenu
                 heatCapacityMj = 600f,
                 radarCrossSection = 2.2f,
                 thermalSignature = 1.2f,
-                hardpointCapacityKg = 16000f
+                hardpointCapacityKg = 16000f,
+                rcsThrustKn = 360f
             },
             new[]
             {
@@ -74,10 +75,13 @@ public static class MechSystemEditorMenu
                 massKg = 7200f,
                 armorPoints = 900f,
                 structurePoints = 700f,
-                idlePowerDrawMw = 1f,
-                peakPowerDrawMw = 2f,
+                idlePowerDrawMw = 0.55f,
+                peakPowerDrawMw = 2.6f,
+                idleHeatMw = 0.14f,
+                activeHeatMw = 0.95f,
+                heatGenerationMw = 0.95f,
+                heatCapacityMj = 80f,
                 weaponRecoilControl = 60f,
-                meleeControl = 35f,
                 radarCrossSection = 1.1f,
                 thermalSignature = 0.5f
             },
@@ -102,6 +106,7 @@ public static class MechSystemEditorMenu
                 idlePowerDrawMw = 0.8f,
                 peakPowerDrawMw = 1.6f,
                 supportedMassKg = 70000f,
+                rcsThrustKn = 240f,
                 radarCrossSection = 1.8f,
                 thermalSignature = 0.6f
             },
@@ -120,7 +125,7 @@ public static class MechSystemEditorMenu
                 peakPowerDrawMw = 24f,
                 heatGenerationMw = 7f,
                 mainThrustKn = 520f,
-                lateralThrustKn = 220f,
+                lateralThrustKn = 180f,
                 reverseThrustKn = 300f,
                 attitudeTorqueKnM = 180f,
                 thermalSignature = 2.8f,
@@ -333,9 +338,29 @@ public static class MechSystemEditorMenu
     {
         var path = SampleRoot + "/" + id + ".asset";
         var part = CreateOrLoadAsset<MechPartDefinition>(path);
-        part.EditorConfigure(id, displayName, slot, category, null, stats, mounts, tags);
+        part.EditorConfigure(id, displayName, slot, category, null, stats, mounts, tags,
+			newArmPerformance: slot == MechPartSlot.Arms ? CreateSampleArmPerformance() : null);
         return part;
     }
+
+	private static MechArmPerformance CreateSampleArmPerformance()
+	{
+		return new MechArmPerformance
+		{
+			weaponLoadLimitKg = 8000f,
+			recoilImpulseLimitNs = 22000f,
+			recoilRecoveryRateNsPerSecond = 85000f,
+			aimTraverseRateDegPerSecond = 105f,
+			aimAngularAccelerationDegPerSecondSquared = 420f,
+			weaponPointingErrorMrad = 0.18f,
+			thrusterNozzles = new[]
+			{
+				new MechArmThrusterNozzle { nozzleId = "arm-lateral", role = MechArmThrusterRole.Lateral, localPositionM = new Vector3(0.82f, 0.08f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 40f, gimbalLimitDeg = 8f, maximumPowerKw = 420f, maximumHeatKw = 180f },
+				new MechArmThrusterNozzle { nozzleId = "arm-rcs-forward", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, 0.32f, 0.28f), localThrustDirection = Vector3.forward, maximumThrustKn = 75f, maximumPowerKw = 260f, maximumHeatKw = 120f },
+				new MechArmThrusterNozzle { nozzleId = "arm-rcs-rear", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, -0.18f, -0.24f), localThrustDirection = Vector3.back, maximumThrustKn = 75f, maximumPowerKw = 260f, maximumHeatKw = 120f }
+			}
+		};
+	}
 
     private static MechMountPointDefinition Mount(
         string id,

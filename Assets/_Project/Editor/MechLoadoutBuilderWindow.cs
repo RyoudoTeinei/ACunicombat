@@ -295,8 +295,9 @@ public sealed class MechLoadoutBuilderWindow : EditorWindow
             DrawStat("Armor / Structure", $"{stats.armorPoints:0} / {stats.structurePoints:0}");
             DrawStat("Main Accel", $"{stats.mainAccelerationMps2:0.00} m/s^2");
             DrawStat("Lateral / Reverse", $"{stats.lateralAccelerationMps2:0.00} / {stats.reverseAccelerationMps2:0.00} m/s^2");
-            DrawStat("Power Surplus", $"{stats.peakPowerSurplusMw:0.0} MW peak");
-            DrawStat("Heat Surplus", $"{stats.heatSurplusMw:0.0} MW");
+            DrawStat("Upward / Downward", $"{stats.upwardAccelerationMps2:0.00} / {stats.downwardAccelerationMps2:0.00} m/s^2");
+            DrawStat("Power Surplus", $"{stats.peakPowerSurplusMw * 1000f:0.#} kW peak");
+            DrawStat("Heat Surplus", $"{stats.heatSurplusMw * 1000f:0.#} kW");
             DrawStat("Radar", $"{stats.radarRangeKm:0.0} km / {stats.radarRefreshHz:0.0} Hz");
             DrawStat("Tracks / Guidance", $"{stats.trackCapacity} / {stats.guidanceChannels}");
             DrawStat("Signatures", $"{stats.radarCrossSection:0.00} R / {stats.thermalSignature:0.00} T / {stats.electromagneticSignature:0.00} EM");
@@ -330,7 +331,7 @@ public sealed class MechLoadoutBuilderWindow : EditorWindow
     {
         var stats = part.Stats;
         EditorGUILayout.LabelField(
-            $"{part.DisplayName} | {part.Category} | {stats.massKg:0} kg | idle {stats.idlePowerDrawMw:0.0} MW | peak {stats.peakPowerDrawMw:0.0} MW",
+            $"{part.DisplayName} | {part.Category} | {stats.massKg:0} kg | idle {stats.idlePowerDrawMw * 1000f:0.#} kW | peak {stats.peakPowerDrawMw * 1000f:0.#} kW",
             EditorStyles.miniLabel);
     }
 
@@ -344,7 +345,8 @@ public sealed class MechLoadoutBuilderWindow : EditorWindow
         DrawStat("Mass", $"{stats.massKg:0} kg");
         DrawStat("Armor / Structure", $"{stats.armorPoints:0} / {stats.structurePoints:0}");
         DrawStat("Power", $"{stats.powerOutputMw:0.0} out, {stats.peakPowerDrawMw:0.0} peak draw");
-        DrawStat("Thrust", $"{stats.mainThrustKn:0} / {stats.lateralThrustKn:0} / {stats.reverseThrustKn:0} kN");
+        DrawStat("Thrust M/L/R", $"{stats.mainThrustKn:0} / {stats.lateralThrustKn:0} / {stats.reverseThrustKn:0} kN");
+        DrawStat("Thrust Up/Down", $"{stats.upwardThrustKn:0} / {stats.downwardThrustKn:0} kN");
         DrawStat("Radar", $"{stats.radarRangeKm:0.0} km, {stats.radarRefreshHz:0.0} Hz");
         DrawStat("FCS", $"{stats.fireControlQuality:0.0} quality, {stats.guidanceChannels} channels");
     }

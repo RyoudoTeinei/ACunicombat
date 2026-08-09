@@ -26,6 +26,34 @@ namespace ACunicombat.Mechs
                 }
 
                 target.Add(assignment.part.Stats);
+                if (assignment.part.Slot == MechPartSlot.Arms)
+                {
+                    target.AddArmPerformance(assignment.part.ArmPerformance);
+                }
+                else if (assignment.part.Slot == MechPartSlot.Core)
+                {
+                    target.AddCorePerformance(assignment.part.CorePerformance);
+                }
+                else if (assignment.part.Slot == MechPartSlot.Legs)
+                {
+                    target.AddLegPerformance(assignment.part.LegPerformance);
+                }
+                else if (assignment.part.Slot == MechPartSlot.Booster)
+                {
+                    target.AddBoosterPerformance(assignment.part.BoosterPerformance);
+                }
+                else if (assignment.part.Slot == MechPartSlot.Generator)
+                {
+                    target.AddGeneratorPerformance(assignment.part.GeneratorPerformance);
+                }
+                else if (assignment.part.Slot == MechPartSlot.Radar)
+                {
+                    target.AddRadarPerformance(assignment.part.RadarPerformance);
+                }
+                else if (assignment.part.Slot == MechPartSlot.FireControlSystem)
+                {
+                    target.AddFireControlPerformance(assignment.part.FireControlPerformance);
+                }
             }
 
             target.RecalculateDerived();

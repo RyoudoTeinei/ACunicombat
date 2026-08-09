@@ -32,9 +32,9 @@ namespace ACunicombat.Mechs
         [SerializeField] private float fallbackLateralThrustKn = 1200f;
         [Tooltip("无有效换装推进数据时使用的正面反推力。")]
         [SerializeField] private float fallbackReverseThrustKn = 1400f;
-        [Tooltip("上升喷口合力。当前零件表没有独立垂直推力字段，因此暂用显式参数。")]
+        [Tooltip("旧装配未提供上推力数据时使用的兼容值。")]
         [SerializeField] private float verticalThrustKn = 1500f;
-        [Tooltip("主动下降可调用的垂直机动推力，相对于上升喷口合力的比例。")]
+        [Tooltip("旧装配未提供下推力数据时，相对于兼容上推力的比例。")]
         [Range(0f, 1f)] [SerializeField] private float descentThrustFraction = 0.3f;
         [Tooltip("垂直推力中由肩部上推喷口承担的比例；其余由双腿/脚部喷口承担。")]
         [Range(0f, 1f)] [SerializeField] private float shoulderLiftFraction = 0.4f;
@@ -82,19 +82,19 @@ namespace ACunicombat.Mechs
         [SerializeField] private float assaultBoostThrustKn = 3500f;
 
         [Header("机动能量")]
-        [Tooltip("供普通推进、制动、轨道同步、AB 与 QB 共用的原型机动能量容量。")]
+        [Tooltip("供普通推进、制动、轨道同步、AB 与 QB 共用的储能容量（MJ）。有效装配中由发电机决定。")]
         [SerializeField, Min(1f)] private float maximumManeuverEnergy =
             DefaultManeuverEnergyCapacity;
-        [Tooltip("普通平移、升降、制动与轨道同步在满指令下每秒消耗的能量。")]
+        [Tooltip("没有有效部件功耗数据时，普通机动每秒消耗的回退能量（MJ/s）。")]
         [SerializeField, Min(0f)] private float movementEnergyDrainPerSecond =
             DefaultMovementEnergyDrainPerSecond;
-        [Tooltip("AB 工作时每秒消耗的能量。")]
+        [Tooltip("没有有效主推进器功耗数据时，AB 每秒消耗的回退能量（MJ/s）。")]
         [SerializeField, Min(0f)] private float assaultBoostEnergyDrainPerSecond =
             DefaultAssaultBoostEnergyDrainPerSecond;
-        [Tooltip("每次成功启动 QB 立即消耗的能量。")]
+        [Tooltip("没有有效主推进器功耗数据时，每次 QB 消耗的回退能量（MJ）。")]
         [SerializeField, Min(0f)] private float quickBoostEnergyCost =
             DefaultQuickBoostEnergyCost;
-        [Tooltip("停止消耗并经过恢复延迟后，每秒恢复的能量。")]
+        [Tooltip("没有有效发电机数据时，每秒恢复的回退能量（MJ/s）。")]
         [SerializeField, Min(0f)] private float maneuverEnergyRechargePerSecond = 24f;
         [Tooltip("最后一次消耗后开始恢复前的等待时间。")]
         [SerializeField, Min(0f)] private float maneuverEnergyRechargeDelay = 0.75f;
@@ -186,6 +186,9 @@ namespace ACunicombat.Mechs
         private bool maneuverEnergyDepleted;
         private bool maneuverEnergyInitialized;
         private bool maneuverEnergyConfiguredAtRuntime;
+        private MechLoadoutDefinition appliedEnergyLoadout;
+        private MechPartDefinition appliedEnergyGenerator;
+        private MechPartDefinition appliedEnergyBooster;
         private bool braking;
         private float mainEngineOutput;
         private bool inertialThrustLockActive;
@@ -247,12 +250,20 @@ namespace ACunicombat.Mechs
         {
             get
             {
+                RefreshLoadoutEnergyConfiguration();
                 EnsureManeuverEnergyInitialized();
                 return currentManeuverEnergy;
             }
         }
 
-        public float MaximumManeuverEnergy => Mathf.Max(1f, maximumManeuverEnergy);
+        public float MaximumManeuverEnergy
+        {
+            get
+            {
+                RefreshLoadoutEnergyConfiguration();
+                return Mathf.Max(0.001f, maximumManeuverEnergy);
+            }
+        }
 
         public float ManeuverEnergyNormalized =>
             CurrentManeuverEnergy / MaximumManeuverEnergy;
@@ -263,6 +274,7 @@ namespace ACunicombat.Mechs
         {
             get
             {
+                RefreshLoadoutEnergyConfiguration();
                 EnsureManeuverEnergyInitialized();
                 return engineAvailable &&
                        !maneuverEnergyDepleted &&
@@ -765,7 +777,9 @@ namespace ACunicombat.Mechs
             ResolveThrusterForces(
                 out var mainNewtons,
                 out var lateralNewtons,
-                out var reverseNewtons);
+                out var reverseNewtons,
+                out var upwardNewtons,
+                out var downwardNewtons);
             var localDirection =
                 Quaternion.Inverse(LogicalRotation) *
                 worldDirection.normalized;
@@ -798,10 +812,8 @@ namespace ACunicombat.Mechs
 
             if (localDirection.y > 0.0001f)
             {
-                var shoulderRated = verticalThrustKn * 1000f
-                                    * Mathf.Clamp01(shoulderLiftFraction);
-                var legRated = verticalThrustKn * 1000f
-                               * (1f - Mathf.Clamp01(shoulderLiftFraction));
+                var shoulderRated = upwardNewtons * Mathf.Clamp01(shoulderLiftFraction);
+                var legRated = upwardNewtons * (1f - Mathf.Clamp01(shoulderLiftFraction));
                 forceCapacity += localDirection.y *
                     (ResolveThrusterForceCapacity(
                          MechThrusterRole.ShoulderLift,
@@ -814,12 +826,10 @@ namespace ACunicombat.Mechs
             }
             else if (localDirection.y < -0.0001f)
             {
-                var descentRated = verticalThrustKn * 1000f
-                                   * Mathf.Clamp01(descentThrustFraction);
                 forceCapacity += -localDirection.y *
                     ResolveThrusterForceCapacity(
                         MechThrusterRole.Descent,
-                        descentRated,
+                        downwardNewtons,
                         true);
             }
 
@@ -834,6 +844,7 @@ namespace ACunicombat.Mechs
         public void Tick(in MechPlayerInputFrame frame, float deltaTime)
         {
             EnsureThrusterLayout();
+            RefreshLoadoutEnergyConfiguration();
             EnsureManeuverEnergyInitialized();
             UpdateManeuverEnergyRecovery(deltaTime);
             ClearThrusterForces();
@@ -858,7 +869,7 @@ namespace ACunicombat.Mechs
             // Cursor displacement commands bounded yaw and pitch rates in the active reference
             // frame. Roll remains zero relative to that frame.
             var desiredYawRateDegrees =
-                yawTurnInput * Mathf.Max(0f, maximumYawRateDegrees);
+                yawTurnInput * ResolveMaximumYawRateDegrees();
             var yawResponse = 1f - Mathf.Exp(
                 -Mathf.Max(0f, deltaTime) /
                 Mathf.Max(0.01f, yawResponseTimeSeconds));
@@ -967,7 +978,9 @@ namespace ACunicombat.Mechs
             ResolveThrusterForces(
                 out var mainThrustNewtons,
                 out var lateralThrustNewtons,
-                out var reverseThrustNewtons);
+                out var reverseThrustNewtons,
+                out var upwardThrustNewtons,
+                out var downwardThrustNewtons);
             mainThrustNewtons *= movementEnergyScale;
             lateralThrustNewtons *= movementEnergyScale;
             reverseThrustNewtons *= movementEnergyScale;
@@ -985,7 +998,9 @@ namespace ACunicombat.Mechs
                     attitudeBasis,
                     mainThrustNewtons,
                     lateralThrustNewtons,
-                    reverseThrustNewtons);
+                    reverseThrustNewtons,
+                    upwardThrustNewtons,
+                    downwardThrustNewtons);
             }
             else if (!braking && Mathf.Abs(frame.MoveLocal.x) > Mathf.Epsilon)
             {
@@ -1031,16 +1046,18 @@ namespace ACunicombat.Mechs
                 controlForward,
                 grounded,
                 quickBoostApplying,
+                upwardThrustNewtons,
+                downwardThrustNewtons,
                 out var requestedShoulderLiftForce,
                 out var requestedLegLiftForce,
                 out var requestedDescentForce);
             requestedShoulderLiftForce *= movementEnergyScale;
             requestedLegLiftForce *= movementEnergyScale;
             requestedDescentForce *= movementEnergyScale;
-            var shoulderCapacity = verticalThrustKn * 1000f
+            var shoulderCapacity = upwardThrustNewtons
                                    * Mathf.Clamp01(shoulderLiftFraction)
                                    * (1f + liftCompensationReserve);
-            var legCapacity = verticalThrustKn * 1000f
+            var legCapacity = upwardThrustNewtons
                               * (1f - Mathf.Clamp01(shoulderLiftFraction))
                               * (1f + liftCompensationReserve);
             currentShoulderLiftForceNewtons = AllocateThrusterForce(
@@ -1053,12 +1070,10 @@ namespace ACunicombat.Mechs
                 requestedLegLiftForce,
                 legCapacity,
                 true);
-            var descentCapacity = verticalThrustKn * 1000f
-                                  * Mathf.Clamp01(descentThrustFraction);
             currentDescentForceNewtons = AllocateThrusterForce(
                 MechThrusterRole.Descent,
                 requestedDescentForce,
-                descentCapacity,
+                downwardThrustNewtons,
                 true);
             propulsionForce += currentShoulderLiftForceNewtons
                                + currentLegLiftForceNewtons
@@ -1110,7 +1125,9 @@ namespace ACunicombat.Mechs
                     attitudeBasis,
                     mainThrustNewtons,
                     lateralThrustNewtons,
-                    reverseThrustNewtons);
+                    reverseThrustNewtons,
+                    upwardThrustNewtons,
+                    downwardThrustNewtons);
                 if (currentTrajectorySyncForceNewtons.sqrMagnitude > 0.0001f)
                 {
                     velocity += currentTrajectorySyncForceNewtons
@@ -1154,7 +1171,9 @@ namespace ACunicombat.Mechs
                     attitudeBasis,
                     mainThrustNewtons,
                     lateralThrustNewtons,
-                    reverseThrustNewtons);
+                    reverseThrustNewtons,
+                    upwardThrustNewtons,
+                    downwardThrustNewtons);
                 var horizontalBrakingForce = AllocateDirectionalReserveForce(
                     brakingDirection * brakingForceCapacity * activeBrakingThrustMultiplier,
                     attitudeBasis);
@@ -1331,14 +1350,18 @@ namespace ACunicombat.Mechs
                 / 12f);
 
             var errorRadians = Mathf.DeltaAngle(yawDegrees, commandedYawDegrees) * Mathf.Deg2Rad;
-            var maximumRate = Mathf.Max(0f, maximumYawRateDegrees) * Mathf.Deg2Rad;
+            var maximumRate = ResolveMaximumYawRateDegrees() * Mathf.Deg2Rad;
+			var totalRcsThrustKn = ResolveRcsThrustKn();
+			var configuredRcsTotal = Mathf.Max(0.001f, shoulderRcsThrustKn + legRcsThrustKn);
+			var shoulderRcsKn = totalRcsThrustKn * Mathf.Max(0f, shoulderRcsThrustKn) / configuredRcsTotal;
+			var legRcsKn = totalRcsThrustKn * Mathf.Max(0f, legRcsThrustKn) / configuredRcsTotal;
             var shoulderCapacity = ResolveYawRcsTorqueCapacity(
                 MechThrusterRole.ShoulderRcs,
-                shoulderRcsThrustKn * 1000f,
+                shoulderRcsKn * 1000f,
                 shoulderRcsLeverArmMeters);
             var legCapacity = ResolveYawRcsTorqueCapacity(
                 MechThrusterRole.LegRcs,
-                legRcsThrustKn * 1000f,
+                legRcsKn * 1000f,
                 legRcsLeverArmMeters);
             var wheelCapacity = Mathf.Max(0f, momentumWheelTorqueKnM) * 1000f;
             var totalCapacity = shoulderCapacity + legCapacity + wheelCapacity;
@@ -1377,13 +1400,13 @@ namespace ACunicombat.Mechs
             currentShoulderRcsTorqueNewtonMeters = AllocateYawRcsTorque(
                 MechThrusterRole.ShoulderRcs,
                 remainingTorque,
-                shoulderRcsThrustKn * 1000f,
+                shoulderRcsKn * 1000f,
                 shoulderRcsLeverArmMeters);
             remainingTorque -= currentShoulderRcsTorqueNewtonMeters;
             currentLegRcsTorqueNewtonMeters = AllocateYawRcsTorque(
                 MechThrusterRole.LegRcs,
                 remainingTorque,
-                legRcsThrustKn * 1000f,
+                legRcsKn * 1000f,
                 legRcsLeverArmMeters);
             remainingTorque -= currentLegRcsTorqueNewtonMeters;
             var remainingWheelCapacity = Mathf.Max(
@@ -1789,7 +1812,9 @@ namespace ACunicombat.Mechs
             Quaternion attitudeBasis,
             float mainNewtons,
             float lateralNewtons,
-            float reverseNewtons)
+            float reverseNewtons,
+            float upwardNewtons,
+            float downwardNewtons)
         {
             if (requestedForce.sqrMagnitude <= Mathf.Epsilon)
             {
@@ -1843,10 +1868,8 @@ namespace ACunicombat.Mechs
 
             if (localForce.y > Mathf.Epsilon)
             {
-                var shoulderRated = verticalThrustKn * 1000f
-                                    * Mathf.Clamp01(shoulderLiftFraction);
-                var legRated = verticalThrustKn * 1000f
-                               * (1f - Mathf.Clamp01(shoulderLiftFraction));
+                var shoulderRated = upwardNewtons * Mathf.Clamp01(shoulderLiftFraction);
+                var legRated = upwardNewtons * (1f - Mathf.Clamp01(shoulderLiftFraction));
                 var shoulderRemaining = Mathf.Max(
                     0f,
                     ResolveThrusterForceCapacity(
@@ -1884,20 +1907,18 @@ namespace ACunicombat.Mechs
             }
             else if (localForce.y < -Mathf.Epsilon)
             {
-                var descentRated = verticalThrustKn * 1000f
-                                   * Mathf.Clamp01(descentThrustFraction);
                 var remainingCapacity = Mathf.Max(
                     0f,
                     ResolveThrusterForceCapacity(
                         MechThrusterRole.Descent,
-                        descentRated,
+                        downwardNewtons,
                         true) -
                     SumThrusterForce(MechThrusterRole.Descent).magnitude);
                 var requestMagnitude = Mathf.Min(-localForce.y, remainingCapacity);
                 allocatedForce += AllocateThrusterForce(
                     MechThrusterRole.Descent,
                     -(attitudeBasis * Vector3.up) * requestMagnitude,
-                    descentRated,
+                    downwardNewtons,
                     true);
             }
 
@@ -1909,7 +1930,9 @@ namespace ACunicombat.Mechs
             Quaternion yawBasis,
             float mainNewtons,
             float lateralNewtons,
-            float reverseNewtons)
+            float reverseNewtons,
+            float upwardNewtons,
+            float downwardNewtons)
         {
             if (requestedForce.sqrMagnitude <= Mathf.Epsilon)
             {
@@ -1922,7 +1945,9 @@ namespace ACunicombat.Mechs
                 yawBasis,
                 mainNewtons,
                 lateralNewtons,
-                reverseNewtons);
+                reverseNewtons,
+                upwardNewtons,
+                downwardNewtons);
             return AllocateDirectionalReserveForce(
                 direction * Mathf.Min(requestedForce.magnitude, capacity),
                 yawBasis);
@@ -2177,7 +2202,9 @@ namespace ACunicombat.Mechs
         private void ResolveThrusterForces(
             out float mainNewtons,
             out float lateralNewtons,
-            out float reverseNewtons)
+            out float reverseNewtons,
+            out float upwardNewtons,
+            out float downwardNewtons)
         {
             if (runtimeState == null)
             {
@@ -2196,7 +2223,39 @@ namespace ACunicombat.Mechs
             reverseNewtons = (stats != null && stats.reverseThrustKn > 0f
                 ? stats.reverseThrustKn
                 : fallbackReverseThrustKn) * 1000f;
+            upwardNewtons = (stats != null && stats.upwardThrustKn > 0f
+                ? stats.upwardThrustKn
+                : verticalThrustKn) * 1000f;
+            downwardNewtons = (stats != null && stats.downwardThrustKn > 0f
+                ? stats.downwardThrustKn
+                : verticalThrustKn * Mathf.Clamp01(descentThrustFraction)) * 1000f;
         }
+
+		private float ResolveMaximumYawRateDegrees()
+		{
+			if (runtimeState == null)
+			{
+				runtimeState = GetComponent<MechRuntimeState>();
+			}
+
+			var stats = runtimeState != null ? runtimeState.AggregatedStats : null;
+			return stats != null && stats.rcsTurnRateDegreesPerSecond > 0f
+				? stats.rcsTurnRateDegreesPerSecond
+				: Mathf.Max(0f, maximumYawRateDegrees);
+		}
+
+		private float ResolveRcsThrustKn()
+		{
+			if (runtimeState == null)
+			{
+				runtimeState = GetComponent<MechRuntimeState>();
+			}
+
+			var stats = runtimeState != null ? runtimeState.AggregatedStats : null;
+			return stats != null && stats.rcsThrustKn > 0f
+				? stats.rcsThrustKn
+				: Mathf.Max(0f, shoulderRcsThrustKn + legRcsThrustKn);
+		}
 
         private Vector3 ResolveMainThrustDirection(Quaternion yawBasis, bool grounded)
         {
@@ -2211,6 +2270,8 @@ namespace ACunicombat.Mechs
             Vector3 controlForward,
             bool grounded,
             bool quickBoostApplying,
+            float upwardNewtons,
+            float downwardNewtons,
             out Vector3 shoulderForce,
             out Vector3 legForce,
             out Vector3 descentForce)
@@ -2219,7 +2280,7 @@ namespace ACunicombat.Mechs
             legForce = Vector3.zero;
             descentForce = Vector3.zero;
 
-            var totalLiftNewtons = Mathf.Max(0f, verticalThrustKn) * 1000f;
+            var totalLiftNewtons = Mathf.Max(0f, upwardNewtons);
             if (totalLiftNewtons <= Mathf.Epsilon)
             {
                 return;
@@ -2230,9 +2291,7 @@ namespace ACunicombat.Mechs
             var verticalInput = (frame.RiseHeld ? 1f : 0f) - (frame.DescendHeld ? 1f : 0f);
             if (verticalInput < -Mathf.Epsilon)
             {
-                var descentNewtons = totalLiftNewtons
-                                     * Mathf.Clamp01(descentThrustFraction)
-                                     * -verticalInput;
+                var descentNewtons = Mathf.Max(0f, downwardNewtons) * -verticalInput;
                 descentForce = -ReferenceUp * descentNewtons;
                 return;
             }
@@ -2270,8 +2329,7 @@ namespace ACunicombat.Mechs
                 // Horizontal coordination may use vectored lift nozzles, but it must not create
                 // an uncommanded climb. Limit the upward group to what the descent group can trim.
                 var gravitySupportNewtons = currentMassKg * gravityAcceleration;
-                var descentCapacityNewtons = totalLiftNewtons
-                                             * Mathf.Clamp01(descentThrustFraction);
+                var descentCapacityNewtons = Mathf.Max(0f, downwardNewtons);
                 var balancedLiftLimit = (gravitySupportNewtons + descentCapacityNewtons)
                                         / totalLiftNewtons;
                 liftCommand = Mathf.Min(liftCommand, Mathf.Clamp01(balancedLiftLimit));
@@ -2352,7 +2410,7 @@ namespace ACunicombat.Mechs
                 var trimNewtons = Mathf.Clamp(
                     upwardForceNewtons - gravitySupportNewtons,
                     0f,
-                    totalLiftNewtons * Mathf.Clamp01(descentThrustFraction));
+                    Mathf.Max(0f, downwardNewtons));
                 descentForce = -ReferenceUp * trimNewtons;
             }
         }
@@ -2437,7 +2495,9 @@ namespace ACunicombat.Mechs
             Quaternion yawBasis,
             float mainNewtons,
             float lateralNewtons,
-            float reverseNewtons)
+            float reverseNewtons,
+            float upwardNewtons,
+            float downwardNewtons)
         {
             if (worldDirection.sqrMagnitude <= 0.0001f)
             {
@@ -2449,7 +2509,10 @@ namespace ACunicombat.Mechs
                 ? localDirection.z * mainNewtons
                 : -localDirection.z * reverseNewtons;
             var lateral = Mathf.Abs(localDirection.x) * lateralNewtons;
-            return Mathf.Max(0f, longitudinal + lateral);
+            var vertical = localDirection.y >= 0f
+                ? localDirection.y * upwardNewtons
+                : -localDirection.y * downwardNewtons;
+            return Mathf.Max(0f, longitudinal + lateral + vertical);
         }
 
         private static float ResolveDirectionPreservingForceCapacity(
@@ -2457,7 +2520,9 @@ namespace ACunicombat.Mechs
             Quaternion yawBasis,
             float mainNewtons,
             float lateralNewtons,
-            float reverseNewtons)
+            float reverseNewtons,
+            float upwardNewtons,
+            float downwardNewtons)
         {
             if (worldDirection.sqrMagnitude <= 0.0001f)
             {
@@ -2481,6 +2546,16 @@ namespace ACunicombat.Mechs
                 capacity = Mathf.Min(
                     capacity,
                     lateralNewtons / Mathf.Abs(localDirection.x));
+            }
+
+            if (Mathf.Abs(localDirection.y) > 0.0001f)
+            {
+                var verticalCapacity = localDirection.y >= 0f
+                    ? upwardNewtons
+                    : downwardNewtons;
+                capacity = Mathf.Min(
+                    capacity,
+                    verticalCapacity / Mathf.Abs(localDirection.y));
             }
 
             return float.IsPositiveInfinity(capacity) ? 0f : Mathf.Max(0f, capacity);
@@ -2581,6 +2656,65 @@ namespace ACunicombat.Mechs
             maneuverEnergyInitialized = true;
         }
 
+        private void RefreshLoadoutEnergyConfiguration()
+        {
+            if (runtimeState == null)
+            {
+                runtimeState = GetComponent<MechRuntimeState>();
+            }
+
+            var loadout = runtimeState != null ? runtimeState.CurrentLoadout : null;
+            if (loadout == null)
+            {
+                return;
+            }
+
+            loadout.TryGetPart(MechPartSlot.Generator, out var generator);
+            loadout.TryGetPart(MechPartSlot.Booster, out var booster);
+            if (ReferenceEquals(loadout, appliedEnergyLoadout) &&
+                ReferenceEquals(generator, appliedEnergyGenerator) &&
+                ReferenceEquals(booster, appliedEnergyBooster))
+            {
+                return;
+            }
+
+            var normalizedEnergy = maneuverEnergyInitialized
+                ? Mathf.Clamp01(currentManeuverEnergy / Mathf.Max(0.001f, maximumManeuverEnergy))
+                : 1f;
+            var generatorPerformance = generator?.GeneratorPerformance;
+            if (generatorPerformance != null && generatorPerformance.HasData)
+            {
+                maximumManeuverEnergy = Mathf.Max(0.001f, generatorPerformance.energyStorageCapacityMj);
+                maneuverEnergyRechargePerSecond = Mathf.Max(0f, generatorPerformance.energyRechargePowerKw) / 1000f;
+                maneuverEnergyRechargeDelay = Mathf.Max(0f, generatorPerformance.energyRechargeDelayS);
+                maneuverEnergyRestartFraction = Mathf.Clamp01(generatorPerformance.depletedRestartFraction);
+                if (maneuverEnergyInitialized)
+                {
+                    currentManeuverEnergy = maximumManeuverEnergy * normalizedEnergy;
+                }
+            }
+
+            var boosterPerformance = booster?.BoosterPerformance;
+            if (boosterPerformance != null && boosterPerformance.HasData)
+            {
+                assaultBoostThrustKn = Mathf.Max(0f, boosterPerformance.assaultBoostThrustKn);
+                quickBoostThrustKn = Mathf.Max(0f, boosterPerformance.quickBoostThrustKn);
+                quickBoostDuration = Mathf.Max(0.01f, boosterPerformance.quickBoostDurationS);
+                maximumVectorPitchDegrees = Mathf.Clamp(
+                    boosterPerformance.verticalVectorLimitDeg,
+                    0f,
+                    89f);
+                quickBoostEnergyCost = Mathf.Clamp(
+                    boosterPerformance.quickBoostPowerDrawKw * quickBoostDuration / 1000f,
+                    0f,
+                    maximumManeuverEnergy);
+            }
+
+            appliedEnergyLoadout = loadout;
+            appliedEnergyGenerator = generator;
+            appliedEnergyBooster = booster;
+        }
+
         private void UpgradeLegacyManeuverEnergyConfiguration()
         {
             if (maneuverEnergyConfiguredAtRuntime)
@@ -2655,10 +2789,6 @@ namespace ACunicombat.Mechs
             var verticalCommand = Mathf.Abs(
                 (frame.RiseHeld ? 1f : 0f) -
                 (frame.DescendHeld ? 1f : 0f));
-            var manualDemand = Mathf.Clamp01(Mathf.Max(
-                Mathf.Abs(frame.MoveLocal.x),
-                Mathf.Abs(forwardCommand),
-                verticalCommand));
             var automaticDemand = trajectorySyncCommandActive
                 ? Mathf.Clamp01(trajectorySyncAccelerationCommand.magnitude / 20f)
                 : 0f;
@@ -2666,14 +2796,108 @@ namespace ACunicombat.Mechs
                                 (!isGrounded || HorizontalSpeed > groundStopSpeed)
                 ? 1f
                 : 0f;
-            var demand = Mathf.Max(
-                manualDemand,
-                automaticDemand,
-                brakingDemand);
-            var regularDrain = movementEnergyDrainPerSecond * demand;
-            return AssaultBoostActive
-                ? Mathf.Max(regularDrain, assaultBoostEnergyDrainPerSecond)
-                : regularDrain;
+            if (!TryResolveEquippedPropulsionPower(
+                    out var boosterPowerKw,
+                    out var assaultBoostPowerKw,
+                    out var armLateralPowerKw,
+                    out var coreReversePowerKw,
+                    out var coreDownwardPowerKw,
+                    out var legPrimaryPowerKw,
+                    out var legLateralPowerKw))
+            {
+                var manualDemand = Mathf.Clamp01(Mathf.Max(
+                    Mathf.Abs(frame.MoveLocal.x),
+                    Mathf.Abs(forwardCommand),
+                    verticalCommand));
+                var demand = Mathf.Max(manualDemand, automaticDemand, brakingDemand);
+                var fallbackDrain = movementEnergyDrainPerSecond * demand;
+                return AssaultBoostActive
+                    ? Mathf.Max(fallbackDrain, assaultBoostEnergyDrainPerSecond)
+                    : fallbackDrain;
+            }
+
+            var forwardDemand = Mathf.Max(0f, forwardCommand);
+            var reverseDemand = Mathf.Max(0f, -forwardCommand);
+            var lateralDemand = Mathf.Abs(frame.MoveLocal.x);
+            var riseDemand = frame.RiseHeld ? 1f : 0f;
+            var descendDemand = frame.DescendHeld ? 1f : 0f;
+
+            // A vectored nozzle cannot spend its full rated power independently on
+            // multiple axes. Each source therefore uses its strongest simultaneous demand.
+            var legPrimaryDemand = Mathf.Max(forwardDemand, reverseDemand, riseDemand);
+            var regularPowerKw = boosterPowerKw * forwardDemand +
+                                 coreReversePowerKw * reverseDemand +
+                                 coreDownwardPowerKw * descendDemand +
+                                 armLateralPowerKw * lateralDemand +
+                                 legLateralPowerKw * lateralDemand +
+                                 legPrimaryPowerKw * legPrimaryDemand;
+            var installedPropulsionPowerKw = boosterPowerKw + coreReversePowerKw +
+                                             coreDownwardPowerKw +
+                                             armLateralPowerKw + legLateralPowerKw +
+                                             legPrimaryPowerKw;
+            regularPowerKw = Mathf.Max(
+                regularPowerKw,
+                installedPropulsionPowerKw * Mathf.Max(automaticDemand, brakingDemand));
+            if (AssaultBoostActive)
+            {
+                regularPowerKw = Mathf.Max(regularPowerKw, assaultBoostPowerKw);
+            }
+            return regularPowerKw / 1000f;
+        }
+
+        private bool TryResolveEquippedPropulsionPower(
+            out float boosterPowerKw,
+            out float assaultBoostPowerKw,
+            out float armLateralPowerKw,
+            out float coreReversePowerKw,
+            out float coreDownwardPowerKw,
+            out float legPrimaryPowerKw,
+            out float legLateralPowerKw)
+        {
+            boosterPowerKw = 0f;
+            assaultBoostPowerKw = 0f;
+            armLateralPowerKw = 0f;
+            coreReversePowerKw = 0f;
+            coreDownwardPowerKw = 0f;
+            legPrimaryPowerKw = 0f;
+            legLateralPowerKw = 0f;
+
+            if (runtimeState == null)
+            {
+                runtimeState = GetComponent<MechRuntimeState>();
+            }
+            var loadout = runtimeState != null ? runtimeState.CurrentLoadout : null;
+            if (loadout == null)
+            {
+                return false;
+            }
+
+            if (loadout.TryGetPart(MechPartSlot.Booster, out var booster))
+            {
+                boosterPowerKw = Mathf.Max(0f, booster.Stats.peakPowerDrawMw) * 1000f;
+                assaultBoostPowerKw = Mathf.Max(
+                    boosterPowerKw,
+                    booster.BoosterPerformance?.assaultBoostPowerDrawKw ?? 0f);
+            }
+            if (loadout.TryGetPart(MechPartSlot.Arms, out var arms))
+            {
+                armLateralPowerKw = Mathf.Max(0f, arms.ArmPerformance?.LateralPowerKw ?? 0f);
+            }
+            if (loadout.TryGetPart(MechPartSlot.Core, out var core))
+            {
+                coreReversePowerKw = Mathf.Max(0f, core.CorePerformance?.ReversePowerKw ?? 0f);
+                coreDownwardPowerKw = Mathf.Max(0f, core.CorePerformance?.DownwardPowerKw ?? 0f);
+            }
+            if (loadout.TryGetPart(MechPartSlot.Legs, out var legs))
+            {
+                legPrimaryPowerKw = Mathf.Max(0f, legs.LegPerformance?.PrimaryPowerKw ?? 0f);
+                legLateralPowerKw = Mathf.Max(0f, legs.LegPerformance?.LateralPowerKw ?? 0f);
+            }
+
+            return boosterPowerKw > 0f || armLateralPowerKw > 0f ||
+                   coreReversePowerKw > 0f || coreDownwardPowerKw > 0f ||
+                   legPrimaryPowerKw > 0f ||
+                   legLateralPowerKw > 0f;
         }
 
         private float ConsumeMovementEnergy(float drainPerSecond, float deltaTime)
@@ -2752,13 +2976,17 @@ namespace ACunicombat.Mechs
             ResolveThrusterForces(
                 out var mainNewtons,
                 out var lateralNewtons,
-                out var reverseNewtons);
+                out var reverseNewtons,
+                out var upwardNewtons,
+                out var downwardNewtons);
             var directionalCapacity = ResolveDirectionalForceCapacity(
                 quickBoostDirection,
                 yawBasis,
                 mainNewtons,
                 lateralNewtons,
-                reverseNewtons);
+                reverseNewtons,
+                upwardNewtons,
+                downwardNewtons);
             var directionalScale = mainNewtons > Mathf.Epsilon
                 ? directionalCapacity / mainNewtons
                 : 1f;

@@ -273,6 +273,187 @@ public static class AC6SkinnedModularSampleBuilder
 		return true;
 	}
 
+	internal static bool RefreshGeneratedFrameGameplayData(out int refreshedCount)
+	{
+		refreshedCount = 0;
+		const string generatedPartsRoot = "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Parts";
+		if (!AssetDatabase.IsValidFolder(generatedPartsRoot))
+		{
+			return false;
+		}
+
+		for (var codeIndex = 0; codeIndex < FrameCodes.Length; codeIndex++)
+		{
+			string code = FrameCodes[codeIndex];
+			float scale = MassScale(code);
+			for (var slotIndex = 0; slotIndex < FrameSlots.Length; slotIndex++)
+			{
+				FrameSlotSpec slot = FrameSlots[slotIndex];
+				string id = "AC6_SKIN_" + slot.Token + "_M_" + code;
+				string path = generatedPartsRoot + "/" + id + ".asset";
+				MechPartDefinition part = AssetDatabase.LoadAssetAtPath<MechPartDefinition>(path);
+				if (part == null)
+				{
+					continue;
+				}
+
+				part.EditorConfigure(
+					part.PartId,
+					part.DisplayName,
+					part.Slot,
+					part.Category,
+					part.ModelPrefab,
+					BuildFrameStats(slot.Slot, scale, code),
+					part.MountPoints,
+					part.Tags,
+					part.MaterialOverrides,
+					part.VisualRigMode,
+					part.SkinnedAnimationClip,
+					part.AncestorDriverSlot,
+					part.AncestorDrivenBoneNames,
+					part.InstantiateVisualAtAllMounts,
+					part.EquipmentAnimations,
+					part.DefaultEquipmentActionId,
+					part.PlayDefaultEquipmentActionOnAssemble,
+					part.LocalPosition,
+					part.LocalEulerAngles,
+					part.LocalScale,
+					part.PreviewModelPrefab,
+					part.PreviewImage,
+					part.InternalPerformance,
+					BuildHeadSensorPerformance(slot.Slot, code),
+					BuildArmPerformance(slot.Slot, scale),
+					BuildCorePerformance(slot.Slot, scale, code),
+					BuildLegPerformance(slot.Slot, scale),
+					part.BoosterPerformance,
+					part.GeneratorPerformance);
+				refreshedCount++;
+			}
+		}
+
+		for (var codeIndex = 0; codeIndex < FrameCodes.Length; codeIndex++)
+		{
+			string code = FrameCodes[codeIndex];
+			string id = "AC6_NATIVE_BS_A_" + code;
+			string path = generatedPartsRoot + "/" + id + ".asset";
+			MechPartDefinition part = AssetDatabase.LoadAssetAtPath<MechPartDefinition>(path);
+			if (part == null)
+			{
+				continue;
+			}
+
+			part.EditorConfigure(
+				part.PartId,
+				part.DisplayName,
+				part.Slot,
+				part.Category,
+				part.ModelPrefab,
+				BuildBoosterStats(code),
+				part.MountPoints,
+				part.Tags,
+				part.MaterialOverrides,
+				part.VisualRigMode,
+				part.SkinnedAnimationClip,
+				part.AncestorDriverSlot,
+				part.AncestorDrivenBoneNames,
+				part.InstantiateVisualAtAllMounts,
+				part.EquipmentAnimations,
+				part.DefaultEquipmentActionId,
+				part.PlayDefaultEquipmentActionOnAssemble,
+				part.LocalPosition,
+				part.LocalEulerAngles,
+				part.LocalScale,
+				part.PreviewModelPrefab,
+				part.PreviewImage,
+				part.InternalPerformance,
+				part.HeadSensorPerformance,
+				part.ArmPerformance,
+				part.CorePerformance,
+				part.LegPerformance,
+				BuildBoosterPerformance(code),
+				part.GeneratorPerformance);
+			refreshedCount++;
+		}
+
+		const string sampleGeneratorId = "AC6_SKIN_SAMPLE_GENERATOR";
+		MechPartDefinition sampleGenerator = AssetDatabase.LoadAssetAtPath<MechPartDefinition>(
+			generatedPartsRoot + "/" + sampleGeneratorId + ".asset");
+		if (sampleGenerator != null)
+		{
+			sampleGenerator.EditorConfigure(
+				sampleGenerator.PartId,
+				sampleGenerator.DisplayName,
+				sampleGenerator.Slot,
+				sampleGenerator.Category,
+				sampleGenerator.ModelPrefab,
+				BuildSampleGeneratorStats(),
+				sampleGenerator.MountPoints,
+				sampleGenerator.Tags,
+				sampleGenerator.MaterialOverrides,
+				sampleGenerator.VisualRigMode,
+				sampleGenerator.SkinnedAnimationClip,
+				sampleGenerator.AncestorDriverSlot,
+				sampleGenerator.AncestorDrivenBoneNames,
+				sampleGenerator.InstantiateVisualAtAllMounts,
+				sampleGenerator.EquipmentAnimations,
+				sampleGenerator.DefaultEquipmentActionId,
+				sampleGenerator.PlayDefaultEquipmentActionOnAssemble,
+				sampleGenerator.LocalPosition,
+				sampleGenerator.LocalEulerAngles,
+				sampleGenerator.LocalScale,
+				sampleGenerator.PreviewModelPrefab,
+				sampleGenerator.PreviewImage,
+				sampleGenerator.InternalPerformance,
+				sampleGenerator.HeadSensorPerformance,
+				sampleGenerator.ArmPerformance,
+				sampleGenerator.CorePerformance,
+				sampleGenerator.LegPerformance,
+				sampleGenerator.BoosterPerformance,
+				BuildSampleGeneratorPerformance());
+			refreshedCount++;
+		}
+
+		MechPartDefinition sampleFcs = AssetDatabase.LoadAssetAtPath<MechPartDefinition>(
+			generatedPartsRoot + "/AC6_SKIN_SAMPLE_FCS.asset");
+		if (sampleFcs != null)
+		{
+			sampleFcs.EditorConfigure(
+				sampleFcs.PartId,
+				sampleFcs.DisplayName,
+				sampleFcs.Slot,
+				sampleFcs.Category,
+				sampleFcs.ModelPrefab,
+				BuildSampleFireControlStats(),
+				sampleFcs.MountPoints,
+				sampleFcs.Tags,
+				newFireControlPerformance: BuildSampleFireControlPerformance());
+			refreshedCount++;
+		}
+
+		MechPartDefinition sampleRadar = AssetDatabase.LoadAssetAtPath<MechPartDefinition>(
+			generatedPartsRoot + "/AC6_SKIN_SAMPLE_RADAR.asset");
+		if (sampleRadar != null)
+		{
+			sampleRadar.EditorConfigure(
+				sampleRadar.PartId,
+				sampleRadar.DisplayName,
+				sampleRadar.Slot,
+				sampleRadar.Category,
+				sampleRadar.ModelPrefab,
+				BuildSampleRadarStats(),
+				sampleRadar.MountPoints,
+				sampleRadar.Tags,
+				newRadarPerformance: BuildSampleRadarPerformance());
+			refreshedCount++;
+		}
+
+		if (refreshedCount > 0)
+		{
+			AssetDatabase.SaveAssets();
+		}
+		return refreshedCount > 0;
+	}
+
 	[InitializeOnLoadMethod]
 	private static void RunRequestedValidationAfterReload()
 	{
@@ -378,13 +559,13 @@ public static class AC6SkinnedModularSampleBuilder
 				string id = "AC6_SKIN_" + slot.Token + "_M_" + code;
 				MechPartDefinition part = LoadOrCreateAsset<MechPartDefinition>("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Parts/" + id + ".asset");
 				Material[] materialOverrides = BuildPaintMaterialOverrides(model, slot.Token, code, paintPreset, materialCatalog);
-				part.EditorConfigure(id, "AC6 " + SetDisplayName(code) + " " + slot.DisplayName, slot.Slot, MechPartCategory.Frame, model, BuildFrameStats(slot.Slot, MassScale(code)), BuildFrameMountPoints(slot.Slot), new string[4]
+				part.EditorConfigure(id, "AC6 " + SetDisplayName(code) + " " + slot.DisplayName, slot.Slot, MechPartCategory.Frame, model, BuildFrameStats(slot.Slot, MassScale(code), code), BuildFrameMountPoints(slot.Slot), new string[4]
 				{
 					"frame",
 					"ac6-skinned",
 					"set-" + code,
 					slot.Token.ToLowerInvariant()
-				}, materialOverrides, MechVisualRigMode.SynchronizedSkinned, partClip, AncestorDriverForSlot(slot.Slot), AncestorDrivenBonesForSlot(slot.Slot));
+				}, materialOverrides, MechVisualRigMode.SynchronizedSkinned, partClip, AncestorDriverForSlot(slot.Slot), AncestorDrivenBonesForSlot(slot.Slot), newHeadSensorPerformance: BuildHeadSensorPerformance(slot.Slot, code), newArmPerformance: BuildArmPerformance(slot.Slot, MassScale(code)), newCorePerformance: BuildCorePerformance(slot.Slot, MassScale(code), code), newLegPerformance: BuildLegPerformance(slot.Slot, MassScale(code)));
 				frameParts[FrameKey(slot.Slot, code)] = part;
 			}
 		}
@@ -1562,28 +1743,75 @@ public static class AC6SkinnedModularSampleBuilder
 	{
 		return new Dictionary<MechPartSlot, MechPartDefinition>
 		{
-			[MechPartSlot.Generator] = CreateInternalPart("AC6_SKIN_SAMPLE_GENERATOR", "Sample Compact Reactor", MechPartSlot.Generator, new MechPartStats
-			{
-				massKg = 3800f,
-				powerOutputMw = 70f,
-				heatGenerationMw = 12f
-			}),
-			[MechPartSlot.FireControlSystem] = CreateInternalPart("AC6_SKIN_SAMPLE_FCS", "Sample Fire Control System", MechPartSlot.FireControlSystem, new MechPartStats
-			{
-				massKg = 700f,
-				fireControlQuality = 65f,
-				trackCapacity = 8,
-				guidanceChannels = 3
-			}),
-			[MechPartSlot.Radar] = CreateInternalPart("AC6_SKIN_SAMPLE_RADAR", "Sample Active Radar", MechPartSlot.Radar, new MechPartStats
-			{
-				massKg = 900f,
-				radarRangeKm = 42f,
-				radarRefreshHz = 2.5f,
-				trackCapacity = 8
-			})
+			[MechPartSlot.Generator] = CreateInternalPart(
+				"AC6_SKIN_SAMPLE_GENERATOR",
+				"Sample Compact Reactor",
+				MechPartSlot.Generator,
+				BuildSampleGeneratorStats(),
+				BuildSampleGeneratorPerformance()),
+			[MechPartSlot.FireControlSystem] = CreateInternalPart("AC6_SKIN_SAMPLE_FCS", "Sample Fire Control System", MechPartSlot.FireControlSystem, BuildSampleFireControlStats(), fireControlPerformance: BuildSampleFireControlPerformance()),
+			[MechPartSlot.Radar] = CreateInternalPart("AC6_SKIN_SAMPLE_RADAR", "Sample Active Radar", MechPartSlot.Radar, BuildSampleRadarStats(), radarPerformance: BuildSampleRadarPerformance())
 		};
 	}
+
+	private static MechPartStats BuildSampleFireControlStats() => new MechPartStats
+	{
+		massKg = 700f,
+		idlePowerDrawMw = 0.12f,
+		peakPowerDrawMw = 0.65f,
+		idleHeatMw = 0.08f,
+		activeHeatMw = 0.45f,
+		heatCapacityMj = 18f,
+		fireControlQuality = 65f,
+		guidanceChannels = 3
+	};
+
+	private static MechPartStats BuildSampleRadarStats() => new MechPartStats
+	{
+		massKg = 900f,
+		idlePowerDrawMw = 0.25f,
+		peakPowerDrawMw = 1.8f,
+		idleHeatMw = 0.18f,
+		activeHeatMw = 1.2f,
+		heatCapacityMj = 25f,
+		radarRangeKm = 42f,
+		radarRefreshHz = 2.5f,
+		trackCapacity = 8
+	};
+
+	private static MechRadarPerformance BuildSampleRadarPerformance() =>
+		new MechRadarPerformance
+		{
+			referenceDetectionRangeKm = 42f,
+			stableTrackRangeKm = 30f,
+			searchAzimuthDeg = 100f,
+			searchElevationDeg = 60f,
+			trackCapacity = 8,
+			sttChannelCapacity = 1,
+			maximumTrackingRateDegPerSecond = 140f,
+			trackMemorySeconds = 3f,
+			rangeAccuracyM = 12f,
+			angularAccuracyMrad = 26.17994f,
+			radialVelocityAccuracyMps = 2f,
+			searchDwellRateHz = 25f,
+			twsUpdateRateHz = 4.166667f,
+			sttUpdateRateHz = 28.57143f
+		};
+
+	private static MechFireControlPerformance BuildSampleFireControlPerformance() =>
+		new MechFireControlPerformance
+		{
+			baseSolutionErrorMrad = 0.262f,
+			maximumPredictionTimeS = 6f,
+			simultaneousSolutionCapacity = 8,
+			weaponControlChannels = 4,
+			guidanceChannelCapacity = 3,
+			multiTargetEngagementCapacity = 3,
+			pointDefenseRating = 65f,
+			trackReacquisitionTimeS = 0.6f,
+			solutionUpdateRateHz = 30f,
+			solutionLatencyMs = 35f
+		};
 
 	private static Dictionary<string, MechPartDefinition> BuildBoosterParts(ICollection<string> missing)
 	{
@@ -1605,20 +1833,13 @@ public static class AC6SkinnedModularSampleBuilder
 			}
 			string id = "AC6_NATIVE_" + key;
 			MechPartDefinition part = LoadOrCreateAsset<MechPartDefinition>("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Parts/" + id + ".asset");
-			part.EditorConfigure(id, "AC6 Native Booster " + code, MechPartSlot.Booster, MechPartCategory.Internal, model, new MechPartStats
-			{
-				massKg = ((code == "3010") ? 4800f : ((code == "2010") ? 3400f : 3900f)),
-				peakPowerDrawMw = ((code == "3010") ? 28f : ((code == "2010") ? 19f : 22f)),
-				mainThrustKn = ((code == "3010") ? 720f : ((code == "2010") ? 610f : 660f)),
-				lateralThrustKn = ((code == "3010") ? 310f : ((code == "2010") ? 370f : 340f)),
-				reverseThrustKn = ((code == "3010") ? 280f : ((code == "2010") ? 330f : 305f))
-			}, Array.Empty<MechMountPointDefinition>(), new string[4]
+			part.EditorConfigure(id, "AC6 Native Booster " + code, MechPartSlot.Booster, MechPartCategory.Internal, model, BuildBoosterStats(code), Array.Empty<MechMountPointDefinition>(), new string[4]
 			{
 				"internal",
 				"booster",
 				"ac6-native",
 				"set-" + code
-			}, null, MechVisualRigMode.MountedPrefab, null, MechPartSlot.None, null, shouldInstantiateVisualAtAllMounts: true, actions, SelectDefaultAction(actions, "a000_000001"), shouldPlayDefaultEquipmentActionOnAssemble: false, Vector3.zero, NativeBoosterInstallEuler, Vector3.one);
+			}, null, MechVisualRigMode.MountedPrefab, null, MechPartSlot.None, null, shouldInstantiateVisualAtAllMounts: true, actions, SelectDefaultAction(actions, "a000_000001"), shouldPlayDefaultEquipmentActionOnAssemble: false, Vector3.zero, NativeBoosterInstallEuler, Vector3.one, newBoosterPerformance: BuildBoosterPerformance(code));
 			result[code] = part;
 		}
 		return result;
@@ -1685,7 +1906,7 @@ public static class AC6SkinnedModularSampleBuilder
 				"ac6-native",
 				"melee",
 				spec.Key.ToLowerInvariant()
-			}, materialOverrides, MechVisualRigMode.MountedPrefab, null, MechPartSlot.None, null, shouldInstantiateVisualAtAllMounts: false, actions, SelectDefaultAction(actions, spec.PreferredActionId), actions.Count > 0 && !spec.IsMelee && spec.Slot != MechPartSlot.LeftBackWeapon && spec.Slot != MechPartSlot.RightBackWeapon, Vector3.zero, NativeWeaponInstallEuler, Vector3.one);
+			}, materialOverrides, MechVisualRigMode.MountedPrefab, null, MechPartSlot.None, null, shouldInstantiateVisualAtAllMounts: false, actions, SelectDefaultAction(actions, spec.PreferredActionId), actions.Count > 0 && !spec.IsMelee && spec.Slot != MechPartSlot.LeftBackWeapon && spec.Slot != MechPartSlot.RightBackWeapon, Vector3.zero, NativeWeaponInstallEuler, Vector3.one, newWeaponPerformance: AC6TestWeaponProfileFactory.Create(id));
 			result[spec.Key] = part;
 		}
 		return result;
@@ -1795,10 +2016,17 @@ public static class AC6SkinnedModularSampleBuilder
 		return -1;
 	}
 
-	private static MechPartDefinition CreateInternalPart(string id, string displayName, MechPartSlot slot, MechPartStats stats)
+	private static MechPartDefinition CreateInternalPart(
+		string id,
+		string displayName,
+		MechPartSlot slot,
+		MechPartStats stats,
+		MechGeneratorPerformance generatorPerformance = null,
+		MechRadarPerformance radarPerformance = null,
+		MechFireControlPerformance fireControlPerformance = null)
 	{
 		MechPartDefinition part = LoadOrCreateAsset<MechPartDefinition>("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Parts/" + id + ".asset");
-		part.EditorConfigure(id, displayName, slot, MechPartCategory.Internal, null, stats, Array.Empty<MechMountPointDefinition>(), new string[2] { "internal", "sample" });
+		part.EditorConfigure(id, displayName, slot, MechPartCategory.Internal, null, stats, Array.Empty<MechMountPointDefinition>(), new string[2] { "internal", "sample" }, newGeneratorPerformance: generatorPerformance, newRadarPerformance: radarPerformance, newFireControlPerformance: fireControlPerformance);
 		return part;
 	}
 
@@ -1893,30 +2121,23 @@ public static class AC6SkinnedModularSampleBuilder
 		};
 	}
 
-	private static MechPartStats BuildFrameStats(MechPartSlot slot, float scale)
+	private static MechPartStats BuildFrameStats(MechPartSlot slot, float scale, string code)
 	{
 		return slot switch
 		{
-			MechPartSlot.Head => new MechPartStats
-			{
-				massKg = 1700f * scale,
-				armorPoints = 260f * scale,
-				structurePoints = 180f * scale,
-				peakPowerDrawMw = 1.1f
-			}, 
-			MechPartSlot.Core => new MechPartStats
-			{
-				massKg = 12000f * scale,
-				armorPoints = 1750f * scale,
-				structurePoints = 1450f * scale,
-				heatDissipationMw = 18f * scale,
-				hardpointCapacityKg = 16000f * scale
-			}, 
+			MechPartSlot.Head => BuildHeadStats(scale, code),
+			MechPartSlot.Core => BuildCoreStats(scale),
 			MechPartSlot.Arms => new MechPartStats
 			{
 				massKg = 6900f * scale,
 				armorPoints = 850f * scale,
 				structurePoints = 680f * scale,
+				idlePowerDrawMw = 0.55f * scale,
+				peakPowerDrawMw = 2.6f * scale,
+				idleHeatMw = 0.14f * scale,
+				activeHeatMw = 0.95f * scale,
+				heatGenerationMw = 0.95f * scale,
+				heatCapacityMj = 80f * scale,
 				weaponRecoilControl = 58f * scale
 			}, 
 			MechPartSlot.Legs => new MechPartStats
@@ -1924,10 +2145,213 @@ public static class AC6SkinnedModularSampleBuilder
 				massKg = 9800f * scale,
 				armorPoints = 1250f * scale,
 				structurePoints = 1050f * scale,
-				supportedMassKg = 65000f * scale,
-				stability = 44f * scale
+				stability = 44f * scale,
+				idlePowerDrawMw = 0.8f * scale,
+				peakPowerDrawMw = 1.6f * scale,
+				idleHeatMw = 0.22f * scale,
+				activeHeatMw = 0.72f * scale,
+				heatGenerationMw = 0.72f * scale,
+				heatDissipationMw = 2.4f * scale,
+				heatCapacityMj = 160f * scale
 			}, 
 			_ => new MechPartStats(), 
+		};
+	}
+
+	private static MechPartStats BuildCoreStats(float scale)
+	{
+		return new MechPartStats
+		{
+			massKg = 12000f * scale,
+			armorPoints = 1750f * scale,
+			structurePoints = 1450f * scale,
+			stability = 26f * scale,
+			idlePowerDrawMw = 0.95f * scale,
+			peakPowerDrawMw = 3.8f * scale,
+			idleHeatMw = 0.28f * scale,
+			activeHeatMw = 1.25f * scale,
+			heatGenerationMw = 1.25f * scale,
+			heatDissipationMw = 18f * scale,
+			heatCapacityMj = 240f * scale,
+			hardpointCapacityKg = 16000f * scale,
+			rcsThrustKn = 360f * scale
+		};
+	}
+
+	private static MechPartStats BuildBoosterStats(string code)
+	{
+		return new MechPartStats
+		{
+			massKg = code == "3010" ? 4800f : code == "2010" ? 3400f : 3900f,
+			idlePowerDrawMw = code == "3010" ? 0.35f : code == "2010" ? 0.22f : 0.25f,
+			peakPowerDrawMw = code == "3010" ? 28f : code == "2010" ? 19f : 22f,
+			idleHeatMw = code == "3010" ? 0.18f : code == "2010" ? 0.1f : 0.12f,
+			activeHeatMw = code == "3010" ? 9.5f : code == "2010" ? 6.8f : 8f,
+			heatGenerationMw = code == "3010" ? 9.5f : code == "2010" ? 6.8f : 8f,
+			heatCapacityMj = code == "3010" ? 110f : code == "2010" ? 75f : 90f
+		};
+	}
+
+	private static MechBoosterPerformance BuildBoosterPerformance(string code)
+	{
+		return new MechBoosterPerformance
+		{
+			mainThrustKn = code == "3010" ? 720f : code == "2010" ? 610f : 660f,
+			assaultBoostThrustKn = code == "3010" ? 3900f : code == "2010" ? 3300f : 3500f,
+			quickBoostThrustKn = code == "3010" ? 17500f : code == "2010" ? 15500f : 16000f,
+			quickBoostDurationS = code == "3010" ? 0.3f : code == "2010" ? 0.25f : 0.28f,
+			quickBoostRecoveryS = code == "3010" ? 0.5f : code == "2010" ? 0.36f : 0.42f,
+			horizontalVectorLimitDeg = code == "3010" ? 17f : code == "2010" ? 23f : 20f,
+			verticalVectorLimitDeg = code == "3010" ? 31f : code == "2010" ? 39f : 35f,
+			assaultBoostPowerDrawKw = code == "3010" ? 52000f : code == "2010" ? 40000f : 45000f,
+			quickBoostPowerDrawKw = code == "3010" ? 205000f : code == "2010" ? 165000f : 180000f
+		};
+	}
+
+	private static MechPartStats BuildSampleGeneratorStats()
+	{
+		return new MechPartStats
+		{
+			massKg = 3800f,
+			powerOutputMw = 70f,
+			idleHeatMw = 4f,
+			activeHeatMw = 12f,
+			heatGenerationMw = 12f,
+			heatCapacityMj = 180f
+		};
+	}
+
+	private static MechGeneratorPerformance BuildSampleGeneratorPerformance()
+	{
+		return new MechGeneratorPerformance
+		{
+			energyStorageCapacityMj = 300f,
+			energyRechargePowerKw = 70000f,
+			energyRechargeDelayS = 0.75f,
+			depletedRestartFraction = 0.2f,
+			startupTimeS = 7.5f
+		};
+	}
+
+	private static MechCorePerformance BuildCorePerformance(MechPartSlot slot, float scale, string code)
+	{
+		if (slot != MechPartSlot.Core)
+		{
+			return null;
+		}
+
+		float reverseThrust = (code == "3010" ? 280f : code == "2010" ? 330f : 305f) * scale;
+		float downwardThrust = 450f * scale;
+		return new MechCorePerformance
+		{
+			forwardExhaustNozzles = new[]
+			{
+				new MechCoreThrusterNozzle { nozzleId = "core-forward-left", localPositionM = new Vector3(-0.72f, 0.25f, 0.58f), localExhaustDirection = Vector3.forward, maximumThrustKn = reverseThrust * 0.5f, gimbalLimitDeg = 6f, maximumPowerKw = 550f * scale, maximumHeatKw = 220f * scale },
+				new MechCoreThrusterNozzle { nozzleId = "core-forward-right", localPositionM = new Vector3(0.72f, 0.25f, 0.58f), localExhaustDirection = Vector3.forward, maximumThrustKn = reverseThrust * 0.5f, gimbalLimitDeg = 6f, maximumPowerKw = 550f * scale, maximumHeatKw = 220f * scale }
+			},
+			upwardExhaustNozzles = new[]
+			{
+				new MechCoreThrusterNozzle { nozzleId = "core-up-front-left", localPositionM = new Vector3(-0.68f, 0.74f, 0.42f), localExhaustDirection = Vector3.up, maximumThrustKn = downwardThrust * 0.25f, gimbalLimitDeg = 5f, maximumPowerKw = 300f * scale, maximumHeatKw = 120f * scale },
+				new MechCoreThrusterNozzle { nozzleId = "core-up-front-right", localPositionM = new Vector3(0.68f, 0.74f, 0.42f), localExhaustDirection = Vector3.up, maximumThrustKn = downwardThrust * 0.25f, gimbalLimitDeg = 5f, maximumPowerKw = 300f * scale, maximumHeatKw = 120f * scale },
+				new MechCoreThrusterNozzle { nozzleId = "core-up-rear-left", localPositionM = new Vector3(-0.68f, 0.74f, -0.42f), localExhaustDirection = Vector3.up, maximumThrustKn = downwardThrust * 0.25f, gimbalLimitDeg = 5f, maximumPowerKw = 300f * scale, maximumHeatKw = 120f * scale },
+				new MechCoreThrusterNozzle { nozzleId = "core-up-rear-right", localPositionM = new Vector3(0.68f, 0.74f, -0.42f), localExhaustDirection = Vector3.up, maximumThrustKn = downwardThrust * 0.25f, gimbalLimitDeg = 5f, maximumPowerKw = 300f * scale, maximumHeatKw = 120f * scale }
+			}
+		};
+	}
+
+	private static MechArmPerformance BuildArmPerformance(MechPartSlot slot, float scale)
+	{
+		if (slot != MechPartSlot.Arms)
+		{
+			return null;
+		}
+
+		return new MechArmPerformance
+		{
+			weaponLoadLimitKg = 8000f * scale,
+			recoilImpulseLimitNs = 22000f * scale,
+			recoilRecoveryRateNsPerSecond = 85000f * scale,
+			aimTraverseRateDegPerSecond = 105f / Mathf.Sqrt(Mathf.Max(0.5f, scale)),
+			aimAngularAccelerationDegPerSecondSquared = 420f / Mathf.Max(0.5f, scale),
+			weaponPointingErrorMrad = 0.18f * Mathf.Max(0.8f, scale),
+			thrusterNozzles = new[]
+			{
+				new MechArmThrusterNozzle { nozzleId = "arm-lateral", role = MechArmThrusterRole.Lateral, localPositionM = new Vector3(0.82f, 0.08f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 40f * scale, gimbalLimitDeg = 8f, maximumPowerKw = 420f * scale, maximumHeatKw = 180f * scale },
+				new MechArmThrusterNozzle { nozzleId = "arm-rcs-forward", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, 0.32f, 0.28f), localThrustDirection = Vector3.forward, maximumThrustKn = 75f * scale, maximumPowerKw = 260f * scale, maximumHeatKw = 120f * scale },
+				new MechArmThrusterNozzle { nozzleId = "arm-rcs-rear", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, -0.18f, -0.24f), localThrustDirection = Vector3.back, maximumThrustKn = 75f * scale, maximumPowerKw = 260f * scale, maximumHeatKw = 120f * scale }
+			}
+		};
+	}
+
+	private static MechLegPerformance BuildLegPerformance(MechPartSlot slot, float scale)
+	{
+		if (slot != MechPartSlot.Legs)
+		{
+			return null;
+		}
+
+		return new MechLegPerformance
+		{
+			maximumSupportedMassKg = 65000f * scale,
+			primaryThrusterNozzles = new[]
+			{
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-front", localPositionM = new Vector3(0.42f, -0.72f, 0.3f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale },
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-rear", localPositionM = new Vector3(0.42f, -0.78f, -0.24f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale }
+			},
+			lateralThrusterNozzles = new[]
+			{
+				new MechLegThrusterNozzle { nozzleId = "leg-lateral", localPositionM = new Vector3(0.48f, -0.35f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 8f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 20f * scale }
+			},
+			rcsThrusterNozzles = new[]
+			{
+				new MechLegThrusterNozzle { nozzleId = "leg-rcs-forward", localPositionM = new Vector3(0.44f, -0.18f, 0.32f), localThrustDirection = Vector3.forward, maximumThrustKn = 60f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 25f * scale },
+				new MechLegThrusterNozzle { nozzleId = "leg-rcs-rear", localPositionM = new Vector3(0.44f, -0.58f, -0.3f), localThrustDirection = Vector3.back, maximumThrustKn = 60f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 25f * scale }
+			}
+		};
+	}
+
+	private static MechPartStats BuildHeadStats(float scale, string code)
+	{
+		MechPartStats stats = new MechPartStats
+		{
+			massKg = 1700f * scale,
+			armorPoints = 260f * scale,
+			structurePoints = 180f * scale,
+			peakPowerDrawMw = 1.1f
+		};
+		if (string.Equals(code, "1010", StringComparison.OrdinalIgnoreCase))
+		{
+			stats.idlePowerDrawMw = 0.7f;
+			stats.heatCapacityMj = 24f;
+			stats.idleHeatMw = 0.18f;
+			stats.activeHeatMw = 0.72f;
+			stats.heatGenerationMw = stats.activeHeatMw;
+			stats.radarCrossSection = 0.4f;
+			stats.thermalSignature = 0.2f;
+		}
+		return stats;
+	}
+
+	private static MechHeadSensorPerformance BuildHeadSensorPerformance(MechPartSlot slot, string code)
+	{
+		if (slot != MechPartSlot.Head || !string.Equals(code, "1010", StringComparison.OrdinalIgnoreCase))
+		{
+			return null;
+		}
+		return new MechHeadSensorPerformance
+		{
+			pointingCapability = 62f,
+			searchCapability = 58f,
+			trackingCapability = 64f,
+			identificationCapability = 60f,
+			maximumMagnification = 12f,
+			referenceHotRangeKm = 32f,
+			referenceColdRangeKm = 18f,
+			trackCapacity = 12,
+			referenceRangeErrorM = 180f,
+			laserRangefinderRangeKm = 20f,
+			laserRangefinderErrorM = 0.75f,
+			supportedBands = MechElectroOpticalBand.Visible | MechElectroOpticalBand.Mwir
 		};
 	}
 

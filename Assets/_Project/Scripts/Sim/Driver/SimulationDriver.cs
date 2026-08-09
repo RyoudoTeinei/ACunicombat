@@ -54,7 +54,7 @@ namespace ACunicombat.Simulation.Driver
         public long MotionOverrunTicks => motionClock.OverrunTicks;
         public int DetectionCount => radar?.Detections.Length ?? 0;
         public int TrackCount => trackManager?.Count ?? 0;
-        public int TrackCapacity => RadarTrackManager.MaxTracks;
+        public int TrackCapacity => trackManager?.Capacity ?? RadarTrackManager.MaxTracks;
         public int ScheduledDwellCount => dwellScheduler?.Count ?? 0;
         public long DeferredDwellCount => dwellScheduler?.DeferredCount ?? 0;
 
@@ -257,6 +257,11 @@ namespace ACunicombat.Simulation.Driver
 
         public int CopyTracks(TrackSnapshot[] destination) =>
             trackManager?.CopyTracks(destination) ?? 0;
+
+        public void ConfigureRadarTracking(int capacity, float trackMemorySeconds)
+        {
+            trackManager?.ConfigureLimits(capacity, trackMemorySeconds);
+        }
 
         public int CopyDetections(Measurement[] destination)
         {

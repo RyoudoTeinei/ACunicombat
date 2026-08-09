@@ -149,6 +149,11 @@ namespace ACunicombat.Mechs
 
             ApplyPhysics(stats);
             RuntimeState.Apply(loadout, stats, validation, records, mountPoints);
+            var combatTarget = GetComponent<CombatTestTarget>();
+            if (combatTarget != null)
+            {
+                combatTarget.ConfigureProtection(stats.armorPoints, stats.structurePoints);
+            }
             LogValidation(validation);
         }
 

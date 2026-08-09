@@ -242,6 +242,12 @@ namespace ACunicombat.Mechs
 			{
 				combatTarget = GetComponent<CombatTestTarget>();
 			}
+			if (combatTarget != null && runtimeState?.AggregatedStats != null)
+			{
+				combatTarget.ConfigureProtection(
+					runtimeState.AggregatedStats.armorPoints,
+					runtimeState.AggregatedStats.structurePoints);
+			}
 			if (!aiControlled && radar != null && GetComponent<MechThreatWarningPresenter>() == null)
 			{
 				base.gameObject.AddComponent<MechThreatWarningPresenter>();
@@ -1035,16 +1041,7 @@ namespace ACunicombat.Mechs
 				{
 					continue;
 				}
-				string partId = record.part.PartId;
-				if (!string.IsNullOrWhiteSpace(partId))
-				{
-					if (!partId.EndsWith("WP_L_5110", StringComparison.OrdinalIgnoreCase))
-					{
-						return partId.EndsWith("WP_R_5110", StringComparison.OrdinalIgnoreCase);
-					}
-					return true;
-				}
-				return false;
+				return MechWeaponRoleResolver.Resolve(record.part) == MechWeaponRole.PointDefenseCannon;
 			}
 			return false;
 		}
@@ -1183,16 +1180,9 @@ namespace ACunicombat.Mechs
 			float width = Mathf.Clamp((float)Screen.width * 0.34f, 300f, 520f);
 			Rect rect = new Rect((float)Screen.width * 0.5f - width * 0.5f, (float)Screen.height - 86f, width, 14f);
 			float normalized = combatTarget.HealthFraction;
-			float shieldNormalized = combatTarget.ShieldFraction;
 			Color color = ((normalized <= 0.2f) ? new Color(1f, 0.2f, 0.14f, 0.98f) : ((normalized <= 0.5f) ? new Color(1f, 0.72f, 0.18f, 0.98f) : new Color(0.34f, 0.94f, 0.82f, 0.98f)));
 			DrawInstrumentRect(new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f), new Color(0.01f, 0.05f, 0.045f, 0.9f));
 			DrawInstrumentRect(new Rect(rect.x, rect.y, rect.width * normalized, rect.height), color);
-			if (combatTarget.HasShield && shieldNormalized > 0f)
-			{
-				DrawInstrumentRect(
-					new Rect(rect.x, rect.y, rect.width * shieldNormalized, rect.height),
-					new Color(0.12f, 0.58f, 1f, 0.9f));
-			}
 			for (int i = 1; i < 10; i++)
 			{
 				DrawInstrumentRect(new Rect(rect.x + rect.width * (float)i / 10f - 0.5f, rect.y, 1f, rect.height), new Color(0.01f, 0.08f, 0.065f, 0.72f));

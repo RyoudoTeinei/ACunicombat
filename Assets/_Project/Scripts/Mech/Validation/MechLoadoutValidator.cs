@@ -259,7 +259,7 @@ namespace ACunicombat.Mechs
                     MechValidationSeverity.Warning,
                     MechPartSlot.Generator,
                     "POWER_BUDGET_NEGATIVE",
-                    $"Peak power draw exceeds generator output by {-stats.peakPowerSurplusMw:0.0} MW.");
+                    $"Peak power draw exceeds generator output by {-stats.peakPowerSurplusMw * 1000f:0.#} kW.");
             }
 
             if (options.enforceHeatBudget && stats.heatDissipationMw > 0f && stats.heatSurplusMw < 0f)
@@ -268,7 +268,7 @@ namespace ACunicombat.Mechs
                     MechValidationSeverity.Warning,
                     MechPartSlot.Core,
                     "HEAT_BUDGET_NEGATIVE",
-                    $"Heat generation exceeds dissipation by {-stats.heatSurplusMw:0.0} MW.");
+                    $"Heat generation exceeds dissipation by {-stats.heatSurplusMw * 1000f:0.#} kW.");
             }
         }
     }

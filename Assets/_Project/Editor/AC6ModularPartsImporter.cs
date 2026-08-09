@@ -159,7 +159,8 @@ public static class AC6ModularPartsImporter
                 heatCapacityMj = 600f * massScale,
                 radarCrossSection = 2.1f * massScale,
                 thermalSignature = 1.1f * massScale,
-                hardpointCapacityKg = 16000f * massScale
+                hardpointCapacityKg = 16000f * massScale,
+                rcsThrustKn = 360f * massScale
             },
             "core", "frame", "ac6-imported"));
 
@@ -173,10 +174,13 @@ public static class AC6ModularPartsImporter
                 massKg = 6900f * massScale,
                 armorPoints = 850f * massScale,
                 structurePoints = 680f * massScale,
-                idlePowerDrawMw = 1f,
-                peakPowerDrawMw = 2f,
+                idlePowerDrawMw = 0.55f * massScale,
+                peakPowerDrawMw = 2.6f * massScale,
+                idleHeatMw = 0.14f * massScale,
+                activeHeatMw = 0.95f * massScale,
+                heatGenerationMw = 0.95f * massScale,
+                heatCapacityMj = 80f * massScale,
                 weaponRecoilControl = 58f * massScale,
-                meleeControl = 35f,
                 radarCrossSection = 1.1f * massScale,
                 thermalSignature = 0.5f * massScale
             },
@@ -195,7 +199,11 @@ public static class AC6ModularPartsImporter
                 stability = 44f * massScale,
                 idlePowerDrawMw = 0.8f,
                 peakPowerDrawMw = 1.6f,
-                supportedMassKg = 65000f * massScale,
+                idleHeatMw = 0.22f * massScale,
+                activeHeatMw = 0.72f * massScale,
+                heatGenerationMw = 0.72f * massScale,
+                heatDissipationMw = 2.4f * massScale,
+                heatCapacityMj = 160f * massScale,
                 radarCrossSection = 1.8f * massScale,
                 thermalSignature = 0.6f * massScale
             },
@@ -213,7 +221,7 @@ public static class AC6ModularPartsImporter
                 peakPowerDrawMw = 22f * massScale,
                 heatGenerationMw = 6.5f * massScale,
                 mainThrustKn = 500f / Mathf.Max(0.7f, massScale),
-                lateralThrustKn = 210f / Mathf.Max(0.7f, massScale),
+                lateralThrustKn = 210f / Mathf.Max(0.7f, massScale) - 40f * massScale,
                 reverseThrustKn = 285f / Mathf.Max(0.7f, massScale),
                 attitudeTorqueKnM = 175f / Mathf.Max(0.7f, massScale),
                 thermalSignature = 2.5f * massScale,
@@ -237,8 +245,11 @@ public static class AC6ModularPartsImporter
             slot = slot,
             category = slot == MechPartSlot.Booster ? MechPartCategory.Internal : MechPartCategory.Frame,
             sourceRelativePath = sourceRelativePath,
-            stats = stats,
-            tags = tags
+			stats = stats,
+			tags = tags,
+			legPerformance = slot == MechPartSlot.Legs
+				? BuildLegPerformance(stats.massKg / 9800f)
+				: null
         };
     }
 
@@ -806,9 +817,56 @@ public static class AC6ModularPartsImporter
             spec.stats,
             BuildMounts(spec),
             spec.tags,
-            materialOverrides);
+            materialOverrides,
+            newArmPerformance: spec.slot == MechPartSlot.Arms
+				? BuildArmPerformance(spec.stats.massKg / 6900f)
+				: null,
+			newLegPerformance: spec.legPerformance);
         return part;
     }
+
+	private static MechArmPerformance BuildArmPerformance(float scale)
+	{
+		scale = Mathf.Max(0.5f, scale);
+		return new MechArmPerformance
+		{
+			weaponLoadLimitKg = 8000f * scale,
+			recoilImpulseLimitNs = 22000f * scale,
+			recoilRecoveryRateNsPerSecond = 85000f * scale,
+			aimTraverseRateDegPerSecond = 105f / Mathf.Sqrt(scale),
+			aimAngularAccelerationDegPerSecondSquared = 420f / scale,
+			weaponPointingErrorMrad = 0.18f * Mathf.Max(0.8f, scale),
+			thrusterNozzles = new[]
+			{
+				new MechArmThrusterNozzle { nozzleId = "arm-lateral", role = MechArmThrusterRole.Lateral, localPositionM = new Vector3(0.82f, 0.08f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 40f * scale, gimbalLimitDeg = 8f, maximumPowerKw = 420f * scale, maximumHeatKw = 180f * scale },
+				new MechArmThrusterNozzle { nozzleId = "arm-rcs-forward", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, 0.32f, 0.28f), localThrustDirection = Vector3.forward, maximumThrustKn = 75f * scale, maximumPowerKw = 260f * scale, maximumHeatKw = 120f * scale },
+				new MechArmThrusterNozzle { nozzleId = "arm-rcs-rear", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, -0.18f, -0.24f), localThrustDirection = Vector3.back, maximumThrustKn = 75f * scale, maximumPowerKw = 260f * scale, maximumHeatKw = 120f * scale }
+			}
+		};
+	}
+
+	private static MechLegPerformance BuildLegPerformance(float scale)
+	{
+		scale = Mathf.Max(0.5f, scale);
+		return new MechLegPerformance
+		{
+			maximumSupportedMassKg = 65000f * scale,
+			primaryThrusterNozzles = new[]
+			{
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-front", localPositionM = new Vector3(0.42f, -0.72f, 0.3f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale },
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-rear", localPositionM = new Vector3(0.42f, -0.78f, -0.24f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale }
+			},
+			lateralThrusterNozzles = new[]
+			{
+				new MechLegThrusterNozzle { nozzleId = "leg-lateral", localPositionM = new Vector3(0.48f, -0.35f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 8f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 20f * scale }
+			},
+			rcsThrusterNozzles = new[]
+			{
+				new MechLegThrusterNozzle { nozzleId = "leg-rcs-forward", localPositionM = new Vector3(0.44f, -0.18f, 0.32f), localThrustDirection = Vector3.forward, maximumThrustKn = 60f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 25f * scale },
+				new MechLegThrusterNozzle { nozzleId = "leg-rcs-rear", localPositionM = new Vector3(0.44f, -0.58f, -0.3f), localThrustDirection = Vector3.back, maximumThrustKn = 60f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 25f * scale }
+			}
+		};
+	}
 
     private static IEnumerable<MechMountPointDefinition> BuildMounts(ImportSpec spec)
     {
@@ -995,6 +1053,7 @@ public static class AC6ModularPartsImporter
         public MechPartCategory category;
         public string sourceRelativePath;
         public MechPartStats stats;
+		public MechLegPerformance legPerformance;
         public string[] tags;
     }
 

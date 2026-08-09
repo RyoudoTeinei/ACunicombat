@@ -43,6 +43,9 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0.01f)] private float mixResponsePerSecond = 1.5f;
 
         private MechFlightMotionController motion;
+        private MechRuntimeState runtimeState;
+        private MechPartDefinition appliedGenerator;
+        private float fallbackStartupDurationSeconds;
         private bool useInteriorMix;
         private bool configured;
         private bool startupActive;
@@ -79,6 +82,8 @@ namespace ACunicombat.Mechs
         private void Awake()
         {
             startupDurationSeconds = Mathf.Clamp(startupDurationSeconds, 0f, 7.5f);
+            fallbackStartupDurationSeconds = startupDurationSeconds;
+            runtimeState = GetComponent<MechRuntimeState>();
             startupFadeSeconds = Mathf.Min(startupFadeSeconds, 1.4f);
             LoadAndCreateSources();
         }
@@ -161,6 +166,7 @@ namespace ACunicombat.Mechs
             motion = motionController;
             useInteriorMix = enableInteriorMix;
             configured = motion != null;
+            RefreshStartupDurationFromLoadout(false);
             SetStructuralSpatialBlend(useInteriorMix ? 0f : 1f);
             BeginStartup();
         }
@@ -199,6 +205,7 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            RefreshStartupDurationFromLoadout(true);
             var deltaTime = Mathf.Max(0f, Time.deltaTime);
             if (startupActive)
             {
@@ -211,6 +218,45 @@ namespace ACunicombat.Mechs
             }
 
             UpdateRunningMix(deltaTime);
+        }
+
+        private void RefreshStartupDurationFromLoadout(bool preserveProgress)
+        {
+            if (runtimeState == null)
+            {
+                runtimeState = GetComponent<MechRuntimeState>();
+            }
+
+            var loadout = runtimeState != null ? runtimeState.CurrentLoadout : null;
+            MechPartDefinition generator = null;
+            if (loadout != null)
+            {
+                loadout.TryGetPart(MechPartSlot.Generator, out generator);
+            }
+            if (ReferenceEquals(generator, appliedGenerator))
+            {
+                return;
+            }
+
+            var previousDuration = startupDurationSeconds;
+            var normalizedProgress = preserveProgress && previousDuration > Mathf.Epsilon
+                ? Mathf.Clamp01(startupElapsedSeconds / previousDuration)
+                : 0f;
+            var generatorPerformance = generator?.GeneratorPerformance;
+            startupDurationSeconds = generatorPerformance != null && generatorPerformance.HasData
+                ? Mathf.Clamp(generatorPerformance.startupTimeS, 0f, 30f)
+                : fallbackStartupDurationSeconds;
+            if (preserveProgress && startupActive)
+            {
+                startupElapsedSeconds = startupDurationSeconds * normalizedProgress;
+                if (startupDurationSeconds <= Mathf.Epsilon ||
+                    startupElapsedSeconds >= startupDurationSeconds)
+                {
+                    CompleteStartup();
+                }
+            }
+
+            appliedGenerator = generator;
         }
 
         private void UpdateStartupMix()

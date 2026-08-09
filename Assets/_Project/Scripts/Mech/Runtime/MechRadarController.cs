@@ -25,7 +25,6 @@ namespace ACunicombat.Mechs
         public const int MaximumPublicEchoes = 64;
 
         private const int MaximumSceneTargets = 16;
-        private const int GuidanceChannelCapacity = 2;
         private const float SearchIntervalSeconds = 0.04f;
         private const float SttIntervalSeconds = 0.035f;
         private const float SearchAzimuthDegrees = 100f;
@@ -64,6 +63,7 @@ namespace ACunicombat.Mechs
             TrackDropped,
             TrackStale,
             OutsideRadarFrame,
+            TrackingRateExceeded,
         }
 
         private struct GuidanceChannel
@@ -158,18 +158,14 @@ namespace ACunicombat.Mechs
         private int missileTrackCacheCount;
         private double missileTrackCacheTime = double.NaN;
         private readonly Measurement[] measurementScratch = new Measurement[MaximumPublicEchoes];
-        private readonly GuidanceChannel[] guidanceChannels =
-            new GuidanceChannel[GuidanceChannelCapacity];
+        private GuidanceChannel[] guidanceChannels = Array.Empty<GuidanceChannel>();
         private readonly bool[] auxiliarySensorAllocated = new bool[64];
         private readonly byte[] auxiliarySensorGenerations = new byte[64];
         private readonly double[] nextTwsRevisitTimes =
             new double[MaximumPublicTracks];
         private readonly uint[] twsRevisitTrackKeys =
             new uint[MaximumPublicTracks];
-        private readonly RasterScanPattern searchPattern = new RasterScanPattern(
-            SearchAzimuthDegrees,
-            SearchElevationDegrees,
-            SearchBeamSpacingDegrees);
+        private RasterScanPattern searchPattern;
 
         private Vector3 previousPlayerPosition;
         private Vector3 playerVelocity;
@@ -191,24 +187,33 @@ namespace ACunicombat.Mechs
         private Vector3 searchFrameForward;
         private Vector3 searchFrameRight;
         private Vector3 searchFrameUp;
-        private MechFireControlPerformanceProfile fireControlPerformance;
+        private MechRadarPerformanceProfile radarPerformance;
+        private MechFireControlComputerProfile fireControlPerformance;
 
         private float RuntimeRadarRangeMeters =>
-            fireControlPerformance.RadarMaximumRangeMeters > 0f
-                ? fireControlPerformance.RadarMaximumRangeMeters
+            radarPerformance.MaximumRangeMeters > 0f
+                ? radarPerformance.MaximumRangeMeters
                 : RadarRangeMeters;
         private float RuntimeSearchIntervalSeconds =>
-            fireControlPerformance.SearchIntervalSeconds > 0f
-                ? fireControlPerformance.SearchIntervalSeconds
+            radarPerformance.SearchIntervalSeconds > 0f
+                ? radarPerformance.SearchIntervalSeconds
                 : SearchIntervalSeconds;
         private float RuntimeTwsRevisitIntervalSeconds =>
-            fireControlPerformance.TwsRevisitIntervalSeconds > 0f
-                ? fireControlPerformance.TwsRevisitIntervalSeconds
+            radarPerformance.TwsRevisitIntervalSeconds > 0f
+                ? radarPerformance.TwsRevisitIntervalSeconds
                 : TwsRevisitIntervalSeconds;
         private float RuntimeSttIntervalSeconds =>
-            fireControlPerformance.SttRevisitIntervalSeconds > 0f
-                ? fireControlPerformance.SttRevisitIntervalSeconds
+            radarPerformance.SttRevisitIntervalSeconds > 0f
+                ? radarPerformance.SttRevisitIntervalSeconds
                 : SttIntervalSeconds;
+        private float RuntimeSearchAzimuthDegrees =>
+            radarPerformance.SearchAzimuthDegrees > 0f
+                ? radarPerformance.SearchAzimuthDegrees
+                : SearchAzimuthDegrees;
+        private float RuntimeSearchElevationDegrees =>
+            radarPerformance.SearchElevationDegrees > 0f
+                ? radarPerformance.SearchElevationDegrees
+                : SearchElevationDegrees;
 
         public double SimTimeSeconds => driver != null ? driver.SimTimeSeconds : Time.timeAsDouble;
         public int DetectionCount => driver != null ? driver.DetectionCount : 0;
@@ -714,6 +719,7 @@ namespace ACunicombat.Mechs
 
         public RadarStatusSnapshot GetStatusSnapshot()
         {
+            EnsureInitialized();
             var flags = RadarStatusFlags.None;
             var count = CopyTracks(trackScratch);
             var hasTwsTrack = false;
@@ -761,8 +767,8 @@ namespace ACunicombat.Mechs
                         ? RadarOperatingMode.TrackWhileScan
                         : RadarOperatingMode.Search,
                 RangeMeters = RuntimeRadarRangeMeters,
-                ScanAzimuthDegrees = SearchAzimuthDegrees,
-                ScanElevationDegrees = SearchElevationDegrees,
+                ScanAzimuthDegrees = RuntimeSearchAzimuthDegrees,
+                ScanElevationDegrees = RuntimeSearchElevationDegrees,
                 BeamAzimuthDegrees = beamAzimuthDegrees,
                 BeamElevationDegrees = beamElevationDegrees,
                 BeamWidthDegrees = SearchBeamWidthDegrees,
@@ -783,7 +789,7 @@ namespace ACunicombat.Mechs
                     RadarSensorSystem.DwellBudgetPerTick),
                 DeferredDwellCount = driver != null ? driver.DeferredDwellCount : 0,
                 GuidanceChannelsUsed = usedChannels,
-                GuidanceChannelCapacity = GuidanceChannelCapacity,
+                GuidanceChannelCapacity = guidanceChannels.Length,
                 OwnshipVelocity = ToDouble3(playerVelocity),
                 SttTrackId = hasStt ? sttTrackId : default,
                 SttProgress = designationProgress,
@@ -1027,6 +1033,8 @@ namespace ACunicombat.Mechs
 
 			var flightTimeSeconds = solution.InterceptTime - SimTimeSeconds;
 			if (flightTimeSeconds < 0.0 ||
+				(fireControlPerformance.MaximumPredictionTimeSeconds > 0f &&
+				 flightTimeSeconds > fireControlPerformance.MaximumPredictionTimeSeconds) ||
 				(maximumFlightTimeSeconds > 0.0 && flightTimeSeconds > maximumFlightTimeSeconds))
 			{
 				return false;
@@ -1582,17 +1590,37 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            if (SimTimeSeconds - track.LastUpdateTime > 3.0)
+            var trackMemorySeconds = radarPerformance.TrackMemorySeconds > 0f
+                ? radarPerformance.TrackMemorySeconds
+                : 3f;
+            if (SimTimeSeconds - track.LastUpdateTime > trackMemorySeconds)
             {
                 BreakSingleTargetTrack(SttBreakReason.TrackStale);
                 return;
             }
 
-            if (!IsWithinBodyRadarFrame(
-                    PredictTrackPosition(track) - transform.position))
+            var relativePosition = PredictTrackPosition(track) - transform.position;
+            if (!IsWithinBodyRadarFrame(relativePosition))
             {
                 BreakSingleTargetTrack(
                     SttBreakReason.OutsideRadarFrame);
+                return;
+            }
+
+            var maximumTrackingRate =
+                radarPerformance.MaximumTrackingRateDegreesPerSecond;
+            if (maximumTrackingRate > 0f && relativePosition.sqrMagnitude > 0.0001f)
+            {
+                var relativeVelocity = ToVector3(track.Velocity) - playerVelocity;
+                var angularRateRadiansPerSecond =
+                    Vector3.Cross(relativePosition, relativeVelocity).magnitude /
+                    relativePosition.sqrMagnitude;
+                var angularRateDegreesPerSecond =
+                    angularRateRadiansPerSecond * Mathf.Rad2Deg;
+                if (angularRateDegreesPerSecond > maximumTrackingRate)
+                {
+                    BreakSingleTargetTrack(SttBreakReason.TrackingRateExceeded);
+                }
             }
         }
 
@@ -1627,8 +1655,8 @@ namespace ACunicombat.Mechs
             var elevation = Mathf.Atan2(
                 localDirection.y,
                 horizontalLength) * Mathf.Rad2Deg;
-            return Mathf.Abs(azimuth) <= SttAzimuthLimitDegrees &&
-                   Mathf.Abs(elevation) <= SttElevationLimitDegrees;
+            return Mathf.Abs(azimuth) <= RuntimeSearchAzimuthDegrees * 0.5f &&
+                   Mathf.Abs(elevation) <= RuntimeSearchElevationDegrees * 0.5f;
         }
 
         private void EnsureInitialized()
@@ -1640,13 +1668,25 @@ namespace ACunicombat.Mechs
 
             if (aimingCamera == null) aimingCamera = Camera.main;
             var runtimeState = GetComponent<MechRuntimeState>();
-            fireControlPerformance = MechFireControlPerformanceModel.FromStats(
-                runtimeState != null ? runtimeState.AggregatedStats : null);
+            var installedStats = runtimeState != null ? runtimeState.AggregatedStats : null;
+            radarPerformance = MechFireControlPerformanceModel.BuildRadarProfile(installedStats);
+            fireControlPerformance = MechFireControlPerformanceModel.BuildFireControlProfile(
+                installedStats,
+                radarPerformance);
+            searchPattern = new RasterScanPattern(
+                RuntimeSearchAzimuthDegrees,
+                RuntimeSearchElevationDegrees,
+                SearchBeamSpacingDegrees);
+            guidanceChannels = new GuidanceChannel[
+                Mathf.Max(0, fireControlPerformance.GuidanceChannelCapacity)];
             driver = GetComponent<SimulationDriver>();
             if (driver == null)
             {
                 driver = gameObject.AddComponent<SimulationDriver>();
             }
+            driver.ConfigureRadarTracking(
+                radarPerformance.TrackCapacity,
+                radarPerformance.TrackMemorySeconds);
 
             previousPlayerPosition = transform.position;
             playerEntity = driver.RegisterEntity(BuildState(transform, Vector3.zero));
@@ -1664,9 +1704,9 @@ namespace ACunicombat.Mechs
                     NoisePowerDb = 0f,
                     DetectThresholdLowDb = 3f,
                     DetectThresholdHighDb = 10f,
-                    RangeResolutionMeters = 12f,
+                    RangeResolutionMeters = radarPerformance.RangeAccuracyMeters,
                     BeamWidthRadians = SearchBeamWidthDegrees * Mathf.Deg2Rad,
-                    VelocityResolutionMps = 2f,
+                    VelocityResolutionMps = radarPerformance.RadialVelocityAccuracyMetersPerSecond,
                 },
                 Capability = SensorCapability.Range | SensorCapability.Doppler | SensorCapability.LosRate,
                 MaxRangeMeters = RuntimeRadarRangeMeters,
@@ -1675,13 +1715,12 @@ namespace ACunicombat.Mechs
                 MainlobePowerDb = 70f,
                 SidelobeLevelDb = -25f,
                 ClutterPowerDb = -30f,
-                MeasurementPrecisionScale = fireControlPerformance.MeasurementPrecisionScale,
+                MeasurementPrecisionScale = radarPerformance.MeasurementPrecisionScale,
                 Resolutions = new ResolutionMerge.Resolutions
                 {
-                    RangeMeters = 12f,
-                    AngleRadians = 1.5f * Mathf.Deg2Rad *
-                        fireControlPerformance.MeasurementPrecisionScale,
-                    VelocityMps = 2f,
+                    RangeMeters = radarPerformance.RangeAccuracyMeters,
+                    AngleRadians = radarPerformance.AngularAccuracyMilliradians * 0.001f,
+                    VelocityMps = radarPerformance.RadialVelocityAccuracyMetersPerSecond,
                 },
             });
             // 本机数据链终端（制导网 0）：定向上行 20° 波束指向导弹，功率低于雷达

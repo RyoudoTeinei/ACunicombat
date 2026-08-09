@@ -22,7 +22,7 @@ namespace ACunicombat.Tracking
         private const double InitialVelocitySigmaMetersPerSecond = 300.0;
         private const double UnobservedMissAgeSeconds = 1.0;
         private const double MaximumAssociationAgeSeconds = 1.0;
-        private const double MaximumTrackAgeSeconds = 3.0;
+        private const double DefaultMaximumTrackAgeSeconds = 3.0;
         private const double LaserRefinementMaximumAgeSeconds = 0.12;
         // Chi-square 99% quantile for a three-dimensional position innovation.
         private const double LaserRefinementNisGate = 11.345;
@@ -46,6 +46,8 @@ namespace ACunicombat.Tracking
         private readonly bool[] observed = new bool[MaxTracks];
         private readonly byte[] generations = new byte[MaxTracks];
         private int activeCount;
+        private int activeCapacity = MaxTracks;
+        private double maximumTrackAgeSeconds = DefaultMaximumTrackAgeSeconds;
 
         public RadarTrackManager()
         {
@@ -56,6 +58,20 @@ namespace ACunicombat.Tracking
         }
 
         public int Count => activeCount;
+        public int Capacity => activeCapacity;
+
+        public void ConfigureLimits(int capacity, double trackMemorySeconds)
+        {
+            activeCapacity = math.clamp(capacity, 1, MaxTracks);
+            maximumTrackAgeSeconds = math.max(0.25, trackMemorySeconds);
+            for (var i = activeCapacity; i < slots.Length; i++)
+            {
+                if (slots[i].Active)
+                {
+                    ReleaseTrack(i);
+                }
+            }
+        }
 
         public void Process(
             NativeList<Measurement> measurements,
@@ -130,7 +146,7 @@ namespace ACunicombat.Tracking
                             : 16.0);
                 }
 
-                if (simTime - slot.LastUpdateTime >= MaximumTrackAgeSeconds)
+                if (simTime - slot.LastUpdateTime >= maximumTrackAgeSeconds)
                 {
                     ReleaseTrack(i);
                     continue;
@@ -270,7 +286,7 @@ namespace ACunicombat.Tracking
                     (double3)dwell.Direction,
                     new double3(0.0, 0.0, 1.0));
                 var halfBeamCos = math.cos(dwell.BeamWidth * 0.5);
-                for (var trackIndex = 0; trackIndex < slots.Length; trackIndex++)
+                for (var trackIndex = 0; trackIndex < activeCapacity; trackIndex++)
                 {
                     if (!slots[trackIndex].Active || observed[trackIndex])
                     {
@@ -294,7 +310,7 @@ namespace ACunicombat.Tracking
         public bool TryGetTrack(TrackId id, out TrackSnapshot snapshot)
         {
             var index = id.Value.Index;
-            if ((uint)index >= slots.Length || !slots[index].Active || !slots[index].Id.Equals(id))
+            if ((uint)index >= activeCapacity || !slots[index].Active || !slots[index].Id.Equals(id))
             {
                 snapshot = default;
                 return false;
@@ -308,7 +324,7 @@ namespace ACunicombat.Tracking
         {
             var bestIndex = -1;
             var bestScore = float.MinValue;
-            for (var i = 0; i < slots.Length; i++)
+            for (var i = 0; i < activeCapacity; i++)
             {
                 if (!slots[i].Active || slots[i].Lifecycle.State == TrackLifecycle.Dropped)
                 {
@@ -346,7 +362,7 @@ namespace ACunicombat.Tracking
             }
 
             var count = 0;
-            for (var i = 0; i < slots.Length && count < destination.Length; i++)
+            for (var i = 0; i < activeCapacity && count < destination.Length; i++)
             {
                 if (!slots[i].Active || slots[i].Lifecycle.State == TrackLifecycle.Dropped)
                 {
@@ -385,7 +401,7 @@ namespace ACunicombat.Tracking
             }
 
             var index = observation.CuedTrackId.Value.Index;
-            if ((uint)index >= slots.Length ||
+            if ((uint)index >= activeCapacity ||
                 !slots[index].Active ||
                 !slots[index].Id.Equals(observation.CuedTrackId))
             {
@@ -451,7 +467,7 @@ namespace ACunicombat.Tracking
         {
             var bestIndex = -1;
             var bestDistance = double.MaxValue;
-            for (var i = 0; i < slots.Length; i++)
+            for (var i = 0; i < activeCapacity; i++)
             {
                 if (!slots[i].Active)
                 {
@@ -518,7 +534,7 @@ namespace ACunicombat.Tracking
             in Measurement measurement,
             double timestamp)
         {
-            for (var i = 0; i < slots.Length; i++)
+            for (var i = 0; i < activeCapacity; i++)
             {
                 if (slots[i].Active)
                 {

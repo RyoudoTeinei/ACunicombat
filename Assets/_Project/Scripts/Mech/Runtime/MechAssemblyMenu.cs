@@ -32,6 +32,8 @@ namespace ACunicombat.Mechs
 
 		private const float AggregateMetricRowStride = 40f;
 
+		private const float KilowattsPerMegawatt = 1000f;
+
 		private static readonly Color ComparisonImprovementColor = new Color(0.36f, 0.7f, 1f, 1f);
 
 		private static readonly Color ComparisonRegressionColor = new Color(1f, 0.33f, 0.3f, 1f);
@@ -689,7 +691,7 @@ namespace ACunicombat.Mechs
 			GUI.Label(new Rect(rect.x + 3f, rect.y, 50f, rect.height), SlotShortName(slot), overlineStyle);
 			GUI.Label(new Rect(rect.x + 68f, rect.y + 5f, rect.width - 178f, 22f), SlotName(slot), labelStyle);
 			GUI.Label(new Rect(rect.x + 68f, rect.y + 27f, rect.width - 178f, 22f), (entry == null) ? "未安装" : entry.DisplayName, (entry == null) ? idStyle : headingStyle);
-			if (entry != null && (entry.IsWeapon || entry.NeedsReview))
+			if (entry != null)
 			{
 				DrawStatusTag(new Rect(rect.xMax - 98f, rect.y + 16f, 84f, 22f), entry, onSelectedRow: false);
 			}
@@ -743,10 +745,7 @@ namespace ACunicombat.Mechs
 				{
 					GUI.Label(new Rect(row.x + 5f, row.y + 46f, 58f, 20f), "E", isSelected ? darkCenteredStyle : testedStyle);
 				}
-				if (entry.IsWeapon || entry.NeedsReview)
-				{
-					DrawStatusTag(new Rect(row.xMax - 100f, row.y + 43f, 88f, 24f), entry, isSelected);
-				}
+				DrawStatusTag(new Rect(row.xMax - 100f, row.y + 43f, 88f, 24f), entry, isSelected);
 			}
 			GUI.EndScrollView();
 		}
@@ -764,10 +763,7 @@ namespace ACunicombat.Mechs
 			GUI.Label(new Rect(rect.x, rect.y + 34f, rect.width - 118f, 24f), entry.PartId, idStyle);
 			string manufacturer = (string.IsNullOrWhiteSpace(part.Manufacturer) ? "AC6 / PARTS ARCHIVE" : part.Manufacturer);
 			GUI.Label(new Rect(rect.x, rect.y + 56f, rect.width - 118f, 20f), manufacturer, idStyle);
-			if (entry.IsWeapon || entry.NeedsReview)
-			{
-				DrawStatusTag(new Rect(rect.xMax - 104f, rect.y + 8f, 96f, 26f), entry, onSelectedRow: false);
-			}
+			DrawStatusTag(new Rect(rect.xMax - 104f, rect.y + 8f, 96f, 26f), entry, onSelectedRow: false);
 		}
 
 		private void DrawSelectedPartStats(Rect rect)
@@ -783,9 +779,14 @@ namespace ACunicombat.Mechs
 			MechPartCatalogEntry equippedEntry = catalog.Find(equippedPartId);
 			MechPartDefinition equippedPart = equippedEntry?.LoadPart();
 			bool hasImportedInternalData = part.InternalPerformance != null && part.InternalPerformance.HasData;
+			bool hasCoreNozzles = part.Slot == MechPartSlot.Core && part.CorePerformance != null && part.CorePerformance.HasData;
+			bool hasBoosterData = part.Slot == MechPartSlot.Booster && part.BoosterPerformance != null && part.BoosterPerformance.HasData;
+			bool hasGeneratorData = part.Slot == MechPartSlot.Generator && part.GeneratorPerformance != null && part.GeneratorPerformance.HasData;
+			bool hasRadarData = part.Slot == MechPartSlot.Radar && part.RadarPerformance != null && part.RadarPerformance.HasData;
+			bool hasFireControlData = part.Slot == MechPartSlot.FireControlSystem && part.FireControlPerformance != null && part.FireControlPerformance.HasData;
 			float viewHeight = entry.IsWeapon
 				? (part.HasTag("point-defense") ? 2100f : 1500f)
-				: (hasImportedInternalData ? 1180f : 1760f);
+				: (hasImportedInternalData ? 1180f : ((hasCoreNozzles || hasBoosterData || hasGeneratorData || hasRadarData || hasFireControlData) ? 2100f : 1760f));
 			Rect view = new Rect(0f, 0f, rect.width - 18f, viewHeight);
 			selectedStatsScroll = GUI.BeginScrollView(rect, selectedStatsScroll, view);
 			float y = 0f;
@@ -793,7 +794,7 @@ namespace ACunicombat.Mechs
 			{
 				DrawComparisonColumnHeader(view, ref y);
 			}
-			if (entry.IsWeapon || entry.NeedsReview)
+			if (!string.IsNullOrWhiteSpace(entry.StatusNote) || !entry.IsTested)
 			{
 				GUI.Label(new Rect(0f, y, view.width - 8f, 42f), string.IsNullOrWhiteSpace(entry.StatusNote) ? "尚未完成战斗功能验证。" : entry.StatusNote, entry.IsTested ? noteStyle : warningStyle);
 				y += 50f;
@@ -802,15 +803,104 @@ namespace ACunicombat.Mechs
 			{
 				DrawWeaponPerformanceStats(view, ref y, entry, part, equippedEntry, equippedPart);
 			}
+			else if (hasBoosterData)
+			{
+				DrawBoosterPartStats(view, ref y, part, equippedPart);
+			}
+			else if (hasGeneratorData)
+			{
+				DrawGeneratorPartStats(view, ref y, part, equippedPart);
+			}
+			else if (hasRadarData)
+			{
+				DrawRadarPartStats(view, ref y, part, equippedPart);
+			}
+			else if (hasFireControlData)
+			{
+				DrawFireControlPartStats(view, ref y, part, equippedPart);
+			}
 			else if (hasImportedInternalData)
 			{
 				DrawImportedInternalPartStats(view, ref y, part, equippedPart);
+			}
+			else if (part.Slot == MechPartSlot.Head)
+			{
+				DrawHeadPartStats(view, ref y, part, equippedPart);
+			}
+			else if (part.Slot == MechPartSlot.Arms)
+			{
+				DrawArmPartStats(view, ref y, part, equippedPart);
+			}
+			else if (part.Slot == MechPartSlot.Core)
+			{
+				DrawCorePartStats(view, ref y, part, equippedPart);
+			}
+			else if (part.Slot == MechPartSlot.Legs)
+			{
+				DrawLegPartStats(view, ref y, part, equippedPart);
 			}
 			else
 			{
 				DrawGeneralPartStats(view, ref y, part.Stats, equippedPart?.Stats);
 			}
 			GUI.EndScrollView();
+		}
+
+		private void DrawRadarPartStats(Rect view, ref float y, MechPartDefinition part, MechPartDefinition equippedPart)
+		{
+			MechPartStats stats = part.Stats;
+			MechPartStats equippedStats = equippedPart?.Stats;
+			MechRadarPerformance radar = part.RadarPerformance;
+			MechRadarPerformance equippedRadar = equippedPart?.RadarPerformance;
+			bool compare = equippedRadar != null && equippedRadar.HasData;
+			DrawPartMetricGroup(view, ref y, "结构与负载");
+			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 5000f, "0", " kg", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机功耗", ToKilowatts(stats.idlePowerDrawMw), ToKilowatts(equippedStats?.idlePowerDrawMw), 5000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作功耗", ToKilowatts(stats.peakPowerDrawMw), ToKilowatts(equippedStats?.peakPowerDrawMw), 10000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机产热", ToKilowatts(stats.idleHeatMw), ToKilowatts(equippedStats?.idleHeatMw), 5000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作产热", ToKilowatts(stats.activeHeatMw), ToKilowatts(equippedStats?.activeHeatMw), 10000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 100f, "0.0", " MJ", higherIsBetter: true);
+			DrawPartMetricGroup(view, ref y, "搜索与跟踪");
+			DrawPartComparisonMetric(view, ref y, "参考探测距离", radar.referenceDetectionRangeKm, compare ? equippedRadar.referenceDetectionRangeKm : null, 100f, "0.0", " km", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "稳定跟踪距离", radar.stableTrackRangeKm, compare ? equippedRadar.stableTrackRangeKm : null, 100f, "0.0", " km", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "水平扫描范围", radar.searchAzimuthDeg, compare ? equippedRadar.searchAzimuthDeg : null, 180f, "0", "°", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "垂直扫描范围", radar.searchElevationDeg, compare ? equippedRadar.searchElevationDeg : null, 120f, "0", "°", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "航迹容量", radar.trackCapacity, compare ? equippedRadar.trackCapacity : null, 32f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "STT 通道", radar.sttChannelCapacity, compare ? equippedRadar.sttChannelCapacity : null, 8f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "最大跟踪角速度", radar.maximumTrackingRateDegPerSecond, compare ? equippedRadar.maximumTrackingRateDegPerSecond : null, 360f, "0", " °/s", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "锁定维持能力", radar.LockMaintenanceRating, compare ? equippedRadar.LockMaintenanceRating : null, 100f, "0.0", string.Empty, higherIsBetter: true);
+			DrawPartMetricGroup(view, ref y, "测量精度");
+			DrawPartComparisonMetric(view, ref y, "距离误差", radar.rangeAccuracyM, compare ? equippedRadar.rangeAccuracyM : null, 50f, "0.0", " m", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "角度误差", radar.angularAccuracyMrad, compare ? equippedRadar.angularAccuracyMrad : null, 60f, "0.00", " mrad", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "径向速度误差", radar.radialVelocityAccuracyMps, compare ? equippedRadar.radialVelocityAccuracyMps : null, 10f, "0.00", " m/s", higherIsBetter: false);
+		}
+
+		private void DrawFireControlPartStats(Rect view, ref float y, MechPartDefinition part, MechPartDefinition equippedPart)
+		{
+			MechPartStats stats = part.Stats;
+			MechPartStats equippedStats = equippedPart?.Stats;
+			MechFireControlPerformance fcs = part.FireControlPerformance;
+			MechFireControlPerformance equippedFcs = equippedPart?.FireControlPerformance;
+			bool compare = equippedFcs != null && equippedFcs.HasData;
+			DrawPartMetricGroup(view, ref y, "结构与负载");
+			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 5000f, "0", " kg", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机功耗", ToKilowatts(stats.idlePowerDrawMw), ToKilowatts(equippedStats?.idlePowerDrawMw), 5000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作功耗", ToKilowatts(stats.peakPowerDrawMw), ToKilowatts(equippedStats?.peakPowerDrawMw), 10000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机产热", ToKilowatts(stats.idleHeatMw), ToKilowatts(equippedStats?.idleHeatMw), 5000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作产热", ToKilowatts(stats.activeHeatMw), ToKilowatts(equippedStats?.activeHeatMw), 10000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 100f, "0.0", " MJ", higherIsBetter: true);
+			DrawPartMetricGroup(view, ref y, "解算性能");
+			DrawPartComparisonMetric(view, ref y, "基础解算误差", fcs.baseSolutionErrorMrad, compare ? equippedFcs.baseSolutionErrorMrad : null, 1f, "0.000", " mrad", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "最大预测时间", fcs.maximumPredictionTimeS, compare ? equippedFcs.maximumPredictionTimeS : null, 12f, "0.0", " s", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "解算刷新率", fcs.solutionUpdateRateHz, compare ? equippedFcs.solutionUpdateRateHz : null, 120f, "0.0", " Hz", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "解算延迟", fcs.solutionLatencyMs, compare ? equippedFcs.solutionLatencyMs : null, 200f, "0.0", " ms", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "航迹重捕时间", fcs.trackReacquisitionTimeS, compare ? equippedFcs.trackReacquisitionTimeS : null, 3f, "0.00", " s", higherIsBetter: false);
+			DrawPartMetricGroup(view, ref y, "交战容量");
+			DrawPartComparisonMetric(view, ref y, "并行解算容量", fcs.simultaneousSolutionCapacity, compare ? equippedFcs.simultaneousSolutionCapacity : null, 32f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "武器控制通道", fcs.weaponControlChannels, compare ? equippedFcs.weaponControlChannels : null, 16f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "制导通道", fcs.guidanceChannelCapacity, compare ? equippedFcs.guidanceChannelCapacity : null, 16f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "多目标交战容量", fcs.multiTargetEngagementCapacity, compare ? equippedFcs.multiTargetEngagementCapacity : null, 16f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "点防御性能", fcs.pointDefenseRating, compare ? equippedFcs.pointDefenseRating : null, 100f, "0", string.Empty, higherIsBetter: true);
 		}
 
 		private void DrawImportedInternalPartStats(Rect view, ref float y, MechPartDefinition part, MechPartDefinition equippedPart)
@@ -850,9 +940,9 @@ namespace ACunicombat.Mechs
 		private void DrawWeaponPerformanceStats(Rect view, ref float y, MechPartCatalogEntry entry, MechPartDefinition part, MechPartCatalogEntry equippedEntry, MechPartDefinition equippedPart)
 		{
 			MechWeaponPerformanceSnapshot weapon = default(MechWeaponPerformanceSnapshot);
-			bool configured = weaponSystem != null && weaponSystem.TryGetWeaponPerformance(entry.PartId, out weapon);
+			bool configured = weaponSystem != null && weaponSystem.TryGetWeaponPerformance(part, out weapon);
 			MechWeaponPerformanceSnapshot equippedWeapon = default(MechWeaponPerformanceSnapshot);
-			bool equippedConfigured = equippedEntry != null && weaponSystem != null && weaponSystem.TryGetWeaponPerformance(equippedEntry.PartId, out equippedWeapon);
+			bool equippedConfigured = equippedPart != null && weaponSystem != null && weaponSystem.TryGetWeaponPerformance(equippedPart, out equippedWeapon);
 			string unavailable = "未录入";
 			DrawPartMetricGroup(view, ref y, "武器性能");
 			DrawPartTextRow(view, ref y, "武器类别", configured ? weapon.WeaponType : unavailable, equippedConfigured ? equippedWeapon.WeaponType : null);
@@ -944,7 +1034,7 @@ namespace ACunicombat.Mechs
 				DrawPartMetricGroup(view, ref y, "武器热管理");
 				DrawPartTextRow(view, ref y, "单发热量", $"{weapon.HeatPerShotMj:0.00} MJ");
 				DrawPartTextRow(view, ref y, "热容 / 过热", $"{weapon.HeatCapacityMj:0.0} / {weapon.OverheatThresholdMj:0.0} MJ");
-				DrawPartTextRow(view, ref y, "冷却 / 恢复", $"{weapon.CoolingMw:0.0} MW / {weapon.ResumeThresholdMj:0.0} MJ");
+				DrawPartTextRow(view, ref y, "冷却 / 恢复", $"{ToKilowatts(weapon.CoolingMw):0.#} kW / {weapon.ResumeThresholdMj:0.0} MJ");
 				DrawPartTextRow(view, ref y, "转管启动", $"{weapon.SpinUpSeconds:0.00} s");
 			}
 			if (configured && weapon.HasProximityFuse)
@@ -965,8 +1055,8 @@ namespace ACunicombat.Mechs
 			MechPartStats equippedStats = equippedPart?.Stats;
 			DrawPartMetricGroup(view, ref y, "安装代价");
 			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 16000f, "0", " kg", higherIsBetter: false);
-			DrawPartComparisonMetric(view, ref y, "峰值功耗", stats.peakPowerDrawMw, equippedStats?.peakPowerDrawMw, 30f, "0.0", " MW", higherIsBetter: false);
-			DrawPartComparisonMetric(view, ref y, "发热功率", stats.heatGenerationMw, equippedStats?.heatGenerationMw, 30f, "0.0", " MW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "峰值功耗", ToKilowatts(stats.peakPowerDrawMw), ToKilowatts(equippedStats?.peakPowerDrawMw), ToKilowatts(30f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "发热功率", ToKilowatts(stats.heatGenerationMw), ToKilowatts(equippedStats?.heatGenerationMw), ToKilowatts(30f), "0.#", " kW", higherIsBetter: false);
 			static float? Compared(bool available, float value)
 			{
 				if (!available)
@@ -977,6 +1067,251 @@ namespace ACunicombat.Mechs
 			}
 		}
 
+		private void DrawHeadPartStats(Rect view, ref float y, MechPartDefinition part, MechPartDefinition equippedPart)
+		{
+			MechPartStats stats = part.Stats;
+			MechPartStats equippedStats = equippedPart?.Stats;
+			MechHeadSensorPerformance sensor = part.HeadSensorPerformance ?? new MechHeadSensorPerformance();
+			MechHeadSensorPerformance equippedSensor = equippedPart?.HeadSensorPerformance;
+			bool hasEquippedSensor = equippedSensor != null && equippedSensor.HasData;
+
+			DrawPartMetricGroup(view, ref y, "结构");
+			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 5000f, "0", " kg", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "装甲耐久", stats.armorPoints, equippedStats?.armorPoints, 1000f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "结构耐久", stats.structurePoints, equippedStats?.structurePoints, 1000f, "0", string.Empty, higherIsBetter: true);
+
+			DrawPartMetricGroup(view, ref y, "能源与热量");
+			DrawPartComparisonMetric(view, ref y, "待机功耗", ToKilowatts(stats.idlePowerDrawMw), ToKilowatts(equippedStats?.idlePowerDrawMw), ToKilowatts(10f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作功耗", ToKilowatts(stats.peakPowerDrawMw), ToKilowatts(equippedStats?.peakPowerDrawMw), ToKilowatts(10f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机产热", ToKilowatts(stats.idleHeatMw), ToKilowatts(equippedStats?.idleHeatMw), ToKilowatts(5f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作产热", ToKilowatts(stats.activeHeatMw), ToKilowatts(equippedStats?.activeHeatMw), ToKilowatts(5f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 100f, "0.0", " MJ", higherIsBetter: true);
+
+			DrawPartMetricGroup(view, ref y, "光电与红外");
+			DrawPartComparisonMetric(view, ref y, "光电指向能力", sensor.pointingCapability, hasEquippedSensor ? equippedSensor.pointingCapability : null, 100f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "广角搜索能力", sensor.searchCapability, hasEquippedSensor ? equippedSensor.searchCapability : null, 100f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "窄角跟踪能力", sensor.trackingCapability, hasEquippedSensor ? equippedSensor.trackingCapability : null, 100f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "目标识别能力", sensor.identificationCapability, hasEquippedSensor ? equippedSensor.identificationCapability : null, 100f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "最大放大倍率", sensor.maximumMagnification, hasEquippedSensor ? equippedSensor.maximumMagnification : null, 40f, "0.0", "x", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "热目标参考探测距离", sensor.referenceHotRangeKm, hasEquippedSensor ? equippedSensor.referenceHotRangeKm : null, 100f, "0.0", " km", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "冷目标参考探测距离", sensor.referenceColdRangeKm, hasEquippedSensor ? equippedSensor.referenceColdRangeKm : null, 100f, "0.0", " km", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "光电航迹容量", sensor.trackCapacity, hasEquippedSensor ? equippedSensor.trackCapacity : null, 64f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "被动距离估计误差", sensor.referenceRangeErrorM, hasEquippedSensor ? equippedSensor.referenceRangeErrorM : null, 1000f, "0", " m", higherIsBetter: false);
+			DrawPartTextRow(view, ref y, "光电工作波段", FormatElectroOpticalBands(sensor.supportedBands), hasEquippedSensor ? FormatElectroOpticalBands(equippedSensor.supportedBands) : null);
+
+			DrawPartMetricGroup(view, ref y, "激光测距");
+			DrawPartComparisonMetric(view, ref y, "有效距离", sensor.laserRangefinderRangeKm, hasEquippedSensor ? equippedSensor.laserRangefinderRangeKm : null, 50f, "0.0", " km", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "测距误差", sensor.laserRangefinderErrorM, hasEquippedSensor ? equippedSensor.laserRangefinderErrorM : null, 10f, "0.00", " m", higherIsBetter: false);
+		}
+
+		private void DrawBoosterPartStats(
+			Rect view,
+			ref float y,
+			MechPartDefinition part,
+			MechPartDefinition equippedPart)
+		{
+			MechPartStats stats = part.Stats;
+			MechPartStats equippedStats = equippedPart?.Stats;
+			MechBoosterPerformance booster = part.BoosterPerformance ?? new MechBoosterPerformance();
+			MechBoosterPerformance equippedBooster = equippedPart?.BoosterPerformance;
+			bool hasEquipped = equippedBooster != null && equippedBooster.HasData;
+
+			DrawPartMetricGroup(view, ref y, "结构");
+			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 7000f, "0", " kg", higherIsBetter: false);
+			DrawPartMetricGroup(view, ref y, "能源与热量");
+			DrawPartComparisonMetric(view, ref y, "待机功耗", ToKilowatts(stats.idlePowerDrawMw), ToKilowatts(equippedStats?.idlePowerDrawMw), 1000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "常规工作功耗", ToKilowatts(stats.peakPowerDrawMw), ToKilowatts(equippedStats?.peakPowerDrawMw), 40000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "AB 工作功耗", booster.assaultBoostPowerDrawKw, hasEquipped ? equippedBooster.assaultBoostPowerDrawKw : null, 70000f, "0", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "QB 工作功耗", booster.quickBoostPowerDrawKw, hasEquipped ? equippedBooster.quickBoostPowerDrawKw : null, 250000f, "0", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机产热", ToKilowatts(stats.idleHeatMw), ToKilowatts(equippedStats?.idleHeatMw), 1000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作产热", ToKilowatts(stats.activeHeatMw), ToKilowatts(equippedStats?.activeHeatMw), 15000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 160f, "0.0", " MJ", higherIsBetter: true);
+
+			DrawPartMetricGroup(view, ref y, "推进性能");
+			DrawPartComparisonMetric(view, ref y, "主向推力", booster.mainThrustKn, hasEquipped ? equippedBooster.mainThrustKn : null, 1200f, "0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "AB 附加推力", booster.assaultBoostThrustKn, hasEquipped ? equippedBooster.assaultBoostThrustKn : null, 6000f, "0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "QB 推力", booster.quickBoostThrustKn, hasEquipped ? equippedBooster.quickBoostThrustKn : null, 24000f, "0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "QB 持续时间", booster.quickBoostDurationS, hasEquipped ? equippedBooster.quickBoostDurationS : null, 0.6f, "0.00", " s", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "QB 再启动间隔", booster.quickBoostRecoveryS, hasEquipped ? equippedBooster.quickBoostRecoveryS : null, 1f, "0.00", " s", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "水平矢量范围", booster.horizontalVectorLimitDeg, hasEquipped ? equippedBooster.horizontalVectorLimitDeg : null, 60f, "0.0", "°", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "垂直矢量范围", booster.verticalVectorLimitDeg, hasEquipped ? equippedBooster.verticalVectorLimitDeg : null, 60f, "0.0", "°", higherIsBetter: true);
+		}
+
+		private void DrawGeneratorPartStats(
+			Rect view,
+			ref float y,
+			MechPartDefinition part,
+			MechPartDefinition equippedPart)
+		{
+			MechPartStats stats = part.Stats;
+			MechPartStats equippedStats = equippedPart?.Stats;
+			MechGeneratorPerformance generator = part.GeneratorPerformance ?? new MechGeneratorPerformance();
+			MechGeneratorPerformance equippedGenerator = equippedPart?.GeneratorPerformance;
+			bool hasEquipped = equippedGenerator != null && equippedGenerator.HasData;
+
+			DrawPartMetricGroup(view, ref y, "结构");
+			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 12000f, "0", " kg", higherIsBetter: false);
+			DrawPartMetricGroup(view, ref y, "发电与储能");
+			DrawPartComparisonMetric(view, ref y, "发电功率", ToKilowatts(stats.powerOutputMw), ToKilowatts(equippedStats?.powerOutputMw), 120000f, "0.#", " kW", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "储能容量", generator.energyStorageCapacityMj, hasEquipped ? equippedGenerator.energyStorageCapacityMj : null, 600f, "0.0", " MJ", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "回充功率", generator.energyRechargePowerKw, hasEquipped ? equippedGenerator.energyRechargePowerKw : null, 120000f, "0", " kW", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "回充延迟", generator.energyRechargeDelayS, hasEquipped ? equippedGenerator.energyRechargeDelayS : null, 3f, "0.00", " s", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "耗尽恢复阈值", generator.depletedRestartFraction * 100f, hasEquipped ? equippedGenerator.depletedRestartFraction * 100f : null, 100f, "0", "%", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "启动时间", generator.startupTimeS, hasEquipped ? equippedGenerator.startupTimeS : null, 15f, "0.0", " s", higherIsBetter: false);
+			DrawPartMetricGroup(view, ref y, "热量");
+			DrawPartComparisonMetric(view, ref y, "待机产热", ToKilowatts(stats.idleHeatMw), ToKilowatts(equippedStats?.idleHeatMw), 10000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作产热", ToKilowatts(stats.activeHeatMw), ToKilowatts(equippedStats?.activeHeatMw), 30000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 300f, "0.0", " MJ", higherIsBetter: true);
+		}
+
+		private static string FormatElectroOpticalBands(MechElectroOpticalBand bands)
+		{
+			if (bands == MechElectroOpticalBand.None)
+			{
+				return "未配置";
+			}
+			List<string> labels = new List<string>();
+			if ((bands & MechElectroOpticalBand.Visible) != 0)
+			{
+				labels.Add("可见光");
+			}
+			if ((bands & MechElectroOpticalBand.Mwir) != 0)
+			{
+				labels.Add("中波红外");
+			}
+			if ((bands & MechElectroOpticalBand.Lwir) != 0)
+			{
+				labels.Add("长波红外");
+			}
+			return string.Join(" / ", labels);
+		}
+
+		private void DrawArmPartStats(Rect view, ref float y, MechPartDefinition part, MechPartDefinition equippedPart)
+		{
+			MechPartStats stats = part.Stats;
+			MechPartStats equippedStats = equippedPart?.Stats;
+			MechArmPerformance arms = part.ArmPerformance ?? new MechArmPerformance();
+			MechArmPerformance equippedArms = equippedPart?.ArmPerformance;
+			bool hasEquippedArms = equippedArms != null && equippedArms.HasData;
+
+			DrawPartMetricGroup(view, ref y, "结构");
+			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 14000f, "0", " kg", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "装甲耐久", stats.armorPoints, equippedStats?.armorPoints, 1800f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "结构耐久", stats.structurePoints, equippedStats?.structurePoints, 1600f, "0", string.Empty, higherIsBetter: true);
+
+			DrawPartMetricGroup(view, ref y, "能源与热量");
+			DrawPartComparisonMetric(view, ref y, "待机功耗", ToKilowatts(stats.idlePowerDrawMw), ToKilowatts(equippedStats?.idlePowerDrawMw), ToKilowatts(10f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作功耗", ToKilowatts(stats.peakPowerDrawMw), ToKilowatts(equippedStats?.peakPowerDrawMw), ToKilowatts(10f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机产热", ToKilowatts(stats.idleHeatMw), ToKilowatts(equippedStats?.idleHeatMw), ToKilowatts(5f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作产热", ToKilowatts(stats.activeHeatMw), ToKilowatts(equippedStats?.activeHeatMw), ToKilowatts(5f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 150f, "0.0", " MJ", higherIsBetter: true);
+
+			DrawPartMetricGroup(view, ref y, "武器操控");
+			DrawPartComparisonMetric(view, ref y, "单臂武器承载", arms.weaponLoadLimitKg, hasEquippedArms ? equippedArms.weaponLoadLimitKg : null, 12000f, "0", " kg", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "后坐冲量上限", arms.recoilImpulseLimitNs, hasEquippedArms ? equippedArms.recoilImpulseLimitNs : null, 40000f, "0", " N·s", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "后坐恢复能力", arms.recoilRecoveryRateNsPerSecond, hasEquippedArms ? equippedArms.recoilRecoveryRateNsPerSecond : null, 150000f, "0", " N·s/s", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "瞄准角速度", arms.aimTraverseRateDegPerSecond, hasEquippedArms ? equippedArms.aimTraverseRateDegPerSecond : null, 180f, "0.0", " °/s", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "瞄准角加速度", arms.aimAngularAccelerationDegPerSecondSquared, hasEquippedArms ? equippedArms.aimAngularAccelerationDegPerSecondSquared : null, 800f, "0", " °/s²", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "武器指向误差", arms.weaponPointingErrorMrad, hasEquippedArms ? equippedArms.weaponPointingErrorMrad : null, 1f, "0.00", " mrad", higherIsBetter: false);
+
+			DrawPartMetricGroup(view, ref y, "内置喷口");
+			DrawPartComparisonMetric(view, ref y, "喷口数量", arms.InstalledNozzleCount, hasEquippedArms ? equippedArms.InstalledNozzleCount : null, 16f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "横向推力贡献", arms.LateralThrustContributionKn, hasEquippedArms ? equippedArms.LateralThrustContributionKn : null, 200f, "0.0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "RCS 推力贡献", arms.RcsThrustContributionKn, hasEquippedArms ? equippedArms.RcsThrustContributionKn : null, 800f, "0.0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "喷口峰值功耗", SumArmNozzleValue(arms, heat: false), hasEquippedArms ? SumArmNozzleValue(equippedArms, heat: false) : null, 3000f, "0", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "喷口峰值产热", SumArmNozzleValue(arms, heat: true), hasEquippedArms ? SumArmNozzleValue(equippedArms, heat: true) : null, 1500f, "0", " kW", higherIsBetter: false);
+		}
+
+		private static float SumArmNozzleValue(MechArmPerformance arms, bool heat)
+		{
+			if (arms?.thrusterNozzles == null)
+			{
+				return 0f;
+			}
+			var total = 0f;
+			for (var i = 0; i < arms.thrusterNozzles.Length; i++)
+			{
+				var nozzle = arms.thrusterNozzles[i];
+				if (nozzle != null)
+				{
+					total += heat ? nozzle.maximumHeatKw : nozzle.maximumPowerKw;
+				}
+			}
+			return total * 2f;
+		}
+
+		private void DrawCorePartStats(Rect view, ref float y, MechPartDefinition part, MechPartDefinition equippedPart)
+		{
+			MechCorePerformance core = part.CorePerformance ?? new MechCorePerformance();
+			MechCorePerformance equippedCore = equippedPart?.CorePerformance;
+			bool hasEquippedCore = equippedCore != null && equippedCore.HasData;
+
+			MechPartStats effectiveStats = BuildCoreDisplayStats(part.Stats, core);
+			MechPartStats equippedEffectiveStats = equippedPart == null
+				? null
+				: BuildCoreDisplayStats(equippedPart.Stats, equippedCore);
+			DrawGeneralPartStats(view, ref y, effectiveStats, equippedEffectiveStats);
+
+			DrawPartMetricGroup(view, ref y, "核心喷口");
+			DrawPartComparisonMetric(view, ref y, "向前排气喷口", core.ForwardExhaustNozzleCount, hasEquippedCore ? equippedCore.ForwardExhaustNozzleCount : null, 12f, "0", " 个", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "反向推力贡献", core.ReverseThrustContributionKn, hasEquippedCore ? equippedCore.ReverseThrustContributionKn : null, 600f, "0.0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "反向喷口功耗", core.ReversePowerKw, hasEquippedCore ? equippedCore.ReversePowerKw : null, 3000f, "0", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "向上排气喷口", core.UpwardExhaustNozzleCount, hasEquippedCore ? equippedCore.UpwardExhaustNozzleCount : null, 12f, "0", " 个", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "下降推力贡献", core.DownwardThrustContributionKn, hasEquippedCore ? equippedCore.DownwardThrustContributionKn : null, 900f, "0.0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "下降喷口功耗", core.DownwardPowerKw, hasEquippedCore ? equippedCore.DownwardPowerKw : null, 3000f, "0", " kW", higherIsBetter: false);
+		}
+
+		private static MechPartStats BuildCoreDisplayStats(MechPartStats source, MechCorePerformance core)
+		{
+			var display = new MechPartStats();
+			display.CopyFrom(source);
+			if (core != null)
+			{
+				display.reverseThrustKn += core.ReverseThrustContributionKn;
+				display.downwardThrustKn += core.DownwardThrustContributionKn;
+			}
+			return display;
+		}
+
+		private void DrawLegPartStats(Rect view, ref float y, MechPartDefinition part, MechPartDefinition equippedPart)
+		{
+			MechLegPerformance legs = part.LegPerformance ?? new MechLegPerformance();
+			MechLegPerformance equippedLegs = equippedPart?.LegPerformance;
+			bool hasEquippedLegs = equippedLegs != null && equippedLegs.HasData;
+
+			MechPartStats effectiveStats = BuildLegDisplayStats(part.Stats, legs);
+			MechPartStats equippedEffectiveStats = equippedPart == null
+				? null
+				: BuildLegDisplayStats(equippedPart.Stats, equippedLegs);
+			DrawGeneralPartStats(view, ref y, effectiveStats, equippedEffectiveStats);
+
+			DrawPartMetricGroup(view, ref y, "腿部喷口");
+			DrawPartComparisonMetric(view, ref y, "主喷口数量", legs.PrimaryNozzleCount, hasEquippedLegs ? equippedLegs.PrimaryNozzleCount : null, 12f, "0", " 个", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "主向矢量角", legs.MaximumMainGimbalDeg, hasEquippedLegs ? equippedLegs.MaximumMainGimbalDeg : null, 30f, "0.0", "°", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "反向矢量角", legs.MaximumReverseGimbalDeg, hasEquippedLegs ? equippedLegs.MaximumReverseGimbalDeg : null, 30f, "0.0", "°", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "横向矢量角", legs.MaximumLateralGimbalDeg, hasEquippedLegs ? equippedLegs.MaximumLateralGimbalDeg : null, 10f, "0.0", "°", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "横向喷口数量", legs.LateralNozzleCount, hasEquippedLegs ? equippedLegs.LateralNozzleCount : null, 8f, "0", " 个", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "RCS 喷口数量", legs.RcsNozzleCount, hasEquippedLegs ? equippedLegs.RcsNozzleCount : null, 12f, "0", " 个", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "喷口峰值功耗", legs.MaximumPowerKw, hasEquippedLegs ? equippedLegs.MaximumPowerKw : null, 3000f, "0", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "喷口峰值产热", legs.MaximumHeatKw, hasEquippedLegs ? equippedLegs.MaximumHeatKw : null, 1500f, "0", " kW", higherIsBetter: false);
+		}
+
+		private static MechPartStats BuildLegDisplayStats(MechPartStats source, MechLegPerformance legs)
+		{
+			var display = new MechPartStats();
+			display.CopyFrom(source);
+			if (legs != null)
+			{
+				display.mainThrustKn += legs.MainThrustContributionKn;
+				display.lateralThrustKn += legs.LateralThrustContributionKn;
+				display.reverseThrustKn += legs.ReverseThrustContributionKn;
+				display.upwardThrustKn += legs.UpwardThrustContributionKn;
+				display.rcsThrustKn += legs.RcsThrustContributionKn;
+				display.supportedMassKg += legs.maximumSupportedMassKg;
+			}
+			return display;
+		}
+
 		private void DrawGeneralPartStats(Rect view, ref float y, MechPartStats stats, MechPartStats equippedStats)
 		{
 			DrawPartMetricGroup(view, ref y, "结构");
@@ -985,18 +1320,23 @@ namespace ACunicombat.Mechs
 			DrawPartComparisonMetric(view, ref y, "结构强度", stats.structurePoints, equippedStats?.structurePoints, 2600f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "稳定性", stats.stability, equippedStats?.stability, 100f, "0.0", string.Empty, higherIsBetter: true);
 			DrawPartMetricGroup(view, ref y, "能源与热量");
-			DrawPartComparisonMetric(view, ref y, "发电功率", stats.powerOutputMw, equippedStats?.powerOutputMw, 100f, "0.0", " MW", higherIsBetter: true);
-			DrawPartComparisonMetric(view, ref y, "待机功耗", stats.idlePowerDrawMw, equippedStats?.idlePowerDrawMw, 30f, "0.0", " MW", higherIsBetter: false);
-			DrawPartComparisonMetric(view, ref y, "峰值功耗", stats.peakPowerDrawMw, equippedStats?.peakPowerDrawMw, 30f, "0.0", " MW", higherIsBetter: false);
-			DrawPartComparisonMetric(view, ref y, "产热", stats.heatGenerationMw, equippedStats?.heatGenerationMw, 30f, "0.0", " MW", higherIsBetter: false);
-			DrawPartComparisonMetric(view, ref y, "散热", stats.heatDissipationMw, equippedStats?.heatDissipationMw, 30f, "0.0", " MW", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "发电功率", ToKilowatts(stats.powerOutputMw), ToKilowatts(equippedStats?.powerOutputMw), ToKilowatts(100f), "0.#", " kW", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "待机功耗", ToKilowatts(stats.idlePowerDrawMw), ToKilowatts(equippedStats?.idlePowerDrawMw), ToKilowatts(30f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "峰值功耗", ToKilowatts(stats.peakPowerDrawMw), ToKilowatts(equippedStats?.peakPowerDrawMw), ToKilowatts(30f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "产热", ToKilowatts(stats.heatGenerationMw), ToKilowatts(equippedStats?.heatGenerationMw), ToKilowatts(30f), "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "散热", ToKilowatts(stats.heatDissipationMw), ToKilowatts(equippedStats?.heatDissipationMw), ToKilowatts(30f), "0.#", " kW", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 120f, "0.0", " MJ", higherIsBetter: true);
 			DrawPartMetricGroup(view, ref y, "推进");
-			DrawPartComparisonMetric(view, ref y, "主推力", stats.mainThrustKn, equippedStats?.mainThrustKn, 1000f, "0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "主向推力", stats.mainThrustKn, equippedStats?.mainThrustKn, 1000f, "0", " kN", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "横向推力", stats.lateralThrustKn, equippedStats?.lateralThrustKn, 600f, "0", " kN", higherIsBetter: true);
-			DrawPartComparisonMetric(view, ref y, "反推力", stats.reverseThrustKn, equippedStats?.reverseThrustKn, 600f, "0", " kN", higherIsBetter: true);
-			DrawPartComparisonMetric(view, ref y, "姿态扭矩", stats.attitudeTorqueKnM, equippedStats?.attitudeTorqueKnM, 10000f, "0", " kN·m", higherIsBetter: true);
-			DrawPartComparisonMetric(view, ref y, "承载质量", stats.supportedMassKg, equippedStats?.supportedMassKg, 100000f, "0", " kg", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "反向推力", stats.reverseThrustKn, equippedStats?.reverseThrustKn, 600f, "0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "上升推力", stats.upwardThrustKn, equippedStats?.upwardThrustKn, 1800f, "0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "下降推力", stats.downwardThrustKn, equippedStats?.downwardThrustKn, 900f, "0", " kN", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "RCS 推力", stats.rcsThrustKn, equippedStats?.rcsThrustKn, 1000f, "0", " kN", higherIsBetter: true);
+			if (stats.supportedMassKg > 0.001f || (equippedStats?.supportedMassKg ?? 0f) > 0.001f)
+			{
+				DrawPartComparisonMetric(view, ref y, "整机承载上限", stats.supportedMassKg, equippedStats?.supportedMassKg, 100000f, "0", " kg", higherIsBetter: true);
+			}
 			DrawPartMetricGroup(view, ref y, "传感器与火控");
 			DrawPartComparisonMetric(view, ref y, "雷达距离", stats.radarRangeKm, equippedStats?.radarRangeKm, 100f, "0.0", " km", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "雷达孔径", stats.radarAperture, equippedStats?.radarAperture, 10f, "0.00", string.Empty, higherIsBetter: true);
@@ -1007,7 +1347,6 @@ namespace ACunicombat.Mechs
 			DrawPartComparisonMetric(view, ref y, "制导通道", stats.guidanceChannels, equippedStats?.guidanceChannels, 16f, "0", string.Empty, higherIsBetter: true);
 			DrawPartMetricGroup(view, ref y, "武器适配与特征");
 			DrawPartComparisonMetric(view, ref y, "后坐力控制", stats.weaponRecoilControl, equippedStats?.weaponRecoilControl, 100f, "0.0", string.Empty, higherIsBetter: true);
-			DrawPartComparisonMetric(view, ref y, "近战控制", stats.meleeControl, equippedStats?.meleeControl, 100f, "0.0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "挂点承载", stats.hardpointCapacityKg, equippedStats?.hardpointCapacityKg, 30000f, "0", " kg", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "雷达截面积", stats.radarCrossSection, equippedStats?.radarCrossSection, 100f, "0.0", string.Empty, higherIsBetter: false);
 			DrawPartComparisonMetric(view, ref y, "热特征", stats.thermalSignature, equippedStats?.thermalSignature, 100f, "0.0", string.Empty, higherIsBetter: false);
@@ -1019,7 +1358,7 @@ namespace ACunicombat.Mechs
 			RefreshSummary();
 			MechAggregatedStats current = cachedStats ?? new MechAggregatedStats();
 			MechAggregatedStats equipped = cachedEquippedStats ?? current;
-			statsScroll = GUI.BeginScrollView(rect, statsScroll, new Rect(0f, 0f, rect.width - 18f, 1450f));
+			statsScroll = GUI.BeginScrollView(rect, statsScroll, new Rect(0f, 0f, rect.width - 18f, 1650f));
 			Rect row = new Rect(0f, 0f, rect.width - 22f, AggregateMetricRowHeight);
 			float y = 0f;
 			if (selectingPart)
@@ -1032,26 +1371,35 @@ namespace ACunicombat.Mechs
 			DrawAggregateValueRow(row, ref y, "结构强度", current.structurePoints, equipped.structurePoints, "0", string.Empty, higherIsBetter: true, 8000f);
 			DrawAggregateValueRow(row, ref y, "稳定性", current.stability, equipped.stability, "0.0", string.Empty, higherIsBetter: true, 300f);
 			DrawGroup(ref y, row, "能源与热量");
-			DrawAggregateValueRow(row, ref y, "发电功率", current.powerOutputMw, equipped.powerOutputMw, "0.0", " MW", higherIsBetter: true, 150f);
-			DrawAggregateValueRow(row, ref y, "峰值余量", current.peakPowerSurplusMw, equipped.peakPowerSurplusMw, "0.0", " MW", higherIsBetter: true, 100f, -50f);
-			DrawAggregateValueRow(row, ref y, "散热余量", current.heatSurplusMw, equipped.heatSurplusMw, "0.0", " MW", higherIsBetter: true, 100f, -50f);
+			DrawAggregateValueRow(row, ref y, "发电功率", ToKilowatts(current.powerOutputMw), ToKilowatts(equipped.powerOutputMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(150f));
+			DrawAggregateValueRow(row, ref y, "储能容量", current.energyStorageCapacityMj, equipped.energyStorageCapacityMj, "0.0", " MJ", higherIsBetter: true, 600f);
+			DrawAggregateValueRow(row, ref y, "回充功率", current.energyRechargePowerKw, equipped.energyRechargePowerKw, "0", " kW", higherIsBetter: true, 120000f);
+			DrawAggregateValueRow(row, ref y, "峰值余量", ToKilowatts(current.peakPowerSurplusMw), ToKilowatts(equipped.peakPowerSurplusMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(100f), ToKilowatts(-50f));
+			DrawAggregateValueRow(row, ref y, "散热余量", ToKilowatts(current.heatSurplusMw), ToKilowatts(equipped.heatSurplusMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(100f), ToKilowatts(-50f));
 			DrawGroup(ref y, row, "推进");
 			DrawAggregateValueRow(row, ref y, "主向加速度", current.mainAccelerationMps2, equipped.mainAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 30f);
 			DrawAggregateValueRow(row, ref y, "横向加速度", current.lateralAccelerationMps2, equipped.lateralAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 30f);
 			DrawAggregateValueRow(row, ref y, "反向加速度", current.reverseAccelerationMps2, equipped.reverseAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 30f);
-			DrawAggregateValueRow(row, ref y, "单位质量姿态扭矩", current.attitudeTorquePerTon, equipped.attitudeTorquePerTon, "0.00", string.Empty, higherIsBetter: true, 200f);
-			DrawGroup(ref y, row, "传感器与火控");
-			DrawAggregateValueRow(row, ref y, "雷达距离", current.radarRangeKm, equipped.radarRangeKm, "0.0", " km", higherIsBetter: true, 100f);
-			DrawAggregateValueRow(row, ref y, "雷达刷新率", current.radarRefreshHz, equipped.radarRefreshHz, "0.0", " Hz", higherIsBetter: true, 20f);
-			DrawAggregateValueRow(row, ref y, "航迹容量", current.trackCapacity, equipped.trackCapacity, "0", string.Empty, higherIsBetter: true, 64f);
-			DrawAggregateValueRow(row, ref y, "火控质量", current.fireControlQuality, equipped.fireControlQuality, "0.0", string.Empty, higherIsBetter: true, 100f);
-			DrawAggregateValueRow(row, ref y, "制导通道", current.guidanceChannels, equipped.guidanceChannels, "0", string.Empty, higherIsBetter: true, 16f);
+			DrawAggregateValueRow(row, ref y, "上向加速度", current.upwardAccelerationMps2, equipped.upwardAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 40f);
+			DrawAggregateValueRow(row, ref y, "下向加速度", current.downwardAccelerationMps2, equipped.downwardAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 30f);
+			DrawAggregateValueRow(row, ref y, "RCS 推力", current.rcsThrustKn, equipped.rcsThrustKn, "0", " kN", higherIsBetter: true, 1500f);
+			DrawAggregateValueRow(row, ref y, "RCS 转向速度", current.rcsTurnRateDegreesPerSecond, equipped.rcsTurnRateDegreesPerSecond, "0.0", " °/s", higherIsBetter: true, 300f);
+			DrawGroup(ref y, row, "雷达");
+			DrawAggregateValueRow(row, ref y, "参考探测距离", current.radarPerformance.referenceDetectionRangeKm, equipped.radarPerformance.referenceDetectionRangeKm, "0.0", " km", higherIsBetter: true, 100f);
+			DrawAggregateValueRow(row, ref y, "稳定跟踪距离", current.radarPerformance.stableTrackRangeKm, equipped.radarPerformance.stableTrackRangeKm, "0.0", " km", higherIsBetter: true, 100f);
+			DrawAggregateValueRow(row, ref y, "航迹容量", current.radarPerformance.trackCapacity, equipped.radarPerformance.trackCapacity, "0", string.Empty, higherIsBetter: true, 32f);
+			DrawAggregateValueRow(row, ref y, "锁定维持能力", current.radarPerformance.LockMaintenanceRating, equipped.radarPerformance.LockMaintenanceRating, "0.0", string.Empty, higherIsBetter: true, 100f);
+			DrawGroup(ref y, row, "火控");
+			DrawAggregateValueRow(row, ref y, "基础解算误差", current.fireControlPerformance.baseSolutionErrorMrad, equipped.fireControlPerformance.baseSolutionErrorMrad, "0.000", " mrad", higherIsBetter: false, 1f);
+			DrawAggregateValueRow(row, ref y, "最大预测时间", current.fireControlPerformance.maximumPredictionTimeS, equipped.fireControlPerformance.maximumPredictionTimeS, "0.0", " s", higherIsBetter: true, 12f);
+			DrawAggregateValueRow(row, ref y, "武器控制通道", current.fireControlPerformance.weaponControlChannels, equipped.fireControlPerformance.weaponControlChannels, "0", string.Empty, higherIsBetter: true, 16f);
+			DrawAggregateValueRow(row, ref y, "制导通道", current.fireControlPerformance.guidanceChannelCapacity, equipped.fireControlPerformance.guidanceChannelCapacity, "0", string.Empty, higherIsBetter: true, 16f);
 			y += 12f;
 			GUI.Label(new Rect(0f, y, row.width, 54f), (cachedValidation == null || cachedValidation.IsValid) ? "装配检查：通过" : $"装配检查：{cachedValidation.ErrorCount} 个错误，{cachedValidation.WarningCount} 个警告", (cachedValidation == null || cachedValidation.IsValid) ? testedStyle : warningStyle);
 			y += 64f;
 			DrawCapacityBar(row, ref y, "承载负载", current.totalMassKg, current.supportedMassKg, "kg");
-			DrawCapacityBar(row, ref y, "峰值能源负载", current.peakPowerDrawMw, current.powerOutputMw, "MW");
-			DrawCapacityBar(row, ref y, "散热负载", current.heatGenerationMw, current.heatDissipationMw, "MW");
+			DrawCapacityBar(row, ref y, "峰值能源负载", ToKilowatts(current.peakPowerDrawMw), ToKilowatts(current.powerOutputMw), "kW");
+			DrawCapacityBar(row, ref y, "散热负载", ToKilowatts(current.heatGenerationMw), ToKilowatts(current.heatDissipationMw), "kW");
 			DrawFireControlErrorChart(row, ref y, current, equipped);
 			GUI.EndScrollView();
 		}
@@ -1411,6 +1759,16 @@ namespace ACunicombat.Mechs
 		{
 			float scale = Mathf.Max(1f, Mathf.Abs(first), Mathf.Abs(second));
 			return Mathf.Abs(first - second) > Mathf.Max(0.0001f, scale * 1E-05f);
+		}
+
+		private static float ToKilowatts(float megawatts)
+		{
+			return megawatts * KilowattsPerMegawatt;
+		}
+
+		private static float? ToKilowatts(float? megawatts)
+		{
+			return megawatts.HasValue ? ToKilowatts(megawatts.Value) : null;
 		}
 
 		private static string FormatDistance(float meters)

@@ -78,7 +78,10 @@ namespace ACunicombat.Mechs
             target.mainThrustKn = source.mainThrustKn;
             target.lateralThrustKn = source.lateralThrustKn;
             target.reverseThrustKn = source.reverseThrustKn;
+            target.upwardThrustKn = source.upwardThrustKn;
+            target.downwardThrustKn = source.downwardThrustKn;
             target.attitudeTorqueKnM = source.attitudeTorqueKnM;
+            target.rcsThrustKn = source.rcsThrustKn;
             target.supportedMassKg = source.supportedMassKg;
             target.radarRangeKm = source.radarRangeKm;
             target.radarAperture = source.radarAperture;
@@ -91,15 +94,24 @@ namespace ACunicombat.Mechs
             target.thermalSignature = source.thermalSignature;
             target.electromagneticSignature = source.electromagneticSignature;
             target.weaponRecoilControl = source.weaponRecoilControl;
-            target.meleeControl = source.meleeControl;
             target.hardpointCapacityKg = source.hardpointCapacityKg;
+            target.energyStorageCapacityMj = source.energyStorageCapacityMj;
+            target.energyRechargePowerKw = source.energyRechargePowerKw;
+            target.energyRechargeDelayS = source.energyRechargeDelayS;
+            target.depletedEnergyRestartFraction = source.depletedEnergyRestartFraction;
+            target.radarPerformance.CopyFrom(source.radarPerformance);
+            target.fireControlPerformance.CopyFrom(source.fireControlPerformance);
             target.idlePowerSurplusMw = source.idlePowerSurplusMw;
             target.peakPowerSurplusMw = source.peakPowerSurplusMw;
             target.heatSurplusMw = source.heatSurplusMw;
             target.mainAccelerationMps2 = source.mainAccelerationMps2;
             target.lateralAccelerationMps2 = source.lateralAccelerationMps2;
             target.reverseAccelerationMps2 = source.reverseAccelerationMps2;
+            target.upwardAccelerationMps2 = source.upwardAccelerationMps2;
+            target.downwardAccelerationMps2 = source.downwardAccelerationMps2;
             target.attitudeTorquePerTon = source.attitudeTorquePerTon;
+            target.rcsAccelerationMps2 = source.rcsAccelerationMps2;
+            target.rcsTurnRateDegreesPerSecond = source.rcsTurnRateDegreesPerSecond;
             target.supportedMassRatio = source.supportedMassRatio;
         }
     }

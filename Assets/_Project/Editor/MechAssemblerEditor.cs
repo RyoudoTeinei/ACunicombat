@@ -111,11 +111,12 @@ public sealed class MechAssemblerEditor : Editor
         DrawStat("Armor / Structure", $"{stats.armorPoints:0} / {stats.structurePoints:0}");
         DrawStat("Main Acceleration", $"{stats.mainAccelerationMps2:0.00} m/s^2");
         DrawStat("Lateral / Reverse Accel", $"{stats.lateralAccelerationMps2:0.00} / {stats.reverseAccelerationMps2:0.00} m/s^2");
+        DrawStat("Upward / Downward Accel", $"{stats.upwardAccelerationMps2:0.00} / {stats.downwardAccelerationMps2:0.00} m/s^2");
         DrawStat("Attitude Torque", $"{stats.attitudeTorqueKnM:0.0} kN*m ({stats.attitudeTorquePerTon:0.00} per ton)");
-        DrawStat("Power Output", $"{stats.powerOutputMw:0.0} MW");
-        DrawStat("Idle / Peak Draw", $"{stats.idlePowerDrawMw:0.0} / {stats.peakPowerDrawMw:0.0} MW");
-        DrawStat("Peak Power Surplus", $"{stats.peakPowerSurplusMw:0.0} MW");
-        DrawStat("Heat Gen / Dissipation", $"{stats.heatGenerationMw:0.0} / {stats.heatDissipationMw:0.0} MW");
+        DrawStat("Power Output", $"{stats.powerOutputMw * 1000f:0.#} kW");
+        DrawStat("Idle / Peak Draw", $"{stats.idlePowerDrawMw * 1000f:0.#} / {stats.peakPowerDrawMw * 1000f:0.#} kW");
+        DrawStat("Peak Power Surplus", $"{stats.peakPowerSurplusMw * 1000f:0.#} kW");
+        DrawStat("Heat Gen / Dissipation", $"{stats.heatGenerationMw * 1000f:0.#} / {stats.heatDissipationMw * 1000f:0.#} kW");
         DrawStat("Radar Range / Refresh", $"{stats.radarRangeKm:0.0} km / {stats.radarRefreshHz:0.0} Hz");
         DrawStat("Tracks / Guidance", $"{stats.trackCapacity} / {stats.guidanceChannels}");
         DrawStat("Radar / Thermal / EM Signature", $"{stats.radarCrossSection:0.00} / {stats.thermalSignature:0.00} / {stats.electromagneticSignature:0.00}");
