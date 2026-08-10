@@ -265,13 +265,6 @@ namespace ACunicombat.Mechs
 
         private void Awake()
         {
-            // Migrate the airborne prototype target saved with the previous default.
-            if (motionMode == CombatTestTargetMotionMode.LinearFlight &&
-                Mathf.Abs(flightSpeedMetersPerSecond - 100f) < 0.01f)
-            {
-                flightSpeedMetersPerSecond = 180f;
-            }
-
             CacheComponents();
             EnsureImpactAudio();
             origin = transform.position;

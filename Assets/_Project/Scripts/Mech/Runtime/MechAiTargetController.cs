@@ -140,10 +140,6 @@ namespace ACunicombat.Mechs
             }
             nextHandWeaponTime = Time.time + Random.Range(1.5f, 2.5f);
             nextRifleBurstTime = Time.time + Random.Range(0.6f, 1.2f);
-            if (Mathf.Abs(missileCooldownSeconds - 20f) < 0.01f)
-            {
-                missileCooldownSeconds = 8f;
-            }
             nextMissileTime = Time.time + missileCooldownSeconds;
             nextInterceptorTime = Time.time + 1f;
             nextInterceptorRadarSweepTime = Time.time;

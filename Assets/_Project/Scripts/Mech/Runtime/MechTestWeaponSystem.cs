@@ -1082,26 +1082,6 @@ namespace ACunicombat.Mechs
 			ownCombatTarget = GetComponent<CombatTestTarget>();
 			airToAirMissileProfile = ResolveProfile(airToAirMissileProfile, MissileFlightProfile.AirToAirDefault);
 			interceptorMissileProfile = ResolveProfile(interceptorMissileProfile, MissileFlightProfile.InterceptorDefault);
-			if (Mathf.Abs(interceptorMissileProfile.ProximityFuseRadiusMeters - 10f) < 0.01f)
-			{
-				interceptorMissileProfile.ProximityFuseRadiusMeters = 12f;
-			}
-			if (Mathf.Abs(interceptorMissileProfile.WarheadLethalRadiusMeters - 14f) < 0.01f)
-			{
-				interceptorMissileProfile.WarheadLethalRadiusMeters = 22f;
-			}
-			if (Mathf.Abs(interceptorPredictionHorizonSeconds - 30f) < 0.01f)
-			{
-				interceptorPredictionHorizonSeconds = 60f;
-			}
-			if (Mathf.Abs(pointDefenseMaximumRangeMeters - 1500f) < 0.01f)
-			{
-				pointDefenseMaximumRangeMeters = 6000f;
-			}
-			if (Mathf.Abs(pointDefenseMaximumLeadSeconds - 2.9f) < 0.01f)
-			{
-				pointDefenseMaximumLeadSeconds = 6f;
-			}
 			if (base.enabled)
 			{
 				if (input == null)

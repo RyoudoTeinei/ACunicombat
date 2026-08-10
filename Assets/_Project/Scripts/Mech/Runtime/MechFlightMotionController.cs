@@ -12,13 +12,9 @@ namespace ACunicombat.Mechs
     /// </summary>
     public sealed class MechFlightMotionController : MonoBehaviour
     {
-        private const float LegacyManeuverEnergyCapacity = 1000f;
         private const float DefaultManeuverEnergyCapacity = 100f;
-        private const float LegacyMovementEnergyDrainPerSecond = 8f;
         private const float DefaultMovementEnergyDrainPerSecond = 4f;
-        private const float LegacyAssaultBoostEnergyDrainPerSecond = 22f;
         private const float DefaultAssaultBoostEnergyDrainPerSecond = 15f;
-        private const float LegacyQuickBoostEnergyCost = 25f;
         private const float DefaultQuickBoostEnergyCost = 18f;
 
         [Header("推进力模型")]
@@ -176,7 +172,6 @@ namespace ACunicombat.Mechs
         private float maneuverEnergyRechargeDelayRemaining;
         private bool maneuverEnergyDepleted;
         private bool maneuverEnergyInitialized;
-        private bool maneuverEnergyConfiguredAtRuntime;
         private MechLoadoutDefinition appliedEnergyLoadout;
         private MechPartDefinition appliedEnergyGenerator;
         private MechPartDefinition appliedEnergyBooster;
@@ -702,7 +697,6 @@ namespace ACunicombat.Mechs
             maneuverEnergyRechargeDelayRemaining = 0f;
             maneuverEnergyDepleted = false;
             maneuverEnergyInitialized = true;
-            maneuverEnergyConfiguredAtRuntime = true;
         }
 
         public void ConfigurePropulsionForceModel(
@@ -2640,7 +2634,6 @@ namespace ACunicombat.Mechs
 
         private void EnsureManeuverEnergyInitialized()
         {
-            UpgradeLegacyManeuverEnergyConfiguration();
             if (maneuverEnergyInitialized)
             {
                 return;
@@ -2716,49 +2709,6 @@ namespace ACunicombat.Mechs
             appliedEnergyBooster = booster;
         }
 
-        private void UpgradeLegacyManeuverEnergyConfiguration()
-        {
-            if (maneuverEnergyConfiguredAtRuntime)
-            {
-                return;
-            }
-
-            var hasLegacyCapacity = Mathf.Approximately(
-                maximumManeuverEnergy,
-                LegacyManeuverEnergyCapacity);
-            var hasLegacyRates =
-                Mathf.Approximately(
-                    movementEnergyDrainPerSecond,
-                    LegacyMovementEnergyDrainPerSecond) ||
-                Mathf.Approximately(
-                    assaultBoostEnergyDrainPerSecond,
-                    LegacyAssaultBoostEnergyDrainPerSecond) ||
-                Mathf.Approximately(
-                    quickBoostEnergyCost,
-                    LegacyQuickBoostEnergyCost);
-            if (!hasLegacyCapacity && !hasLegacyRates)
-            {
-                return;
-            }
-
-            var previousCapacity = Mathf.Max(1f, maximumManeuverEnergy);
-            var normalizedEnergy = maneuverEnergyInitialized
-                ? Mathf.Clamp01(
-                    currentManeuverEnergy /
-                    previousCapacity)
-                : 1f;
-            maximumManeuverEnergy = DefaultManeuverEnergyCapacity;
-            movementEnergyDrainPerSecond =
-                DefaultMovementEnergyDrainPerSecond;
-            assaultBoostEnergyDrainPerSecond =
-                DefaultAssaultBoostEnergyDrainPerSecond;
-            quickBoostEnergyCost = DefaultQuickBoostEnergyCost;
-            if (maneuverEnergyInitialized)
-            {
-                currentManeuverEnergy =
-                    DefaultManeuverEnergyCapacity * normalizedEnergy;
-            }
-        }
 
         private void UpdateManeuverEnergyRecovery(float deltaTime)
         {
