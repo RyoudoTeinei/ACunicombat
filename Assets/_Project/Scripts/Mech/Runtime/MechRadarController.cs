@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using ACunicombat.DataLink;
 using ACunicombat.FireControl;
@@ -48,7 +49,6 @@ namespace ACunicombat.Mechs
         private const float PointDefenseBeamWidthDegrees = 4f;
         private const float PointDefenseCueHoldSeconds = 0.3f;
         private const float LaserRangeBeamWidthDegrees = 0.4f;
-        private const float LaserRangeMaximumMeters = 12_000f;
         private const float RadarRangeMeters = 100_000f;
         private const float DesignationBaseSeconds = 0.3f;
         private const float DesignationCaptureBoxPixels = 54f;
@@ -189,6 +189,11 @@ namespace ACunicombat.Mechs
         private Vector3 searchFrameUp;
         private MechRadarPerformanceProfile radarPerformance;
         private MechFireControlComputerProfile fireControlPerformance;
+        private double sttLastMaintainableTime = double.NegativeInfinity;
+        private int fireControlReservationFrame = -1;
+        private int fireControlSolutionReservations;
+        private int weaponControlReservations;
+        private readonly HashSet<TrackId> fireControlTargetReservations = new HashSet<TrackId>();
 
         private float RuntimeRadarRangeMeters =>
             radarPerformance.MaximumRangeMeters > 0f
@@ -226,6 +231,7 @@ namespace ACunicombat.Mechs
         public TrackId SttTrackId => sttTrackId;
         public bool HasStt => sttTrackId.IsValid && TryGetTrack(sttTrackId, out _);
         public float DesignationProgress => designationProgress;
+        public float PointDefenseRating => fireControlPerformance.PointDefenseRating;
 
         public void CuePointDefenseTrack(TrackId trackId)
         {
@@ -338,6 +344,7 @@ namespace ACunicombat.Mechs
             sttTrackId = default;
             candidateTrackId = default;
             designationProgress = 0f;
+            sttLastMaintainableTime = double.NegativeInfinity;
         }
 
         public bool TryRegisterMissileSeeker(
@@ -951,10 +958,12 @@ namespace ACunicombat.Mechs
 
             // A failed designation remains a TWS candidate. It is never deleted by the UI.
             if (candidate.Confidence >= 0.25f &&
-                candidate.Lifecycle == TrackLifecycle.Confirmed)
+                candidate.Lifecycle == TrackLifecycle.Confirmed &&
+                IsInsideStableTrackRange(candidate))
             {
                 sttTrackId = candidate.TrackId;
                 candidateTrackId = sttTrackId;
+                sttLastMaintainableTime = SimTimeSeconds;
                 Debug.Log(
                     $"[MechRadar][STT] acquired track={sttTrackId.Packed}" +
                     $" class={candidate.ObjectClass}" +
@@ -1013,6 +1022,11 @@ namespace ACunicombat.Mechs
         {
             solution = default;
             if (!TryGetFireControlTrack(out track))
+            {
+                return false;
+            }
+
+            if (!TryReserveFireControlSolution(track.TrackId))
             {
                 return false;
             }
@@ -1103,6 +1117,11 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
+            if (!TryReserveFireControlSolution(track.TrackId))
+            {
+                return false;
+            }
+
             var fireControlTrack = MechFireControlPerformanceModel.ScaleTrackForFireSolution(
                 track,
                 fireControlPerformance);
@@ -1186,8 +1205,40 @@ namespace ACunicombat.Mechs
             lifecycle == TrackLifecycle.Coasting ||
             lifecycle == TrackLifecycle.Degraded;
 
+        private bool TryReserveFireControlSolution(TrackId trackId)
+        {
+            if (fireControlReservationFrame != Time.frameCount)
+            {
+                fireControlReservationFrame = Time.frameCount;
+                fireControlSolutionReservations = 0;
+                weaponControlReservations = 0;
+                fireControlTargetReservations.Clear();
+            }
+
+            var isNewTarget = !fireControlTargetReservations.Contains(trackId);
+            if (isNewTarget &&
+                fireControlTargetReservations.Count >=
+                Mathf.Max(1, fireControlPerformance.MultiTargetEngagementCapacity))
+            {
+                return false;
+            }
+            if (fireControlSolutionReservations >=
+                    Mathf.Max(1, fireControlPerformance.SimultaneousSolutionCapacity) ||
+                weaponControlReservations >=
+                    Mathf.Max(1, fireControlPerformance.WeaponControlChannels))
+            {
+                return false;
+            }
+
+            fireControlTargetReservations.Add(trackId);
+            fireControlSolutionReservations++;
+            weaponControlReservations++;
+            return true;
+        }
+
         private bool TryAcquireGuidanceChannel(TrackId trackId, out int token)
         {
+            var distinctTargetCount = 0;
             for (var i = 0; i < guidanceChannels.Length; i++)
             {
                 if (guidanceChannels[i].ReferenceCount > 0 &&
@@ -1197,6 +1248,18 @@ namespace ACunicombat.Mechs
                     token = i + 1;
                     return true;
                 }
+
+                if (guidanceChannels[i].ReferenceCount > 0)
+                {
+                    distinctTargetCount++;
+                }
+            }
+
+            if (distinctTargetCount >=
+                Mathf.Max(1, fireControlPerformance.MultiTargetEngagementCapacity))
+            {
+                token = 0;
+                return false;
             }
 
             for (var i = 0; i < guidanceChannels.Length; i++)
@@ -1401,17 +1464,23 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            driver.ScheduleRadarDwell(new Dwell
+            // The primary STT and a point-defense precision revisit each consume one
+            // narrow-track channel. A one-channel radar preserves the aircraft STT and
+            // lets point defense fall back to TWS plus laser ranging.
+            if (!HasStt || radarPerformance.SttChannelCapacity >= 2)
             {
-                SensorId = sensorId,
-                DueTime = now,
-                DwellTimeSeconds = 0.024f,
-                BeamDirection = direction,
-                BeamWidthRadians =
-                    PointDefenseBeamWidthDegrees * Mathf.Deg2Rad,
-                Priority = DwellPriority.SingleTargetTrack,
-                Sequence = ++dwellSequence,
-            });
+                driver.ScheduleRadarDwell(new Dwell
+                {
+                    SensorId = sensorId,
+                    DueTime = now,
+                    DwellTimeSeconds = 0.024f,
+                    BeamDirection = direction,
+                    BeamWidthRadians =
+                        PointDefenseBeamWidthDegrees * Mathf.Deg2Rad,
+                    Priority = DwellPriority.SingleTargetTrack,
+                    Sequence = ++dwellSequence,
+                });
+            }
             driver.ScheduleLaserPulse(new LaserPulse
             {
                 SensorId = laserRangefinderId,
@@ -1590,9 +1659,11 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            var lockRating01 = Mathf.Clamp01(radarPerformance.LockMaintenanceRating / 100f);
             var trackMemorySeconds = radarPerformance.TrackMemorySeconds > 0f
                 ? radarPerformance.TrackMemorySeconds
                 : 3f;
+            trackMemorySeconds *= Mathf.Lerp(0.65f, 1.35f, lockRating01);
             if (SimTimeSeconds - track.LastUpdateTime > trackMemorySeconds)
             {
                 BreakSingleTargetTrack(SttBreakReason.TrackStale);
@@ -1600,12 +1671,8 @@ namespace ACunicombat.Mechs
             }
 
             var relativePosition = PredictTrackPosition(track) - transform.position;
-            if (!IsWithinBodyRadarFrame(relativePosition))
-            {
-                BreakSingleTargetTrack(
-                    SttBreakReason.OutsideRadarFrame);
-                return;
-            }
+            var maintainable = IsWithinBodyRadarFrame(relativePosition) &&
+                               relativePosition.magnitude <= RuntimeRadarRangeMeters;
 
             var maximumTrackingRate =
                 radarPerformance.MaximumTrackingRateDegreesPerSecond;
@@ -1617,11 +1684,28 @@ namespace ACunicombat.Mechs
                     relativePosition.sqrMagnitude;
                 var angularRateDegreesPerSecond =
                     angularRateRadiansPerSecond * Mathf.Rad2Deg;
-                if (angularRateDegreesPerSecond > maximumTrackingRate)
-                {
-                    BreakSingleTargetTrack(SttBreakReason.TrackingRateExceeded);
-                }
+                maintainable &= angularRateDegreesPerSecond <= maximumTrackingRate;
             }
+
+            maintainable &= relativePosition.magnitude <=
+                            Mathf.Max(1f, radarPerformance.StableTrackRangeMeters);
+            if (maintainable)
+            {
+                sttLastMaintainableTime = SimTimeSeconds;
+                return;
+            }
+
+            var maintenanceGraceSeconds = Mathf.Lerp(0.12f, 2.5f, lockRating01);
+            if (SimTimeSeconds - sttLastMaintainableTime > maintenanceGraceSeconds)
+            {
+                BreakSingleTargetTrack(SttBreakReason.TrackingRateExceeded);
+            }
+        }
+
+        private bool IsInsideStableTrackRange(in TrackSnapshot track)
+        {
+            var range = (PredictTrackPosition(track) - transform.position).magnitude;
+            return range <= Mathf.Max(1f, radarPerformance.StableTrackRangeMeters);
         }
 
         private bool IsWithinBodyRadarFrame(Vector3 worldDirection)
@@ -1669,6 +1753,8 @@ namespace ACunicombat.Mechs
             if (aimingCamera == null) aimingCamera = Camera.main;
             var runtimeState = GetComponent<MechRuntimeState>();
             var installedStats = runtimeState != null ? runtimeState.AggregatedStats : null;
+            var headPerformance = installedStats?.headSensorPerformance ??
+                new MechHeadSensorPerformance();
             radarPerformance = MechFireControlPerformanceModel.BuildRadarProfile(installedStats);
             fireControlPerformance = MechFireControlPerformanceModel.BuildFireControlProfile(
                 installedStats,
@@ -1760,15 +1846,23 @@ namespace ACunicombat.Mechs
                         aimingCamera != null
                             ? aimingCamera.transform.forward
                             : transform.forward),
-                    FieldOfViewRadians =
-                        (aimingCamera != null
-                            ? aimingCamera.fieldOfView
-                            : 60f) *
+                    FieldOfViewRadians = Mathf.Lerp(
+                        25f,
+                        120f,
+                        Mathf.Clamp01(headPerformance.searchCapability / 100f)) *
                         Mathf.Deg2Rad,
-                    MaximumRangeMeters = 30_000.0,
+                    MaximumRangeMeters = Mathf.Max(
+                        100f,
+                        headPerformance.referenceHotRangeKm * 1000f),
                     SensitivityFloorDb = -60f,
-                    BearingSigmaRadians =
-                        0.15f * Mathf.Deg2Rad,
+                    BearingSigmaRadians = Mathf.Lerp(
+                        0.45f,
+                        0.04f,
+                        Mathf.Clamp01(headPerformance.trackingCapability / 100f)) *
+                        Mathf.Deg2Rad,
+                    TrackCapacity = Mathf.Max(1, headPerformance.trackCapacity),
+                    ClassificationScale = Mathf.Clamp01(
+                        headPerformance.identificationCapability / 100f),
                 });
             driver.RegisterLaserRangefinder(
                 new LaserRangefinderProfile
@@ -1776,8 +1870,9 @@ namespace ACunicombat.Mechs
                     SensorId = laserRangefinderId,
                     EmitterId = laserRangefinderEmitterId,
                     OwnerEntityId = playerEntity,
-                    MaximumRangeMeters =
-                        LaserRangeMaximumMeters,
+                    MaximumRangeMeters = Mathf.Max(
+                        100f,
+                        headPerformance.laserRangefinderRangeKm * 1000f),
                     BeamWidthRadians =
                         LaserRangeBeamWidthDegrees *
                         Mathf.Deg2Rad,
@@ -1785,7 +1880,9 @@ namespace ACunicombat.Mechs
                     MainlobePowerDb = 120f,
                     SidelobeLevelDb = -160f,
                     ReceiveSensitivityDb = -50f,
-                    BaseRangeSigmaMeters = 0.75f,
+                    BaseRangeSigmaMeters = Mathf.Max(
+                        0.05f,
+                        headPerformance.laserRangefinderErrorM),
                     RangeErrorPartsPerMillion = 20f,
                     BearingSigmaRadians =
                         0.03f * Mathf.Deg2Rad,
@@ -2223,7 +2320,13 @@ namespace ACunicombat.Mechs
                      track.Lifecycle == TrackLifecycle.Confirmed);
                 if (!haveTrack)
                 {
+                    var reacquisitionWindow =
+                        Mathf.Max(0f, fireControlPerformance.TrackReacquisitionTimeSeconds);
+                    var lastTrackAge = subscription.LastSent.TrackId.IsValid
+                        ? now - subscription.LastSent.LastUpdateTime
+                        : double.PositiveInfinity;
                     if (subscription.AllowTrackReacquisition &&
+                        lastTrackAge <= reacquisitionWindow &&
                         subscription.LastSent.TrackId.IsValid &&
                         TryReacquireTrack(
                             subscription.LastSent,
@@ -2316,6 +2419,8 @@ namespace ACunicombat.Mechs
                 var emitter =
                     sceneTarget.GetComponent<MechTestRadarEmitter>() ??
                     sceneTarget.gameObject.AddComponent<MechTestRadarEmitter>();
+                emitter.ConfigureEmissionSignature(
+                    sceneTarget.ElectromagneticSignature);
                 emitter.RegisterObserverDriver(
                     driver,
                     transform,
@@ -2341,10 +2446,31 @@ namespace ACunicombat.Mechs
                     ObjectClass = TrackObjectClass.AirVehicle,
                     ClassificationSignature = 0.85f,
                 });
+                driver.RegisterElectroOpticalTarget(
+                    new ElectroOpticalTargetProfile
+                    {
+                        EntityId = targetEntities[index],
+                        SignatureDb = 30f + 20f * Mathf.Log10(
+                            Mathf.Max(0.01f, sceneTarget.ThermalSignature)),
+                        ReferenceDiameterMeters = 12f,
+                        ObjectClass = TrackObjectClass.AirVehicle,
+                        ClassificationSignature = 0.9f,
+                    });
+                driver.RegisterLaserRangeTarget(
+                    new LaserRangeTargetProfile
+                    {
+                        EntityId = targetEntities[index],
+                        ReflectivityDb = 10f * Mathf.Log10(
+                            Mathf.Max(0.01f, sceneTarget.RadarCrossSectionSquareMeters)),
+                        ObjectClass = TrackObjectClass.AirVehicle,
+                        ClassificationSignature = 0.9f,
+                    });
             }
             else
             {
                 driver.UnregisterRadarTarget(targetEntities[index]);
+                driver.UnregisterElectroOpticalTarget(targetEntities[index]);
+                driver.UnregisterLaserRangeTarget(targetEntities[index]);
             }
 
             targetRadarRegistered[index] = shouldRegister;

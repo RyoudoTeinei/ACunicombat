@@ -26,7 +26,15 @@ namespace ACunicombat.Mechs
                 }
 
                 target.Add(assignment.part.Stats);
-                if (assignment.part.Slot == MechPartSlot.Arms)
+                MechPartSignatureDefaults.AddFallback(
+                    target,
+                    assignment.part.Stats,
+                    assignment.part.Slot);
+                if (assignment.part.Slot == MechPartSlot.Head)
+                {
+                    target.AddHeadSensorPerformance(assignment.part.HeadSensorPerformance);
+                }
+                else if (assignment.part.Slot == MechPartSlot.Arms)
                 {
                     target.AddArmPerformance(assignment.part.ArmPerformance);
                 }

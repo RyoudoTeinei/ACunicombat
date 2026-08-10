@@ -68,7 +68,6 @@ namespace ACunicombat.Mechs
             target.totalMassKg = source.totalMassKg;
             target.armorPoints = source.armorPoints;
             target.structurePoints = source.structurePoints;
-            target.stability = source.stability;
             target.powerOutputMw = source.powerOutputMw;
             target.idlePowerDrawMw = source.idlePowerDrawMw;
             target.peakPowerDrawMw = source.peakPowerDrawMw;
@@ -99,8 +98,14 @@ namespace ACunicombat.Mechs
             target.energyRechargePowerKw = source.energyRechargePowerKw;
             target.energyRechargeDelayS = source.energyRechargeDelayS;
             target.depletedEnergyRestartFraction = source.depletedEnergyRestartFraction;
+            target.momentumWheelTurnRateDegPerSecond = source.momentumWheelTurnRateDegPerSecond;
             target.radarPerformance.CopyFrom(source.radarPerformance);
             target.fireControlPerformance.CopyFrom(source.fireControlPerformance);
+            target.headSensorPerformance = source.headSensorPerformance?.Clone() ?? new MechHeadSensorPerformance();
+            target.armPerformance = source.armPerformance?.Clone() ?? new MechArmPerformance();
+            target.corePerformance = source.corePerformance?.Clone() ?? new MechCorePerformance();
+            target.legPerformance = source.legPerformance?.Clone() ?? new MechLegPerformance();
+            target.boosterPerformance = source.boosterPerformance?.Clone() ?? new MechBoosterPerformance();
             target.idlePowerSurplusMw = source.idlePowerSurplusMw;
             target.peakPowerSurplusMw = source.peakPowerSurplusMw;
             target.heatSurplusMw = source.heatSurplusMw;

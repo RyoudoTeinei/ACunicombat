@@ -16,6 +16,8 @@ namespace ACunicombat.Sensors
         public double MaximumRangeMeters;
         public float SensitivityFloorDb;
         public float BearingSigmaRadians;
+        public int TrackCapacity;
+        public float ClassificationScale;
     }
 
     public struct ElectroOpticalTargetProfile
@@ -99,9 +101,13 @@ namespace ACunicombat.Sensors
                 new float3(0f, 0f, 1f));
             var minimumDot =
                 math.cos(receiver.FieldOfViewRadians * 0.5f);
+            var observationLimit = math.clamp(
+                receiver.TrackCapacity > 0 ? receiver.TrackCapacity : ObservationCapacity,
+                1,
+                ObservationCapacity);
             for (var i = 0;
                  i < registered.Length &&
-                 observations.Length < ObservationCapacity;
+                 observations.Length < observationLimit;
                  i++)
             {
                 if (!registered[i] ||
@@ -191,6 +197,10 @@ namespace ACunicombat.Sensors
                         ObjectClass = target.ObjectClass,
                         ClassificationConfidence =
                             target.ClassificationSignature *
+                            math.saturate(
+                                receiver.ClassificationScale > 0f
+                                    ? receiver.ClassificationScale
+                                    : 1f) *
                             math.saturate(marginDb / 12f),
                     });
             }

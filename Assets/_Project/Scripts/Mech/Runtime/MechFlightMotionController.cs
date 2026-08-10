@@ -60,8 +60,6 @@ namespace ACunicombat.Mechs
         [SerializeField] private float technicalSafetySpeed = 2000f;
         [Tooltip("辅助飞控强度 [0,1]：0=纯惯性；1=以最大辅助反推修正侧向漂移。")]
         [Range(0f, 1f)] [SerializeField] private float flightAssist = 0.6f;
-        [Tooltip("辅助飞控可调用的最大修正推力。它仍然受机体质量影响。")]
-        [SerializeField] private float flightAssistThrustKn = 600f;
 
         [Header("惯性推力锁定")]
         [Tooltip("允许按住输入锁定键冻结水平推力参考；松开后恢复机体朝向参考。")]
@@ -115,8 +113,6 @@ namespace ACunicombat.Mechs
         [SerializeField] private float activeBrakingThrustMultiplier = 1f;
 
         [Header("朝向")]
-        [Tooltip("鼠标水平输入转换为目标 Yaw 的灵敏度（度/像素）。实际转向由 RCS 与动量轮扭矩完成。")]
-        [SerializeField] private float yawSensitivity = 0.15f;
         [Tooltip("模型视觉前方相对逻辑前方(+Z)的 Yaw 修正（度）。校准模型轴用，禁止用镜头摆位掩盖。")]
         [SerializeField] private float modelForwardYawOffset;
 
@@ -129,8 +125,6 @@ namespace ACunicombat.Mechs
         [SerializeField] private float momentumWheelTorqueKnM = 120f;
         [Tooltip("飞控允许的最大偏航角速度。")]
         [SerializeField] private float maximumYawRateDegrees = 180f;
-        [Tooltip("飞控允许的最大俯仰角速度。")]
-        [SerializeField] private float maximumPitchRateDegrees = 120f;
         [Tooltip("偏航闭环达到目标的响应时间。越短越接近直接鼠标转向。")]
         [Range(0.06f, 0.5f)] [SerializeField] private float yawResponseTimeSeconds = 0.16f;
         [Tooltip("偏航闭环阻尼比。大于 1 可抑制重型机体越过目标后反复摆动。")]
@@ -179,6 +173,7 @@ namespace ACunicombat.Mechs
         private Vector3 velocity;
         private bool engineAvailable = true;
         private float quickBoostRemaining;
+        private float quickBoostRecoveryRemaining;
         private Vector3 quickBoostDirection;
         private bool assaultBoostActive;
         private float currentManeuverEnergy;
@@ -277,6 +272,7 @@ namespace ACunicombat.Mechs
                 RefreshLoadoutEnergyConfiguration();
                 EnsureManeuverEnergyInitialized();
                 return engineAvailable &&
+                       quickBoostRecoveryRemaining <= 0f &&
                        !maneuverEnergyDepleted &&
                        currentManeuverEnergy + 0.0001f >= quickBoostEnergyCost;
             }
@@ -316,6 +312,8 @@ namespace ACunicombat.Mechs
         public Vector3 CurrentQuickBoostAcceleration => currentQuickBoostForceNewtons / ResolveMassKg();
 
         public float CurrentQuickBoostRemaining => quickBoostRemaining;
+
+        public float CurrentQuickBoostRecoveryRemaining => quickBoostRecoveryRemaining;
 
         public float AirCoastingDragAcceleration => airCoastingDragAcceleration;
 
@@ -833,7 +831,8 @@ namespace ACunicombat.Mechs
                         true);
             }
 
-            return forceCapacity / Mathf.Max(1f, ResolveMassKg());
+            return forceCapacity * ResolveOverloadAccelerationScale() /
+                   Mathf.Max(1f, ResolveMassKg());
         }
 
         public void ConfigureGravity(float acceleration)
@@ -847,6 +846,9 @@ namespace ACunicombat.Mechs
             RefreshLoadoutEnergyConfiguration();
             EnsureManeuverEnergyInitialized();
             UpdateManeuverEnergyRecovery(deltaTime);
+            quickBoostRecoveryRemaining = Mathf.Max(
+                0f,
+                quickBoostRecoveryRemaining - Mathf.Max(0f, deltaTime));
             ClearThrusterForces();
             currentMassKg = ResolveMassKg();
             currentControlForceNewtons = Vector3.zero;
@@ -868,17 +870,9 @@ namespace ACunicombat.Mechs
 
             // Cursor displacement commands bounded yaw and pitch rates in the active reference
             // frame. Roll remains zero relative to that frame.
-            var desiredYawRateDegrees =
-                yawTurnInput * ResolveMaximumYawRateDegrees();
-            var yawResponse = 1f - Mathf.Exp(
-                -Mathf.Max(0f, deltaTime) /
-                Mathf.Max(0.01f, yawResponseTimeSeconds));
-            var currentYawRateDegrees =
-                yawAngularVelocityRadians * Mathf.Rad2Deg;
-            currentYawRateDegrees = Mathf.Lerp(
-                currentYawRateDegrees,
-                desiredYawRateDegrees,
-                yawResponse);
+            var maximumTurnRateDegrees = ResolveMaximumYawRateDegrees();
+            var desiredYawRateDegrees = yawTurnInput * maximumTurnRateDegrees;
+            var currentYawRateDegrees = desiredYawRateDegrees;
             if (Mathf.Abs(desiredYawRateDegrees) < 0.01f &&
                 Mathf.Abs(currentYawRateDegrees) < 0.01f)
             {
@@ -905,14 +899,9 @@ namespace ACunicombat.Mechs
             var pitchErrorDegrees = Mathf.DeltaAngle(pitchDegrees, aimPitchDegrees);
             var desiredPitchRateDegrees = Mathf.Clamp(
                 pitchErrorDegrees / Mathf.Max(0.06f, yawResponseTimeSeconds),
-                -Mathf.Max(0f, maximumPitchRateDegrees),
-                Mathf.Max(0f, maximumPitchRateDegrees));
-            var currentPitchRateDegrees =
-                pitchAngularVelocityRadians * Mathf.Rad2Deg;
-            currentPitchRateDegrees = Mathf.Lerp(
-                currentPitchRateDegrees,
-                desiredPitchRateDegrees,
-                yawResponse);
+                -maximumTurnRateDegrees,
+                maximumTurnRateDegrees);
+            var currentPitchRateDegrees = desiredPitchRateDegrees;
             var pitchStepDegrees =
                 currentPitchRateDegrees * Mathf.Max(0f, deltaTime);
             if (Mathf.Abs(pitchStepDegrees) >= Mathf.Abs(pitchErrorDegrees))
@@ -981,6 +970,12 @@ namespace ACunicombat.Mechs
                 out var reverseThrustNewtons,
                 out var upwardThrustNewtons,
                 out var downwardThrustNewtons);
+            var overloadAccelerationScale = ResolveOverloadAccelerationScale();
+            mainThrustNewtons *= overloadAccelerationScale;
+            lateralThrustNewtons *= overloadAccelerationScale;
+            reverseThrustNewtons *= overloadAccelerationScale;
+            upwardThrustNewtons *= overloadAccelerationScale;
+            downwardThrustNewtons *= overloadAccelerationScale;
             mainThrustNewtons *= movementEnergyScale;
             lateralThrustNewtons *= movementEnergyScale;
             reverseThrustNewtons *= movementEnergyScale;
@@ -1095,12 +1090,9 @@ namespace ACunicombat.Mechs
                 {
                     var lateralVelocity = velocity
                                           - Vector3.Project(velocity, commandDirection);
-                    var assistAcceleration = flightAssistThrustKn * 1000f
-                                             / currentMassKg * flightAssist
-                                             * movementEnergyScale;
-                    var requestedAssistDeltaVelocity = Vector3.ClampMagnitude(
-                        -lateralVelocity,
-                        assistAcceleration * deltaTime);
+                    var requestedAssistDeltaVelocity = -lateralVelocity
+                                                       * Mathf.Clamp01(flightAssist)
+                                                       * movementEnergyScale;
                     if (deltaTime > Mathf.Epsilon)
                     {
                         var requestedAssistForce = requestedAssistDeltaVelocity
@@ -2214,21 +2206,58 @@ namespace ACunicombat.Mechs
             var stats = useLoadoutPropulsionStats && runtimeState != null
                 ? runtimeState.AggregatedStats
                 : null;
-            mainNewtons = (stats != null && stats.mainThrustKn > 0f
-                ? stats.mainThrustKn
-                : fallbackMainThrustKn) * 1000f;
-            lateralNewtons = (stats != null && stats.lateralThrustKn > 0f
-                ? stats.lateralThrustKn
-                : fallbackLateralThrustKn) * 1000f;
-            reverseNewtons = (stats != null && stats.reverseThrustKn > 0f
-                ? stats.reverseThrustKn
-                : fallbackReverseThrustKn) * 1000f;
-            upwardNewtons = (stats != null && stats.upwardThrustKn > 0f
-                ? stats.upwardThrustKn
-                : verticalThrustKn) * 1000f;
-            downwardNewtons = (stats != null && stats.downwardThrustKn > 0f
-                ? stats.downwardThrustKn
-                : verticalThrustKn * Mathf.Clamp01(descentThrustFraction)) * 1000f;
+            if (stats != null)
+            {
+                mainNewtons = Mathf.Max(0f, stats.mainThrustKn) * 1000f;
+                lateralNewtons = Mathf.Max(0f, stats.lateralThrustKn) * 1000f;
+                reverseNewtons = Mathf.Max(0f, stats.reverseThrustKn) * 1000f;
+                upwardNewtons = Mathf.Max(0f, stats.upwardThrustKn) * 1000f;
+                downwardNewtons = Mathf.Max(0f, stats.downwardThrustKn) * 1000f;
+                return;
+            }
+
+            mainNewtons = Mathf.Max(0f, fallbackMainThrustKn) * 1000f;
+            lateralNewtons = Mathf.Max(0f, fallbackLateralThrustKn) * 1000f;
+            reverseNewtons = Mathf.Max(0f, fallbackReverseThrustKn) * 1000f;
+            upwardNewtons = Mathf.Max(0f, verticalThrustKn) * 1000f;
+            downwardNewtons = Mathf.Max(
+                0f,
+                verticalThrustKn * Mathf.Clamp01(descentThrustFraction)) * 1000f;
+        }
+
+        private float ResolveOverloadAccelerationScale()
+        {
+            if (runtimeState == null)
+            {
+                runtimeState = GetComponent<MechRuntimeState>();
+            }
+
+            var stats = runtimeState != null ? runtimeState.AggregatedStats : null;
+            if (stats == null || stats.supportedMassKg <= 0f)
+            {
+                return 1f;
+            }
+
+            return CalculateOverloadAccelerationScale(
+                ResolveMassKg(),
+                stats.supportedMassKg);
+        }
+
+        public static float CalculateOverloadAccelerationScale(
+            float totalMassKg,
+            float supportedMassKg)
+        {
+            if (totalMassKg <= 0f || supportedMassKg <= 0f ||
+                totalMassKg <= supportedMassKg)
+            {
+                return 1f;
+            }
+
+            var loadRatio = totalMassKg / supportedMassKg;
+            return Mathf.Clamp(
+                1f / (loadRatio * loadRatio * loadRatio),
+                0.2f,
+                1f);
         }
 
 		private float ResolveMaximumYawRateDegrees()
@@ -2239,8 +2268,8 @@ namespace ACunicombat.Mechs
 			}
 
 			var stats = runtimeState != null ? runtimeState.AggregatedStats : null;
-			return stats != null && stats.rcsTurnRateDegreesPerSecond > 0f
-				? stats.rcsTurnRateDegreesPerSecond
+			return stats != null
+				? Mathf.Max(0f, stats.rcsTurnRateDegreesPerSecond)
 				: Mathf.Max(0f, maximumYawRateDegrees);
 		}
 
@@ -2252,8 +2281,8 @@ namespace ACunicombat.Mechs
 			}
 
 			var stats = runtimeState != null ? runtimeState.AggregatedStats : null;
-			return stats != null && stats.rcsThrustKn > 0f
-				? stats.rcsThrustKn
+			return stats != null
+				? Mathf.Max(0f, stats.rcsThrustKn)
 				: Mathf.Max(0f, shoulderRcsThrustKn + legRcsThrustKn);
 		}
 
@@ -2958,12 +2987,11 @@ namespace ACunicombat.Mechs
         /// <summary>消耗一次能量并启动固定方向的 QB 高加速度窗口。</summary>
         public bool BeginQuickBoost(Vector2 moveLocal)
         {
-            if (!engineAvailable || !TrySpendQuickBoostEnergy())
+            if (!engineAvailable || !CanQuickBoost)
             {
                 return false;
             }
 
-            quickBoostRemaining = quickBoostDuration;
             var yawBasis = LogicalRotation;
             var forward = ResolveMainThrustDirection(yawBasis, Grounded);
             var direction = moveLocal.sqrMagnitude > 0.0001f
@@ -2987,12 +3015,38 @@ namespace ACunicombat.Mechs
                 reverseNewtons,
                 upwardNewtons,
                 downwardNewtons);
-            var directionalScale = mainNewtons > Mathf.Epsilon
-                ? directionalCapacity / mainNewtons
-                : 1f;
+            if (quickBoostThrustKn <= Mathf.Epsilon ||
+                mainNewtons <= Mathf.Epsilon ||
+                directionalCapacity <= Mathf.Epsilon)
+            {
+                return false;
+            }
+
+            if (!TrySpendQuickBoostEnergy())
+            {
+                return false;
+            }
+
+            quickBoostRemaining = quickBoostDuration;
+            quickBoostRecoveryRemaining = quickBoostDuration + ResolveQuickBoostRecoverySeconds();
+            var directionalScale = directionalCapacity / mainNewtons;
             quickBoostForceNewtons = quickBoostThrustKn * 1000f
-                                     * Mathf.Max(0.05f, directionalScale);
+                                     * Mathf.Max(0f, directionalScale)
+                                     * ResolveOverloadAccelerationScale();
             return true;
+        }
+
+        private float ResolveQuickBoostRecoverySeconds()
+        {
+            if (runtimeState == null)
+            {
+                runtimeState = GetComponent<MechRuntimeState>();
+            }
+
+            var booster = runtimeState != null
+                ? runtimeState.AggregatedStats?.boosterPerformance
+                : null;
+            return booster != null ? Mathf.Max(0f, booster.quickBoostRecoveryS) : 0f;
         }
     }
 }

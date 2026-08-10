@@ -23,6 +23,8 @@ namespace ACunicombat.Mechs
 
 			public MechWeaponPerformance Performance;
 
+			public float WeaponMassKg;
+
 			public int RoundsRemaining;
 
 			public int MagazinesRemaining;
@@ -40,6 +42,14 @@ namespace ACunicombat.Mechs
 			public float LastShotTime = float.NegativeInfinity;
 
 			public int BurstShotCount;
+
+			public bool HasTrackedAimDirection;
+
+			public Vector3 TrackedAimDirection;
+
+			public float AimAngularSpeedDegreesPerSecond;
+
+			public float LastAimUpdateTime;
 		}
 
 		private readonly struct AutomaticCannonProfile
@@ -695,6 +705,12 @@ namespace ACunicombat.Mechs
 			float fuzeRadius = profile.role == MechWeaponRole.PointDefenseCannon
 				? profile.pointDefenseRoundLethalRadiusMeters
 				: profile.proximityFuseRadiusMeters;
+			float fuzeArmSeconds = profile.role == MechWeaponRole.PointDefenseCannon
+				? profile.pointDefenseRoundArmSeconds
+				: profile.proximityFuseArmSeconds;
+			float fuzeSafeDistance = profile.role == MechWeaponRole.PointDefenseCannon
+				? profile.pointDefenseRoundSafeDistanceMeters
+				: profile.proximityFuseSafeDistanceMeters;
 			performance = new MechWeaponPerformanceSnapshot
 			{
 				WeaponType = profile.weaponType,
@@ -722,8 +738,8 @@ namespace ACunicombat.Mechs
 				ProximityFuseMode = profile.proximityFuseMode,
 				ProximityFuseTriggerRadiusMeters = profile.IsGuidedMissile ? missile.ProximityFuseRadiusMeters : fuzeRadius,
 				WarheadDamageRadiusMeters = profile.IsGuidedMissile ? missile.WarheadLethalRadiusMeters : profile.warheadLethalRadiusMeters,
-				ProximityFuseArmSeconds = profile.IsGuidedMissile ? missile.ProximityFuseArmSeconds : profile.proximityFuseArmSeconds,
-				ProximityFuseSafeDistanceMeters = profile.IsGuidedMissile ? missile.ProximityFuseSafeDistanceMeters : profile.proximityFuseSafeDistanceMeters,
+				ProximityFuseArmSeconds = profile.IsGuidedMissile ? missile.ProximityFuseArmSeconds : fuzeArmSeconds,
+				ProximityFuseSafeDistanceMeters = profile.IsGuidedMissile ? missile.ProximityFuseSafeDistanceMeters : fuzeSafeDistance,
 				SeekerRangeMeters = profile.IsGuidedMissile ? missile.SeekerRangeMeters : 0f,
 				MaximumAngularRateDegreesPerSecond = profile.IsGuidedMissile ? missile.MaximumAngularRateDegreesPerSecond : 0f,
 				PointDefenseFieldOfFireDegrees = profile.maximumOffBoresightDegrees * 2f,
@@ -1465,9 +1481,14 @@ namespace ACunicombat.Mechs
 			{
 				direction = GetAimRay().direction;
 			}
+			direction = ApplyArmAiming(state, direction, weaponPerformance);
 			if (kind == TestWeaponKind.Rifle)
 			{
 				direction = ApplyRifleDispersion(direction, state, in rifleProfile);
+			}
+			else
+			{
+				direction = ApplyArmPointingError(direction, state);
 			}
 			if (kind == TestWeaponKind.Rifle)
 			{
@@ -1714,8 +1735,10 @@ namespace ACunicombat.Mechs
 
 		private void InitializeHandWeaponState(MechPartSlot slot, HandWeaponState state)
 		{
-			state.PartId = GetEquippedPartId(slot) ?? string.Empty;
-			state.Performance = GetEquippedPartDefinition(slot)?.WeaponPerformance;
+			var part = GetEquippedPartDefinition(slot);
+			state.PartId = part?.PartId ?? string.Empty;
+			state.Performance = part?.WeaponPerformance;
+			state.WeaponMassKg = Mathf.Max(0f, part?.Stats?.massKg ?? 0f);
 			state.Role = state.Performance != null && state.Performance.IsConfigured
 				? state.Performance.role
 				: MechWeaponRole.None;
@@ -1728,6 +1751,10 @@ namespace ACunicombat.Mechs
 			state.LastDispersionUpdateTime = Time.time;
 			state.LastShotTime = float.NegativeInfinity;
 			state.BurstShotCount = 0;
+			state.HasTrackedAimDirection = false;
+			state.TrackedAimDirection = Vector3.zero;
+			state.AimAngularSpeedDegreesPerSecond = 0f;
+			state.LastAimUpdateTime = Time.time;
 		}
 
 		private int GetHandMagazineCapacity(HandWeaponState state)
@@ -1921,7 +1948,7 @@ namespace ACunicombat.Mechs
 			return Mathf.Max(performance.reloadSeconds, coolingDuration);
 		}
 
-		private static void UpdateRifleDispersion(HandWeaponState state, in AutomaticCannonProfile profile, float now)
+		private void UpdateRifleDispersion(HandWeaponState state, in AutomaticCannonProfile profile, float now)
 		{
 			float elapsed = Mathf.Max(0f, now - state.LastDispersionUpdateTime);
 			state.LastDispersionUpdateTime = now;
@@ -1929,7 +1956,12 @@ namespace ACunicombat.Mechs
 			{
 				float recoveryStart = state.LastShotTime + profile.DispersionRecoveryDelaySeconds;
 				float recoveryElapsed = Mathf.Max(0f, now - Mathf.Max(now - elapsed, recoveryStart));
-				state.RecoilDispersionMilliradians = Mathf.MoveTowards(state.RecoilDispersionMilliradians, 0f, profile.DispersionRecoveryMilliradiansPerSecond * recoveryElapsed);
+				state.RecoilDispersionMilliradians = Mathf.MoveTowards(
+					state.RecoilDispersionMilliradians,
+					0f,
+					profile.DispersionRecoveryMilliradiansPerSecond
+					* ResolveArmRecoilRecoveryScale(state.Performance)
+					* recoveryElapsed);
 				if (now - state.LastShotTime >= profile.BurstResetSeconds)
 				{
 					state.BurstShotCount = 0;
@@ -1937,7 +1969,7 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private static void RegisterRifleRecoil(HandWeaponState state, in AutomaticCannonProfile profile, float now)
+		private void RegisterRifleRecoil(HandWeaponState state, in AutomaticCannonProfile profile, float now)
 		{
 			if (now - state.LastShotTime >= profile.BurstResetSeconds)
 			{
@@ -1946,15 +1978,148 @@ namespace ACunicombat.Mechs
 			float recoilPerShot = state.BurstShotCount < profile.LowRecoilShotCount
 				? profile.LowRecoilPerShotMilliradians
 				: profile.SustainedRecoilPerShotMilliradians;
+			recoilPerShot *= ResolveArmRecoilLoadScale(state.Performance);
 			float maximumRecoil = Mathf.Max(0f, profile.MaximumDispersionMilliradians - profile.BaseDispersionMilliradians);
 			state.RecoilDispersionMilliradians = Mathf.Min(maximumRecoil, state.RecoilDispersionMilliradians + recoilPerShot);
 			state.BurstShotCount++;
 			state.LastShotTime = now;
 		}
 
-		private static float GetCurrentRifleDispersion(HandWeaponState state, in AutomaticCannonProfile profile)
+		private float GetCurrentRifleDispersion(HandWeaponState state, in AutomaticCannonProfile profile)
 		{
-			return Mathf.Clamp(profile.BaseDispersionMilliradians + state.RecoilDispersionMilliradians, 0f, Mathf.Max(profile.BaseDispersionMilliradians, profile.MaximumDispersionMilliradians));
+			var armError = ResolveArmPointingErrorMrad(state);
+			var weaponError = profile.BaseDispersionMilliradians + state.RecoilDispersionMilliradians;
+			var combined = Mathf.Sqrt(weaponError * weaponError + armError * armError);
+			var maximum = Mathf.Sqrt(
+				profile.MaximumDispersionMilliradians * profile.MaximumDispersionMilliradians
+				+ armError * armError);
+			return Mathf.Clamp(combined, 0f, maximum);
+		}
+
+		private Vector3 ApplyArmAiming(
+			HandWeaponState state,
+			Vector3 desiredDirection,
+			MechWeaponPerformance performance)
+		{
+			if (desiredDirection.sqrMagnitude <= 0.000001f)
+			{
+				return transform.forward;
+			}
+
+			desiredDirection.Normalize();
+			var arm = ResolveArmPerformance();
+			if (arm == null || arm.aimTraverseRateDegPerSecond <= 0f)
+			{
+				state.TrackedAimDirection = desiredDirection;
+				state.HasTrackedAimDirection = true;
+				state.LastAimUpdateTime = Time.time;
+				return desiredDirection;
+			}
+
+			var now = Time.time;
+			var aimDeltaTime = Mathf.Max(0f, now - state.LastAimUpdateTime);
+			state.LastAimUpdateTime = now;
+			var massScale = ResolveArmWeaponMassScale(state, arm);
+			var maximumSpeed = arm.aimTraverseRateDegPerSecond * massScale;
+			var acceleration = arm.aimAngularAccelerationDegPerSecondSquared * massScale;
+			state.AimAngularSpeedDegreesPerSecond = acceleration > 0f
+				? Mathf.MoveTowards(
+					state.AimAngularSpeedDegreesPerSecond,
+					maximumSpeed,
+					acceleration * aimDeltaTime)
+				: maximumSpeed;
+			if (!state.HasTrackedAimDirection)
+			{
+				state.TrackedAimDirection = desiredDirection;
+				state.HasTrackedAimDirection = true;
+				return desiredDirection;
+			}
+
+			state.TrackedAimDirection = Vector3.RotateTowards(
+				state.TrackedAimDirection,
+				desiredDirection,
+				state.AimAngularSpeedDegreesPerSecond * Mathf.Deg2Rad * aimDeltaTime,
+				0f).normalized;
+			return state.TrackedAimDirection;
+		}
+
+		private Vector3 ApplyArmPointingError(
+			Vector3 direction,
+			HandWeaponState state)
+		{
+			var error = ResolveArmPointingErrorMrad(state);
+			if (error <= 0f || direction.sqrMagnitude <= 0.000001f)
+			{
+				return direction.normalized;
+			}
+
+			NextRifleGaussianPair(out var horizontalSigma, out var verticalSigma);
+			var forward = direction.normalized;
+			var reference = Mathf.Abs(Vector3.Dot(forward, Vector3.up)) > 0.95f
+				? Vector3.right
+				: Vector3.up;
+			var right = Vector3.Cross(reference, forward).normalized;
+			var up = Vector3.Cross(forward, right).normalized;
+			var radians = error * 0.001f;
+			return (forward + right * horizontalSigma * radians + up * verticalSigma * radians).normalized;
+		}
+
+		private MechArmPerformance ResolveArmPerformance()
+		{
+			return runtimeState != null ? runtimeState.AggregatedStats?.armPerformance : null;
+		}
+
+		private float ResolveArmWeaponMassScale(
+			HandWeaponState state,
+			MechArmPerformance arm)
+		{
+			if (state == null || arm == null || arm.weaponLoadLimitKg <= 0f ||
+				state.WeaponMassKg <= arm.weaponLoadLimitKg)
+			{
+				return 1f;
+			}
+
+			return Mathf.Clamp(arm.weaponLoadLimitKg / state.WeaponMassKg, 0.25f, 1f);
+		}
+
+		private float ResolveArmPointingErrorMrad(HandWeaponState state)
+		{
+			var arm = ResolveArmPerformance();
+			if (arm == null)
+			{
+				return 0f;
+			}
+
+			return Mathf.Max(0f, arm.weaponPointingErrorMrad) /
+			       ResolveArmWeaponMassScale(state, arm);
+		}
+
+		private float ResolveArmRecoilLoadScale(MechWeaponPerformance performance)
+		{
+			var arm = ResolveArmPerformance();
+			if (arm == null || arm.recoilImpulseLimitNs <= 0f || performance == null)
+			{
+				return 1f;
+			}
+
+			return Mathf.Clamp(
+				Mathf.Max(0f, performance.recoilImpulseNewtonSeconds) / arm.recoilImpulseLimitNs,
+				0.5f,
+				3f);
+		}
+
+		private float ResolveArmRecoilRecoveryScale(MechWeaponPerformance performance)
+		{
+			var arm = ResolveArmPerformance();
+			if (arm == null || arm.recoilRecoveryRateNsPerSecond <= 0f)
+			{
+				return 1f;
+			}
+
+			var impulse = performance != null
+				? Mathf.Max(1f, performance.recoilImpulseNewtonSeconds)
+				: 22000f;
+			return Mathf.Clamp(arm.recoilRecoveryRateNsPerSecond / (impulse * 4f), 0.25f, 4f);
 		}
 
 		private Vector3 ApplyRifleDispersion(Vector3 forward, HandWeaponState state, in AutomaticCannonProfile profile)
@@ -3109,7 +3274,8 @@ namespace ACunicombat.Mechs
 			}
 			float interceptRange = ToVector3(relativeInterceptPoint).magnitude;
 			pointDefenseHitProbability = EstimateHandPointDefenseHitProbability(in pointDefenseTarget, interceptRange, projectileSpeed, dispersionMilliradians);
-			if (pointDefenseHitProbability < pointDefenseMinimumHitProbability)
+			if (pointDefenseHitProbability < ResolvePointDefenseProbabilityThreshold(
+				pointDefenseMinimumHitProbability))
 			{
 				pointDefenseWithholdReason = ((interceptRange > pointDefenseTarget.PositionUncertaintyMeters * 400f) ? PointDefenseWithholdReason.TrackTooCoarse : PointDefenseWithholdReason.RangeTooLong);
 				return false;
@@ -3168,13 +3334,22 @@ namespace ACunicombat.Mechs
 			}
 			aimPoint = shooterPosition + ToVector3(relativeInterceptPoint);
 			hitProbability = EstimateShaoWeiPointDefenseHitProbability(in track, interceptRange, projectileSpeed, dispersionMilliradians, lethalRadiusMeters);
-			if (hitProbability < minimumHitProbability)
+			if (hitProbability < ResolvePointDefenseProbabilityThreshold(minimumHitProbability))
 			{
 				withholdReason = ((interceptRange > track.PositionUncertaintyMeters * 400f) ? PointDefenseWithholdReason.TrackTooCoarse : PointDefenseWithholdReason.RangeTooLong);
 				return false;
 			}
 			withholdReason = PointDefenseWithholdReason.None;
 			return true;
+		}
+
+		private float ResolvePointDefenseProbabilityThreshold(float configuredThreshold)
+		{
+			var rating01 = radarController != null
+				? Mathf.Clamp01(radarController.PointDefenseRating / 100f)
+				: 0.5f;
+			return Mathf.Clamp01(
+				Mathf.Max(0f, configuredThreshold) * Mathf.Lerp(1.5f, 0.5f, rating01));
 		}
 
 		private float EstimateShaoWeiPointDefenseHitProbability(in MissileTrackSnapshot track, float interceptRange, float projectileSpeed, float dispersionMilliradians, float configuredLethalRadiusMeters)

@@ -247,6 +247,10 @@ namespace ACunicombat.Mechs
 				combatTarget.ConfigureProtection(
 					runtimeState.AggregatedStats.armorPoints,
 					runtimeState.AggregatedStats.structurePoints);
+				combatTarget.ConfigureSignatures(
+					runtimeState.AggregatedStats.radarCrossSection,
+					runtimeState.AggregatedStats.thermalSignature,
+					runtimeState.AggregatedStats.electromagneticSignature);
 			}
 			if (!aiControlled && radar != null && GetComponent<MechThreatWarningPresenter>() == null)
 			{

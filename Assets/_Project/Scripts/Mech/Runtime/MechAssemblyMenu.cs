@@ -1252,6 +1252,8 @@ namespace ACunicombat.Mechs
 				: BuildCoreDisplayStats(equippedPart.Stats, equippedCore);
 			DrawGeneralPartStats(view, ref y, effectiveStats, equippedEffectiveStats);
 
+			DrawPartMetricGroup(view, ref y, "姿态控制");
+			DrawPartComparisonMetric(view, ref y, "动量轮转向速度", core.momentumWheelTurnRateDegPerSecond, hasEquippedCore ? equippedCore.momentumWheelTurnRateDegPerSecond : null, 60f, "0.0", " °/s", higherIsBetter: true);
 			DrawPartMetricGroup(view, ref y, "核心喷口");
 			DrawPartComparisonMetric(view, ref y, "向前排气喷口", core.ForwardExhaustNozzleCount, hasEquippedCore ? equippedCore.ForwardExhaustNozzleCount : null, 12f, "0", " 个", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "反向推力贡献", core.ReverseThrustContributionKn, hasEquippedCore ? equippedCore.ReverseThrustContributionKn : null, 600f, "0.0", " kN", higherIsBetter: true);
@@ -1318,7 +1320,6 @@ namespace ACunicombat.Mechs
 			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 16000f, "0", " kg", higherIsBetter: false);
 			DrawPartComparisonMetric(view, ref y, "装甲", stats.armorPoints, equippedStats?.armorPoints, 3000f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "结构强度", stats.structurePoints, equippedStats?.structurePoints, 2600f, "0", string.Empty, higherIsBetter: true);
-			DrawPartComparisonMetric(view, ref y, "稳定性", stats.stability, equippedStats?.stability, 100f, "0.0", string.Empty, higherIsBetter: true);
 			DrawPartMetricGroup(view, ref y, "能源与热量");
 			DrawPartComparisonMetric(view, ref y, "发电功率", ToKilowatts(stats.powerOutputMw), ToKilowatts(equippedStats?.powerOutputMw), ToKilowatts(100f), "0.#", " kW", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "待机功耗", ToKilowatts(stats.idlePowerDrawMw), ToKilowatts(equippedStats?.idlePowerDrawMw), ToKilowatts(30f), "0.#", " kW", higherIsBetter: false);
@@ -1369,7 +1370,6 @@ namespace ACunicombat.Mechs
 			DrawAggregateValueRow(row, ref y, "总质量", current.totalMassKg, equipped.totalMassKg, "0", " kg", higherIsBetter: false, 100000f);
 			DrawAggregateValueRow(row, ref y, "装甲", current.armorPoints, equipped.armorPoints, "0", string.Empty, higherIsBetter: true, 10000f);
 			DrawAggregateValueRow(row, ref y, "结构强度", current.structurePoints, equipped.structurePoints, "0", string.Empty, higherIsBetter: true, 8000f);
-			DrawAggregateValueRow(row, ref y, "稳定性", current.stability, equipped.stability, "0.0", string.Empty, higherIsBetter: true, 300f);
 			DrawGroup(ref y, row, "能源与热量");
 			DrawAggregateValueRow(row, ref y, "发电功率", ToKilowatts(current.powerOutputMw), ToKilowatts(equipped.powerOutputMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(150f));
 			DrawAggregateValueRow(row, ref y, "储能容量", current.energyStorageCapacityMj, equipped.energyStorageCapacityMj, "0.0", " MJ", higherIsBetter: true, 600f);

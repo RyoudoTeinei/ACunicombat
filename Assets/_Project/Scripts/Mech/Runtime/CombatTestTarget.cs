@@ -185,6 +185,16 @@ namespace ACunicombat.Mechs
             resetAt = -1f;
         }
 
+        public void ConfigureSignatures(
+            float newRadarCrossSectionSquareMeters,
+            float newThermalSignature,
+            float newElectromagneticSignature)
+        {
+            radarCrossSectionSquareMeters = Mathf.Max(0.001f, newRadarCrossSectionSquareMeters);
+            thermalSignature = Mathf.Max(0.001f, newThermalSignature);
+            electromagneticSignature = Mathf.Max(0.001f, newElectromagneticSignature);
+        }
+
         public static CombatDamageBreakdown CalculateProtectionDamage(
             float currentArmor,
             float currentStructure,

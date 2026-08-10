@@ -16,9 +16,6 @@ namespace ACunicombat.Mechs
 		[Min(0f)]
 		public float structurePoints;
 
-		[Min(0f)]
-		public float stability;
-
 		[Header("Power and Heat")]
 		public float powerOutputMw;
 
@@ -88,7 +85,6 @@ namespace ACunicombat.Mechs
 				massKg += other.massKg;
 				armorPoints += other.armorPoints;
 				structurePoints += other.structurePoints;
-				stability += other.stability;
 				powerOutputMw += other.powerOutputMw;
 				idlePowerDrawMw += other.idlePowerDrawMw;
 				peakPowerDrawMw += other.peakPowerDrawMw;
@@ -127,7 +123,6 @@ namespace ACunicombat.Mechs
 				massKg = other.massKg;
 				armorPoints = other.armorPoints;
 				structurePoints = other.structurePoints;
-				stability = other.stability;
 				powerOutputMw = other.powerOutputMw;
 				idlePowerDrawMw = other.idlePowerDrawMw;
 				peakPowerDrawMw = other.peakPowerDrawMw;
@@ -415,12 +410,15 @@ namespace ACunicombat.Mechs
 	[Serializable]
 	public sealed class MechCorePerformance
 	{
+		[Min(0f), Tooltip("动量轮单独能够提供的最大机体转向速度。它不产生平移推力。")]
+		public float momentumWheelTurnRateDegPerSecond;
 		[Tooltip("向机体前方排气，产生反向机动推力。")]
 		public MechCoreThrusterNozzle[] forwardExhaustNozzles = Array.Empty<MechCoreThrusterNozzle>();
 		[Tooltip("向机体上方排气，产生下向机动推力。")]
 		public MechCoreThrusterNozzle[] upwardExhaustNozzles = Array.Empty<MechCoreThrusterNozzle>();
 
-		public bool HasData => (forwardExhaustNozzles != null && forwardExhaustNozzles.Length > 0) ||
+		public bool HasData => momentumWheelTurnRateDegPerSecond > 0f ||
+			(forwardExhaustNozzles != null && forwardExhaustNozzles.Length > 0) ||
 			(upwardExhaustNozzles != null && upwardExhaustNozzles.Length > 0);
 
 		public int ForwardExhaustNozzleCount => forwardExhaustNozzles?.Length ?? 0;
@@ -436,6 +434,7 @@ namespace ACunicombat.Mechs
 		{
 			return new MechCorePerformance
 			{
+				momentumWheelTurnRateDegPerSecond = momentumWheelTurnRateDegPerSecond,
 				forwardExhaustNozzles = CloneNozzles(forwardExhaustNozzles),
 				upwardExhaustNozzles = CloneNozzles(upwardExhaustNozzles)
 			};
@@ -761,7 +760,6 @@ namespace ACunicombat.Mechs
 		public float totalMassKg;
 		public float armorPoints;
 		public float structurePoints;
-		public float stability;
 		public float powerOutputMw;
 		public float idlePowerDrawMw;
 		public float peakPowerDrawMw;
@@ -794,8 +792,14 @@ namespace ACunicombat.Mechs
 		public float energyRechargePowerKw;
 		public float energyRechargeDelayS;
 		public float depletedEnergyRestartFraction;
+		public float momentumWheelTurnRateDegPerSecond;
 		public MechRadarPerformance radarPerformance = new MechRadarPerformance();
 		public MechFireControlPerformance fireControlPerformance = new MechFireControlPerformance();
+		public MechHeadSensorPerformance headSensorPerformance = new MechHeadSensorPerformance();
+		public MechArmPerformance armPerformance = new MechArmPerformance();
+		public MechCorePerformance corePerformance = new MechCorePerformance();
+		public MechLegPerformance legPerformance = new MechLegPerformance();
+		public MechBoosterPerformance boosterPerformance = new MechBoosterPerformance();
 
 		[Header("Derived")]
 		public float idlePowerSurplusMw;
@@ -816,7 +820,6 @@ namespace ACunicombat.Mechs
 			totalMassKg = 0f;
 			armorPoints = 0f;
 			structurePoints = 0f;
-			stability = 0f;
 			powerOutputMw = 0f;
 			idlePowerDrawMw = 0f;
 			peakPowerDrawMw = 0f;
@@ -847,8 +850,14 @@ namespace ACunicombat.Mechs
 			energyRechargePowerKw = 0f;
 			energyRechargeDelayS = 0f;
 			depletedEnergyRestartFraction = 0f;
+			momentumWheelTurnRateDegPerSecond = 0f;
 			radarPerformance = new MechRadarPerformance();
 			fireControlPerformance = new MechFireControlPerformance();
+			headSensorPerformance = new MechHeadSensorPerformance();
+			armPerformance = new MechArmPerformance();
+			corePerformance = new MechCorePerformance();
+			legPerformance = new MechLegPerformance();
+			boosterPerformance = new MechBoosterPerformance();
 			idlePowerSurplusMw = 0f;
 			peakPowerSurplusMw = 0f;
 			heatSurplusMw = 0f;
@@ -873,7 +882,6 @@ namespace ACunicombat.Mechs
 			totalMassKg += stats.massKg;
 			armorPoints += stats.armorPoints;
 			structurePoints += stats.structurePoints;
-			stability += stats.stability;
 			powerOutputMw += stats.powerOutputMw;
 			idlePowerDrawMw += stats.idlePowerDrawMw;
 			peakPowerDrawMw += stats.peakPowerDrawMw;
@@ -913,6 +921,7 @@ namespace ACunicombat.Mechs
 			// the maximum force in either direction. RCS reports total installed thrust.
 			lateralThrustKn += arms.LateralThrustContributionKn;
 			rcsThrustKn += arms.RcsThrustContributionKn;
+			armPerformance = arms.Clone();
 		}
 
 		public void AddCorePerformance(MechCorePerformance core)
@@ -924,6 +933,8 @@ namespace ACunicombat.Mechs
 
 			reverseThrustKn += core.ReverseThrustContributionKn;
 			downwardThrustKn += core.DownwardThrustContributionKn;
+			momentumWheelTurnRateDegPerSecond += core.momentumWheelTurnRateDegPerSecond;
+			corePerformance = core.Clone();
 		}
 
 		public void AddLegPerformance(MechLegPerformance legs)
@@ -939,6 +950,7 @@ namespace ACunicombat.Mechs
 			upwardThrustKn += legs.UpwardThrustContributionKn;
 			rcsThrustKn += legs.RcsThrustContributionKn;
 			supportedMassKg += legs.maximumSupportedMassKg;
+			legPerformance = legs.Clone();
 		}
 
 		public void AddBoosterPerformance(MechBoosterPerformance booster)
@@ -949,6 +961,19 @@ namespace ACunicombat.Mechs
 			}
 
 			mainThrustKn += booster.mainThrustKn;
+			lateralThrustKn += booster.mainThrustKn * Mathf.Sin(
+				Mathf.Clamp(booster.horizontalVectorLimitDeg, 0f, 89f) * Mathf.Deg2Rad);
+			upwardThrustKn += booster.mainThrustKn * Mathf.Sin(
+				Mathf.Clamp(booster.verticalVectorLimitDeg, 0f, 89f) * Mathf.Deg2Rad);
+			boosterPerformance = booster.Clone();
+		}
+
+		public void AddHeadSensorPerformance(MechHeadSensorPerformance head)
+		{
+			if (head != null && head.HasData)
+			{
+				headSensorPerformance = head.Clone();
+			}
 		}
 
 		public void AddGeneratorPerformance(MechGeneratorPerformance generator)
@@ -1008,7 +1033,8 @@ namespace ACunicombat.Mechs
 				rcsAccelerationMps2 = rcsThrustKn * 1000f / totalMassKg;
 				// Calibrated so the 900 kN baseline RCS package preserves the existing
 				// roughly 180 deg/s turn rate on the current 56.4 t test loadout.
-				rcsTurnRateDegreesPerSecond = rcsAccelerationMps2 * 11.28f;
+				rcsTurnRateDegreesPerSecond = momentumWheelTurnRateDegPerSecond +
+					rcsAccelerationMps2 * 11.28f;
 				supportedMassRatio = supportedMassKg > 0f ? totalMassKg / supportedMassKg : 0f;
 			}
 			else

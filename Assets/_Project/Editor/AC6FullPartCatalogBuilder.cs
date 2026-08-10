@@ -272,6 +272,8 @@ public static class AC6FullPartCatalogBuilder
 			MechPartDefinition source = sampleParts[i];
 			if (!(source == null) && ids.Add(source.PartId))
 			{
+				MechPartSignatureDefaults.ApplyIfMissing(source.Stats, source.Slot);
+				EditorUtility.SetDirty(source);
 				MechPartDefinition clone = ClonePartToResources(source);
 				string key = ResolveSourceKey(source.PartId);
 				if (!string.IsNullOrWhiteSpace(key))
@@ -444,6 +446,7 @@ public static class AC6FullPartCatalogBuilder
 		string newDisplayName = DisplayName(item.key);
 		int newCategory = ((!isFrame) ? (isBooster ? 10 : 20) : 0);
 		MechPartStats newStats = BuildStats(slot);
+		MechPartSignatureDefaults.ApplyIfMissing(newStats, slot);
 		if (string.Equals(item.key, "WP_L_1610", StringComparison.OrdinalIgnoreCase)
 			|| string.Equals(item.key, "WP_R_1610", StringComparison.OrdinalIgnoreCase))
 		{
@@ -459,7 +462,7 @@ public static class AC6FullPartCatalogBuilder
 		{
 			newMountPoints = BuildFrameMountPoints(slot);
 		}
-		mechPartDefinition.EditorConfigure(id, newDisplayName, slot, (MechPartCategory)newCategory, model, newStats, newMountPoints, tags, null, isFrame ? MechVisualRigMode.SynchronizedSkinned : MechVisualRigMode.MountedPrefab, clip, AncestorDriver(slot), AncestorBones(slot), isBooster, null, null, shouldPlayDefaultEquipmentActionOnAssemble: false, Vector3.zero, isBooster ? new Vector3(180f, 0f, 0f) : (MechSlotRules.IsWeaponSlot(slot) ? new Vector3(0f, 180f, 0f) : Vector3.zero), Vector3.one, previewModel, newArmPerformance: BuildArmPerformance(slot, 1f), newCorePerformance: BuildCorePerformance(slot, 1f, item.key), newLegPerformance: BuildLegPerformance(slot, 1f), newBoosterPerformance: BuildBoosterPerformance(slot, item.key), newWeaponPerformance: AC6TestWeaponProfileFactory.Create(id));
+		mechPartDefinition.EditorConfigure(id, newDisplayName, slot, (MechPartCategory)newCategory, model, newStats, newMountPoints, tags, null, isFrame ? MechVisualRigMode.SynchronizedSkinned : MechVisualRigMode.MountedPrefab, clip, AncestorDriver(slot), AncestorBones(slot), isBooster, null, null, shouldPlayDefaultEquipmentActionOnAssemble: false, Vector3.zero, isBooster ? new Vector3(180f, 0f, 0f) : (MechSlotRules.IsWeaponSlot(slot) ? new Vector3(0f, 180f, 0f) : Vector3.zero), Vector3.one, previewModel, newHeadSensorPerformance: BuildHeadSensorPerformance(slot), newArmPerformance: BuildArmPerformance(slot, 1f), newCorePerformance: BuildCorePerformance(slot, 1f, item.key), newLegPerformance: BuildLegPerformance(slot, 1f), newBoosterPerformance: BuildBoosterPerformance(slot, item.key), newWeaponPerformance: AC6TestWeaponProfileFactory.Create(id));
 		EditorUtility.SetDirty(mechPartDefinition);
 		return mechPartDefinition;
 	}
@@ -526,7 +529,6 @@ public static class AC6FullPartCatalogBuilder
 				massKg = 12000f,
 				armorPoints = 1750f,
 				structurePoints = 1450f,
-				stability = 26f,
 				idlePowerDrawMw = 0.95f,
 				peakPowerDrawMw = 3.8f,
 				idleHeatMw = 0.28f,
@@ -557,7 +559,6 @@ public static class AC6FullPartCatalogBuilder
 				massKg = 9800f,
 				armorPoints = 1250f,
 				structurePoints = 1050f,
-				stability = 44f,
 				idlePowerDrawMw = 0.8f,
 				peakPowerDrawMw = 1.6f,
 				idleHeatMw = 0.22f,
@@ -609,6 +610,32 @@ public static class AC6FullPartCatalogBuilder
 			verticalVectorLimitDeg = code == 3010 ? 31f : code == 2010 ? 39f : 35f,
 			assaultBoostPowerDrawKw = code == 3010 ? 52000f : code == 2010 ? 40000f : 45000f,
 			quickBoostPowerDrawKw = code == 3010 ? 205000f : code == 2010 ? 165000f : 180000f
+		};
+	}
+
+	private static MechHeadSensorPerformance BuildHeadSensorPerformance(MechPartSlot slot)
+	{
+		if (slot != MechPartSlot.Head)
+		{
+			return null;
+		}
+
+		return new MechHeadSensorPerformance
+		{
+			pointingCapability = 68f,
+			searchCapability = 62f,
+			trackingCapability = 72f,
+			identificationCapability = 65f,
+			maximumMagnification = 20f,
+			referenceHotRangeKm = 30f,
+			referenceColdRangeKm = 12f,
+			trackCapacity = 8,
+			referenceRangeErrorM = 120f,
+			laserRangefinderRangeKm = 12f,
+			laserRangefinderErrorM = 0.75f,
+			supportedBands = MechElectroOpticalBand.Visible |
+				MechElectroOpticalBand.Mwir |
+				MechElectroOpticalBand.Lwir
 		};
 	}
 
@@ -679,6 +706,7 @@ public static class AC6FullPartCatalogBuilder
 		float downwardThrust = 450f * scale;
 		return new MechCorePerformance
 		{
+			momentumWheelTurnRateDegPerSecond = 24f / Mathf.Sqrt(Mathf.Max(0.5f, scale)),
 			forwardExhaustNozzles = new[]
 			{
 				new MechCoreThrusterNozzle { nozzleId = "core-forward-left", localPositionM = new Vector3(-0.72f, 0.25f, 0.58f), localExhaustDirection = Vector3.forward, maximumThrustKn = reverseThrust * 0.5f, gimbalLimitDeg = 6f, maximumPowerKw = 550f * scale, maximumHeatKw = 220f * scale },

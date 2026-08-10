@@ -15,7 +15,6 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechFlightMotionController motion;
         [SerializeField] private float distance = 20f;
         [SerializeField] private float focusHeight = 7.5f;
-        [SerializeField] private float pitchSensitivity = 0.12f;
         [SerializeField, Min(0.01f)] private float followResponse = 8f;
         [Header("High-speed framing")]
         [SerializeField, Min(0.01f)] private float maxHorizontalLagRatio = 0.26f;
@@ -55,9 +54,6 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(1000f)] private float farClipDistance = 100000f;
         [Header("View zoom")]
         [SerializeField] private Key zoomKey = Key.CapsLock;
-        [SerializeField, Range(5f, 60f)] private float zoomFieldOfView = 22f;
-        [SerializeField, Range(3f, 20f)] private float precisionZoomFieldOfView = 6.6f;
-        [SerializeField, Range(2f, 12f)] private float maximumZoomFieldOfView = 3.3f;
         [SerializeField, Range(0.05f, 0.8f)] private float overviewZoomOwnshipAlpha = 0.24f;
         [SerializeField, Range(0.05f, 1f)] private float overviewZoomAimSensitivity = 0.55f;
         [SerializeField, Range(0.02f, 1f)] private float precisionZoomAimSensitivity = 0.24f;
@@ -122,12 +118,7 @@ namespace ACunicombat.Mechs
             }
         }
 
-        public int ZoomMagnification => zoomStage switch
-        {
-            2 => 20,
-            1 => 10,
-            _ => 3,
-        };
+        public int ZoomMagnification => Mathf.RoundToInt(ResolveZoomMagnification(zoomStage));
 
         public bool ZoomTracksSttTarget => zoomTracksSttTarget;
 
@@ -910,12 +901,8 @@ namespace ACunicombat.Mechs
                     zoomStage = Mathf.Max(0, zoomStage - 1);
                 }
 
-                var selectedFieldOfView = zoomStage switch
-                {
-                    2 => maximumZoomFieldOfView,
-                    1 => precisionZoomFieldOfView,
-                    _ => zoomFieldOfView,
-                };
+                var selectedFieldOfView = baseFieldOfView /
+                    Mathf.Max(1f, ResolveZoomMagnification(zoomStage));
                 targetFieldOfView = Mathf.Min(
                     targetFieldOfView,
                     selectedFieldOfView);
@@ -1118,6 +1105,27 @@ namespace ACunicombat.Mechs
             ApplyClipPlanes();
             baseFieldOfView = controlledCamera.fieldOfView;
             fieldOfViewInitialized = true;
+        }
+
+        private float ResolveZoomMagnification(int stage)
+        {
+            var maximumMagnification = 20f;
+            if (followTarget != null)
+            {
+                var state = followTarget.GetComponent<MechRuntimeState>();
+                var configured = state?.AggregatedStats?.headSensorPerformance?.maximumMagnification ?? 0f;
+                if (configured > 0f)
+                {
+                    maximumMagnification = configured;
+                }
+            }
+
+            return stage switch
+            {
+                2 => Mathf.Max(1f, maximumMagnification),
+                1 => Mathf.Min(10f, Mathf.Max(1f, maximumMagnification)),
+                _ => Mathf.Min(3f, Mathf.Max(1f, maximumMagnification)),
+            };
         }
 
         private void ApplyClipPlanes()

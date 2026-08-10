@@ -51,6 +51,14 @@ namespace ACunicombat.Mechs
         private CombatTestTarget target;
         private Vector3 previousPosition;
 
+        public void ConfigureEmissionSignature(float electromagneticSignature)
+        {
+            // 10 is the legacy reference loadout. Preserve its 68 dB output while
+            // allowing installed parts to make the platform easier or harder to intercept.
+            var signatureScale = Mathf.Max(0.01f, electromagneticSignature) / 10f;
+            mainlobePowerDb = 68f + 10f * Mathf.Log10(signatureScale);
+        }
+
         public bool HasPlayerLock
         {
             get

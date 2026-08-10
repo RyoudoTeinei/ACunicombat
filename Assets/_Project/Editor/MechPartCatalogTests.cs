@@ -357,6 +357,76 @@ namespace ACunicombat.Editor.Tests
 		}
 
 		[Test]
+		public void AggregatedStats_BoosterVectorLimitsContributeDirectionalThrust()
+		{
+			var stats = new MechAggregatedStats();
+			stats.AddBoosterPerformance(new MechBoosterPerformance
+			{
+				mainThrustKn = 1000f,
+				horizontalVectorLimitDeg = 30f,
+				verticalVectorLimitDeg = 20f,
+				quickBoostRecoveryS = 0.45f
+			});
+
+			Assert.That(stats.mainThrustKn, Is.EqualTo(1000f).Within(0.01f));
+			Assert.That(stats.lateralThrustKn, Is.EqualTo(500f).Within(0.01f));
+			Assert.That(
+				stats.upwardThrustKn,
+				Is.EqualTo(1000f * Mathf.Sin(20f * Mathf.Deg2Rad)).Within(0.01f));
+			Assert.That(stats.boosterPerformance.quickBoostRecoveryS, Is.EqualTo(0.45f));
+		}
+
+		[Test]
+		public void AggregatedStats_RcsAndMomentumWheelDefineMaximumTurnRate()
+		{
+			var stats = new MechAggregatedStats();
+			stats.Add(new MechPartStats { massKg = 50000f, rcsThrustKn = 500f });
+			stats.AddCorePerformance(new MechCorePerformance
+			{
+				momentumWheelTurnRateDegPerSecond = 12f
+			});
+			stats.RecalculateDerived();
+
+			Assert.That(stats.rcsAccelerationMps2, Is.EqualTo(10f).Within(0.001f));
+			Assert.That(stats.rcsTurnRateDegreesPerSecond, Is.EqualTo(124.8f).Within(0.01f));
+		}
+
+		[TestCase(50000f, 65000f, 1f)]
+		[TestCase(65000f, 65000f, 1f)]
+		[TestCase(97500f, 65000f, 0.2962963f)]
+		[TestCase(260000f, 65000f, 0.2f)]
+		public void OverloadAccelerationScale_AppliesCubicPenaltyAboveLegLimit(
+			float massKg,
+			float supportedMassKg,
+			float expected)
+		{
+			Assert.That(
+				MechFlightMotionController.CalculateOverloadAccelerationScale(
+					massKg,
+					supportedMassKg),
+				Is.EqualTo(expected).Within(0.0001f));
+		}
+
+		[Test]
+		public void SignatureFallback_AssignsDifferentContributionsByPartSlot()
+		{
+			var core = new MechPartStats();
+			var radar = new MechPartStats();
+			MechPartSignatureDefaults.ApplyIfMissing(core, MechPartSlot.Core);
+			MechPartSignatureDefaults.ApplyIfMissing(radar, MechPartSlot.Radar);
+
+			Assert.That(core.radarCrossSection, Is.GreaterThan(radar.radarCrossSection));
+			Assert.That(radar.electromagneticSignature, Is.GreaterThan(core.electromagneticSignature));
+			Assert.That(MechPartSignatureDefaults.HasConfiguredSignature(core), Is.True);
+
+			var partial = new MechPartStats { radarCrossSection = 9f };
+			MechPartSignatureDefaults.ApplyIfMissing(partial, MechPartSlot.Head);
+			Assert.That(partial.radarCrossSection, Is.EqualTo(9f));
+			Assert.That(partial.thermalSignature, Is.GreaterThan(0f));
+			Assert.That(partial.electromagneticSignature, Is.GreaterThan(0f));
+		}
+
+		[Test]
 		public void ProtectionDamage_UsesFixedReductionAndFullOverflowDamage()
 		{
 			CombatDamageBreakdown armored = CombatTestTarget.CalculateProtectionDamage(100f, 100f, 40f);
