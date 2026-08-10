@@ -120,6 +120,38 @@ namespace ACunicombat.Editor.Tests
         }
 
         [Test]
+        public void ForwardThrust_PreservesExistingLateralVelocity()
+        {
+            motion.ConfigureGravity(0f);
+            var strafe = new MechPlayerInputFrame { MoveLocal = Vector2.right };
+            motion.Tick(in strafe, 0.1f);
+            var lateralVelocity = motion.Velocity.x;
+            Assert.That(lateralVelocity, Is.GreaterThan(0f));
+
+            var forward = new MechPlayerInputFrame { MoveLocal = Vector2.up };
+            motion.Tick(in forward, 0.1f);
+
+            Assert.That(motion.Velocity.x, Is.EqualTo(lateralVelocity).Within(0.0001f));
+            Assert.That(motion.Velocity.z, Is.GreaterThan(0f));
+        }
+
+        [Test]
+        public void LateralThrust_PreservesExistingForwardVelocity()
+        {
+            motion.ConfigureGravity(0f);
+            var forward = new MechPlayerInputFrame { MoveLocal = Vector2.up };
+            motion.Tick(in forward, 0.1f);
+            var forwardVelocity = motion.Velocity.z;
+            Assert.That(forwardVelocity, Is.GreaterThan(0f));
+
+            var strafe = new MechPlayerInputFrame { MoveLocal = Vector2.right };
+            motion.Tick(in strafe, 0.1f);
+
+            Assert.That(motion.Velocity.z, Is.EqualTo(forwardVelocity).Within(0.0001f));
+            Assert.That(motion.Velocity.x, Is.GreaterThan(0f));
+        }
+
+        [Test]
         public void GroundedPitchEnvelope_PreventsPointingIntoSurface()
         {
             var groundedField = typeof(MechFlightMotionController).GetField(

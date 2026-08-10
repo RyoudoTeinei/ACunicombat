@@ -184,7 +184,9 @@ public static class AC6FullPartCatalogBuilder
 	private static readonly HashSet<string> TestedInternalKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 	{
 		"BS_A_1010",
-		"AC6_SKIN_SAMPLE_GENERATOR"
+		"AC6_SKIN_SAMPLE_GENERATOR",
+		"AC6_SKIN_SAMPLE_FCS",
+		"AC6_SKIN_SAMPLE_RADAR"
 	};
 
 	private static readonly Dictionary<string, string> KnownPartKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -355,6 +357,8 @@ public static class AC6FullPartCatalogBuilder
 			MechPartSlot.Legs => "标准腿部基准数值已录入，已验证视觉装配、承载、上升、反向、横向与 RCS 喷口数据。",
 			MechPartSlot.Booster => "标准主推进器基准数值已录入，已验证视觉装配、主向推进、AB、QB 与装配驱动功耗。",
 			MechPartSlot.Generator => "标准发电机基准数值已录入，储能容量、回充功率与启动参数已接入机动能量系统。",
+			MechPartSlot.FireControlSystem => "当前火控基准数值已录入，已验证航迹解算、武器授权、制导通道与点防御流程。",
+			MechPartSlot.Radar => "当前雷达基准数值已录入，已验证搜索、TWS、STT、导弹识别与航迹维持流程。",
 			_ => "当前战斗原型正在使用，已验证安装、开火、弹药与装填流程。"
 		};
 	}

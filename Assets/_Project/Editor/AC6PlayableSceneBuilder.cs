@@ -1820,13 +1820,16 @@ public static class AC6PlayableSceneBuilder
         weaponSystem.enabled = true;
         if (weaponSystem.RadarController != null)
         {
-            weaponSystem.RadarController.enabled = false;
+            weaponSystem.RadarController.enabled = true;
             EditorUtility.SetDirty(weaponSystem.RadarController);
         }
 
         Ensure<MechTestRadarEmitter>(root);
-        var aiSensors = Ensure<MechAiSensorSuite>(root);
-        aiSensors.Configure(playerTarget, sensorCamera);
+        var legacyAiSensors = root.GetComponent<MechAiSensorSuite>();
+        if (legacyAiSensors != null)
+        {
+            UnityEngine.Object.DestroyImmediate(legacyAiSensors);
+        }
         var ai = Ensure<MechAiTargetController>(root);
         ai.Configure(playerTarget, sensorCamera);
         ai.ConfigureCombatBehavior(3000f, 5000f, 8f);
@@ -1844,7 +1847,6 @@ public static class AC6PlayableSceneBuilder
         EditorUtility.SetDirty(rig);
         EditorUtility.SetDirty(target);
         EditorUtility.SetDirty(sensorCamera);
-        EditorUtility.SetDirty(aiSensors);
         EditorUtility.SetDirty(weaponSystem);
         EditorUtility.SetDirty(ai);
         EditorUtility.SetDirty(root);

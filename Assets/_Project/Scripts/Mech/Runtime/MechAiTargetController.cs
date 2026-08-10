@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using ACunicombat.Sensing.Contracts;
 using UnityEngine;
 
 namespace ACunicombat.Mechs
@@ -19,18 +20,13 @@ namespace ACunicombat.Mechs
 
         private const string Ac6PartsApproxShaderName =
             "ACunicombat/AC6/Parts Approx";
-        private const float InterceptorRadarRevisitSeconds = 0.02f;
-        private const int InterceptorClassificationHits = 2;
-        private const int InterceptorConfirmationHits = 4;
-        private const float InterceptorConfirmationConfidence = 0.55f;
-        private const float InterceptorMawRangeMeters = 8000f;
+        private const float InterceptorRadarRevisitSeconds = 0.04f;
         private const float InterceptorTrackMaximumAgeSeconds = 0.6f;
 
         [SerializeField] private CombatTestTarget objective;
         [SerializeField] private Camera sensorCamera;
         [SerializeField, Min(100f)] private float minimumCombatRangeMeters = 3000f;
         [SerializeField, Min(100f)] private float maximumCombatRangeMeters = 5000f;
-        [SerializeField, Min(1000f)] private float radarTrackingRangeMeters = 50000f;
         [SerializeField, Min(1f)] private float missileCooldownSeconds = 8f;
         [SerializeField, Min(0.5f)] private float interceptorCooldownSeconds = 4f;
         [SerializeField] private float lateralWeavePeriodSeconds = 5f;
@@ -50,10 +46,10 @@ namespace ACunicombat.Mechs
             new Color(0.96f, 0.97f, 0.98f, 1f);
 
         private readonly List<Material> ownedPaintMaterials = new();
-        private readonly Dictionary<MechTestProjectile, InterceptorContact>
-            interceptorContacts = new();
-        private readonly List<MechTestProjectile>
-            staleInterceptorContacts = new();
+        private readonly TrackSnapshot[] airTrackScratch =
+            new TrackSnapshot[MechRadarController.MaximumPublicTracks];
+        private readonly MissileTrackSnapshot[] missileTrackScratch =
+            new MissileTrackSnapshot[MechRadarController.MaximumPublicTracks];
         private MechPlayerInputAdapter input;
         private MechPlayerRig rig;
         private MechFlightMotionController motion;
@@ -61,10 +57,13 @@ namespace ACunicombat.Mechs
         private MechTestRadarEmitter radarEmitter;
         private MechTestWeaponSystem weapons;
         private MechWeaponArmLayer weaponAnimationLayer;
-        private MechAiSensorSuite sensorSuite;
         private CombatTestTarget selfTarget;
+        private TrackId selectedAirTrackId;
+        private TrackSnapshot lastAirTrack;
+        private bool hasLastAirTrack;
         private float nextHandWeaponTime;
         private float nextMissileTime;
+        private float nextMissileAttemptTime;
         private float nextInterceptorTime;
         private float nextInterceptorRadarSweepTime;
         private float nextRifleShotTime;
@@ -84,12 +83,8 @@ namespace ACunicombat.Mechs
         {
             objective = newObjective;
             sensorCamera = newSensorCamera;
-            sensorSuite ??= GetComponent<MechAiSensorSuite>();
-            if (sensorSuite == null)
-            {
-                sensorSuite = gameObject.AddComponent<MechAiSensorSuite>();
-            }
-            sensorSuite.Configure(objective, sensorCamera);
+            radar ??= GetComponent<MechRadarController>();
+            radar?.Configure(sensorCamera, objective);
             EnsureRadarEmitterConfigured();
         }
 
@@ -112,26 +107,28 @@ namespace ACunicombat.Mechs
             rig = GetComponent<MechPlayerRig>();
             motion = GetComponent<MechFlightMotionController>();
             radar = GetComponent<MechRadarController>();
+            if (radar != null)
+            {
+                radar.enabled = true;
+                radar.Configure(sensorCamera, objective);
+                radar.SetRadarPowerEnabled(true);
+                radar.SetTrackOperationMode(true);
+            }
             EnsureRadarEmitterConfigured();
             weapons = GetComponent<MechTestWeaponSystem>();
             weaponAnimationLayer = GetComponent<MechWeaponArmLayer>();
             selfTarget = GetComponent<CombatTestTarget>();
-            sensorSuite = GetComponent<MechAiSensorSuite>();
-            if (sensorSuite == null)
+            var legacySensorSuite = GetComponent<MechAiSensorSuite>();
+            if (legacySensorSuite != null)
             {
-                sensorSuite = gameObject.AddComponent<MechAiSensorSuite>();
+                legacySensorSuite.enabled = false;
             }
-            sensorSuite.Configure(objective, sensorCamera);
             var trajectoryPredictor = GetComponent<MechTrajectoryPredictor>();
             if (trajectoryPredictor != null)
             {
                 trajectoryPredictor.enabled = false;
             }
             input?.SetExternalControl(true);
-            if (radar != null && radar.isActiveAndEnabled)
-            {
-                radar.SetTrackOperationMode(true);
-            }
             if (stationaryTestMode &&
                 TryGetComponent<Rigidbody>(out var body))
             {
@@ -190,12 +187,9 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            sensorSuite ??= GetComponent<MechAiSensorSuite>();
-            sensorSuite?.Tick(Time.time);
             UpdateMissileDefense();
 
-            if (sensorSuite == null ||
-                !sensorSuite.TryGetTrack(out var targetTrack))
+            if (!TryGetAirTargetTrack(out var targetTrack))
             {
                 combatState = incomingThreat
                     ? CombatState.Defensive
@@ -213,7 +207,8 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var estimatedPosition = targetTrack.Predict(0.12f);
+            var estimatedPosition = radar.PredictTrackPosition(in targetTrack) +
+                                    ToVector3(targetTrack.Velocity) * 0.12f;
             var toTarget = estimatedPosition - transform.position;
             var range = toTarget.magnitude;
             if (range <= 0.01f)
@@ -230,7 +225,11 @@ namespace ACunicombat.Mechs
             }
             var frame = stationaryTestMode
                 ? default
-                : BuildFlightFrame(range, direction, combatState);
+                : BuildFlightFrame(
+                    range,
+                    direction,
+                    ToVector3(targetTrack.Velocity),
+                    combatState);
             input.SubmitExternalFrame(in frame);
 
             if (combatState != CombatState.Defensive)
@@ -259,12 +258,12 @@ namespace ACunicombat.Mechs
         }
 
         private void UpdateWeapons(
-            in MechAiSensorSuite.SensorTrack track,
+            in TrackSnapshot track,
             Vector3 estimatedPosition,
             float range)
         {
-            if (weapons == null || sensorSuite == null ||
-                !sensorSuite.HasFireControlTrack)
+            if (weapons == null || radar == null ||
+                !radar.TryAssignFireControlTrack(track.TrackId))
             {
                 rifleBurstShotsRemaining = 0;
                 return;
@@ -288,10 +287,9 @@ namespace ACunicombat.Mechs
                 if (rifleBurstShotsRemaining > 0 &&
                     Time.time >= nextRifleShotTime)
                 {
-                    var fired = weapons.CommandFireHandWeaponAtEstimate(
+                    var fired = weapons.CommandFireHandWeaponAtTrack(
                         TestWeaponKind.Rifle,
-                        track.Position,
-                        track.Velocity);
+                        track.TrackId);
                     nextRifleShotTime = Time.time + rifleShotIntervalSeconds;
                     if (fired)
                     {
@@ -325,10 +323,9 @@ namespace ACunicombat.Mechs
                 track.Confidence >= 0.66f &&
                 Time.time >= nextHandWeaponTime)
             {
-                var fired = weapons.CommandFireHandWeaponAtEstimate(
+                var fired = weapons.CommandFireHandWeaponAtTrack(
                     TestWeaponKind.Cannon,
-                    track.Position,
-                    track.Velocity);
+                    track.TrackId);
                 nextHandWeaponTime = Time.time + (fired ? 4.4f : 0.25f);
                 if (fired)
                 {
@@ -341,28 +338,25 @@ namespace ACunicombat.Mechs
                 }
             }
 
+            var uncertaintyMeters = CalculatePositionUncertainty(in track);
             var missileUncertaintyLimit = Mathf.Max(120f, range * 0.025f);
             if (range >= missileMinimumRangeMeters &&
                 range <= missileMaximumRangeMeters &&
                 angularError <= 24f &&
                 track.Confidence >= 0.72f &&
-                track.UncertaintyMeters <= missileUncertaintyLimit &&
-                Time.time >= nextMissileTime)
+                uncertaintyMeters <= missileUncertaintyLimit &&
+                Time.time >= nextMissileTime &&
+                Time.time >= nextMissileAttemptTime)
             {
-                // Launch permission comes from the AI sensor track. The test
-                // missile's own active seeker handles terminal acquisition.
+                nextMissileAttemptTime = Time.time + 0.25f;
                 if (weapons.TryGetWeaponSlot(
-                        MechWeaponRole.AirToAirMissile,
-                        out var missileSlot))
+                    MechWeaponRole.AirToAirMissile,
+                    out var missileSlot) &&
+                    weapons.CommandFireMissile(missileSlot))
                 {
-                    weapons.CommandFireMissileAtEstimate(
-                        missileSlot,
-                        objective,
-                        track.Position,
-                        track.Velocity,
-                        track.UncertaintyMeters);
+                    nextMissileTime =
+                        Time.time + missileCooldownSeconds;
                 }
-                nextMissileTime = Time.time + missileCooldownSeconds;
             }
         }
 
@@ -413,10 +407,6 @@ namespace ACunicombat.Mechs
                 radarEmitter =
                     gameObject.AddComponent<MechTestRadarEmitter>();
             }
-
-            radarEmitter.ConfigureTarget(
-                objective != null ? objective.transform : null,
-                radarTrackingRangeMeters);
         }
 
         private void UpdateMissileDefense()
@@ -427,7 +417,8 @@ namespace ACunicombat.Mechs
                 incomingThreat = false;
                 incomingThreatTime = float.PositiveInfinity;
             }
-            if (weapons == null ||
+            if (radar == null ||
+                weapons == null ||
                 Time.time < nextInterceptorRadarSweepTime)
             {
                 return;
@@ -435,114 +426,37 @@ namespace ACunicombat.Mechs
 
             nextInterceptorRadarSweepTime =
                 Time.time + InterceptorRadarRevisitSeconds;
-            var projectiles = MechTestProjectile.Registry;
-            MechTestProjectile bestThreat = null;
+            var trackCount = radar.CopyMissileTracks(missileTrackScratch);
+            var hasBestThreat = false;
+            var bestThreat = default(MissileTrackSnapshot);
             var bestTime = float.PositiveInfinity;
-            for (var i = 0; i < projectiles.Count; i++)
+            var now = radar.SimTimeSeconds;
+            for (var i = 0; i < trackCount; i++)
             {
-                var candidate = projectiles[i];
-                if (candidate == null ||
-                    candidate.IsOwnedBy(transform) ||
-                    !candidate.IsInterceptableMissile)
+                var candidate = missileTrackScratch[i];
+                if (!candidate.TrackId.IsValid ||
+                    candidate.IsFriendly ||
+                    !candidate.IsWeaponsQuality ||
+                    !candidate.Incoming ||
+                    now - candidate.LastEvidenceTime >
+                    InterceptorTrackMaximumAgeSeconds ||
+                    candidate.ClosestApproachDistanceMeters > 180f)
                 {
                     continue;
                 }
 
-                var range = Vector3.Distance(
-                    transform.position,
-                    candidate.transform.position);
-                var direction =
-                    candidate.transform.position - transform.position;
-                var radarObserved =
-                    range <= radarTrackingRangeMeters &&
-                    IsWithinInterceptorRadarFrame(direction);
-                var mawObserved = range <= InterceptorMawRangeMeters;
-                if (!radarObserved && !mawObserved)
-                {
-                    continue;
-                }
-
-                if (!interceptorContacts.TryGetValue(
-                        candidate,
-                        out var contact))
-                {
-                    contact = new InterceptorContact();
-                    interceptorContacts.Add(candidate, contact);
-                }
-
-                contact.RadarHitCount++;
-                contact.ClassificationConfidence = Mathf.Clamp01(
-                    contact.RadarHitCount * 0.16f);
-                contact.ClassifiedAsMissile =
-                    contact.RadarHitCount >=
-                    InterceptorClassificationHits;
-                contact.Confirmed =
-                    contact.RadarHitCount >=
-                    InterceptorConfirmationHits &&
-                    contact.ClassificationConfidence >=
-                    InterceptorConfirmationConfidence;
-                contact.RwrOrMawCorrelated |=
-                    candidate.HasActiveGuidance ||
-                    mawObserved;
-                contact.LastUpdateTime = Time.time;
-
-                if (!contact.HasKinematicEstimate)
-                {
-                    contact.EstimatedPosition =
-                        candidate.transform.position;
-                    contact.EstimatedVelocity = candidate.Velocity;
-                    contact.HasKinematicEstimate = true;
-                }
-                else
-                {
-                    contact.EstimatedPosition = Vector3.Lerp(
-                        contact.EstimatedPosition,
-                        candidate.transform.position,
-                        radarObserved ? 0.62f : 0.38f);
-                    contact.EstimatedVelocity = Vector3.Lerp(
-                        contact.EstimatedVelocity,
-                        candidate.Velocity,
-                        radarObserved ? 0.5f : 0.25f);
-                }
-
-                if (!contact.ClassifiedAsMissile ||
-                    !contact.Confirmed ||
-                    !contact.RwrOrMawCorrelated)
-                {
-                    continue;
-                }
-
-                var relativePosition =
-                    contact.EstimatedPosition - transform.position;
-                var relativeVelocity =
-                    contact.EstimatedVelocity - motion.Velocity;
-                var relativeSpeedSquared = relativeVelocity.sqrMagnitude;
-                if (relativeSpeedSquared <= 0.01f)
-                {
-                    continue;
-                }
-                var timeToClosestApproach = Mathf.Clamp(
-                    -Vector3.Dot(relativePosition, relativeVelocity) /
-                    relativeSpeedSquared,
+                var urgency = Mathf.Max(
                     0f,
-                    60f);
-                var closestOffset = relativePosition +
-                                    relativeVelocity *
-                                    timeToClosestApproach;
-                if (closestOffset.magnitude > 180f)
+                    candidate.TimeToClosestApproachSeconds);
+                if (urgency < bestTime)
                 {
-                    continue;
-                }
-
-                if (timeToClosestApproach < bestTime)
-                {
-                    bestTime = timeToClosestApproach;
+                    bestTime = urgency;
                     bestThreat = candidate;
+                    hasBestThreat = true;
                 }
             }
 
-            RemoveStaleInterceptorContacts();
-            if (bestThreat == null)
+            if (!hasBestThreat)
             {
                 return;
             }
@@ -550,8 +464,11 @@ namespace ACunicombat.Mechs
             incomingThreat = true;
             incomingThreatTime = bestTime;
             lastThreatSeenTime = Time.time;
+            radar.CuePointDefenseTrack(bestThreat.TrackId);
+            var predictedThreatPosition = ToVector3(
+                bestThreat.PredictPosition(now));
             var localThreat = transform.InverseTransformPoint(
-                bestThreat.transform.position);
+                predictedThreatPosition);
             if (Mathf.Abs(localThreat.x) > 0.1f)
             {
                 defensiveDodgeSign = localThreat.x > 0f ? -1f : 1f;
@@ -562,80 +479,128 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            weapons.CommandFireInterceptorAt(bestThreat);
-            interceptorContacts.Remove(bestThreat);
-            nextInterceptorTime =
-                Time.time + interceptorCooldownSeconds;
+            if (weapons.TryGetWeaponSlot(
+                    MechWeaponRole.InterceptorMissile,
+                    out var interceptorSlot) &&
+                weapons.CommandFireMissile(interceptorSlot))
+            {
+                nextInterceptorTime =
+                    Time.time + interceptorCooldownSeconds;
+            }
         }
 
-        private bool IsWithinInterceptorRadarFrame(Vector3 worldDirection)
+        private bool TryGetAirTargetTrack(out TrackSnapshot selected)
         {
-            if (worldDirection.sqrMagnitude < 0.001f)
+            selected = default;
+            if (radar == null || !radar.isActiveAndEnabled)
             {
                 return false;
             }
 
-            var localDirection =
-                transform.InverseTransformDirection(
-                    worldDirection.normalized);
-            if (localDirection.z <= 0f)
+            if (selectedAirTrackId.IsValid &&
+                radar.TryGetTrack(selectedAirTrackId, out var retained) &&
+                IsUsableAirTarget(in retained))
             {
-                return false;
+                selected = retained;
+                lastAirTrack = retained;
+                hasLastAirTrack = true;
+                return true;
             }
 
-            var azimuth = Mathf.Atan2(
-                    localDirection.x,
-                    localDirection.z) *
-                Mathf.Rad2Deg;
-            var elevation = Mathf.Asin(
-                    Mathf.Clamp(localDirection.y, -1f, 1f)) *
-                Mathf.Rad2Deg;
-            return Mathf.Abs(azimuth) <= 50f &&
-                   Mathf.Abs(elevation) <= 30f;
-        }
-
-        private void RemoveStaleInterceptorContacts()
-        {
-            staleInterceptorContacts.Clear();
-            foreach (var pair in interceptorContacts)
+            if (hasLastAirTrack &&
+                radar.TryReacquireTrack(
+                    in lastAirTrack,
+                    500f,
+                    out var reacquired) &&
+                IsUsableAirTarget(in reacquired))
             {
-                if (Time.time - pair.Value.LastUpdateTime >
-                    InterceptorTrackMaximumAgeSeconds)
+                selectedAirTrackId = reacquired.TrackId;
+                lastAirTrack = reacquired;
+                selected = reacquired;
+                return true;
+            }
+
+            selectedAirTrackId = default;
+            var count = radar.CopyTracks(airTrackScratch);
+            var bestScore = float.PositiveInfinity;
+            for (var i = 0; i < count; i++)
+            {
+                var candidate = airTrackScratch[i];
+                if (!IsUsableAirTarget(in candidate))
                 {
-                    staleInterceptorContacts.Add(pair.Key);
+                    continue;
                 }
+
+                var range = Vector3.Distance(
+                    transform.position,
+                    radar.PredictTrackPosition(in candidate));
+                var classPenalty = candidate.ObjectClass ==
+                                   TrackObjectClass.AirVehicle
+                    ? 0f
+                    : 3f;
+                var score = classPenalty +
+                            range / 10000f +
+                            (1f - candidate.Confidence) * 2f +
+                            candidate.InterferenceScore;
+                if (score >= bestScore)
+                {
+                    continue;
+                }
+
+                bestScore = score;
+                selected = candidate;
             }
 
-            for (var i = 0; i < staleInterceptorContacts.Count; i++)
+            if (!selected.TrackId.IsValid)
             {
-                interceptorContacts.Remove(
-                    staleInterceptorContacts[i]);
+                hasLastAirTrack = false;
+                return false;
             }
+
+            selectedAirTrackId = selected.TrackId;
+            lastAirTrack = selected;
+            hasLastAirTrack = true;
+            return true;
         }
 
-        private sealed class InterceptorContact
+        private static bool IsUsableAirTarget(in TrackSnapshot track)
         {
-            public int RadarHitCount;
-            public float ClassificationConfidence;
-            public float LastUpdateTime;
-            public bool ClassifiedAsMissile;
-            public bool Confirmed;
-            public bool RwrOrMawCorrelated;
-            public bool HasKinematicEstimate;
-            public Vector3 EstimatedPosition;
-            public Vector3 EstimatedVelocity;
+            return track.TrackId.IsValid &&
+                   track.ObjectClass != TrackObjectClass.Missile &&
+                   track.Affiliation != TrackAffiliation.Friendly &&
+                   track.Lifecycle != TrackLifecycle.Tentative &&
+                   track.Lifecycle != TrackLifecycle.Dropped &&
+                   track.Confidence >= 0.25f;
+        }
+
+        private static float CalculatePositionUncertainty(
+            in TrackSnapshot track)
+        {
+            var variance = System.Math.Max(
+                0.0,
+                track.GetCovariance(0, 0) +
+                track.GetCovariance(1, 1) +
+                track.GetCovariance(2, 2));
+            return Mathf.Sqrt((float)variance);
+        }
+
+        private static Vector3 ToVector3(
+            Unity.Mathematics.double3 value)
+        {
+            return new Vector3(
+                (float)value.x,
+                (float)value.y,
+                (float)value.z);
         }
 
         private MechPlayerInputFrame BuildFlightFrame(
             float range,
             Vector3 directionToTarget,
+            Vector3 targetVelocity,
             CombatState state)
         {
             var relativeRangeRate = Vector3.Dot(
-                sensorSuite != null &&
-                sensorSuite.TryGetTrack(out var track)
-                    ? track.Velocity - motion.Velocity
-                    : -motion.Velocity,
+                targetVelocity - motion.Velocity,
                 directionToTarget);
             float desiredLongitudinal;
             if (state == CombatState.Intercept)

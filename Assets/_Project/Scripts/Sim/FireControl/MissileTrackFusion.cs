@@ -16,6 +16,7 @@ namespace ACunicombat.FireControl
         public float IncomingHorizonSeconds;
         public float ProtectedRadiusMeters;
         public float GuidedThreatRangeMeters;
+        public float GuidedThreatMaximumCpaMeters;
         public float MinimumClosingSpeedMetersPerSecond;
         public float MinimumClassification;
         public float MinimumConfirmationConfidence;
@@ -44,6 +45,7 @@ namespace ACunicombat.FireControl
                 IncomingHorizonSeconds = 90f,
                 ProtectedRadiusMeters = 250f,
                 GuidedThreatRangeMeters = 30_000f,
+                GuidedThreatMaximumCpaMeters = 750f,
                 MinimumClosingSpeedMetersPerSecond = 15f,
                 MinimumClassification = 0.35f,
                 MinimumConfirmationConfidence = 0.55f,
@@ -414,13 +416,26 @@ namespace ACunicombat.FireControl
                             cpaUncertainty,
                             config.IncomingHorizonSeconds,
                             config.ProtectedRadiusMeters);
-                // An active seeker is steering, so a straight-line CPA is not
-                // a valid reason to hide a closing missile at long range.
+                // An active seeker can still steer after the current estimate,
+                // but it must at least be on a plausible ownship-intercept path.
+                // Without this gate, an enemy interceptor chasing one of our
+                // outgoing missiles is mislabeled as an ownship threat merely
+                // because it is closing and its seeker is active.
+                var guidedThreatMaximumCpa = math.max(
+                    config.ProtectedRadiusMeters,
+                    config.GuidedThreatMaximumCpaMeters);
+                var guidedThreatCpaGate =
+                    guidedThreatMaximumCpa +
+                    math.min(
+                        guidedThreatMaximumCpa,
+                        cpaUncertainty);
                 var guidedIncoming =
                     (sourceMask & MissileTrackSourceMask.Rwr) != 0 &&
                     range <= config.GuidedThreatRangeMeters &&
                     closingSpeed >=
-                        config.MinimumClosingSpeedMetersPerSecond;
+                        config.MinimumClosingSpeedMetersPerSecond &&
+                    closestApproachDistance <=
+                        guidedThreatCpaGate;
                 var radarFireControlUsable =
                     radarMissileClassified &&
                     (track.Lifecycle == TrackLifecycle.Confirmed ||

@@ -80,6 +80,17 @@ namespace ACunicombat.Sensors
         private static bool WithinResolution(
             in Measurement core, in Measurement other, SensorCapability cap, in Resolutions res)
         {
+            // The simulation target registry supplies the object class independently
+            // from the noisy confidence estimate. Never collapse two known, different
+            // classes into one plot: doing so lets a much stronger aircraft return erase
+            // a missile return while both occupy the same range/angle/Doppler cell.
+            if (core.ObjectClass != TrackObjectClass.Unknown &&
+                other.ObjectClass != TrackObjectClass.Unknown &&
+                core.ObjectClass != other.ObjectClass)
+            {
+                return false;
+            }
+
             var cosAngle = math.dot(core.Direction, other.Direction);
             if (cosAngle < math.cos(res.AngleRadians))
             {

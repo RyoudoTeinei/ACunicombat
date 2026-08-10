@@ -19,6 +19,9 @@ namespace ACunicombat.Tracking
         // too confident for that motion and repeatedly breaks association.
         private const double MissilePositionProcessNoise = 900.0;
         private const double MissileVelocityProcessNoise = 90_000.0;
+        // 二级机动门限的加速度量级。340 覆盖 QB 的 321 m/s²（90 m/s / 0.28 s）。
+        private const double VehicleManeuverAcceleration = 340.0;
+        private const double MissileManeuverAcceleration = 600.0;
         private const double InitialVelocitySigmaMetersPerSecond = 300.0;
         private const double UnobservedMissAgeSeconds = 1.0;
         private const double MaximumAssociationAgeSeconds = 1.0;
@@ -181,7 +184,31 @@ namespace ACunicombat.Tracking
                     cartesian,
                     in cartesianCovariance,
                     measurement.ObjectClass,
-                    measurement.Timestamp);
+                    measurement.Timestamp,
+                    0.0);
+                var maneuverAssociated = false;
+                if (slotIndex < 0)
+                {
+                    // 二级"机动门限"：常规 5σ 门限是按等速模型的协方差算的，一次 QB
+                    // （90 m/s / 0.28 s ≈ 321 m/s²）远超通用档过程噪声 qVelocity = 16
+                    // （σ 仅 4 m/s per √s）所能解释的范围，量测会掉到门限外，于是同一个
+                    // 物体被 AllocateTrack 新建成第二条航迹——老航迹带着机动前的速度
+                    // coast 满 maximumTrackAgeSeconds，屏幕上就出现两个雷达标识，
+                    // 而绑定在老 TrackId 上的 STT 因收不到更新而断开。
+                    // 这里不放宽常规门限（那会牺牲平飞时的速度精度，也就抵消了
+                    // 激光注入带来的横向速度改善），只在常规门限已经失败时，再问一次
+                    // "有没有哪条航迹用一次合理的机动就能解释这个量测"。
+                    var maneuverAcceleration =
+                        ResolveManeuverAcceleration(measurement.ObjectClass);
+                    slotIndex = FindAssociation(
+                        cartesian,
+                        in cartesianCovariance,
+                        measurement.ObjectClass,
+                        measurement.Timestamp,
+                        maneuverAcceleration);
+                    maneuverAssociated = slotIndex >= 0;
+                }
+
                 if (slotIndex < 0)
                 {
                     slotIndex = AllocateTrack(
@@ -197,6 +224,16 @@ namespace ACunicombat.Tracking
 
                 var firstAssociationThisTick = !associated[slotIndex];
                 var slot = slots[slotIndex];
+                if (maneuverAssociated)
+                {
+                    // 只关联上还不够：过度自信的速度协方差会让本次更新被强烈阻尼，
+                    // 滤波器追不上新速度，下一拍照样掉出门限。必须同时把速度协方差
+                    // 放开到这次机动可能造成的量级，滤波器才会真的"跳"到新速度上。
+                    InflateForManeuver(
+                        ref slot,
+                        measurement.Timestamp,
+                        ResolveManeuverAcceleration(measurement.ObjectClass));
+                }
                 Cmkf.UpdatePosition(ref slot.Filter, cartesian, cartesianCovariance);
                 if (!float.IsNaN(measurement.RadialVelocity))
                 {
@@ -459,11 +496,17 @@ namespace ACunicombat.Tracking
             return true;
         }
 
+        /// <summary>
+        /// <paramref name="maneuverAcceleration"/> 为 0 时是原来的常规 5σ 门限；大于 0 时额外
+        /// 计入"一次该量级机动可以解释多少偏差"，用于常规门限失败后的二级挽救，避免同一个
+        /// 目标在一次 QB 之后被拆成两条航迹。
+        /// </summary>
         private int FindAssociation(
             double3 position,
             in Matrix6 measurementCovariance,
             TrackObjectClass measuredObjectClass,
-            double measurementTime)
+            double measurementTime,
+            double maneuverAcceleration)
         {
             var bestIndex = -1;
             var bestDistance = double.MaxValue;
@@ -496,12 +539,28 @@ namespace ACunicombat.Tracking
                     continue;
                 }
 
+                // 机动门限项：距上次量测 Δt 之后，一次 maneuverAcceleration 量级的机动
+                // 最多把目标带偏约 a·Δt²（取整而非 ½ 以留余量），按 1σ 计入位置方差。
+                // maneuverAcceleration = 0 时该项为零，退化为原来的常规门限。
+                var maneuverVariance = 0.0;
+                if (maneuverAcceleration > 0.0)
+                {
+                    var unobservedSeconds = math.max(
+                        0.0,
+                        measurementTime - slots[i].LastUpdateTime);
+                    var maneuverOffset =
+                        maneuverAcceleration * unobservedSeconds * unobservedSeconds;
+                    maneuverVariance = maneuverOffset * maneuverOffset;
+                }
+
                 var delta = position - slots[i].Filter.Position;
                 var normalizedDistance = 0.0;
                 for (var axis = 0; axis < 3; axis++)
                 {
                     var variance = math.max(
-                        slots[i].Filter.P[axis, axis] + measurementCovariance[axis, axis],
+                        slots[i].Filter.P[axis, axis] +
+                        measurementCovariance[axis, axis] +
+                        maneuverVariance,
                         1e-6);
                     normalizedDistance += delta[axis] * delta[axis] / variance;
                 }
@@ -526,6 +585,45 @@ namespace ACunicombat.Tracking
             }
 
             return bestIndex;
+        }
+
+        /// <summary>
+        /// 二级门限使用的机动加速度量级（m/s²）。机体档取 340，覆盖 QB 的
+        /// 90 m/s / 0.28 s ≈ 321 m/s²（见 MechFlightMotionController.ConfigureQuickBoost）。
+        /// 导弹档的过程噪声本身已经很宽，这里给同一量级只是兜底。
+        /// </summary>
+        private static double ResolveManeuverAcceleration(
+            TrackObjectClass measuredObjectClass)
+        {
+            return measuredObjectClass == TrackObjectClass.Missile
+                ? MissileManeuverAcceleration
+                : VehicleManeuverAcceleration;
+        }
+
+        /// <summary>
+        /// 经二级门限关联后放开速度协方差：一次未被观测到的机动最多改变速度
+        /// a·Δt，把它作为 1σ 加进速度对角线，滤波器才能在这一拍就跟上新速度，
+        /// 而不是被旧的小协方差压住、下一拍继续掉出门限。
+        /// </summary>
+        private static void InflateForManeuver(
+            ref TrackSlot slot,
+            double measurementTime,
+            double maneuverAcceleration)
+        {
+            var unobservedSeconds = math.max(
+                0.0,
+                measurementTime - slot.LastUpdateTime);
+            var velocityUncertainty = maneuverAcceleration * unobservedSeconds;
+            if (velocityUncertainty <= 0.0)
+            {
+                return;
+            }
+
+            var additionalVariance = velocityUncertainty * velocityUncertainty;
+            for (var axis = 0; axis < 3; axis++)
+            {
+                slot.Filter.P[axis + 3, axis + 3] += additionalVariance;
+            }
         }
 
         private int AllocateTrack(

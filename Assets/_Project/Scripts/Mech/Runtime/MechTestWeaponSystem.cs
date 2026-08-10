@@ -1044,58 +1044,35 @@ namespace ACunicombat.Mechs
 			return TryGetWeaponSlot(MechWeaponRole.HandCannon, out var slot) && RequestHandReload(slot);
 		}
 
-		public bool CommandFireHandWeaponAtEstimate(TestWeaponKind kind, Vector3 estimatedPosition, Vector3 estimatedVelocity)
+		public bool CommandFireHandWeaponAtTrack(
+			TestWeaponKind kind,
+			TrackId trackId)
 		{
-			return TryGetHandSlot(kind, out var slot) &&
-				TryFireEquippedHandWeapon(slot, hasExternalTrack: true, estimatedPosition, estimatedVelocity);
+			if (radarController == null ||
+				!radarController.TryAssignFireControlTrack(trackId) ||
+				!TryGetHandSlot(kind, out var slot))
+			{
+				return false;
+			}
+
+			return TryFireEquippedHandWeapon(slot);
 		}
 
-		public void CommandFireMissile(MechPartSlot slot)
+		public bool CommandFireMissile(MechPartSlot slot)
 		{
 			RefreshShoulderAmmunition(slot);
 			switch (GetEquippedWeaponRole(slot))
 			{
 			case MechWeaponRole.InterceptorMissile:
-				FireInterceptorMissile(slot, ref GetShoulderMuzzleIndex(slot));
-				break;
+				return FireInterceptorMissile(
+					slot,
+					ref GetShoulderMuzzleIndex(slot));
 			case MechWeaponRole.AirToAirMissile:
-				FireMissileSalvo(slot, ref GetShoulderMuzzleIndex(slot));
-				break;
-			}
-		}
-
-		public void CommandFireMissileAt(MechPartSlot slot, CombatTestTarget directTarget)
-		{
-			RefreshShoulderAmmunition(slot);
-			if (directTarget == null || !directTarget.IsAlive)
-			{
-				return;
-			}
-			if (GetEquippedWeaponRole(slot) == MechWeaponRole.InterceptorMissile)
-			{
-				FireInterceptorMissile(slot, ref GetShoulderMuzzleIndex(slot));
-			}
-			else if (GetEquippedWeaponRole(slot) == MechWeaponRole.AirToAirMissile)
-			{
-				FireDirectMissileSalvo(slot, directTarget, ref GetShoulderMuzzleIndex(slot));
-			}
-		}
-
-		public void CommandFireMissileAtEstimate(MechPartSlot slot, CombatTestTarget directTarget, Vector3 estimatedPosition, Vector3 estimatedVelocity, float uncertaintyMeters)
-		{
-			RefreshShoulderAmmunition(slot);
-			if (GetEquippedWeaponRole(slot) == MechWeaponRole.AirToAirMissile && directTarget != null && directTarget.IsAlive)
-			{
-				FireDirectMissileSalvo(slot, directTarget, ref GetShoulderMuzzleIndex(slot), hasInitialEstimate: true, estimatedPosition, estimatedVelocity, uncertaintyMeters);
-			}
-		}
-
-		public void CommandFireInterceptorAt(MechTestProjectile incomingMissile)
-		{
-			if (TryGetWeaponSlot(MechWeaponRole.InterceptorMissile, out var slot) && incomingMissile != null && incomingMissile.IsInterceptableMissile && !incomingMissile.IsOwnedBy(base.transform))
-			{
-				RefreshShoulderAmmunition(slot);
-				FireDirectInterceptorMissile(slot, incomingMissile, ref GetShoulderMuzzleIndex(slot));
+				return FireMissileSalvo(
+					slot,
+					ref GetShoulderMuzzleIndex(slot));
+			default:
+				return false;
 			}
 		}
 
@@ -1498,7 +1475,7 @@ namespace ACunicombat.Mechs
 				Vector3 inheritedVelocity2 = inheritedVelocity;
 				float interceptorRoundLethalRadius = pointDefenseEngaged ? pointDefenseRoundLethalRadiusMeters : 0f;
 				bool targetProximityFuseEnabled = rifleProfile.HasTargetProximityFuse && locked && !pointDefenseEngaged;
-				SpawnProjectile(position, direction2, kind, rifleProfile.MuzzleVelocityMetersPerSecond, rifleProfile.DirectHitDamage, 0.08f, rifleProfile.ProjectileLifetimeSeconds, default(TrackId), 0f, 0f, 0f, 6011100, 6013101, 6011101, launchAnchor, weaponPerformance.maximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, rifleProfile.ProximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, rifleProfile.WarheadLethalRadiusMeters, inheritedVelocity2, null, null, MechPartSlot.None, interceptorMissile: false, null, default(MissileFlightProfile), hasInitialGuidanceEstimate: false, default(Vector3), default(Vector3), 0f, default(Vector3), coldLaunch: false, 0f, 0f, 8f, 0.6f, interceptorRoundLethalRadius, 0f, 0f, targetProximityFuseEnabled, rifleProfile.RoundsPerMinute);
+				SpawnProjectile(position, direction2, kind, rifleProfile.MuzzleVelocityMetersPerSecond, rifleProfile.DirectHitDamage, 0.08f, rifleProfile.ProjectileLifetimeSeconds, default(TrackId), 0f, 0f, 0f, 6011100, 6013101, 6011101, launchAnchor, weaponPerformance.maximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, rifleProfile.ProximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, rifleProfile.WarheadLethalRadiusMeters, inheritedVelocity2, null, MechPartSlot.None, interceptorMissile: false, default(MissileFlightProfile), hasInitialGuidanceEstimate: false, default(Vector3), default(Vector3), 0f, default(Vector3), coldLaunch: false, 0f, 0f, 8f, 0.6f, interceptorRoundLethalRadius, 0f, 0f, targetProximityFuseEnabled, rifleProfile.RoundsPerMinute);
 				PlayHandWeaponAudio(kind, slot, muzzle);
 				RegisterRifleRecoil(state, in rifleProfile, Time.time);
 				state.NextFireTime = Time.time + 60f / Mathf.Max(rifleProfile.RoundsPerMinute, 1f);
@@ -1523,7 +1500,7 @@ namespace ACunicombat.Mechs
 				float warheadLethalRadius = weaponPerformance.warheadLethalRadiusMeters;
 				Vector3 inheritedVelocity2 = inheritedVelocity;
 				bool cannonProximityFuseEnabled = weaponPerformance.targetProximityFuse && locked;
-				SpawnProjectile(position2, direction3, kind, weaponPerformance.muzzleVelocityMetersPerSecond, weaponPerformance.directHitDamage, 0.2f, weaponPerformance.projectileLifetimeSeconds, default(TrackId), 0f, 0f, 0f, 6031100, 6031101, 0, launchAnchor, weaponPerformance.maximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, interceptorRoundLethalRadius, proximityFuseArmTime, proximityFuseSafeDistance, warheadLethalRadius, inheritedVelocity2, null, null, MechPartSlot.None, interceptorMissile: false, null, default(MissileFlightProfile), hasInitialGuidanceEstimate: false, default(Vector3), default(Vector3), 0f, default(Vector3), coldLaunch: false, 0f, 0f, 8f, 0.6f, 0f, 0f, 0f, cannonProximityFuseEnabled);
+				SpawnProjectile(position2, direction3, kind, weaponPerformance.muzzleVelocityMetersPerSecond, weaponPerformance.directHitDamage, 0.2f, weaponPerformance.projectileLifetimeSeconds, default(TrackId), 0f, 0f, 0f, 6031100, 6031101, 0, launchAnchor, weaponPerformance.maximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, interceptorRoundLethalRadius, proximityFuseArmTime, proximityFuseSafeDistance, warheadLethalRadius, inheritedVelocity2, null, MechPartSlot.None, interceptorMissile: false, default(MissileFlightProfile), hasInitialGuidanceEstimate: false, default(Vector3), default(Vector3), 0f, default(Vector3), coldLaunch: false, 0f, 0f, 8f, 0.6f, 0f, 0f, 0f, cannonProximityFuseEnabled);
 				PlayHandWeaponAudio(kind, slot, muzzle);
 				state.RoundsRemaining = Mathf.Max(0, state.RoundsRemaining - 1);
 				if (state.RoundsRemaining == 0)
@@ -2321,29 +2298,29 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private void FireInterceptorMissile(MechPartSlot slot, ref int muzzleIndex)
+		private bool FireInterceptorMissile(MechPartSlot slot, ref int muzzleIndex)
 		{
 			if (GetEquippedWeaponRole(slot) != MechWeaponRole.InterceptorMissile)
 			{
-				return;
+				return false;
 			}
 			InitializeAmmunition();
 			MechWeaponPerformance weaponPerformance = GetEquippedWeaponPerformance(slot);
 			if (weaponPerformance == null)
 			{
-				return;
+				return false;
 			}
 			MissileFlightProfile launchProfile = GetEquippedMissileProfile(slot, interceptorMissileProfile);
 			if (!HasShoulderMissileAmmunition(slot))
 			{
-				return;
+				return false;
 			}
 			UpdateInterceptorTarget();
 			MissileTrackSnapshot incomingTrack = interceptorTarget;
 			if (!incomingTrack.TrackId.IsValid || !incomingTrack.IsWeaponsQuality || incomingTrack.IsFriendly || !incomingTrack.Incoming)
 			{
 				Debug.LogWarning("[MechTestWeaponSystem] Interceptor launch inhibited: no sensor-confirmed incoming missile track.", this);
-				return;
+				return false;
 			}
 			if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
 			{
@@ -2352,13 +2329,13 @@ namespace ACunicombat.Mechs
 			if (!muzzlesBySlot.TryGetValue(slot, out muzzles) || muzzles.Length == 0)
 			{
 				Debug.LogWarning("[MechTestWeaponSystem] No interceptor muzzle.", this);
-				return;
+				return false;
 			}
 			Transform muzzle = muzzles[muzzleIndex % muzzles.Length];
 			if (!TrySolveInterceptorEngagement(in incomingTrack, muzzle, out var launchSolution))
 			{
 				Debug.LogWarning("[MechTestWeaponSystem] Interceptor launch inhibited: the current threat geometry is outside the dynamic interceptor reachability zone.", this);
-				return;
+				return false;
 			}
 			interceptorSolution = launchSolution;
 			Vector3 launchDirection = ResolveInterceptorColdLaunchDirection(muzzle);
@@ -2370,31 +2347,32 @@ namespace ACunicombat.Mechs
 				launchSolution = refinedSolution;
 				interceptorSolution = refinedSolution;
 			}
-			SpawnProjectile(launchPosition, launchDirection, TestWeaponKind.Missile, launchProfile.EjectionSpeedMps, weaponPerformance.directHitDamage, 0.22f, launchProfile.MaximumFlightTimeSeconds, incomingTrack.TrackId, 0f, 0f, 0f, 0, 6082101, 0, muzzle, launchProfile.MaximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, weaponPerformance.proximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, weaponPerformance.warheadLethalRadiusMeters, inheritedVelocity, null, radarController, slot, interceptorMissile: true, null, launchProfile, hasInitialGuidanceEstimate: true, ToVector3(incomingTrack.PredictPosition(radarController.SimTimeSeconds)), ToVector3(incomingTrack.Velocity), incomingTrack.PositionUncertaintyMeters, ToVector3(launchSolution.InterceptPoint), coldLaunch: true, interceptorSafeSeparationSeconds, interceptorSafeSeparationMeters, interceptorIgnitionAlignmentDegrees, interceptorAlignmentTimeoutSeconds);
+			SpawnProjectile(launchPosition, launchDirection, TestWeaponKind.Missile, launchProfile.EjectionSpeedMps, weaponPerformance.directHitDamage, 0.22f, launchProfile.MaximumFlightTimeSeconds, incomingTrack.TrackId, 0f, 0f, 0f, 0, 6082101, 0, muzzle, launchProfile.MaximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, weaponPerformance.proximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, weaponPerformance.warheadLethalRadiusMeters, inheritedVelocity, radarController, slot, interceptorMissile: true, launchProfile, hasInitialGuidanceEstimate: true, ToVector3(incomingTrack.PredictPosition(radarController.SimTimeSeconds)), ToVector3(incomingTrack.Velocity), incomingTrack.PositionUncertaintyMeters, ToVector3(launchSolution.InterceptPoint), coldLaunch: true, interceptorSafeSeparationSeconds, interceptorSafeSeparationMeters, interceptorIgnitionAlignmentDegrees, interceptorAlignmentTimeoutSeconds);
 			ConsumeShoulderMissileRound(slot);
 			Debug.Log("[MechTestWeaponSystem] Interceptor launched at " + $"{incomingTrack.TrackId}, sources=" + $"{incomingTrack.SourceMask}, confidence=" + $"{incomingTrack.Confidence:0.00}, TOF=" + $"{launchSolution.FlightTimeSeconds:0.00}s, margin=" + $"{launchSolution.ThreatTimeMarginSeconds:0.00}s.", this);
 			muzzleIndex = (muzzleIndex + 1) % muzzles.Length;
 			interceptorTarget = default(MissileTrackSnapshot);
 			interceptorSolution = default(InterceptorEngagementSolution);
 			interceptorLockUntil = 0f;
+			return true;
 		}
 
-		private void FireMissileSalvo(MechPartSlot slot, ref int muzzleIndex)
+		private bool FireMissileSalvo(MechPartSlot slot, ref int muzzleIndex)
 		{
 			if (GetEquippedWeaponRole(slot) != MechWeaponRole.AirToAirMissile)
 			{
-				return;
+				return false;
 			}
 			InitializeAmmunition();
 			MechWeaponPerformance weaponPerformance = GetEquippedWeaponPerformance(slot);
 			if (weaponPerformance == null)
 			{
-				return;
+				return false;
 			}
 			MissileFlightProfile launchProfile = GetEquippedMissileProfile(slot, airToAirMissileProfile);
 			if (!HasShoulderMissileAmmunition(slot))
 			{
-				return;
+				return false;
 			}
 			if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
 			{
@@ -2403,13 +2381,13 @@ namespace ACunicombat.Mechs
 			if (!muzzlesBySlot.TryGetValue(slot, out muzzles) || muzzles.Length == 0)
 			{
 				Debug.LogWarning($"[MechTestWeaponSystem] No missile muzzle for {slot}.", this);
-				return;
+				return false;
 			}
 			MissileKinematicProfile missileKinematics = BuildMissileKinematics(launchProfile);
 			if (radarController == null || !radarController.TryAuthorizeMissileLaunch(MissileGuidanceMode.ActiveRadar, missileLockDegrees, in missileKinematics, TrackObjectClass.AirVehicle, out var track, out var solution, out var guidanceToken))
 			{
 				Debug.LogWarning($"[MechTestWeaponSystem] {slot} launch inhibited: no authorized radar track, " + "weapon-envelope solution, seeker handoff, or free guidance channel.", this);
-				return;
+				return false;
 			}
 			TrackId trackId = track.TrackId;
 			float seekerActivationDelay = Mathf.Clamp((float)(solution.SeekerActivationTime - radarController.SimTimeSeconds), 0.5f, 8f);
@@ -2428,171 +2406,12 @@ namespace ACunicombat.Mechs
 				Vector3 clearanceDirection = ResolveMissileLaunchDirection(muzzle);
 				Vector3 launchDirection = ResolveGuidedMissileLaunchDirection(muzzle, ToVector3(solution.InterceptPoint), 65f);
 				Vector3 launchPosition = muzzle.position + clearanceDirection * missileLaunchClearanceMeters;
-				SpawnProjectile(launchPosition, launchDirection, TestWeaponKind.Missile, launchProfile.EjectionSpeedMps, weaponPerformance.directHitDamage, 0.22f, launchProfile.MaximumFlightTimeSeconds, trackId, (float)i * 0.06f, 0f, 0f, (slot == MechPartSlot.LeftBackWeapon) ? 6082100 : 6083100, (slot == MechPartSlot.LeftBackWeapon) ? 6082101 : 6083101, 0, muzzle, launchProfile.MaximumRangeMeters, guidanceToken, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, weaponPerformance.proximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, weaponPerformance.warheadLethalRadiusMeters, inheritedVelocity, null, null, slot, interceptorMissile: false, null, launchProfile);
+				SpawnProjectile(launchPosition, launchDirection, TestWeaponKind.Missile, launchProfile.EjectionSpeedMps, weaponPerformance.directHitDamage, 0.22f, launchProfile.MaximumFlightTimeSeconds, trackId, (float)i * 0.06f, 0f, 0f, (slot == MechPartSlot.LeftBackWeapon) ? 6082100 : 6083100, (slot == MechPartSlot.LeftBackWeapon) ? 6082101 : 6083101, 0, muzzle, launchProfile.MaximumRangeMeters, guidanceToken, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, weaponPerformance.proximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, weaponPerformance.warheadLethalRadiusMeters, inheritedVelocity, null, slot, interceptorMissile: false, launchProfile);
 				ConsumeShoulderMissileRound(slot);
 				launchedCount++;
 			}
 			muzzleIndex = (muzzleIndex + launchedCount) % muzzles.Length;
-		}
-
-		private void FireDirectInterceptorMissile(MechPartSlot slot, MechTestProjectile incomingMissile, ref int muzzleIndex)
-		{
-			if (GetEquippedWeaponRole(slot) != MechWeaponRole.InterceptorMissile)
-			{
-				return;
-			}
-			InitializeAmmunition();
-			MechWeaponPerformance weaponPerformance = GetEquippedWeaponPerformance(slot);
-			if (weaponPerformance == null)
-			{
-				return;
-			}
-			MissileFlightProfile launchProfile = GetEquippedMissileProfile(slot, interceptorMissileProfile);
-			if (!HasShoulderMissileAmmunition(slot))
-			{
-				return;
-			}
-			Transform muzzle = GetNextMuzzle(slot, ref muzzleIndex);
-			if (muzzle == null)
-			{
-				Debug.LogWarning("[MechTestWeaponSystem] No AI interceptor muzzle.", this);
-				return;
-			}
-			Vector3 launchDirection = ResolveInterceptorColdLaunchDirection(muzzle);
-			Vector3 launchPosition = muzzle.position + launchDirection * missileLaunchClearanceMeters;
-			Vector3 inheritedVelocity = ((flightMotion != null) ? flightMotion.Velocity : Vector3.zero);
-			if (!incomingMissile.TryPredictThreatTo(base.transform, inheritedVelocity, interceptorProtectedRadiusMeters, interceptorPredictionHorizonSeconds, out var timeToClosestApproach, out var closestApproachDistance))
-			{
-				return;
-			}
-			MissileTrackSnapshot directTrack = new MissileTrackSnapshot
-			{
-				TrackId = new TrackId(new Handle(1, 1)),
-				Position = ToDouble3(incomingMissile.transform.position),
-				Velocity = ToDouble3(incomingMissile.Velocity),
-				PositionUncertaintyMeters = 0f,
-				CpaUncertaintyMeters = 0f,
-				Confidence = 1f,
-				SourceMask = MissileTrackSourceMask.Radar,
-				Quality = MissileTrackQuality.WeaponsQuality,
-				Confirmed = true,
-				Incoming = true,
-				TimeToClosestApproachSeconds = timeToClosestApproach,
-				ClosestApproachDistanceMeters = closestApproachDistance,
-				LastEvidenceTime = Time.timeAsDouble,
-				LastUpdateTime = Time.timeAsDouble
-			};
-			MissileKinematicProfile interceptorKinematics = BuildInterceptorKinematics(launchProfile);
-			InterceptorEngagementSolution launchSolution = FireSolutionSolver.SolveInterceptor(in directTrack, ToDouble3(launchPosition), ToDouble3(inheritedVelocity), new float3(launchDirection.x, launchDirection.y, launchDirection.z), in interceptorKinematics, Time.timeAsDouble, launchProfile.MaximumAngularRateDegreesPerSecond, launchProfile.MaximumFlightTimeSeconds, launchProfile.MaximumRangeMeters, interceptorResponseReserveSeconds, EstimateInterceptorColdLaunchDelaySeconds(launchProfile));
-			if (launchSolution.Reachable)
-			{
-				InterceptorEngagementSolution refinedSolution = SolveInterceptorEngagement(in directTrack, launchPosition, inheritedVelocity, launchDirection, Time.timeAsDouble);
-				if (refinedSolution.Reachable)
-				{
-					launchSolution = refinedSolution;
-				}
-				MechRadarController simulationRadar = UnityEngine.Object.FindObjectsByType<MechRadarController>(FindObjectsInactive.Exclude).FirstOrDefault((MechRadarController candidate) => candidate != null && candidate.isActiveAndEnabled);
-				Vector3 direction = launchDirection;
-				float ejectionSpeedMps = launchProfile.EjectionSpeedMps;
-				float maximumFlightTimeSeconds = launchProfile.MaximumFlightTimeSeconds;
-				Transform launchAnchor = muzzle;
-				float maximumRangeMeters = launchProfile.MaximumRangeMeters;
-				Vector3 inheritedVelocity2 = inheritedVelocity;
-				MechRadarController simulationRadarController = simulationRadar;
-				MissileFlightProfile missileProfile = launchProfile;
-				Vector3 position = incomingMissile.transform.position;
-				Vector3 velocity = incomingMissile.Velocity;
-				Vector3 prelaunchInterceptPoint = ToVector3(launchSolution.InterceptPoint);
-				float coldLaunchSafeSeparationSeconds = interceptorSafeSeparationSeconds;
-				float coldLaunchSafeSeparationMeters = interceptorSafeSeparationMeters;
-				float coldLaunchIgnitionAlignmentDegrees = interceptorIgnitionAlignmentDegrees;
-				float coldLaunchAlignmentTimeoutSeconds = interceptorAlignmentTimeoutSeconds;
-				SpawnProjectile(launchPosition, direction, TestWeaponKind.Missile, ejectionSpeedMps, weaponPerformance.directHitDamage, 0.22f, maximumFlightTimeSeconds, default(TrackId), 0f, 0f, 0f, 0, 6082101, 0, launchAnchor, maximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, weaponPerformance.proximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, weaponPerformance.warheadLethalRadiusMeters, inheritedVelocity2, null, simulationRadarController, slot, interceptorMissile: true, incomingMissile, missileProfile, hasInitialGuidanceEstimate: true, position, velocity, 0f, prelaunchInterceptPoint, coldLaunch: true, coldLaunchSafeSeparationSeconds, coldLaunchSafeSeparationMeters, coldLaunchIgnitionAlignmentDegrees, coldLaunchAlignmentTimeoutSeconds);
-				ConsumeShoulderMissileRound(slot);
-			}
-		}
-
-		private void FireDirectMissileSalvo(MechPartSlot slot, CombatTestTarget directTarget, ref int muzzleIndex, bool hasInitialEstimate = false, Vector3 initialEstimatePosition = default(Vector3), Vector3 initialEstimateVelocity = default(Vector3), float initialEstimateUncertaintyMeters = 0f)
-		{
-			if (GetEquippedWeaponRole(slot) != MechWeaponRole.AirToAirMissile)
-			{
-				return;
-			}
-			InitializeAmmunition();
-			MechWeaponPerformance weaponPerformance = GetEquippedWeaponPerformance(slot);
-			if (weaponPerformance == null)
-			{
-				return;
-			}
-			MissileFlightProfile launchProfile = GetEquippedMissileProfile(slot, airToAirMissileProfile);
-			if (!HasShoulderMissileAmmunition(slot))
-			{
-				return;
-			}
-			if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
-			{
-				ResolveMuzzles();
-			}
-			if (!muzzlesBySlot.TryGetValue(slot, out muzzles) || muzzles.Length == 0)
-			{
-				Debug.LogWarning($"[MechTestWeaponSystem] No missile muzzle for {slot}.", this);
-				return;
-			}
-			Transform firingCombatant = ResolveCombatantRoot(base.transform);
-			MechRadarController simulationRadar =
-				directTarget.GetComponent<MechRadarController>() ??
-				directTarget.GetComponentInParent<MechRadarController>();
-			if (simulationRadar == null ||
-				!simulationRadar.isActiveAndEnabled ||
-				ResolveCombatantRoot(simulationRadar.transform) == firingCombatant)
-			{
-				simulationRadar = UnityEngine.Object
-					.FindObjectsByType<MechRadarController>(FindObjectsInactive.Exclude)
-					.FirstOrDefault(candidate =>
-						candidate != null &&
-						candidate.isActiveAndEnabled &&
-						ResolveCombatantRoot(candidate.transform) != firingCombatant);
-			}
-			Vector3 inheritedVelocity = ((flightMotion != null) ? flightMotion.Velocity : Vector3.zero);
-			for (int i = 0; i < 1; i++)
-			{
-				Transform muzzle = muzzles[(muzzleIndex + i) % muzzles.Length];
-				Vector3 launchDirection = (hasInitialEstimate ? ResolveDirectMissileLaunchDirection(muzzle, initialEstimatePosition) : ResolveDirectMissileLaunchDirection(muzzle, directTarget));
-				Vector3 launchPosition = muzzle.position + launchDirection * missileLaunchClearanceMeters;
-				float ejectionSpeedMps = launchProfile.EjectionSpeedMps;
-				float maximumFlightTimeSeconds = launchProfile.MaximumFlightTimeSeconds;
-				float launchDelay = (float)i * 0.06f;
-				int launchFfxId = ((slot == MechPartSlot.LeftBackWeapon) ? 6082100 : 6083100);
-				int projectileFfxId = ((slot == MechPartSlot.LeftBackWeapon) ? 6082101 : 6083101);
-				Transform launchAnchor = muzzle;
-				float maximumRangeMeters = launchProfile.MaximumRangeMeters;
-				Vector3 inheritedVelocity2 = inheritedVelocity;
-				MechRadarController simulationRadarController = simulationRadar;
-				MissileFlightProfile missileProfile = launchProfile;
-				bool hasInitialGuidanceEstimate = hasInitialEstimate;
-				SpawnProjectile(launchPosition, launchDirection, TestWeaponKind.Missile, ejectionSpeedMps, weaponPerformance.directHitDamage, 0.22f, maximumFlightTimeSeconds, default(TrackId), launchDelay, 0f, 0f, launchFfxId, projectileFfxId, 0, launchAnchor, maximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, weaponPerformance.proximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, weaponPerformance.warheadLethalRadiusMeters, inheritedVelocity2, directTarget, simulationRadarController, slot, interceptorMissile: false, null, missileProfile, hasInitialGuidanceEstimate, initialEstimatePosition, initialEstimateVelocity, initialEstimateUncertaintyMeters);
-				ConsumeShoulderMissileRound(slot);
-			}
-			muzzleIndex = (muzzleIndex + 1) % muzzles.Length;
-		}
-
-		private static Transform ResolveCombatantRoot(Transform source)
-		{
-			if (source == null)
-			{
-				return null;
-			}
-			MechPlayerRig rig = source.GetComponentInParent<MechPlayerRig>();
-			if (rig != null)
-			{
-				return rig.transform;
-			}
-			CombatTestTarget target = source.GetComponentInParent<CombatTestTarget>();
-			if (!(target != null))
-			{
-				return source;
-			}
-			return target.transform;
+			return launchedCount > 0;
 		}
 
 		private void UpdateInterceptorTarget()
@@ -2691,37 +2510,6 @@ namespace ACunicombat.Mechs
 			MissileFlightProfile profile = GetInstalledMissileProfile(MechWeaponRole.InterceptorMissile, interceptorMissileProfile);
 			MissileKinematicProfile kinematics = BuildInterceptorKinematics(profile);
 			return FireSolutionSolver.SolveInterceptor(in track, ToDouble3(launchPosition), ToDouble3(ownshipVelocity), new float3(launchDirection.x, launchDirection.y, launchDirection.z), in kinematics, requestTime, profile.MaximumAngularRateDegreesPerSecond, profile.MaximumFlightTimeSeconds, profile.MaximumRangeMeters, interceptorResponseReserveSeconds, EstimateInterceptorColdLaunchDelaySeconds(profile));
-		}
-
-		private static Vector3 ResolveDirectMissileLaunchDirection(Transform muzzle, CombatTestTarget directTarget)
-		{
-			if (muzzle != null && directTarget != null && directTarget.AimPoint != null)
-			{
-				Vector3 toTarget = directTarget.AimPoint.position - muzzle.position;
-				if (toTarget.sqrMagnitude > 0.001f)
-				{
-					return toTarget.normalized;
-				}
-			}
-			if (!(muzzle != null))
-			{
-				return Vector3.forward;
-			}
-			return muzzle.forward;
-		}
-
-		private static Vector3 ResolveDirectMissileLaunchDirection(Transform muzzle, Vector3 estimatedPosition)
-		{
-			if (muzzle != null)
-			{
-				Vector3 toEstimate = estimatedPosition - muzzle.position;
-				if (toEstimate.sqrMagnitude > 0.001f)
-				{
-					return toEstimate.normalized;
-				}
-				return muzzle.forward;
-			}
-			return Vector3.forward;
 		}
 
 		private Vector3 ResolveMissileLaunchDirection(Transform muzzle)
@@ -2828,7 +2616,7 @@ namespace ACunicombat.Mechs
 			return result;
 		}
 
-		private void SpawnProjectile(Vector3 position, Vector3 direction, TestWeaponKind kind, float speed, float damage, float radius, float lifetime, TrackId homingTrack = default(TrackId), float launchDelay = 0f, float acceleration = 0f, float turnRateDegrees = 0f, int launchFfxId = 0, int projectileFfxId = 0, int impactFfxId = 0, Transform launchAnchor = null, float maximumTravelDistance = 0f, int guidanceChannelToken = 0, float motorBurnDuration = 2.1f, float seekerActivationDelay = 2.5f, float seekerMaximumRange = 8000f, float seekerHalfAngleDegrees = 35f, float seekerGimbalDegrees = 60f, float maximumLateralAcceleration = 75f, float maneuverDeltaV = 180f, float rcsLateralAcceleration = 0f, float rcsDeltaV = 0f, float proximityFuseRadius = 12f, float proximityFuseArmTime = 0.75f, float proximityFuseSafeDistance = 20f, float warheadLethalRadius = 18f, Vector3 inheritedVelocity = default(Vector3), CombatTestTarget directGuidanceTarget = null, MechRadarController simulationRadarController = null, MechPartSlot missileSourceSlot = MechPartSlot.None, bool interceptorMissile = false, MechTestProjectile directProjectileTarget = null, MissileFlightProfile missileProfile = default(MissileFlightProfile), bool hasInitialGuidanceEstimate = false, Vector3 initialGuidancePosition = default(Vector3), Vector3 initialGuidanceVelocity = default(Vector3), float initialGuidanceUncertaintyMeters = 0f, Vector3 prelaunchInterceptPoint = default(Vector3), bool coldLaunch = false, float coldLaunchSafeSeparationSeconds = 0f, float coldLaunchSafeSeparationMeters = 0f, float coldLaunchIgnitionAlignmentDegrees = 8f, float coldLaunchAlignmentTimeoutSeconds = 0.6f, float interceptorRoundLethalRadius = 0f, float interceptorRoundArmSeconds = 0f, float interceptorRoundSafeDistance = 0f, bool cannonProximityFuseEnabled = false, float automaticRoundsPerMinute = 0f)
+		private void SpawnProjectile(Vector3 position, Vector3 direction, TestWeaponKind kind, float speed, float damage, float radius, float lifetime, TrackId homingTrack = default(TrackId), float launchDelay = 0f, float acceleration = 0f, float turnRateDegrees = 0f, int launchFfxId = 0, int projectileFfxId = 0, int impactFfxId = 0, Transform launchAnchor = null, float maximumTravelDistance = 0f, int guidanceChannelToken = 0, float motorBurnDuration = 2.1f, float seekerActivationDelay = 2.5f, float seekerMaximumRange = 8000f, float seekerHalfAngleDegrees = 35f, float seekerGimbalDegrees = 60f, float maximumLateralAcceleration = 75f, float maneuverDeltaV = 180f, float rcsLateralAcceleration = 0f, float rcsDeltaV = 0f, float proximityFuseRadius = 12f, float proximityFuseArmTime = 0.75f, float proximityFuseSafeDistance = 20f, float warheadLethalRadius = 18f, Vector3 inheritedVelocity = default(Vector3), MechRadarController simulationRadarController = null, MechPartSlot missileSourceSlot = MechPartSlot.None, bool interceptorMissile = false, MissileFlightProfile missileProfile = default(MissileFlightProfile), bool hasInitialGuidanceEstimate = false, Vector3 initialGuidancePosition = default(Vector3), Vector3 initialGuidanceVelocity = default(Vector3), float initialGuidanceUncertaintyMeters = 0f, Vector3 prelaunchInterceptPoint = default(Vector3), bool coldLaunch = false, float coldLaunchSafeSeparationSeconds = 0f, float coldLaunchSafeSeparationMeters = 0f, float coldLaunchIgnitionAlignmentDegrees = 8f, float coldLaunchAlignmentTimeoutSeconds = 0.6f, float interceptorRoundLethalRadius = 0f, float interceptorRoundArmSeconds = 0f, float interceptorRoundSafeDistance = 0f, bool cannonProximityFuseEnabled = false, float automaticRoundsPerMinute = 0f)
 		{
 			EnsureMaterials();
 			bool ownshipMissileAudio = kind == TestWeaponKind.Missile && input != null && GetComponent<MechAiTargetController>() == null;
@@ -2892,7 +2680,7 @@ namespace ACunicombat.Mechs
 			{
 				projectileBehaviour.ConfigureInterceptorRound(interceptorRoundLethalRadius, interceptorRoundArmSeconds, interceptorRoundSafeDistance);
 			}
-			projectileBehaviour.Configure(base.transform, (simulationRadarController != null) ? simulationRadarController : radarController, homingTrack, kind, inheritedVelocity + direction * speed, damage, radius, lifetime, launchDelay, acceleration, turnRateDegrees, nativeEffectLibrary, impactFfxId, maximumTravelDistance, guidanceChannelToken, motorBurnDuration, seekerActivationDelay, seekerMaximumRange, seekerHalfAngleDegrees, seekerGimbalDegrees, maximumLateralAcceleration, maneuverDeltaV, rcsLateralAcceleration, rcsDeltaV, proximityFuseRadius, proximityFuseArmTime, proximityFuseSafeDistance, warheadLethalRadius, directGuidanceTarget, interceptorMissile, directProjectileTarget, missileProfile, hasInitialGuidanceEstimate, initialGuidancePosition, initialGuidanceVelocity, initialGuidanceUncertaintyMeters, prelaunchInterceptPoint, coldLaunch, inheritedVelocity, coldLaunchSafeSeparationSeconds, coldLaunchSafeSeparationMeters, coldLaunchIgnitionAlignmentDegrees, coldLaunchAlignmentTimeoutSeconds, ownshipMissileAudio);
+			projectileBehaviour.Configure(base.transform, (simulationRadarController != null) ? simulationRadarController : radarController, homingTrack, kind, inheritedVelocity + direction * speed, damage, radius, lifetime, launchDelay, acceleration, turnRateDegrees, nativeEffectLibrary, impactFfxId, maximumTravelDistance, guidanceChannelToken, motorBurnDuration, seekerActivationDelay, seekerMaximumRange, seekerHalfAngleDegrees, seekerGimbalDegrees, maximumLateralAcceleration, maneuverDeltaV, rcsLateralAcceleration, rcsDeltaV, proximityFuseRadius, proximityFuseArmTime, proximityFuseSafeDistance, warheadLethalRadius, interceptorMissile, missileProfile, hasInitialGuidanceEstimate, initialGuidancePosition, initialGuidanceVelocity, initialGuidanceUncertaintyMeters, prelaunchInterceptPoint, coldLaunch, inheritedVelocity, coldLaunchSafeSeparationSeconds, coldLaunchSafeSeparationMeters, coldLaunchIgnitionAlignmentDegrees, coldLaunchAlignmentTimeoutSeconds, ownshipMissileAudio);
 			if ((kind == TestWeaponKind.Cannon || kind == TestWeaponKind.Rifle) && cannonProximityFuseEnabled)
 			{
 				projectileBehaviour.ConfigureCannonProximityFuse(proximityFuseRadius, proximityFuseArmTime, proximityFuseSafeDistance, warheadLethalRadius);
@@ -3126,7 +2914,7 @@ namespace ACunicombat.Mechs
 			float interceptorRoundLethalRadius = performance.pointDefenseRoundLethalRadiusMeters;
 			float interceptorRoundArmSeconds = performance.pointDefenseRoundArmSeconds;
 			float interceptorRoundSafeDistance = performance.pointDefenseRoundSafeDistanceMeters;
-			SpawnProjectile(position, firingDirection, TestWeaponKind.PointDefenseCannon, speed, damage, 0.08f, lifetime, default(TrackId), 0f, 0f, 0f, 6011100, 6013101, 6011101, launchAnchor, performance.maximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, 12f, 0.75f, 20f, 18f, inheritedVelocity2, null, null, MechPartSlot.None, interceptorMissile: false, null, default(MissileFlightProfile), hasInitialGuidanceEstimate: false, default(Vector3), default(Vector3), 0f, default(Vector3), coldLaunch: false, 0f, 0f, 8f, 0.6f, interceptorRoundLethalRadius, interceptorRoundArmSeconds, interceptorRoundSafeDistance, cannonProximityFuseEnabled: false, automaticRoundsPerMinute: performance.roundsPerMinute);
+			SpawnProjectile(position, firingDirection, TestWeaponKind.PointDefenseCannon, speed, damage, 0.08f, lifetime, default(TrackId), 0f, 0f, 0f, 6011100, 6013101, 6011101, launchAnchor, performance.maximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, 12f, 0.75f, 20f, 18f, inheritedVelocity2, null, MechPartSlot.None, interceptorMissile: false, default(MissileFlightProfile), hasInitialGuidanceEstimate: false, default(Vector3), default(Vector3), 0f, default(Vector3), coldLaunch: false, 0f, 0f, 8f, 0.6f, interceptorRoundLethalRadius, interceptorRoundArmSeconds, interceptorRoundSafeDistance, cannonProximityFuseEnabled: false, automaticRoundsPerMinute: performance.roundsPerMinute);
 			EnsurePointDefenseAudio().PlayShot(
 				slot,
 				muzzle,
@@ -3405,6 +3193,10 @@ namespace ACunicombat.Mechs
 			return new Vector2(Mathf.Clamp(viewportPoint.x, 0.05f, 0.95f), Mathf.Clamp(viewportPoint.y, 0.05f, 0.95f));
 		}
 
+		// 遗留备用准星的抑制判定缓存，见 HasAuthoritativeRadarHud。
+		private MechRadarHudPresenter authoritativeRadarHud;
+		private int authoritativeRadarHudProbeFrame = -1;
+
 		private Vector2 GetReticleGuiPosition()
 		{
 			Vector2 viewportPoint = GetAimViewportPoint();
@@ -3416,9 +3208,39 @@ namespace ACunicombat.Mechs
 			return new Vector2(screenPoint.x, (float)Screen.height - screenPoint.y);
 		}
 
+		/// <summary>
+		/// 正式 HUD（<see cref="MechRadarHudPresenter"/>）是否已经存在于场景中。
+		///
+		/// 原来这里用的是同物体 <c>GetComponent</c>，那个前提在组件被拆到不同 GameObject 上之后
+		/// 就不成立了——AI 靶机同样挂着 <see cref="MechTestWeaponSystem"/>（见
+		/// <c>AC6PlayableSceneBuilder</c> 里对 AI root 的 Ensure），但它所在的物体上没有正式 HUD，
+		/// 于是这套遗留备用准星会和正式 HUD 同时绘制，屏幕中央出现第二个角框加
+		/// "Track#N 距离 Lifecycle 置信度" 的调试文字。
+		///
+		/// 改为按全场判定：只要场景里已经有正式 HUD，任何一份备用准星都不再绘制。
+		/// 找到后即锁定，未找到时每帧最多探测一次（OnGUI 每帧会被调用多次）。
+		/// </summary>
+		private bool HasAuthoritativeRadarHud()
+		{
+			if (authoritativeRadarHud != null)
+			{
+				return true;
+			}
+
+			if (authoritativeRadarHudProbeFrame == Time.frameCount)
+			{
+				return false;
+			}
+
+			authoritativeRadarHudProbeFrame = Time.frameCount;
+			authoritativeRadarHud = GetComponent<MechRadarHudPresenter>()
+				?? FindAnyObjectByType<MechRadarHudPresenter>();
+			return authoritativeRadarHud != null;
+		}
+
 		private void OnGUI()
 		{
-			if (MechAssemblyMenu.IsAnyMenuVisible || GetComponent<MechRadarHudPresenter>() != null || aimingCamera == null || radarController == null)
+			if (MechAssemblyMenu.IsAnyMenuVisible || HasAuthoritativeRadarHud() || aimingCamera == null || radarController == null)
 			{
 				return;
 			}

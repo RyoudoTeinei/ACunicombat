@@ -25,6 +25,9 @@ namespace ACunicombat.Mechs
         public const int MaximumPublicTracks = 32;
         public const int MaximumPublicEchoes = 64;
 
+        private static readonly List<MechRadarController> activeControllers =
+            new List<MechRadarController>();
+
         private const int MaximumSceneTargets = 16;
         private const float SearchIntervalSeconds = 0.04f;
         private const float SttIntervalSeconds = 0.035f;
@@ -105,6 +108,10 @@ namespace ACunicombat.Mechs
         private const byte GuidanceNetworkId = 0;
         private const float GuidanceUplinkIntervalSeconds = 0.25f;
         private const float GuidanceReacquisitionGateMeters = 350f;
+        // STT 重获门限比制导链路窄：玩家锁定错目标的代价比导弹丢中段修正更高。
+        // 实测被拆分的虚影与真目标相距约 50 m（截图 T03/T05：5.54 vs 5.49 km），
+        // 150 m 有余量而不至于跨到编队里的另一架。
+        private const float SttReacquisitionGateMeters = 150f;
         private const float FriendlyMissileReportRetentionSeconds = 1.0f;
         private const float FriendlyMissileAssociationMaximumMeters = 120f;
         private const float FriendlyMissileAssociationVelocityGateMps = 180f;
@@ -179,6 +186,9 @@ namespace ACunicombat.Mechs
         private ulong dwellSequence;
         private TrackId candidateTrackId;
         private TrackId sttTrackId;
+        // 最后一次健康的 STT 航迹快照，用于目标机动导致航迹被拆分后转移锁定。
+        private TrackSnapshot lastSttTrack;
+        private bool hasLastSttTrack;
         private TrackId pointDefenseCueTrackId;
         private float designationProgress;
         private bool trackOperationMode;
@@ -232,6 +242,48 @@ namespace ACunicombat.Mechs
         public bool HasStt => sttTrackId.IsValid && TryGetTrack(sttTrackId, out _);
         public float DesignationProgress => designationProgress;
         public float PointDefenseRating => fireControlPerformance.PointDefenseRating;
+        public static IReadOnlyList<MechRadarController> ActiveControllers =>
+            activeControllers;
+
+        /// <summary>
+        /// STT 航迹因目标机动被跟踪层拆成新航迹时，把锁定转移到新航迹而不是直接断锁。
+        ///
+        /// 之所以需要它：STT 绑定的是 <c>TrackId</c>，而一次 QB 可能让量测掉出关联门限、
+        /// 被 <c>AllocateTrack</c> 判成新目标；此时老 TrackId 再也收不到更新，STT 走
+        /// TrackStale/TrackMissing 断开。导弹制导上行链路早就有这层重获
+        /// （见 GuidanceReacquisitionGateMeters 那段），但玩家的 STT 一直没有。
+        ///
+        /// 这是第二层保险——第一层是 <c>RadarTrackManager</c> 的二级机动门限，本来就应该
+        /// 避免拆分发生；两者都在，才不会因为某次机动幅度超出预期而丢锁。
+        /// </summary>
+        private bool TryReacquireSttTrack(out TrackSnapshot track)
+        {
+            track = default;
+            if (!hasLastSttTrack)
+            {
+                return false;
+            }
+
+            if (!TryReacquireTrack(
+                    lastSttTrack,
+                    SttReacquisitionGateMeters,
+                    out var candidate))
+            {
+                return false;
+            }
+
+            if (candidate.TrackId.Equals(sttTrackId))
+            {
+                // 同一条航迹只是暂时没更新，交回原有的陈旧判定处理。
+                return false;
+            }
+
+            sttTrackId = candidate.TrackId;
+            candidateTrackId = candidate.TrackId;
+            lastSttTrack = candidate;
+            track = candidate;
+            return true;
+        }
 
         public void CuePointDefenseTrack(TrackId trackId)
         {
@@ -816,6 +868,43 @@ namespace ACunicombat.Mechs
             return driver != null && driver.TryGetTrack(trackId, out snapshot);
         }
 
+        public bool TryAssignFireControlTrack(
+            TrackId trackId,
+            bool requestSingleTargetTrack = true)
+        {
+            if (!radarPowerEnabled ||
+                !trackOperationMode ||
+                !trackId.IsValid ||
+                !TryGetTrack(trackId, out var track) ||
+                !IsFireControlUsable(track.Lifecycle))
+            {
+                return false;
+            }
+
+            candidateTrackId = trackId;
+            designationProgress = 1f;
+            if (!requestSingleTargetTrack)
+            {
+                return true;
+            }
+
+            if (track.Lifecycle != TrackLifecycle.Confirmed ||
+                !IsInsideStableTrackRange(track))
+            {
+                return false;
+            }
+
+            if (!sttTrackId.Equals(trackId))
+            {
+                sttTrackId = trackId;
+                sttLastMaintainableTime = SimTimeSeconds;
+            }
+
+            lastSttTrack = track;
+            hasLastSttTrack = true;
+            return true;
+        }
+
         public bool TryReacquireTrack(
             in TrackSnapshot previousTrack,
             float basePositionGateMeters,
@@ -1288,6 +1377,19 @@ namespace ACunicombat.Mechs
             flightMotion = GetComponent<MechFlightMotionController>();
         }
 
+        private void OnEnable()
+        {
+            if (!activeControllers.Contains(this))
+            {
+                activeControllers.Add(this);
+            }
+        }
+
+        private void OnDisable()
+        {
+            activeControllers.Remove(this);
+        }
+
         private void FixedUpdate()
         {
             EnsureInitialized();
@@ -1649,14 +1751,20 @@ namespace ACunicombat.Mechs
 
             if (!TryGetTrack(sttTrackId, out var track))
             {
-                BreakSingleTargetTrack(SttBreakReason.TrackMissing);
-                return;
+                if (!TryReacquireSttTrack(out track))
+                {
+                    BreakSingleTargetTrack(SttBreakReason.TrackMissing);
+                    return;
+                }
             }
 
             if (track.Lifecycle == TrackLifecycle.Dropped)
             {
-                BreakSingleTargetTrack(SttBreakReason.TrackDropped);
-                return;
+                if (!TryReacquireSttTrack(out track))
+                {
+                    BreakSingleTargetTrack(SttBreakReason.TrackDropped);
+                    return;
+                }
             }
 
             var lockRating01 = Mathf.Clamp01(radarPerformance.LockMaintenanceRating / 100f);
@@ -1666,9 +1774,16 @@ namespace ACunicombat.Mechs
             trackMemorySeconds *= Mathf.Lerp(0.65f, 1.35f, lockRating01);
             if (SimTimeSeconds - track.LastUpdateTime > trackMemorySeconds)
             {
-                BreakSingleTargetTrack(SttBreakReason.TrackStale);
-                return;
+                if (!TryReacquireSttTrack(out track))
+                {
+                    BreakSingleTargetTrack(SttBreakReason.TrackStale);
+                    return;
+                }
             }
+
+            // 记住最后一次健康的 STT 航迹，供上面三处重获使用。
+            lastSttTrack = track;
+            hasLastSttTrack = true;
 
             var relativePosition = PredictTrackPosition(track) - transform.position;
             var maintainable = IsWithinBodyRadarFrame(relativePosition) &&
@@ -2538,6 +2653,7 @@ namespace ACunicombat.Mechs
 
         private void OnDestroy()
         {
+            activeControllers.Remove(this);
             if (!initialized || driver == null)
             {
                 return;

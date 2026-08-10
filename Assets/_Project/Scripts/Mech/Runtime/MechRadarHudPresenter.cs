@@ -1101,15 +1101,18 @@ namespace ACunicombat.Mechs
 				Vector3 position = ToVector3(track.PredictPosition(radar.SimTimeSeconds));
 				Vector3 relative = position - base.transform.position;
 				bool weaponsQuality = track.IsWeaponsQuality;
-				float markerRadius = (weaponsQuality ? (radius + 2f) : radius);
-				Color markerColor = (weaponsQuality ? HudRed : HudAmber);
+				bool incoming = track.Incoming;
+				float markerRadius = (incoming && weaponsQuality ? (radius + 2f) : radius);
+				Color markerColor = incoming
+					? (weaponsQuality ? HudRed : HudAmber)
+					: new Color(HudAmber.r, HudAmber.g, HudAmber.b, 0.72f);
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
 				if (screen.z <= 0f || screen.x < markerRadius || screen.x > (float)Screen.width - markerRadius || screen.y < markerRadius || screen.y > (float)Screen.height - markerRadius)
 				{
 					continue;
 				}
 				Vector2 markerCenter = new Vector2(screen.x, (float)Screen.height - screen.y);
-				DrawDiamond(markerCenter, markerRadius, markerColor, !weaponsQuality, weaponsQuality ? 1.6f : 1.2f);
+				DrawDiamond(markerCenter, markerRadius, markerColor, !incoming || !weaponsQuality, incoming && weaponsQuality ? 1.6f : 1.2f);
 				bool shaoWeiTrackSelected = weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack && weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId);
 				bool handPointDefenseTrackSelected = weaponSystem != null && weaponSystem.HasPointDefenseTrack && weaponSystem.PointDefenseTrackId.Equals(track.TrackId);
 				if (shaoWeiTrackSelected || handPointDefenseTrackSelected)
@@ -1124,7 +1127,8 @@ namespace ACunicombat.Mechs
 					DrawCornerFrame(new Rect(markerCenter.x - lockExtent2, markerCenter.y - lockExtent2, lockExtent2 * 2f, lockExtent2 * 2f), HudAmber, 7f, 1.6f, dashed: false);
 				}
 				float distanceKilometers = relative.magnitude / 1000f;
-				string distanceText = ((distanceKilometers < 10f) ? $"导弹 {distanceKilometers:0.00} km" : $"导弹 {distanceKilometers:0.0} km");
+				string missileLabel = incoming ? "导弹逼近" : "导弹";
+				string distanceText = ((distanceKilometers < 10f) ? $"{missileLabel} {distanceKilometers:0.00} km" : $"{missileLabel} {distanceKilometers:0.0} km");
 				if (shaoWeiTrackSelected)
 				{
 					distanceText += $"  CIWS {weaponSystem.ShaoWeiPointDefenseHitProbability * 100f:0.#}%";
@@ -1175,16 +1179,17 @@ namespace ACunicombat.Mechs
 
 		private bool ShouldDisplayIncomingMissile(in MissileTrackSnapshot track)
 		{
-			if (!track.IsWarning || !track.Incoming)
+			if (!track.IsWarning || track.IsFriendly)
 			{
 				return false;
 			}
+			return IsFreshMissileEvidence(in track);
+		}
+
+		private bool IsFreshMissileEvidence(in MissileTrackSnapshot track)
+		{
 			double evidenceAge = radar.SimTimeSeconds - track.LastEvidenceTime;
-			if (evidenceAge >= -0.05)
-			{
-				return evidenceAge <= 0.6;
-			}
-			return false;
+			return evidenceAge >= -0.05 && evidenceAge <= 0.6;
 		}
 
 		private static bool IsInsideScreen(Vector2 point, float margin)
@@ -1281,6 +1286,12 @@ namespace ACunicombat.Mechs
 		{
 			TrackSnapshot track = tracks[index];
 			if (track.ObjectClass == TrackObjectClass.Missile)
+			{
+				return false;
+			}
+			if (radar.TryGetMissileTrack(track.TrackId, out var missileTrack) &&
+				missileTrack.IsWarning &&
+				IsFreshMissileEvidence(in missileTrack))
 			{
 				return false;
 			}

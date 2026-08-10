@@ -94,6 +94,76 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void ConfidentAircraftAndMissileInSameResolutionCell_RemainSeparate()
+        {
+            using var arr = new NativeArray<Measurement>(2, Allocator.Temp);
+            var native = arr;
+            var aircraft = Make(
+                10000f,
+                new float3(1f, 0f, 0f),
+                -200f,
+                24f);
+            aircraft.ObjectClass = TrackObjectClass.AirVehicle;
+            aircraft.ClassificationConfidence = 0.85f;
+            var missile = Make(
+                10002f,
+                new float3(1f, 0.0001f, 0f),
+                -201f,
+                8f);
+            missile.ObjectClass = TrackObjectClass.Missile;
+            missile.ClassificationConfidence = 0.9f;
+            native[0] = aircraft;
+            native[1] = missile;
+
+            var count = ResolutionMerge.MergeInPlace(
+                native,
+                2,
+                SensorCapability.Range | SensorCapability.Doppler,
+                Res);
+
+            Assert.That(count, Is.EqualTo(2));
+            Assert.That(
+                new[] { native[0].ObjectClass, native[1].ObjectClass },
+                Is.EquivalentTo(
+                    new[] { TrackObjectClass.AirVehicle, TrackObjectClass.Missile }));
+        }
+
+        [Test]
+        public void LowConfidenceAircraftAndMissileInSameResolutionCell_RemainSeparate()
+        {
+            using var arr = new NativeArray<Measurement>(2, Allocator.Temp);
+            var native = arr;
+            var aircraft = Make(
+                10000f,
+                new float3(1f, 0f, 0f),
+                -200f,
+                8f);
+            aircraft.ObjectClass = TrackObjectClass.AirVehicle;
+            aircraft.ClassificationConfidence = 0.2f;
+            var missile = Make(
+                10002f,
+                new float3(1f, 0.0001f, 0f),
+                -201f,
+                24f);
+            missile.ObjectClass = TrackObjectClass.Missile;
+            missile.ClassificationConfidence = 0.3f;
+            native[0] = aircraft;
+            native[1] = missile;
+
+            var count = ResolutionMerge.MergeInPlace(
+                native,
+                2,
+                SensorCapability.Range | SensorCapability.Doppler,
+                Res);
+
+            Assert.That(count, Is.EqualTo(2));
+            Assert.That(
+                new[] { native[0].ObjectClass, native[1].ObjectClass },
+                Is.EquivalentTo(
+                    new[] { TrackObjectClass.AirVehicle, TrackObjectClass.Missile }));
+        }
+
+        [Test]
         public void MixtureVariance_CoversClusterSpread()
         {
             // v1.2：混合方差必须含均值离差项——两个分开的分量合成后，方差

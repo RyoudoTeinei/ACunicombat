@@ -30,8 +30,6 @@ namespace ACunicombat.Mechs
         [Tooltip("目标进入该距离后切换为高驻留率定向照射。0=禁用。")]
         [SerializeField] private float lockRangeMeters = 50_000f;
         [SerializeField] private float lockIntervalSeconds = 0.04f;
-        [SerializeField] private Transform designatedTarget;
-
         private struct ObserverRegistration
         {
             public bool Active;
@@ -74,17 +72,6 @@ namespace ACunicombat.Mechs
 
                 return false;
             }
-        }
-
-        public void ConfigureTarget(
-            Transform newTarget,
-            float engagementRangeMeters = 50_000f)
-        {
-            designatedTarget = newTarget;
-            lockRangeMeters = Mathf.Clamp(
-                engagementRangeMeters,
-                100f,
-                maxRangeMeters);
         }
 
         public void RegisterObserverDriver(
@@ -176,9 +163,7 @@ namespace ACunicombat.Mechs
             ref ObserverRegistration registration,
             Vector3 position)
         {
-            var observer = registration.Observer != null
-                ? registration.Observer
-                : designatedTarget;
+            var observer = registration.Observer;
             var now = registration.Driver.SimTimeSeconds;
             if (now + 1e-6 < registration.NextDwellTime)
             {

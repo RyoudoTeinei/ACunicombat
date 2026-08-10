@@ -215,7 +215,7 @@ namespace ACunicombat.Tests.EditMode
         {
             var track = IncomingRadarTrack();
             track.Position = new double3(0.0, 0.0, 12_000.0);
-            track.Velocity = new double3(80.0, 0.0, -200.0);
+            track.Velocity = new double3(8.0, 0.0, -200.0);
             var output = new MissileTrackSnapshot[1];
 
             var count = MissileTrackFusion.Fuse(
@@ -242,6 +242,42 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(
                 output[0].TimeToClosestApproachSeconds,
                 Is.GreaterThan(30f));
+        }
+
+        [Test]
+        public void ActiveSeekerClosingTowardAnotherTarget_IsNotMarkedIncoming()
+        {
+            var track = IncomingRadarTrack();
+            track.Position = new double3(0.0, 0.0, 12_000.0);
+            track.Velocity = new double3(80.0, 0.0, -200.0);
+            var output = new MissileTrackSnapshot[1];
+
+            var count = MissileTrackFusion.Fuse(
+                MissileTrackFusionConfig.Default,
+                new[] { track },
+                1,
+                new[]
+                {
+                    Threat(
+                        EsmWaveformClass.MissileSeeker,
+                        0.9f),
+                },
+                1,
+                new ElectroOpticalObservation[0],
+                0,
+                double3.zero,
+                double3.zero,
+                10.0,
+                output);
+
+            Assert.That(count, Is.EqualTo(1));
+            Assert.That(output[0].Confirmed, Is.True);
+            Assert.That(output[0].Incoming, Is.False);
+            Assert.That(
+                output[0].ClosestApproachDistanceMeters,
+                Is.GreaterThan(
+                    MissileTrackFusionConfig.Default
+                        .GuidedThreatMaximumCpaMeters));
         }
 
         [Test]

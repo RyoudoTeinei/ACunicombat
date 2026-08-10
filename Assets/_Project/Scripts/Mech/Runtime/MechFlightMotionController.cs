@@ -8,8 +8,7 @@ namespace ACunicombat.Mechs
     /// 物理/运动层（架构第 2 层）：消费输入快照，计算推力、速度与无滚转朝向。
     /// 不选择动画；动画根运动关闭，本组件是世界位移与 Yaw 的唯一权威。
     /// 太空机动原则：无空气阻力、有惯性、转身不等于改变速度方向——
-    /// 持续推力会持续增加速度；辅助飞控只用有限反推修正侧向漂移。
-    /// assist=0 时退化为纯牛顿推力积分。
+    /// 各方向推力独立叠加速度；只有主动制动或明确的轨迹同步命令可以消除已有速度。
     /// </summary>
     public sealed class MechFlightMotionController : MonoBehaviour
     {
@@ -58,9 +57,6 @@ namespace ACunicombat.Mechs
         [Range(0f, 89f)] [SerializeField] private float maximumVectorPitchDegrees = 35f;
         [Tooltip("仅用于防止 Unity 数值和碰撞失稳的极高技术安全上限，不属于玩法速度上限。")]
         [SerializeField] private float technicalSafetySpeed = 2000f;
-        [Tooltip("辅助飞控强度 [0,1]：0=纯惯性；1=以最大辅助反推修正侧向漂移。")]
-        [Range(0f, 1f)] [SerializeField] private float flightAssist = 0.6f;
-
         [Header("惯性推力锁定")]
         [Tooltip("允许按住输入锁定键冻结水平推力参考；松开后恢复机体朝向参考。")]
         [SerializeField] private bool inertialThrustLockEnabled = true;
@@ -1081,30 +1077,6 @@ namespace ACunicombat.Mechs
                 currentControlForceNewtons = propulsionForce;
                 currentControlAcceleration = propulsionAcceleration;
                 velocity += propulsionAcceleration * deltaTime;
-
-                // 辅助飞控只用有限反推消除相对命令方向的横向漂移；不再 Lerp 到目标速度。
-                var commandDirection = propulsionAcceleration.sqrMagnitude > 0.0001f
-                    ? propulsionAcceleration.normalized
-                    : propulsionForce.normalized;
-                if (commandDirection.sqrMagnitude > 0.0001f && flightAssist > 0f)
-                {
-                    var lateralVelocity = velocity
-                                          - Vector3.Project(velocity, commandDirection);
-                    var requestedAssistDeltaVelocity = -lateralVelocity
-                                                       * Mathf.Clamp01(flightAssist)
-                                                       * movementEnergyScale;
-                    if (deltaTime > Mathf.Epsilon)
-                    {
-                        var requestedAssistForce = requestedAssistDeltaVelocity
-                                                   * (currentMassKg / deltaTime);
-                        var assistForce = AllocateDirectionalReserveForce(
-                            requestedAssistForce,
-                            attitudeBasis);
-                        velocity += assistForce / currentMassKg * deltaTime;
-                        currentControlForceNewtons += assistForce;
-                        currentControlAcceleration = currentControlForceNewtons / currentMassKg;
-                    }
-                }
             }
 
             if (!braking && trajectorySyncCommandActive &&

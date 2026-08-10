@@ -78,17 +78,9 @@ namespace ACunicombat.Mechs
 
 		private MechRadarController dataLinkController;
 
-		private CombatTestTarget directGuidanceTarget;
-
-		private MechTestProjectile directProjectileTarget;
-
 		private bool interceptorMissile;
 
 		private bool interceptorTargetCommitted;
-
-		private Vector3 directTargetPreviousPosition;
-
-		private Vector3 directTargetVelocity;
 
 		private TrackId targetTrackId;
 
@@ -226,6 +218,9 @@ namespace ACunicombat.Mechs
 
 		private MechRadarController.MissileSeekerHandle seekerHandle;
 
+		private readonly List<RadarObserverRegistration> radarObservers =
+			new List<RadarObserverRegistration>();
+
 		private readonly Measurement[] seekerMeasurementScratch = new Measurement[8];
 
 		private LinkTerminalId linkTerminal;
@@ -340,27 +335,13 @@ namespace ACunicombat.Mechs
 		{
 			get
 			{
-				if (IsEngagementActive)
+				if (!IsEngagementActive)
 				{
-					if (!(directGuidanceTarget != null))
-					{
-						if (!(directProjectileTarget != null))
-						{
-							if (!seekerLocked)
-							{
-								if (hasCachedGuidanceTrack)
-								{
-									return guidanceMemoryRemaining > 0f;
-								}
-								return false;
-							}
-							return true;
-						}
-						return directProjectileTarget.IsInterceptableMissile;
-					}
-					return directGuidanceTarget.IsAlive;
+					return false;
 				}
-				return false;
+
+				return seekerLocked ||
+				       (hasCachedGuidanceTrack && guidanceMemoryRemaining > 0f);
 			}
 		}
 
@@ -396,41 +377,6 @@ namespace ACunicombat.Mechs
 			return ownerTarget != null && candidateOwnerTarget != null && ownerTarget.TeamId == candidateOwnerTarget.TeamId;
 		}
 
-		public bool TryPredictThreatTo(Transform defendedTarget, Vector3 defendedVelocity, float protectedRadius, float predictionHorizon, out float timeToClosestApproach, out float missDistance)
-		{
-			timeToClosestApproach = 0f;
-			missDistance = float.PositiveInfinity;
-			if (!IsInterceptableMissile || !HasActiveGuidance || defendedTarget == null)
-			{
-				return false;
-			}
-			Vector3 relativePosition = base.transform.position - defendedTarget.position;
-			Vector3 relativeVelocity = velocity - defendedVelocity;
-			float velocitySquared = relativeVelocity.sqrMagnitude;
-			if (velocitySquared <= 0.01f)
-			{
-				return false;
-			}
-			float horizon = Mathf.Max(0.1f, predictionHorizon);
-			float rawClosestTime = (0f - Vector3.Dot(relativePosition, relativeVelocity)) / velocitySquared;
-			timeToClosestApproach = Mathf.Clamp(rawClosestTime, 0f, horizon);
-			missDistance = (relativePosition + relativeVelocity * timeToClosestApproach).magnitude;
-			if (directGuidanceTarget != null && (directGuidanceTarget.transform == defendedTarget || directGuidanceTarget.transform.IsChildOf(defendedTarget) || defendedTarget.IsChildOf(directGuidanceTarget.transform)))
-			{
-				if (rawClosestTime <= 0f)
-				{
-					timeToClosestApproach = Mathf.Min(horizon, relativePosition.magnitude / Mathf.Max(relativeVelocity.magnitude, 1f));
-				}
-				missDistance = 0f;
-				return true;
-			}
-			if (rawClosestTime > 0f && rawClosestTime <= horizon)
-			{
-				return missDistance <= Mathf.Max(1f, protectedRadius);
-			}
-			return false;
-		}
-
 		private void OnEnable()
 		{
 			if (!registry.Contains(this))
@@ -444,14 +390,14 @@ namespace ACunicombat.Mechs
 			registry.Remove(this);
 		}
 
-		public void Configure(Transform newOwner, MechRadarController newRadarController, TrackId newTargetTrackId, TestWeaponKind kind, Vector3 initialVelocity, float newDamage, float newCollisionRadius, float lifetimeSeconds, float delaySeconds = 0f, float accelerationMetersPerSecondSquared = 0f, float turnRateDegreesPerSecond = 0f, MechEffectPrefabLibrary newEffectLibrary = null, int newImpactFfxId = 0, float newMaximumTravelDistance = 0f, int newGuidanceChannelToken = 0, float newMotorBurnDuration = 2.1f, float newSeekerActivationDelay = 2.5f, float newSeekerMaximumRange = 8000f, float newSeekerHalfAngleDegrees = 35f, float newSeekerGimbalDegrees = 60f, float newMaximumLateralAcceleration = 75f, float newManeuverDeltaV = 180f, float newRcsLateralAcceleration = 0f, float newRcsDeltaV = 0f, float newProximityFuseRadius = 12f, float newProximityFuseArmTime = 0.75f, float newProximityFuseSafeDistance = 20f, float newWarheadLethalRadius = 18f, CombatTestTarget newDirectGuidanceTarget = null, bool newInterceptorMissile = false, MechTestProjectile newDirectProjectileTarget = null, MissileFlightProfile missileProfile = default(MissileFlightProfile), bool hasInitialGuidanceEstimate = false, Vector3 initialGuidancePosition = default(Vector3), Vector3 initialGuidanceVelocity = default(Vector3), float initialGuidanceUncertaintyMeters = 0f, Vector3 newPrelaunchInterceptPoint = default(Vector3), bool newColdLaunch = false, Vector3 newColdLaunchInheritedVelocity = default(Vector3), float newColdLaunchSafeSeparationSeconds = 0f, float newColdLaunchSafeSeparationMeters = 0f, float newColdLaunchIgnitionAlignmentDegrees = 8f, float newColdLaunchAlignmentTimeoutSeconds = 0.6f, bool newOwnshipMissileAudio = false)
+		public void Configure(Transform newOwner, MechRadarController newRadarController, TrackId newTargetTrackId, TestWeaponKind kind, Vector3 initialVelocity, float newDamage, float newCollisionRadius, float lifetimeSeconds, float delaySeconds = 0f, float accelerationMetersPerSecondSquared = 0f, float turnRateDegreesPerSecond = 0f, MechEffectPrefabLibrary newEffectLibrary = null, int newImpactFfxId = 0, float newMaximumTravelDistance = 0f, int newGuidanceChannelToken = 0, float newMotorBurnDuration = 2.1f, float newSeekerActivationDelay = 2.5f, float newSeekerMaximumRange = 8000f, float newSeekerHalfAngleDegrees = 35f, float newSeekerGimbalDegrees = 60f, float newMaximumLateralAcceleration = 75f, float newManeuverDeltaV = 180f, float newRcsLateralAcceleration = 0f, float newRcsDeltaV = 0f, float newProximityFuseRadius = 12f, float newProximityFuseArmTime = 0.75f, float newProximityFuseSafeDistance = 20f, float newWarheadLethalRadius = 18f, bool newInterceptorMissile = false, MissileFlightProfile missileProfile = default(MissileFlightProfile), bool hasInitialGuidanceEstimate = false, Vector3 initialGuidancePosition = default(Vector3), Vector3 initialGuidanceVelocity = default(Vector3), float initialGuidanceUncertaintyMeters = 0f, Vector3 newPrelaunchInterceptPoint = default(Vector3), bool newColdLaunch = false, Vector3 newColdLaunchInheritedVelocity = default(Vector3), float newColdLaunchSafeSeparationSeconds = 0f, float newColdLaunchSafeSeparationMeters = 0f, float newColdLaunchIgnitionAlignmentDegrees = 8f, float newColdLaunchAlignmentTimeoutSeconds = 0.6f, bool newOwnshipMissileAudio = false)
 		{
 			owner = newOwner;
-			radarController = newRadarController;
 			dataLinkController = newOwner != null
 				? newOwner.GetComponent<MechRadarController>() ??
 				  newOwner.GetComponentInParent<MechRadarController>()
 				: null;
+			radarController = dataLinkController ?? newRadarController;
 			if (dataLinkController == null &&
 				newRadarController != null &&
 				newOwner != null &&
@@ -460,18 +406,9 @@ namespace ACunicombat.Mechs
 			{
 				dataLinkController = newRadarController;
 			}
-			directGuidanceTarget = newDirectGuidanceTarget;
-			directProjectileTarget = newDirectProjectileTarget;
 			interceptorMissile = newInterceptorMissile;
-			interceptorTargetCommitted = newInterceptorMissile && (newTargetTrackId.IsValid || newDirectProjectileTarget != null || hasInitialGuidanceEstimate);
-			if (directGuidanceTarget != null)
-			{
-				directTargetPreviousPosition = directGuidanceTarget.AimPoint.position;
-			}
-			else if (directProjectileTarget != null)
-			{
-				directTargetPreviousPosition = directProjectileTarget.transform.position;
-			}
+			interceptorTargetCommitted = newInterceptorMissile &&
+				(newTargetTrackId.IsValid || hasInitialGuidanceEstimate);
 			targetTrackId = newTargetTrackId;
 			weaponKind = kind;
 			engagementState = MissileEngagementState.Active;
@@ -529,15 +466,9 @@ namespace ACunicombat.Mechs
 				missilePlume.Build(1.8f, 1f);
 				CreateRcsThrusterVisuals();
 			}
-			if (weaponKind == TestWeaponKind.Missile && radarController != null)
+			if (weaponKind == TestWeaponKind.Missile)
 			{
-				radarController.TryRegisterMissileSeeker(base.transform.position, velocity, seekerMaximumRange, seekerHalfAngleRadians * 2f * 57.29578f, owner != null && ResolveCombatantRoot(owner) != ResolveCombatantRoot(radarController.transform), out seekerHandle);
-				if (seekerHandle.IsValid)
-				{
-					radarController.RegisterMissileIrSource(in seekerHandle, 28f);
-					irSourceRegistered = true;
-					irMotorStateRegistered = false;
-				}
+				RegisterRadarObservers();
 			}
 			if (weaponKind == TestWeaponKind.Missile &&
 				dataLinkController != null &&
@@ -650,6 +581,134 @@ namespace ACunicombat.Mechs
 			return target.transform;
 		}
 
+		private void RegisterRadarObservers()
+		{
+			radarObservers.Clear();
+			seekerHandle = default(MechRadarController.MissileSeekerHandle);
+			irSourceRegistered = false;
+			irMotorStateRegistered = false;
+
+			if (radarController != null)
+			{
+				TryRegisterRadarObserver(
+					radarController,
+					registerAsHostileTarget: false,
+					primary: true);
+			}
+
+			var controllers = MechRadarController.ActiveControllers;
+			for (var i = 0; i < controllers.Count; i++)
+			{
+				var observer = controllers[i];
+				if (observer == null ||
+					observer == radarController ||
+					!observer.isActiveAndEnabled ||
+					IsFriendlyRadarObserver(observer))
+				{
+					continue;
+				}
+
+				TryRegisterRadarObserver(
+					observer,
+					registerAsHostileTarget: true,
+					primary: false);
+			}
+		}
+
+		private void TryRegisterRadarObserver(
+			MechRadarController controller,
+			bool registerAsHostileTarget,
+			bool primary)
+		{
+			if (controller == null ||
+				!controller.TryRegisterMissileSeeker(
+					base.transform.position,
+					velocity,
+					seekerMaximumRange,
+					seekerHalfAngleRadians * 2f * Mathf.Rad2Deg,
+					registerAsHostileTarget,
+					out var handle))
+			{
+				return;
+			}
+
+			controller.RegisterMissileIrSource(in handle, CoastIrIntensityDb);
+			radarObservers.Add(new RadarObserverRegistration
+			{
+				Controller = controller,
+				Handle = handle,
+			});
+			irSourceRegistered = true;
+			if (primary)
+			{
+				seekerHandle = handle;
+			}
+		}
+
+		private bool IsFriendlyRadarObserver(
+			MechRadarController controller)
+		{
+			var ownerTarget = owner != null
+				? owner.GetComponentInParent<CombatTestTarget>()
+				: null;
+			var observerTarget = controller != null
+				? controller.GetComponentInParent<CombatTestTarget>()
+				: null;
+			if (ownerTarget != null && observerTarget != null)
+			{
+				return ownerTarget.TeamId == observerTarget.TeamId;
+			}
+
+			return owner != null &&
+				   ResolveCombatantRoot(owner) ==
+				   ResolveCombatantRoot(controller.transform);
+		}
+
+		private void UpdateRadarObserverStates()
+		{
+			for (var i = 0; i < radarObservers.Count; i++)
+			{
+				var observer = radarObservers[i];
+				observer.Controller?.UpdateMissileSeekerState(
+					in observer.Handle,
+					base.transform.position,
+					velocity);
+			}
+		}
+
+		private void SetRadarObserverIrIntensity(float intensityDb)
+		{
+			for (var i = 0; i < radarObservers.Count; i++)
+			{
+				var observer = radarObservers[i];
+				observer.Controller?.SetMissileIrIntensity(
+					in observer.Handle,
+					intensityDb);
+			}
+		}
+
+		private void ScheduleRadarObserverDwells(
+			Vector3 direction,
+			float beamWidthDegrees,
+			ulong sequence)
+		{
+			for (var i = 0; i < radarObservers.Count; i++)
+			{
+				var observer = radarObservers[i];
+				observer.Controller?.ScheduleMissileSeekerDwell(
+					in observer.Handle,
+					direction,
+					beamWidthDegrees,
+					sequence);
+			}
+		}
+
+		private struct RadarObserverRegistration
+		{
+			public MechRadarController Controller;
+			public MechRadarController.MissileSeekerHandle Handle;
+		}
+
 		private void FixedUpdate()
 		{
 			float dt = Time.fixedDeltaTime;
@@ -734,7 +793,7 @@ namespace ACunicombat.Mechs
 			base.transform.position += travel;
 			if (weaponKind == TestWeaponKind.Missile)
 			{
-				radarController?.UpdateMissileSeekerState(in seekerHandle, base.transform.position, velocity);
+				UpdateRadarObserverStates();
 				if (dataLinkController != null && linkTerminal.IsValid)
 				{
 					dataLinkController.UpdateMissileLinkTerminalState(
@@ -809,7 +868,8 @@ namespace ACunicombat.Mechs
 			SetMotorVisual(motorActive);
 			if (irSourceRegistered && motorActive != irMotorStateRegistered)
 			{
-				radarController.SetMissileIrIntensity(in seekerHandle, motorActive ? 58f : 28f);
+				SetRadarObserverIrIntensity(
+					motorActive ? MotorIrIntensityDb : CoastIrIntensityDb);
 				irMotorStateRegistered = motorActive;
 			}
 			float currentSpeed = velocity.magnitude;
@@ -830,42 +890,14 @@ namespace ACunicombat.Mechs
 			bool hasGuidance = false;
 			bool refreshesTerminalEstimate = false;
 			bool seekerActive = missileFlightTime >= seekerActivationDelay;
-			bool num = directGuidanceTarget != null && directGuidanceTarget.IsAlive;
-			bool directMissileTargetAlive = directProjectileTarget != null && directProjectileTarget.IsInterceptableMissile;
-			bool committedDirectMissileTargetLost = interceptorTargetCommitted && directProjectileTarget != null && !directMissileTargetAlive;
-			bool hasDirectTarget = num || directMissileTargetAlive;
-			Vector3 directTargetPosition = (num ? directGuidanceTarget.AimPoint.position : (directMissileTargetAlive ? directProjectileTarget.transform.position : default(Vector3)));
-			bool directSeekerHasTrack = false;
-			if (hasDirectTarget && seekerActive)
-			{
-				directSeekerHasTrack = UpdateDirectGuidanceSeekerEmission(deltaTime, directTargetPosition);
-			}
-			else if (seekerActive && !committedDirectMissileTargetLost)
+			if (seekerActive)
 			{
 				UpdateSeeker(deltaTime);
-			}
-			else if (committedDirectMissileTargetLost)
-			{
-				seekerLocked = false;
 			}
 			Vector3 targetPosition;
 			Vector3 targetVelocity;
 			TrackSnapshot track;
-			if (hasDirectTarget)
-			{
-				Vector3 currentTargetPosition = directTargetPosition;
-				directTargetVelocity = (directMissileTargetAlive ? directProjectileTarget.Velocity : ((currentTargetPosition - directTargetPreviousPosition) / Mathf.Max(deltaTime, 0.001f)));
-				directTargetPreviousPosition = currentTargetPosition;
-				missilePhase = (seekerActive ? MissileFlightPhase.TerminalGuidance : (motorActive ? MissileFlightPhase.Boost : MissileFlightPhase.MidcourseCoast));
-				targetPosition = currentTargetPosition;
-				targetVelocity = directTargetVelocity;
-				seekerEstimatedPosition = targetPosition;
-				seekerEstimatedVelocity = targetVelocity;
-				seekerLocked = seekerActive && directSeekerHasTrack;
-				hasGuidance = true;
-				refreshesTerminalEstimate = true;
-			}
-			else if (seekerLocked)
+			if (seekerLocked)
 			{
 				missilePhase = MissileFlightPhase.TerminalGuidance;
 				targetPosition = seekerEstimatedPosition;
@@ -910,7 +942,7 @@ namespace ACunicombat.Mechs
 					terminalFuseEstimateMemoryRemaining = GetTerminalEstimateMemorySeconds();
 				}
 				Vector3 toTarget = targetPosition - base.transform.position;
-				bool terminalGuidance = seekerLocked || directSeekerHasTrack;
+				bool terminalGuidance = seekerLocked;
 				float guidanceSpeed = EstimateGuidanceSpeed(toTarget.magnitude, terminalGuidance);
 				float leadTimeLimit = ((!interceptorMissile) ? (terminalGuidance ? 4f : 15f) : (terminalGuidance ? 1.5f : 4f));
 				Vector3 leadPoint = ToVector3(MissileEngagementMath.PredictLeadPoint(ToFloat3(base.transform.position), ToFloat3(targetPosition), ToFloat3(targetVelocity), guidanceSpeed, leadTimeLimit));
@@ -992,8 +1024,6 @@ namespace ACunicombat.Mechs
 				hasCachedGuidanceTrack = false;
 				guidanceMemoryRemaining = 0f;
 				targetTrackId = default(TrackId);
-				directGuidanceTarget = null;
-				directProjectileTarget = null;
 				terminalFuseEstimateMemoryRemaining = 0f;
 				rcsAccelerationWorld = Vector3.zero;
 				rcsAttitudeTorqueLocal = Vector3.zero;
@@ -1178,7 +1208,12 @@ namespace ACunicombat.Mechs
 			{
 				searchDirection = base.transform.forward;
 			}
-			radarController.ScheduleMissileSeekerDwell(in seekerHandle, searchDirection, seekerLocked ? 6f : (seekerHalfAngleRadians * 57.29578f * 2f), ++seekerDwellSequence);
+			ScheduleRadarObserverDwells(
+				searchDirection,
+				seekerLocked
+					? 6f
+					: seekerHalfAngleRadians * Mathf.Rad2Deg * 2f,
+				++seekerDwellSequence);
 			int measurementCount = radarController.CopyMissileSeekerMeasurements(in seekerHandle, seekerMeasurementScratch);
 			if (measurementCount <= 0)
 			{
@@ -1353,10 +1388,6 @@ namespace ACunicombat.Mechs
 			CombatTestTarget ownship = CombatTestTarget.Ownship;
 			bool ownshipDamaged = false;
 			DamagedScratch.Clear();
-			if (directGuidanceTarget != null)
-			{
-				ownshipDamaged = (damagedAnyTarget = TryDamageCombatTarget(directGuidanceTarget, detonationPoint)) && directGuidanceTarget == ownship;
-			}
 			for (int i = 0; i < colliderCount; i++)
 			{
 				CombatTestTarget candidate = OverlapScratch[i].GetComponentInParent<CombatTestTarget>();
@@ -1410,33 +1441,6 @@ namespace ACunicombat.Mechs
 			}
 			float falloff = Mathf.Lerp(0.25f, 1f, 1f - distance / warheadLethalRadius);
 			candidate.ApplyDamage(damage * falloff, detonationPoint, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId, owner);
-			return true;
-		}
-
-		private bool UpdateDirectGuidanceSeekerEmission(float deltaTime, Vector3 targetPosition)
-		{
-			if (!seekerHandle.IsValid || radarController == null)
-			{
-				return false;
-			}
-			Vector3 direction = targetPosition - base.transform.position;
-			if (direction.sqrMagnitude <= 0.001f)
-			{
-				return false;
-			}
-			direction.Normalize();
-			Vector3 seekerForward = ((velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward);
-			if (!PnGuidance.WithinGimbalLimit(ToFloat3(direction), ToFloat3(seekerForward), seekerGimbalRadians))
-			{
-				return false;
-			}
-			seekerScanRemaining -= deltaTime;
-			if (seekerScanRemaining > 0f)
-			{
-				return true;
-			}
-			seekerScanRemaining = 0.05f;
-			radarController.ScheduleMissileSeekerDwell(in seekerHandle, direction, 6f, ++seekerDwellSequence);
 			return true;
 		}
 
@@ -1912,14 +1916,20 @@ namespace ACunicombat.Mechs
 		private void OnDestroy()
 		{
 			ReleaseGuidanceChannel();
-			if (radarController != null)
+			for (var i = 0; i < radarObservers.Count; i++)
 			{
-				if (irSourceRegistered)
+				var observer = radarObservers[i];
+				if (observer.Controller == null)
 				{
-					radarController.UnregisterMissileIrSource(in seekerHandle);
+					continue;
 				}
-				radarController.UnregisterMissileSeeker(in seekerHandle);
+
+				observer.Controller.UnregisterMissileIrSource(
+					in observer.Handle);
+				observer.Controller.UnregisterMissileSeeker(
+					in observer.Handle);
 			}
+			radarObservers.Clear();
 			if (dataLinkController != null && linkTerminal.IsValid)
 			{
 				dataLinkController.UnregisterMissileLinkTerminal(linkTerminal);

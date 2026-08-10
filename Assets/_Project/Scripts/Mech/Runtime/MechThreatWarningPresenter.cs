@@ -19,6 +19,9 @@ namespace ACunicombat.Mechs
         private const int SectorCount = 12;
         private const float SectorDegrees = 360f / SectorCount;
         private const float IdentificationThreshold = 0.35f;
+        private const float MissileThreatAssociationDegrees = 20f;
+        private const float MissileThreatMaximumCpaMeters = 750f;
+        private const float MissileThreatUncertaintyAllowanceMeters = 750f;
 
         [Header("近距来弹显示")]
         [Tooltip("导弹告警接收功率达到该值且功率仍在上升时，整圈高亮。")]
@@ -53,7 +56,10 @@ namespace ACunicombat.Mechs
         private AudioSource loopSource;
         private readonly ThreatSnapshot[] threatScratch =
             new ThreatSnapshot[EsmThreatCorrelatorLimits.MaxThreats];
+        private readonly MissileTrackSnapshot[] missileTrackScratch =
+            new MissileTrackSnapshot[64];
         private int threatCount;
+        private int missileTrackCount;
         private EsmThreatLevel previousHighestLevel;
         private float nextTrackedPulseTime = -1f;
         private int trackedPulseIndex;
@@ -145,6 +151,7 @@ namespace ACunicombat.Mechs
             }
 
             threatCount = radar.CopyThreats(threatScratch);
+            missileTrackCount = radar.CopyMissileTracks(missileTrackScratch);
             UpdateAudio();
         }
 
@@ -166,9 +173,10 @@ namespace ACunicombat.Mechs
             var highest = EsmThreatLevel.None;
             for (var i = 0; i < threatCount; i++)
             {
-                if (threatScratch[i].Level > highest)
+                var alertLevel = ResolveAlertLevel(in threatScratch[i]);
+                if (alertLevel > highest)
                 {
-                    highest = threatScratch[i].Level;
+                    highest = alertLevel;
                 }
             }
 
@@ -420,9 +428,10 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                if (threat.Level > highestLevel)
+                var alertLevel = ResolveAlertLevel(in threat);
+                if (alertLevel > highestLevel)
                 {
-                    highestLevel = threat.Level;
+                    highestLevel = alertLevel;
                 }
                 if (IsCloseMissile(in threat))
                 {
@@ -483,7 +492,8 @@ namespace ACunicombat.Mechs
         {
             if (threat.Level != EsmThreatLevel.MissileActive ||
                 (threat.WaveformClass != EsmWaveformClass.MissileSeeker &&
-                 threat.WaveformClass != EsmWaveformClass.InfraredPlume))
+                 threat.WaveformClass != EsmWaveformClass.InfraredPlume) ||
+                !HasCorrelatedIncomingMissile(in threat))
             {
                 return false;
             }
@@ -491,6 +501,70 @@ namespace ACunicombat.Mechs
             return threat.ReceivedPowerDb >= immediateMissileReceivedPowerDb ||
                    (threat.ReceivedPowerDb >= closeMissileReceivedPowerDb &&
                     threat.PowerTrendDbPerSecond >= closeMissilePowerTrendDbPerSecond);
+        }
+
+        private EsmThreatLevel ResolveAlertLevel(in ThreatSnapshot threat)
+        {
+            if (threat.Level != EsmThreatLevel.MissileActive)
+            {
+                return threat.Level;
+            }
+
+            return HasCorrelatedIncomingMissile(in threat)
+                ? EsmThreatLevel.MissileActive
+                : EsmThreatLevel.None;
+        }
+
+        private bool HasCorrelatedIncomingMissile(in ThreatSnapshot threat)
+        {
+            if (threat.WaveformClass != EsmWaveformClass.MissileSeeker &&
+                threat.WaveformClass != EsmWaveformClass.InfraredPlume)
+            {
+                return false;
+            }
+
+            var minimumDot = Mathf.Cos(
+                MissileThreatAssociationDegrees * Mathf.Deg2Rad);
+            var now = radar != null ? radar.SimTimeSeconds : Time.timeAsDouble;
+            for (var i = 0; i < missileTrackCount; i++)
+            {
+                var track = missileTrackScratch[i];
+                if (!track.IsWarning || !track.Incoming || track.IsFriendly)
+                {
+                    continue;
+                }
+
+                var cpaGate = MissileThreatMaximumCpaMeters +
+                    Mathf.Min(
+                        MissileThreatUncertaintyAllowanceMeters,
+                        Mathf.Max(0f, track.CpaUncertaintyMeters));
+                if (track.ClosestApproachDistanceMeters > cpaGate)
+                {
+                    continue;
+                }
+
+                var predictedPosition = track.PredictPosition(now);
+                var relativePosition = new Vector3(
+                    (float)predictedPosition.x - transform.position.x,
+                    (float)predictedPosition.y - transform.position.y,
+                    (float)predictedPosition.z - transform.position.z);
+                if (relativePosition.sqrMagnitude <= 1f)
+                {
+                    return true;
+                }
+
+                if (Vector3.Dot(
+                        relativePosition.normalized,
+                        new Vector3(
+                            threat.DirectionWorld.x,
+                            threat.DirectionWorld.y,
+                            threat.DirectionWorld.z)) >= minimumDot)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static float ThreatPriority(in ThreatSnapshot threat)

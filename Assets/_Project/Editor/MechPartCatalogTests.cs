@@ -90,6 +90,8 @@ namespace ACunicombat.Editor.Tests
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_BD_M_2010"), (IResolveConstraint)(object)Is.False);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_NATIVE_BS_A_1010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_SAMPLE_GENERATOR"), (IResolveConstraint)(object)Is.True);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_SAMPLE_FCS"), (IResolveConstraint)(object)Is.True);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_SAMPLE_RADAR"), (IResolveConstraint)(object)Is.True);
 		}
 
 		[Test]
