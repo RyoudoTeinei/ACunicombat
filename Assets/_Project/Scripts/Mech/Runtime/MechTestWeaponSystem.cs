@@ -410,7 +410,6 @@ namespace ACunicombat.Mechs
 
 		private uint rifleDispersionRandomState;
 
-		private GUIStyle hudLabelStyle;
 
 		private const float RifleProjectileCollisionRadiusMeters = 0.08f;
 
@@ -3173,83 +3172,9 @@ namespace ACunicombat.Mechs
 			return new Vector2(Mathf.Clamp(viewportPoint.x, 0.05f, 0.95f), Mathf.Clamp(viewportPoint.y, 0.05f, 0.95f));
 		}
 
-		// 遗留备用准星的抑制判定缓存，见 HasAuthoritativeRadarHud。
-		private MechRadarHudPresenter authoritativeRadarHud;
-		private int authoritativeRadarHudProbeFrame = -1;
 
-		private Vector2 GetReticleGuiPosition()
-		{
-			Vector2 viewportPoint = GetAimViewportPoint();
-			if (aimingCamera == null)
-			{
-				return new Vector2((float)Screen.width * viewportPoint.x, (float)Screen.height * (1f - viewportPoint.y));
-			}
-			Vector3 screenPoint = aimingCamera.ViewportToScreenPoint(new Vector3(viewportPoint.x, viewportPoint.y, 0f));
-			return new Vector2(screenPoint.x, (float)Screen.height - screenPoint.y);
-		}
 
-		/// <summary>
-		/// 正式 HUD（<see cref="MechRadarHudPresenter"/>）是否已经存在于场景中。
-		///
-		/// 原来这里用的是同物体 <c>GetComponent</c>，那个前提在组件被拆到不同 GameObject 上之后
-		/// 就不成立了——AI 靶机同样挂着 <see cref="MechTestWeaponSystem"/>（见
-		/// <c>AC6PlayableSceneBuilder</c> 里对 AI root 的 Ensure），但它所在的物体上没有正式 HUD，
-		/// 于是这套遗留备用准星会和正式 HUD 同时绘制，屏幕中央出现第二个角框加
-		/// "Track#N 距离 Lifecycle 置信度" 的调试文字。
-		///
-		/// 改为按全场判定：只要场景里已经有正式 HUD，任何一份备用准星都不再绘制。
-		/// 找到后即锁定，未找到时每帧最多探测一次（OnGUI 每帧会被调用多次）。
-		/// </summary>
-		private bool HasAuthoritativeRadarHud()
-		{
-			if (authoritativeRadarHud != null)
-			{
-				return true;
-			}
 
-			if (authoritativeRadarHudProbeFrame == Time.frameCount)
-			{
-				return false;
-			}
-
-			authoritativeRadarHudProbeFrame = Time.frameCount;
-			authoritativeRadarHud = GetComponent<MechRadarHudPresenter>()
-				?? FindAnyObjectByType<MechRadarHudPresenter>();
-			return authoritativeRadarHud != null;
-		}
-
-		private void OnGUI()
-		{
-			if (MechAssemblyMenu.IsAnyMenuVisible || HasAuthoritativeRadarHud() || aimingCamera == null || radarController == null)
-			{
-				return;
-			}
-			if (hudLabelStyle == null)
-			{
-				hudLabelStyle = new GUIStyle(GUI.skin.label)
-				{
-					alignment = TextAnchor.MiddleCenter,
-					fontSize = 13,
-					fontStyle = FontStyle.Bold
-				};
-			}
-			if (radarController.TryGetBestTrack(out var track))
-			{
-				Vector3 trackedPosition = radarController.PredictTrackPosition(in track);
-				Vector3 screen = aimingCamera.WorldToScreenPoint(trackedPosition);
-				if (!(screen.z <= 0f))
-				{
-					Vector2 targetCenter = new Vector2(screen.x, (float)Screen.height - screen.y);
-					TrackSnapshot track2;
-					FireSolution solution;
-					Color color = (radarController.TryGetMissileFireSolution(missileLockDegrees, BuildMissileKinematics(), out track2, out solution) ? new Color(1f, 0.35f, 0.12f) : new Color(0.25f, 0.9f, 0.95f));
-					DrawCornerBrackets(targetCenter, 34f, color);
-					float range = Vector3.Distance(base.transform.position, trackedPosition);
-					hudLabelStyle.normal.textColor = color;
-					GUI.Label(new Rect(targetCenter.x - 90f, targetCenter.y - 65f, 180f, 22f), $"{track.TrackId}  {range:0} m  {track.Lifecycle}  {track.Confidence:P0}", hudLabelStyle);
-				}
-			}
-		}
 
 		private MissileKinematicProfile BuildMissileKinematics()
 		{
@@ -3758,26 +3683,6 @@ namespace ACunicombat.Mechs
 				material.SetColor("_Color", color);
 			}
 			return material;
-		}
-
-		private static void DrawCornerBrackets(Vector2 center, float extent, Color color)
-		{
-			DrawRect(new Rect(center.x - extent, center.y - extent, 12f, 2f), color);
-			DrawRect(new Rect(center.x - extent, center.y - extent, 2f, 12f), color);
-			DrawRect(new Rect(center.x + extent - 12f, center.y - extent, 12f, 2f), color);
-			DrawRect(new Rect(center.x + extent - 2f, center.y - extent, 2f, 12f), color);
-			DrawRect(new Rect(center.x - extent, center.y + extent - 2f, 12f, 2f), color);
-			DrawRect(new Rect(center.x - extent, center.y + extent - 12f, 2f, 12f), color);
-			DrawRect(new Rect(center.x + extent - 12f, center.y + extent - 2f, 12f, 2f), color);
-			DrawRect(new Rect(center.x + extent - 2f, center.y + extent - 12f, 2f, 12f), color);
-		}
-
-		private static void DrawRect(Rect rect, Color color)
-		{
-			Color color2 = GUI.color;
-			GUI.color = color;
-			GUI.DrawTexture(rect, Texture2D.whiteTexture);
-			GUI.color = color2;
 		}
 	}
 

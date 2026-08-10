@@ -1825,11 +1825,6 @@ public static class AC6PlayableSceneBuilder
         }
 
         Ensure<MechTestRadarEmitter>(root);
-        var legacyAiSensors = root.GetComponent<MechAiSensorSuite>();
-        if (legacyAiSensors != null)
-        {
-            UnityEngine.Object.DestroyImmediate(legacyAiSensors);
-        }
         var ai = Ensure<MechAiTargetController>(root);
         ai.Configure(playerTarget, sensorCamera);
         ai.ConfigureCombatBehavior(3000f, 5000f, 8f);

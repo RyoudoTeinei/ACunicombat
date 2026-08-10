@@ -118,11 +118,6 @@ namespace ACunicombat.Mechs
             weapons = GetComponent<MechTestWeaponSystem>();
             weaponAnimationLayer = GetComponent<MechWeaponArmLayer>();
             selfTarget = GetComponent<CombatTestTarget>();
-            var legacySensorSuite = GetComponent<MechAiSensorSuite>();
-            if (legacySensorSuite != null)
-            {
-                legacySensorSuite.enabled = false;
-            }
             var trajectoryPredictor = GetComponent<MechTrajectoryPredictor>();
             if (trajectoryPredictor != null)
             {
