@@ -1,3 +1,4 @@
+using System;
 using ACunicombat.Sensing.Contracts;
 using ACunicombat.Simulation.Core;
 using Unity.Collections;
@@ -5,6 +6,40 @@ using Unity.Mathematics;
 
 namespace ACunicombat.Tracking
 {
+    public enum RadarTrackDiagnosticKind : byte
+    {
+        InvalidMeasurement,
+        AssociationAccepted,
+        ManeuverAssociationAccepted,
+        TrackAllocated,
+        TrackAllocationFailed,
+        LifecycleChanged,
+        TrackReleased,
+    }
+
+    public struct RadarTrackDiagnostic
+    {
+        public RadarTrackDiagnosticKind Kind;
+        public double Timestamp;
+        public int MeasurementIndex;
+        public SensorId SensorId;
+        public TrackId TrackId;
+        public TrackObjectClass ObjectClass;
+        public TrackLifecycle PreviousLifecycle;
+        public TrackLifecycle Lifecycle;
+        public double3 MeasurementPosition;
+        public double3 TrackPosition;
+        public double NormalizedDistanceSquared;
+        public double GateSquared;
+        public int CandidateCount;
+        public int StaleRejectedCount;
+        public int ClassRejectedCount;
+        public int GateRejectedCount;
+        public double TrackAgeSeconds;
+        public int CoastCount;
+        public string Reason;
+    }
+
     /// <summary>
     /// Deterministic nearest-neighbour tracker for the first playable radar slice. It associates
     /// anonymous measurements in Cartesian space and exposes only immutable TrackSnapshot values.
@@ -52,6 +87,16 @@ namespace ACunicombat.Tracking
         private int activeCapacity = MaxTracks;
         private double maximumTrackAgeSeconds = DefaultMaximumTrackAgeSeconds;
 
+        private struct AssociationSearchStats
+        {
+            public double BestNormalizedDistanceSquared;
+            public double BestGateSquared;
+            public int CandidateCount;
+            public int StaleRejectedCount;
+            public int ClassRejectedCount;
+            public int GateRejectedCount;
+        }
+
         public RadarTrackManager()
         {
             for (var i = 0; i < generations.Length; i++)
@@ -62,6 +107,7 @@ namespace ACunicombat.Tracking
 
         public int Count => activeCount;
         public int Capacity => activeCapacity;
+        public event Action<RadarTrackDiagnostic> Diagnostic;
 
         public void ConfigureLimits(int capacity, double trackMemorySeconds)
         {
@@ -151,6 +197,20 @@ namespace ACunicombat.Tracking
 
                 if (simTime - slot.LastUpdateTime >= maximumTrackAgeSeconds)
                 {
+                    Emit(new RadarTrackDiagnostic
+                    {
+                        Kind = RadarTrackDiagnosticKind.TrackReleased,
+                        Timestamp = simTime,
+                        MeasurementIndex = -1,
+                        TrackId = slot.Id,
+                        ObjectClass = slot.ObjectClass,
+                        PreviousLifecycle = slot.Lifecycle.State,
+                        Lifecycle = TrackLifecycle.Dropped,
+                        TrackPosition = slot.Filter.Position,
+                        TrackAgeSeconds = simTime - slot.LastUpdateTime,
+                        CoastCount = slot.Lifecycle.MissCount,
+                        Reason = "maximum_track_age",
+                    });
                     ReleaseTrack(i);
                     continue;
                 }
@@ -168,6 +228,15 @@ namespace ACunicombat.Tracking
                 var measurement = measurements[i];
                 if (float.IsNaN(measurement.Range) || measurement.Range <= 0f)
                 {
+                    Emit(new RadarTrackDiagnostic
+                    {
+                        Kind = RadarTrackDiagnosticKind.InvalidMeasurement,
+                        Timestamp = measurement.Timestamp,
+                        MeasurementIndex = i,
+                        SensorId = measurement.SensorId,
+                        ObjectClass = measurement.ObjectClass,
+                        Reason = "invalid_range",
+                    });
                     continue;
                 }
 
@@ -185,8 +254,10 @@ namespace ACunicombat.Tracking
                     in cartesianCovariance,
                     measurement.ObjectClass,
                     measurement.Timestamp,
-                    0.0);
+                    0.0,
+                    out var regularStats);
                 var maneuverAssociated = false;
+                var maneuverStats = default(AssociationSearchStats);
                 if (slotIndex < 0)
                 {
                     // 二级"机动门限"：常规 5σ 门限是按等速模型的协方差算的，一次 QB
@@ -205,12 +276,18 @@ namespace ACunicombat.Tracking
                         in cartesianCovariance,
                         measurement.ObjectClass,
                         measurement.Timestamp,
-                        maneuverAcceleration);
+                        maneuverAcceleration,
+                        out maneuverStats);
                     maneuverAssociated = slotIndex >= 0;
                 }
 
+                var allocated = false;
+                var failedStats = default(AssociationSearchStats);
                 if (slotIndex < 0)
                 {
+                    failedStats = CombineAssociationStats(
+                        in regularStats,
+                        in maneuverStats);
                     slotIndex = AllocateTrack(
                         cartesian,
                         in cartesianCovariance,
@@ -218,12 +295,56 @@ namespace ACunicombat.Tracking
                         measurement.Timestamp);
                     if (slotIndex < 0)
                     {
+                        EmitAssociationDiagnostic(
+                            RadarTrackDiagnosticKind.TrackAllocationFailed,
+                            measurement.Timestamp,
+                            i,
+                            measurement.SensorId,
+                            default,
+                            measurement.ObjectClass,
+                            cartesian,
+                            in failedStats,
+                            "track_capacity_exhausted");
                         continue;
                     }
+
+                    allocated = true;
                 }
 
                 var firstAssociationThisTick = !associated[slotIndex];
                 var slot = slots[slotIndex];
+                var previousLifecycle = slot.Lifecycle.State;
+                if (allocated)
+                {
+                    EmitAssociationDiagnostic(
+                        RadarTrackDiagnosticKind.TrackAllocated,
+                        measurement.Timestamp,
+                        i,
+                        measurement.SensorId,
+                        slot.Id,
+                        measurement.ObjectClass,
+                        cartesian,
+                        in failedStats,
+                        "no_association_inside_gate");
+                }
+                else
+                {
+                    var stats = maneuverAssociated ? maneuverStats : regularStats;
+                    EmitAssociationDiagnostic(
+                        maneuverAssociated
+                            ? RadarTrackDiagnosticKind.ManeuverAssociationAccepted
+                            : RadarTrackDiagnosticKind.AssociationAccepted,
+                        measurement.Timestamp,
+                        i,
+                        measurement.SensorId,
+                        slot.Id,
+                        measurement.ObjectClass,
+                        cartesian,
+                        in stats,
+                        firstAssociationThisTick
+                            ? "first_measurement_this_tick"
+                            : "overlapping_measurement");
+                }
                 if (maneuverAssociated)
                 {
                     // 只关联上还不够：过度自信的速度协方差会让本次更新被强烈阻尼，
@@ -261,6 +382,14 @@ namespace ACunicombat.Tracking
                 UpdateClassification(ref slot, in measurement);
                 slots[slotIndex] = slot;
                 associated[slotIndex] = true;
+                if (slot.Lifecycle.State != previousLifecycle)
+                {
+                    EmitLifecycleChanged(
+                        measurement.Timestamp,
+                        slot,
+                        previousLifecycle,
+                        "measurement_hit");
+                }
             }
 
             for (var i = 0; i < slots.Length; i++)
@@ -271,6 +400,7 @@ namespace ACunicombat.Tracking
                 }
 
                 var slot = slots[i];
+                var previousLifecycle = slot.Lifecycle.State;
                 if (!associated[i])
                 {
                     var trackAge = math.max(0.0, simTime - slot.LastUpdateTime);
@@ -294,11 +424,38 @@ namespace ACunicombat.Tracking
 
                 if (slot.Lifecycle.State == TrackLifecycle.Dropped)
                 {
+                    EmitLifecycleChanged(
+                        simTime,
+                        slot,
+                        previousLifecycle,
+                        "miss_or_covariance_limit");
+                    Emit(new RadarTrackDiagnostic
+                    {
+                        Kind = RadarTrackDiagnosticKind.TrackReleased,
+                        Timestamp = simTime,
+                        MeasurementIndex = -1,
+                        TrackId = slot.Id,
+                        ObjectClass = slot.ObjectClass,
+                        PreviousLifecycle = previousLifecycle,
+                        Lifecycle = TrackLifecycle.Dropped,
+                        TrackPosition = slot.Filter.Position,
+                        TrackAgeSeconds = simTime - slot.LastUpdateTime,
+                        CoastCount = slot.Lifecycle.MissCount,
+                        Reason = "lifecycle_dropped",
+                    });
                     ReleaseTrack(i);
                 }
                 else
                 {
                     slots[i] = slot;
+                    if (slot.Lifecycle.State != previousLifecycle)
+                    {
+                        EmitLifecycleChanged(
+                            simTime,
+                            slot,
+                            previousLifecycle,
+                            "miss_or_covariance_limit");
+                    }
                 }
             }
         }
@@ -506,8 +663,14 @@ namespace ACunicombat.Tracking
             in Matrix6 measurementCovariance,
             TrackObjectClass measuredObjectClass,
             double measurementTime,
-            double maneuverAcceleration)
+            double maneuverAcceleration,
+            out AssociationSearchStats stats)
         {
+            stats = new AssociationSearchStats
+            {
+                BestNormalizedDistanceSquared = double.PositiveInfinity,
+                BestGateSquared = AssociationGateSquared,
+            };
             var bestIndex = -1;
             var bestDistance = double.MaxValue;
             for (var i = 0; i < activeCapacity; i++)
@@ -524,6 +687,7 @@ namespace ACunicombat.Tracking
                         MaximumAssociationAgeSeconds ||
                     slots[i].Lifecycle.State == TrackLifecycle.Degraded)
                 {
+                    stats.StaleRejectedCount++;
                     continue;
                 }
 
@@ -536,8 +700,11 @@ namespace ACunicombat.Tracking
                     slots[i].ObjectClass != TrackObjectClass.Unknown &&
                     measuredObjectClass != slots[i].ObjectClass)
                 {
+                    stats.ClassRejectedCount++;
                     continue;
                 }
+
+                stats.CandidateCount++;
 
                 // 机动门限项：距上次量测 Δt 之后，一次 maneuverAcceleration 量级的机动
                 // 最多把目标带偏约 a·Δt²（取整而非 ½ 以留余量），按 1σ 计入位置方差。
@@ -575,8 +742,17 @@ namespace ACunicombat.Tracking
                 var gate = associated[i]
                     ? AssociationGateSquared * 0.25
                     : AssociationGateSquared;
+                if (normalizedDistance < stats.BestNormalizedDistanceSquared)
+                {
+                    stats.BestNormalizedDistanceSquared = normalizedDistance;
+                    stats.BestGateSquared = gate;
+                }
                 if (normalizedDistance >= gate || normalizedDistance >= bestDistance)
                 {
+                    if (normalizedDistance >= gate)
+                    {
+                        stats.GateRejectedCount++;
+                    }
                     continue;
                 }
 
@@ -585,6 +761,113 @@ namespace ACunicombat.Tracking
             }
 
             return bestIndex;
+        }
+
+        private void EmitAssociationDiagnostic(
+            RadarTrackDiagnosticKind kind,
+            double timestamp,
+            int measurementIndex,
+            SensorId sensorId,
+            TrackId trackId,
+            TrackObjectClass objectClass,
+            double3 measurementPosition,
+            in AssociationSearchStats stats,
+            string reason)
+        {
+            var trackPosition = double3.zero;
+            var trackAge = 0.0;
+            if (trackId.IsValid)
+            {
+                var index = trackId.Value.Index;
+                if ((uint)index < slots.Length && slots[index].Active)
+                {
+                    trackPosition = slots[index].Filter.Position;
+                    trackAge = math.max(
+                        0.0,
+                        timestamp - slots[index].LastUpdateTime);
+                }
+            }
+
+            Emit(new RadarTrackDiagnostic
+            {
+                Kind = kind,
+                Timestamp = timestamp,
+                MeasurementIndex = measurementIndex,
+                SensorId = sensorId,
+                TrackId = trackId,
+                ObjectClass = objectClass,
+                MeasurementPosition = measurementPosition,
+                TrackPosition = trackPosition,
+                NormalizedDistanceSquared = stats.BestNormalizedDistanceSquared,
+                GateSquared = stats.BestGateSquared,
+                CandidateCount = stats.CandidateCount,
+                StaleRejectedCount = stats.StaleRejectedCount,
+                ClassRejectedCount = stats.ClassRejectedCount,
+                GateRejectedCount = stats.GateRejectedCount,
+                TrackAgeSeconds = trackAge,
+                Reason = reason,
+            });
+        }
+
+        private static AssociationSearchStats CombineAssociationStats(
+            in AssociationSearchStats regular,
+            in AssociationSearchStats maneuver)
+        {
+            var regularBest = regular.BestNormalizedDistanceSquared;
+            var maneuverBest = maneuver.BestNormalizedDistanceSquared;
+            var useRegular = regularBest <= maneuverBest;
+            return new AssociationSearchStats
+            {
+                BestNormalizedDistanceSquared = useRegular
+                    ? regularBest
+                    : maneuverBest,
+                BestGateSquared = useRegular
+                    ? regular.BestGateSquared
+                    : maneuver.BestGateSquared,
+                CandidateCount = regular.CandidateCount + maneuver.CandidateCount,
+                StaleRejectedCount = regular.StaleRejectedCount + maneuver.StaleRejectedCount,
+                ClassRejectedCount = regular.ClassRejectedCount + maneuver.ClassRejectedCount,
+                GateRejectedCount = regular.GateRejectedCount + maneuver.GateRejectedCount,
+            };
+        }
+
+        private void EmitLifecycleChanged(
+            double timestamp,
+            in TrackSlot slot,
+            TrackLifecycle previousLifecycle,
+            string reason)
+        {
+            if (slot.Lifecycle.State == previousLifecycle)
+            {
+                return;
+            }
+
+            Emit(new RadarTrackDiagnostic
+            {
+                Kind = RadarTrackDiagnosticKind.LifecycleChanged,
+                Timestamp = timestamp,
+                MeasurementIndex = -1,
+                TrackId = slot.Id,
+                ObjectClass = slot.ObjectClass,
+                PreviousLifecycle = previousLifecycle,
+                Lifecycle = slot.Lifecycle.State,
+                TrackPosition = slot.Filter.Position,
+                TrackAgeSeconds = math.max(0.0, timestamp - slot.LastUpdateTime),
+                CoastCount = slot.Lifecycle.MissCount,
+                Reason = reason,
+            });
+        }
+
+        private void Emit(in RadarTrackDiagnostic diagnostic)
+        {
+            try
+            {
+                Diagnostic?.Invoke(diagnostic);
+            }
+            catch (Exception)
+            {
+                // Diagnostics must never change tracker behavior.
+            }
         }
 
         /// <summary>

@@ -25,6 +25,10 @@ namespace ACunicombat.Simulation.Driver
         [SerializeField] private int maxMotionCatchUpTicks = 8;
         [SerializeField] private int maxSensorCatchUpTicks = 2;
         [SerializeField] private uint sessionSeed = 1;
+        [Header("Combat telemetry")]
+        [SerializeField] private bool enableCombatTelemetry = true;
+        [SerializeField, Min(0.04f)] private float telemetryTrackSnapshotIntervalSeconds = 0.2f;
+        [SerializeField, Min(1)] private int telemetryMaximumFileSizeMegabytes = 256;
 
         private FixedTickClock motionClock;
         private FixedTickClock sensorClock;
@@ -49,6 +53,13 @@ namespace ACunicombat.Simulation.Driver
         private EmitterId trackEmitterId;
         private NativeList<Measurement> trackDetectionScratch;
         private NativeList<EmissionEvent> trackEmissionScratch;
+        private readonly TrackSnapshot[] telemetryTrackScratch =
+            new TrackSnapshot[RadarTrackManager.MaxTracks];
+        private readonly ThreatSnapshot[] telemetryThreatScratch =
+            new ThreatSnapshot[EsmThreatCorrelator.MaxThreats];
+        private CombatTelemetrySession telemetry;
+        private string telemetrySource;
+        private double nextTelemetryTrackSnapshotTime;
 
         public double SimTimeSeconds => motionClock.SimTimeSeconds;
         public long MotionOverrunTicks => motionClock.OverrunTicks;
@@ -90,7 +101,33 @@ namespace ACunicombat.Simulation.Driver
                 new NativeList<EmissionEvent>(
                     1024,
                     Allocator.Persistent);
+            if (enableCombatTelemetry)
+            {
+                try
+                {
+                    telemetry = CombatTelemetrySession.Acquire(
+                        telemetryMaximumFileSizeMegabytes);
+                    telemetrySource = $"{name}#{GetEntityId()}";
+                    trackManager.Diagnostic += OnRadarTrackDiagnostic;
+                    telemetry.RecordDriverStart(
+                        SimTimeSeconds,
+                        telemetrySource,
+                        sessionSeed,
+                        MotionStepSeconds,
+                        SensorStepSeconds,
+                        FusionStepSeconds);
+                }
+                catch (System.Exception exception)
+                {
+                    telemetry = null;
+                    Debug.LogWarning(
+                        $"[CombatTelemetry] Unable to start recording: {exception.Message}",
+                        this);
+                }
+            }
         }
+
+        public string CombatTelemetryFilePath => telemetry?.CurrentFilePath ?? string.Empty;
 
         public SimEntityId RegisterEntity(in KinematicState initial) => world.Register(initial);
 
@@ -105,11 +142,23 @@ namespace ACunicombat.Simulation.Driver
             trackOriginEntity = profile.OwnerEntityId;
             trackSensorId = profile.SensorId;
             trackEmitterId = profile.EmitterId;
+            telemetry?.RecordRadarProfile(
+                SimTimeSeconds,
+                telemetrySource,
+                in profile,
+                false);
         }
 
         public void RegisterAuxiliaryRadarSensor(
-            in RadarSensorProfile profile) =>
+            in RadarSensorProfile profile)
+        {
             radar.RegisterSensor(profile);
+            telemetry?.RecordRadarProfile(
+                SimTimeSeconds,
+                telemetrySource,
+                in profile,
+                true);
+        }
 
         public void UnregisterRadarSensor(SensorId sensorId) =>
             radar.UnregisterSensor(sensorId);
@@ -121,6 +170,10 @@ namespace ACunicombat.Simulation.Driver
             esmReceiver.RegisterReceiver(profile);
             ownshipEsmReceiverId = profile.ReceiverId;
             ownshipMawEntity = profile.OwnerEntityId;
+            telemetry?.RecordEsmProfile(
+                SimTimeSeconds,
+                telemetrySource,
+                in profile);
         }
 
         // ---- 红外点源（MAW 数据源，场景桥按热状态喂入） ----
@@ -139,6 +192,10 @@ namespace ACunicombat.Simulation.Driver
         {
             electroOpticalReceiver = profile;
             electroOpticalReceiverRegistered = true;
+            telemetry?.RecordElectroOpticalProfile(
+                SimTimeSeconds,
+                telemetrySource,
+                in profile);
         }
 
         public void UpdateElectroOpticalForward(float3 forward)
@@ -176,8 +233,14 @@ namespace ACunicombat.Simulation.Driver
         }
 
         public void RegisterLaserRangefinder(
-            in LaserRangefinderProfile profile) =>
+            in LaserRangefinderProfile profile)
+        {
             laserRangefinder.RegisterSensor(profile);
+            telemetry?.RecordLaserProfile(
+                SimTimeSeconds,
+                telemetrySource,
+                in profile);
+        }
 
         public void UnregisterLaserRangefinder(SensorId sensorId) =>
             laserRangefinder.UnregisterSensor(sensorId);
@@ -189,9 +252,17 @@ namespace ACunicombat.Simulation.Driver
         public void UnregisterLaserRangeTarget(SimEntityId entityId) =>
             laserRangefinder.UnregisterTarget(entityId);
 
-        public bool ScheduleLaserPulse(in LaserPulse pulse) =>
-            laserRangefinder != null &&
-            laserRangefinder.SchedulePulse(in pulse);
+        public bool ScheduleLaserPulse(in LaserPulse pulse)
+        {
+            var accepted = laserRangefinder != null &&
+                           laserRangefinder.SchedulePulse(in pulse);
+            telemetry?.RecordLaserPulse(
+                SimTimeSeconds,
+                telemetrySource,
+                in pulse,
+                accepted);
+            return accepted;
+        }
 
         public int CopyLaserRangeObservations(
             LaserRangeObservation[] destination)
@@ -213,18 +284,45 @@ namespace ACunicombat.Simulation.Driver
 
         // ---- 数据链（终端注册 / 收发，框架级：机体/无人机/僚机/导弹/拦截弹共用） ----
 
-        public void RegisterLinkTerminal(in LinkTerminalProfile profile) =>
+        public void RegisterLinkTerminal(in LinkTerminalProfile profile)
+        {
             dataLink.RegisterTerminal(profile);
+            telemetry?.RecordLinkProfile(
+                SimTimeSeconds,
+                telemetrySource,
+                in profile);
+        }
 
         public void UnregisterLinkTerminal(LinkTerminalId terminalId) =>
             dataLink.UnregisterTerminal(terminalId);
 
         /// <summary>入队发送；下一个传感器 Tick 投递（一 Tick 固有时延）。</summary>
-        public bool SendLinkMessage(in LinkMessage message) =>
-            dataLink != null && dataLink.Send(message);
+        public bool SendLinkMessage(in LinkMessage message)
+        {
+            var accepted = dataLink != null && dataLink.Send(message);
+            telemetry?.RecordDataLink(
+                SimTimeSeconds,
+                telemetrySource,
+                "message_queued",
+                in message,
+                accepted);
+            return accepted;
+        }
 
-        public int CopyLinkInbox(LinkTerminalId terminalId, LinkMessage[] destination) =>
-            dataLink?.CopyInbox(terminalId, destination) ?? 0;
+        public int CopyLinkInbox(LinkTerminalId terminalId, LinkMessage[] destination)
+        {
+            var count = dataLink?.CopyInbox(terminalId, destination) ?? 0;
+            for (var i = 0; i < count; i++)
+            {
+                telemetry?.RecordDataLink(
+                    SimTimeSeconds,
+                    telemetrySource,
+                    "message_received",
+                    in destination[i],
+                    true);
+            }
+            return count;
+        }
 
         public void UnregisterEsmReceiver(SensorId receiverId) =>
             esmReceiver.UnregisterReceiver(receiverId);
@@ -247,7 +345,30 @@ namespace ACunicombat.Simulation.Driver
 
         public void UnregisterRadarTarget(SimEntityId entityId) => radar.UnregisterTarget(entityId);
 
-        public void ScheduleRadarDwell(in Dwell dwell) => radar.ScheduleDwell(dwell);
+        public void ScheduleRadarDwell(in Dwell dwell)
+        {
+            radar.ScheduleDwell(dwell);
+            telemetry?.RecordDwell(SimTimeSeconds, telemetrySource, in dwell);
+        }
+
+        public void RecordMissileTracks(
+            MissileTrackSnapshot[] tracks,
+            int count)
+        {
+            if (telemetry == null || tracks == null)
+            {
+                return;
+            }
+
+            var limit = math.min(count, tracks.Length);
+            for (var i = 0; i < limit; i++)
+            {
+                telemetry.RecordMissileTrack(
+                    SimTimeSeconds,
+                    telemetrySource,
+                    in tracks[i]);
+            }
+        }
 
         public bool TryGetTrack(TrackId trackId, out TrackSnapshot snapshot) =>
             trackManager.TryGetTrack(trackId, out snapshot);
@@ -261,6 +382,12 @@ namespace ACunicombat.Simulation.Driver
         public void ConfigureRadarTracking(int capacity, float trackMemorySeconds)
         {
             trackManager?.ConfigureLimits(capacity, trackMemorySeconds);
+            telemetry?.RecordTrackingConfiguration(
+                SimTimeSeconds,
+                telemetrySource,
+                capacity,
+                trackMemorySeconds,
+                telemetryTrackSnapshotIntervalSeconds);
         }
 
         public int CopyDetections(Measurement[] destination)
@@ -317,13 +444,61 @@ namespace ACunicombat.Simulation.Driver
                 var tickTime = sensorClock.SimTimeSeconds
                                - SensorStepSeconds * (sensorTicks - 1 - i);
                 radar.Tick(tickTime);
+                if (telemetry != null)
+                {
+                    for (var emissionIndex = 0;
+                         emissionIndex < radar.Emissions.Length;
+                         emissionIndex++)
+                    {
+                        telemetry.RecordEmission(
+                            tickTime,
+                            telemetrySource,
+                            "radar",
+                            in radar.Emissions.ElementAt(emissionIndex));
+                    }
+                    for (var detectionIndex = 0;
+                         detectionIndex < radar.Detections.Length;
+                         detectionIndex++)
+                    {
+                        telemetry.RecordRadarMeasurement(
+                            tickTime,
+                            telemetrySource,
+                            detectionIndex,
+                            in radar.Detections.ElementAt(detectionIndex));
+                    }
+                }
                 if (electroOpticalReceiverRegistered)
                 {
                     electroOpticalSensor.Tick(
                         in electroOpticalReceiver,
                         tickTime);
+                    if (telemetry != null)
+                    {
+                        for (var observationIndex = 0;
+                             observationIndex < electroOpticalSensor.Observations.Length;
+                             observationIndex++)
+                        {
+                            telemetry.RecordElectroOptical(
+                                tickTime,
+                                telemetrySource,
+                                in electroOpticalSensor.Observations.ElementAt(observationIndex));
+                        }
+                    }
                 }
                 laserRangefinder.Tick(tickTime);
+                if (telemetry != null)
+                {
+                    for (var emissionIndex = 0;
+                         emissionIndex < laserRangefinder.Emissions.Length;
+                         emissionIndex++)
+                    {
+                        telemetry.RecordEmission(
+                            tickTime,
+                            telemetrySource,
+                            "laser_rangefinder",
+                            in laserRangefinder.Emissions.ElementAt(emissionIndex));
+                    }
+                }
                 var sensorPosition = double3.zero;
                 var sensorVelocity = double3.zero;
                 if (trackOriginEntity.IsValid
@@ -377,16 +552,36 @@ namespace ACunicombat.Simulation.Driver
                     {
                         var laserObservation =
                             laserObservations[laserIndex];
-                        trackManager.TryRefineConfirmedTrackWithLaser(
+                        var refinementAccepted =
+                            trackManager.TryRefineConfirmedTrackWithLaser(
                             in laserObservation,
                             sensorPosition,
                             tickTime,
-                            out _);
+                            out var normalizedInnovationSquared);
+                        telemetry?.RecordLaserObservation(
+                            tickTime,
+                            telemetrySource,
+                            in laserObservation,
+                            refinementAccepted,
+                            normalizedInnovationSquared);
                     }
                 }
 
                 // 数据链：投递队列中的报文（写链路辐射 + 按物理条件投递）。
                 dataLink.Tick(tickTime);
+                if (telemetry != null)
+                {
+                    for (var emissionIndex = 0;
+                         emissionIndex < dataLink.Emissions.Length;
+                         emissionIndex++)
+                    {
+                        telemetry.RecordEmission(
+                            tickTime,
+                            telemetrySource,
+                            "data_link",
+                            in dataLink.Emissions.ElementAt(emissionIndex));
+                    }
+                }
 
                 // 被动告警：同 Tick 消费全部辐射环（每环每 Tick 清空，接收必须
                 // 与辐射同步）——雷达环 + 数据链环 + MAW 红外通道，汇入同一
@@ -406,10 +601,73 @@ namespace ACunicombat.Simulation.Driver
                         tickTime);
                 }
 
+                if (telemetry != null)
+                {
+                    for (var contactIndex = 0;
+                         contactIndex < esmReceiver.Contacts.Length;
+                         contactIndex++)
+                    {
+                        telemetry.RecordWarningContact(
+                            tickTime,
+                            telemetrySource,
+                            in esmReceiver.Contacts.ElementAt(contactIndex));
+                    }
+                }
+
                 threatCorrelator.Process(
                     esmReceiver.Contacts,
                     ownshipEsmReceiverId,
                     tickTime);
+
+                var telemetryThreatCount = 0;
+                if (telemetry != null)
+                {
+                    telemetryThreatCount = threatCorrelator.CopyThreats(
+                        telemetryThreatScratch);
+                    for (var threatIndex = 0;
+                         threatIndex < telemetryThreatCount;
+                         threatIndex++)
+                    {
+                        telemetry.RecordThreat(
+                            tickTime,
+                            telemetrySource,
+                            in telemetryThreatScratch[threatIndex]);
+                    }
+
+                    if (tickTime + 1e-9 >= nextTelemetryTrackSnapshotTime)
+                    {
+                        var telemetryTrackCount = trackManager.CopyTracks(
+                            telemetryTrackScratch);
+                        for (var trackIndex = 0;
+                             trackIndex < telemetryTrackCount;
+                             trackIndex++)
+                        {
+                            telemetry.RecordTrackSnapshot(
+                                tickTime,
+                                telemetrySource,
+                                in telemetryTrackScratch[trackIndex]);
+                        }
+                        nextTelemetryTrackSnapshotTime = tickTime +
+                            math.max(
+                                SensorStepSeconds,
+                                telemetryTrackSnapshotIntervalSeconds);
+                    }
+
+                    telemetry.RecordSensorTick(
+                        tickTime,
+                        telemetrySource,
+                        radar.Detections.Length,
+                        radar.Emissions.Length,
+                        electroOpticalReceiverRegistered
+                            ? electroOpticalSensor.Observations.Length
+                            : 0,
+                        laserRangefinder.Observations.Length,
+                        esmReceiver.Contacts.Length,
+                        trackManager.Count,
+                        telemetryThreatCount,
+                        dwellScheduler.Count,
+                        dwellScheduler.DeferredCount);
+                }
             }
 
             fusionClock.Advance(dt);
@@ -421,6 +679,12 @@ namespace ACunicombat.Simulation.Driver
 
         private void OnDestroy()
         {
+            if (trackManager != null)
+            {
+                trackManager.Diagnostic -= OnRadarTrackDiagnostic;
+            }
+            CombatTelemetrySession.Release(telemetry);
+            telemetry = null;
             dataLink?.Dispose();
             laserRangefinder?.Dispose();
             electroOpticalSensor?.Dispose();
@@ -437,6 +701,13 @@ namespace ACunicombat.Simulation.Driver
             dwellScheduler?.Dispose();
             grid?.Dispose();
             world?.Dispose();
+        }
+
+        private void OnRadarTrackDiagnostic(RadarTrackDiagnostic diagnostic)
+        {
+            telemetry?.RecordRadarTrackDiagnostic(
+                telemetrySource,
+                in diagnostic);
         }
     }
 }

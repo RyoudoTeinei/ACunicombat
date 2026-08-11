@@ -855,6 +855,9 @@ namespace ACunicombat.Mechs
                 ToDouble3(transform.position),
                 ToDouble3(playerVelocity),
                 now);
+            driver.RecordMissileTracks(
+                missileTrackCache,
+                missileTrackCacheCount);
             missileTrackCacheTime = now;
         }
 

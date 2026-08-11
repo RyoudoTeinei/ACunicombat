@@ -13,6 +13,7 @@
         "ACunicombat.Tracking",
         "ACunicombat.FireControl",
         "ACunicombat.DataLink",
+        "ACunicombat.Simulation.Driver",
         "Unity.Mathematics",
         "Unity.Collections"
     ],
