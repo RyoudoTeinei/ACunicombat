@@ -190,6 +190,194 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void FriendlyIdentity_UsesStateEpochAcrossHighSpeedDeliveryDelay()
+        {
+            var tracks = new[]
+            {
+                new MissileTrackSnapshot
+                {
+                    TrackId = new TrackId(new Handle(11, 1)),
+                    Position = new double3(0.0, 0.0, 1_160.0),
+                    Velocity = new double3(0.0, 0.0, 2_000.0),
+                    PositionUncertaintyMeters = 4f,
+                    LastUpdateTime = 10.08,
+                },
+            };
+            var association = default(FriendlyMissileIdentityAssociation);
+
+            var resolution = MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                ref association,
+                tracks,
+                tracks.Length,
+                new bool[tracks.Length],
+                new double3(0.0, 0.0, 1_000.0),
+                new double3(0.0, 0.0, 2_000.0),
+                10.0,
+                10.08,
+                1.0,
+                120f,
+                180f,
+                0.35,
+                out var trackIndex,
+                out _);
+
+            Assert.That(
+                resolution,
+                Is.EqualTo(FriendlyIdentityResolution.Authenticated));
+            Assert.That(trackIndex, Is.Zero);
+            Assert.That(association.TrackId, Is.EqualTo(tracks[0].TrackId));
+        }
+
+        [Test]
+        public void FriendlyIdentity_KeepsAuthenticatedTrackAcrossReportOutage()
+        {
+            var trackId = new TrackId(new Handle(12, 1));
+            var tracks = new[]
+            {
+                new MissileTrackSnapshot
+                {
+                    TrackId = trackId,
+                    Position = new double3(0.0, 0.0, 5_000.0),
+                    Velocity = new double3(0.0, 0.0, 1_000.0),
+                    PositionUncertaintyMeters = 8f,
+                    LastUpdateTime = 20.0,
+                },
+            };
+            var association = new FriendlyMissileIdentityAssociation
+            {
+                TrackId = trackId,
+                LastAuthenticatedTime = 10.0,
+                LastAssociationScore = 0.1,
+            };
+
+            var resolution = MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                ref association,
+                tracks,
+                tracks.Length,
+                new bool[tracks.Length],
+                double3.zero,
+                double3.zero,
+                10.0,
+                20.0,
+                1.0,
+                120f,
+                180f,
+                0.35,
+                out var trackIndex,
+                out _);
+
+            Assert.That(
+                resolution,
+                Is.EqualTo(FriendlyIdentityResolution.Coasting));
+            Assert.That(trackIndex, Is.Zero);
+        }
+
+        [Test]
+        public void FriendlyIdentity_DoesNotCoastThroughFreshAmbiguity()
+        {
+            var associatedTrackId = new TrackId(new Handle(13, 1));
+            var tracks = new[]
+            {
+                new MissileTrackSnapshot
+                {
+                    TrackId = associatedTrackId,
+                    Position = new double3(1.0, 0.0, 1_000.0),
+                    Velocity = new double3(0.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+                new MissileTrackSnapshot
+                {
+                    TrackId = new TrackId(new Handle(14, 1)),
+                    Position = new double3(3.0, 0.0, 1_000.0),
+                    Velocity = new double3(5.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+            };
+            var association = new FriendlyMissileIdentityAssociation
+            {
+                TrackId = associatedTrackId,
+                LastAuthenticatedTime = 9.9,
+                LastAssociationScore = 0.1,
+            };
+
+            var resolution = MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                ref association,
+                tracks,
+                tracks.Length,
+                new bool[tracks.Length],
+                new double3(0.0, 0.0, 1_000.0),
+                new double3(0.0, 0.0, -200.0),
+                10.0,
+                10.0,
+                1.0,
+                120f,
+                180f,
+                0.35,
+                out var trackIndex,
+                out _);
+
+            Assert.That(
+                resolution,
+                Is.EqualTo(FriendlyIdentityResolution.Ambiguous));
+            Assert.That(trackIndex, Is.EqualTo(-1));
+        }
+
+        [Test]
+        public void FriendlyIdentity_DoesNotJumpToCloserCompetingTrack()
+        {
+            var associatedTrackId = new TrackId(new Handle(15, 1));
+            var tracks = new[]
+            {
+                new MissileTrackSnapshot
+                {
+                    TrackId = associatedTrackId,
+                    Position = new double3(30.0, 0.0, 1_000.0),
+                    Velocity = new double3(0.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+                new MissileTrackSnapshot
+                {
+                    TrackId = new TrackId(new Handle(16, 1)),
+                    Position = new double3(1.0, 0.0, 1_000.0),
+                    Velocity = new double3(0.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+            };
+            var association = new FriendlyMissileIdentityAssociation
+            {
+                TrackId = associatedTrackId,
+                LastAuthenticatedTime = 9.9,
+                LastAssociationScore = 0.1,
+            };
+
+            var resolution = MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                ref association,
+                tracks,
+                tracks.Length,
+                new bool[tracks.Length],
+                new double3(0.0, 0.0, 1_000.0),
+                new double3(0.0, 0.0, -200.0),
+                10.0,
+                10.0,
+                1.0,
+                120f,
+                180f,
+                0.35,
+                out var trackIndex,
+                out _);
+
+            Assert.That(
+                resolution,
+                Is.EqualTo(FriendlyIdentityResolution.Ambiguous));
+            Assert.That(trackIndex, Is.EqualTo(-1));
+            Assert.That(association.TrackId, Is.EqualTo(associatedTrackId));
+        }
+
+        [Test]
         public void TrackReacquisition_DoesNotReplaceAircraftWithNearbyMissile()
         {
             var previous = ReacquisitionTrack(

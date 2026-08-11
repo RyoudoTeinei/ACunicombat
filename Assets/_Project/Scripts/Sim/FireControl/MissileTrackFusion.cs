@@ -124,6 +124,28 @@ namespace ACunicombat.FireControl
         }
     }
 
+    public enum FriendlyIdentityResolution : byte
+    {
+        None = 0,
+        Authenticated = 1,
+        Coasting = 2,
+        Ambiguous = 3,
+    }
+
+    public struct FriendlyMissileIdentityAssociation
+    {
+        public TrackId TrackId;
+        public double LastAuthenticatedTime;
+        public double LastAssociationScore;
+
+        public bool HasTrack => TrackId.IsValid;
+
+        public void Clear()
+        {
+            this = default;
+        }
+    }
+
     /// <summary>
     /// Fuses anonymous sensor products into fire-control missile tracks.
     /// Bearing-only sensors may corroborate a track but cannot create a
@@ -242,6 +264,239 @@ namespace ACunicombat.FireControl
             // tracks unknown so the warning layer cannot hide a possible threat.
             return double.IsPositiveInfinity(secondBestScore) ||
                    secondBestScore - score >= minimumScoreSeparation;
+        }
+
+        public static FriendlyIdentityResolution ResolveFriendlyDataLinkIdentity(
+            ref FriendlyMissileIdentityAssociation association,
+            MissileTrackSnapshot[] tracks,
+            int trackCount,
+            bool[] trackAlreadyMatched,
+            double3 reportPosition,
+            double3 reportVelocity,
+            double reportStateTimestamp,
+            double now,
+            double reportFreshnessSeconds,
+            float maximumPositionGateMeters,
+            float velocityGateMetersPerSecond,
+            double minimumScoreSeparation,
+            out int trackIndex,
+            out double score)
+        {
+            trackIndex = -1;
+            score = double.PositiveInfinity;
+            if (tracks == null || trackAlreadyMatched == null)
+            {
+                association.Clear();
+                return FriendlyIdentityResolution.None;
+            }
+
+            var reportAge = math.max(0.0, now - reportStateTimestamp);
+            if (reportAge <= reportFreshnessSeconds)
+            {
+                var associatedTrackIndex = FindAssociatedTrack(
+                    in association,
+                    tracks,
+                    trackCount,
+                    trackAlreadyMatched);
+                var associatedCandidateIndex = FindAssociatedCandidate(
+                    in association,
+                    tracks,
+                    trackCount,
+                    trackAlreadyMatched,
+                    reportPosition,
+                    reportVelocity,
+                    reportStateTimestamp,
+                    now,
+                    reportFreshnessSeconds,
+                    maximumPositionGateMeters,
+                    velocityGateMetersPerSecond);
+                if (TrySelectFriendlyDataLinkAssociation(
+                        tracks,
+                        trackCount,
+                        trackAlreadyMatched,
+                        reportPosition,
+                        reportVelocity,
+                        reportStateTimestamp,
+                        now,
+                        reportFreshnessSeconds,
+                        maximumPositionGateMeters,
+                        velocityGateMetersPerSecond,
+                        minimumScoreSeparation,
+                        out trackIndex,
+                        out score))
+                {
+                    if (associatedTrackIndex >= 0 &&
+                        trackIndex != associatedTrackIndex)
+                    {
+                        trackIndex = -1;
+                        score = double.PositiveInfinity;
+                        return FriendlyIdentityResolution.Ambiguous;
+                    }
+
+                    association.TrackId = tracks[trackIndex].TrackId;
+                    association.LastAuthenticatedTime = now;
+                    association.LastAssociationScore = score;
+                    return FriendlyIdentityResolution.Authenticated;
+                }
+
+                if (CountFriendlyDataLinkCandidates(
+                        tracks,
+                        trackCount,
+                        trackAlreadyMatched,
+                        reportPosition,
+                        reportVelocity,
+                        reportStateTimestamp,
+                        now,
+                        reportFreshnessSeconds,
+                        maximumPositionGateMeters,
+                        velocityGateMetersPerSecond) > 1)
+                {
+                    trackIndex = -1;
+                    score = double.PositiveInfinity;
+                    return FriendlyIdentityResolution.Ambiguous;
+                }
+
+                if (associatedTrackIndex >= 0 &&
+                    associatedCandidateIndex < 0)
+                {
+                    trackIndex = -1;
+                    score = double.PositiveInfinity;
+                    return FriendlyIdentityResolution.Ambiguous;
+                }
+            }
+
+            if (!association.HasTrack)
+            {
+                return FriendlyIdentityResolution.None;
+            }
+
+            var count = math.min(
+                math.min(trackCount, tracks.Length),
+                trackAlreadyMatched.Length);
+            for (var i = 0; i < count; i++)
+            {
+                if (trackAlreadyMatched[i] ||
+                    !tracks[i].TrackId.Equals(association.TrackId))
+                {
+                    continue;
+                }
+
+                trackIndex = i;
+                score = association.LastAssociationScore;
+                return FriendlyIdentityResolution.Coasting;
+            }
+
+            association.Clear();
+            return FriendlyIdentityResolution.None;
+        }
+
+        private static int FindAssociatedTrack(
+            in FriendlyMissileIdentityAssociation association,
+            MissileTrackSnapshot[] tracks,
+            int trackCount,
+            bool[] trackAlreadyMatched)
+        {
+            if (!association.HasTrack)
+            {
+                return -1;
+            }
+
+            var count = math.min(
+                math.min(trackCount, tracks.Length),
+                trackAlreadyMatched.Length);
+            for (var i = 0; i < count; i++)
+            {
+                if (!trackAlreadyMatched[i] &&
+                    tracks[i].TrackId.Equals(association.TrackId))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static int FindAssociatedCandidate(
+            in FriendlyMissileIdentityAssociation association,
+            MissileTrackSnapshot[] tracks,
+            int trackCount,
+            bool[] trackAlreadyMatched,
+            double3 reportPosition,
+            double3 reportVelocity,
+            double reportTimestamp,
+            double now,
+            double retentionSeconds,
+            float maximumPositionGateMeters,
+            float velocityGateMetersPerSecond)
+        {
+            if (!association.HasTrack)
+            {
+                return -1;
+            }
+
+            var count = math.min(
+                math.min(trackCount, tracks.Length),
+                trackAlreadyMatched.Length);
+            for (var i = 0; i < count; i++)
+            {
+                if (trackAlreadyMatched[i] ||
+                    !tracks[i].TrackId.Equals(association.TrackId))
+                {
+                    continue;
+                }
+
+                return TryScoreFriendlyDataLinkAssociation(
+                    in tracks[i],
+                    reportPosition,
+                    reportVelocity,
+                    reportTimestamp,
+                    now,
+                    retentionSeconds,
+                    maximumPositionGateMeters,
+                    velocityGateMetersPerSecond,
+                    out _)
+                    ? i
+                    : -1;
+            }
+
+            return -1;
+        }
+
+        private static int CountFriendlyDataLinkCandidates(
+            MissileTrackSnapshot[] tracks,
+            int trackCount,
+            bool[] trackAlreadyMatched,
+            double3 reportPosition,
+            double3 reportVelocity,
+            double reportTimestamp,
+            double now,
+            double retentionSeconds,
+            float maximumPositionGateMeters,
+            float velocityGateMetersPerSecond)
+        {
+            var count = math.min(
+                math.min(trackCount, tracks.Length),
+                trackAlreadyMatched.Length);
+            var candidates = 0;
+            for (var i = 0; i < count; i++)
+            {
+                if (!trackAlreadyMatched[i] &&
+                    TryScoreFriendlyDataLinkAssociation(
+                        in tracks[i],
+                        reportPosition,
+                        reportVelocity,
+                        reportTimestamp,
+                        now,
+                        retentionSeconds,
+                        maximumPositionGateMeters,
+                        velocityGateMetersPerSecond,
+                        out _))
+                {
+                    candidates++;
+                }
+            }
+
+            return candidates;
         }
 
         public static void ApplyFriendlyDataLinkIdentity(

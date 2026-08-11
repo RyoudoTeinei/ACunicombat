@@ -710,20 +710,27 @@ namespace ACunicombat.Mechs
 
 		private void DrawTacticalMissiles(Vector2 center, float radius, float displayRange)
 		{
+			int missileTrackCount = radar.CopyMissileTracks(missileTracks);
 			IReadOnlyList<MechTestProjectile> projectiles = MechTestProjectile.Registry;
 			for (int i = 0; i < projectiles.Count; i++)
 			{
 				MechTestProjectile projectile = projectiles[i];
-				if (IsFriendlyEngagementMissile(projectile))
+				if (IsFriendlyEngagementMissile(projectile) &&
+					!HasFriendlyMissileTrackNear(
+						projectile.transform.position,
+						missileTrackCount))
 				{
 					DrawTacticalMissile(center, radius, displayRange, projectile.transform.position, projectile.Velocity, HudBrightGreen);
 				}
 			}
-			int missileTrackCount = radar.CopyMissileTracks(missileTracks);
 			for (int j = 0; j < missileTrackCount; j++)
 			{
 				MissileTrackSnapshot track = missileTracks[j];
-				if (ShouldDisplayIncomingMissile(in track))
+				if (track.IsFriendly)
+				{
+					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), HudBrightGreen);
+				}
+				else if (ShouldDisplayIncomingMissile(in track))
 				{
 					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), track.IsWeaponsQuality ? HudRed : HudAmber);
 				}
@@ -1228,12 +1235,16 @@ namespace ACunicombat.Mechs
 
 		private void DrawFriendlyMissileMarkers()
 		{
+			int missileTrackCount = radar.CopyMissileTracks(missileTracks);
 			IReadOnlyList<MechTestProjectile> projectiles = MechTestProjectile.Registry;
 			float radius = Mathf.Max(3f, friendlyMissileMarkerRadius);
 			for (int i = 0; i < projectiles.Count; i++)
 			{
 				MechTestProjectile projectile = projectiles[i];
-				if (IsFriendlyEngagementMissile(projectile))
+				if (IsFriendlyEngagementMissile(projectile) &&
+					!HasFriendlyMissileTrackNear(
+						projectile.transform.position,
+						missileTrackCount))
 				{
 					Vector3 screen = viewCamera.WorldToScreenPoint(projectile.transform.position);
 					if (!(screen.z <= 0f) && !(screen.x < radius) && !(screen.x > (float)Screen.width - radius) && !(screen.y < radius) && !(screen.y > (float)Screen.height - radius))
@@ -1242,6 +1253,60 @@ namespace ACunicombat.Mechs
 					}
 				}
 			}
+
+			for (int i = 0; i < missileTrackCount; i++)
+			{
+				MissileTrackSnapshot track = missileTracks[i];
+				if (!track.IsFriendly)
+				{
+					continue;
+				}
+
+				Vector3 position = ToVector3(
+					track.PredictPosition(radar.SimTimeSeconds));
+				Vector3 screen = viewCamera.WorldToScreenPoint(position);
+				if (screen.z <= 0f ||
+					screen.x < radius ||
+					screen.x > (float)Screen.width - radius ||
+					screen.y < radius ||
+					screen.y > (float)Screen.height - radius)
+				{
+					continue;
+				}
+
+				DrawDiamond(
+					new Vector2(screen.x, (float)Screen.height - screen.y),
+					radius,
+					HudBrightGreen,
+					dashed: false,
+					1.4f);
+			}
+		}
+
+		private bool HasFriendlyMissileTrackNear(
+			Vector3 position,
+			int missileTrackCount)
+		{
+			for (var i = 0; i < missileTrackCount; i++)
+			{
+				var track = missileTracks[i];
+				if (!track.IsFriendly)
+				{
+					continue;
+				}
+
+				var trackPosition = ToVector3(
+					track.PredictPosition(radar.SimTimeSeconds));
+				var gate = Mathf.Max(
+					50f,
+					track.PositionUncertaintyMeters * 3f);
+				if ((trackPosition - position).sqrMagnitude <= gate * gate)
+				{
+					return true;
+				}
+			}
+
+			return false;
 		}
 
 		private void DrawIncomingMissileMarkersOnTop()

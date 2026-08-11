@@ -513,6 +513,14 @@ namespace ACunicombat.Mechs
 						!interceptorMissile);
 				}
 			}
+			else if (weaponKind == TestWeaponKind.Missile &&
+				dataLinkController != null)
+			{
+				Debug.LogWarning(
+					"[MissileIFF] Launcher data-link terminal allocation failed; " +
+					"this missile cannot transmit authenticated identity reports.",
+					this);
+			}
 			missilePhase = (coldLaunchEnabled ? MissileFlightPhase.ColdEjection : ((!(launchDelay > 0f)) ? MissileFlightPhase.Boost : MissileFlightPhase.LaunchDelay));
 			if (weaponKind == TestWeaponKind.Missile)
 			{
@@ -628,8 +636,7 @@ namespace ACunicombat.Mechs
 				var observer = controllers[i];
 				if (observer == null ||
 					observer == radarController ||
-					!observer.isActiveAndEnabled ||
-					IsFriendlyRadarObserver(observer))
+					!observer.isActiveAndEnabled)
 				{
 					continue;
 				}
@@ -644,22 +651,44 @@ namespace ACunicombat.Mechs
 			MechRadarController controller,
 			bool primary)
 		{
-			if (controller == null ||
-				!controller.TryRegisterMissileSeeker(
+			if (controller == null)
+			{
+				return;
+			}
+
+			if (!controller.TryRegisterMissileSeeker(
 					base.transform.position,
 					velocity,
 					seekerMaximumRange,
 					seekerHalfAngleRadians * 2f * Mathf.Rad2Deg,
 					out var handle))
 			{
+				Debug.LogWarning(
+					$"[MissileIFF] Sensor registration failed for observer '{controller.name}'.",
+					this);
 				return;
 			}
 
 			controller.RegisterMissileIrSource(in handle, CoastIrIntensityDb);
+			LinkTerminalId friendlyReportTerminal = default;
+			if (!primary && IsFriendlyRadarObserver(controller))
+			{
+				if (!controller.TryRegisterMissileLinkTerminal(
+					base.transform.position,
+					velocity,
+					out friendlyReportTerminal))
+				{
+					Debug.LogWarning(
+						$"[MissileIFF] Friendly identity terminal allocation failed for '{controller.name}'.",
+						this);
+				}
+			}
 			radarObservers.Add(new RadarObserverRegistration
 			{
 				Controller = controller,
 				Handle = handle,
+				FriendlyReportTerminal = friendlyReportTerminal,
+				FriendlyReportRemaining = 0f,
 			});
 			irSourceRegistered = true;
 			if (primary)
@@ -730,6 +759,44 @@ namespace ACunicombat.Mechs
 		{
 			public MechRadarController Controller;
 			public MechRadarController.MissileSeekerHandle Handle;
+			public LinkTerminalId FriendlyReportTerminal;
+			public float FriendlyReportRemaining;
+		}
+
+		private void UpdateFriendlyObserverDataLinks(float deltaTime)
+		{
+			var missionRole = interceptorMissile
+				? MissileMissionRole.Interceptor
+				: MissileMissionRole.AirToAir;
+			for (var i = 0; i < radarObservers.Count; i++)
+			{
+				var observer = radarObservers[i];
+				if (observer.Controller == null ||
+					!observer.FriendlyReportTerminal.IsValid)
+				{
+					continue;
+				}
+
+				observer.Controller.UpdateMissileLinkTerminalState(
+					observer.FriendlyReportTerminal,
+					base.transform.position,
+					velocity);
+				observer.FriendlyReportRemaining -= deltaTime;
+				if (observer.FriendlyReportRemaining <= 0f)
+				{
+					var sent = observer.Controller.SendFriendlyMissileTrackReport(
+						observer.FriendlyReportTerminal,
+						base.transform.position,
+						velocity,
+						missionRole);
+					observer.FriendlyReportRemaining = sent
+						? observer.Controller.GetFriendlyMissileReportIntervalSeconds(
+							missionRole)
+						: 0.05f;
+				}
+
+				radarObservers[i] = observer;
+			}
 		}
 
 		private void FixedUpdate()
@@ -836,6 +903,7 @@ namespace ACunicombat.Mechs
 			if (weaponKind == TestWeaponKind.Missile)
 			{
 				UpdateRadarObserverStates();
+				UpdateFriendlyObserverDataLinks(dt);
 				if (dataLinkController != null && linkTerminal.IsValid)
 				{
 					dataLinkController.UpdateMissileLinkTerminalState(
@@ -845,18 +913,19 @@ namespace ACunicombat.Mechs
 					friendlyLinkReportRemaining -= dt;
 					if (friendlyLinkReportRemaining <= 0f)
 					{
-						dataLinkController.SendFriendlyMissileTrackReport(
+						var sent = dataLinkController.SendFriendlyMissileTrackReport(
 							linkTerminal,
 							base.transform.position,
 							velocity,
 							interceptorMissile
 								? MissileMissionRole.Interceptor
 								: MissileMissionRole.AirToAir);
-						friendlyLinkReportRemaining =
-							dataLinkController.GetFriendlyMissileReportIntervalSeconds(
+						friendlyLinkReportRemaining = sent
+							? dataLinkController.GetFriendlyMissileReportIntervalSeconds(
 								interceptorMissile
 									? MissileMissionRole.Interceptor
-									: MissileMissionRole.AirToAir);
+									: MissileMissionRole.AirToAir)
+							: 0.05f;
 					}
 				}
 			}
@@ -2039,6 +2108,11 @@ namespace ACunicombat.Mechs
 					in observer.Handle);
 				observer.Controller.UnregisterMissileSeeker(
 					in observer.Handle);
+				if (observer.FriendlyReportTerminal.IsValid)
+				{
+					observer.Controller.UnregisterMissileLinkTerminal(
+						observer.FriendlyReportTerminal);
+				}
 			}
 			radarObservers.Clear();
 			if (dataLinkController != null && linkTerminal.IsValid)

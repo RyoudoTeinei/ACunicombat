@@ -155,6 +155,7 @@ namespace ACunicombat.Mechs
             TrackMissing,
             TrackDropped,
             TrackStale,
+            FriendlyIdentity,
             OutsideRadarFrame,
             TrackingRateExceeded,
         }
@@ -230,7 +231,7 @@ namespace ACunicombat.Mechs
             public double3 Velocity;
             public MissileMissionRole MissionRole;
             public float MissionRoleConfidence;
-            public double Timestamp;
+            public double StateTimestamp;
             public ulong Sequence;
         }
 
@@ -238,6 +239,9 @@ namespace ACunicombat.Mechs
             new FriendlyMissileLinkReport[64];
         private readonly bool[] friendlyMissileTrackMatched =
             new bool[MaximumPublicTracks];
+        private readonly FriendlyMissileIdentityAssociation[]
+            friendlyMissileIdentityAssociations =
+                new FriendlyMissileIdentityAssociation[64];
         private readonly LinkMessage[] ownLinkInboxScratch = new LinkMessage[64];
 
         private struct UplinkSubscription
@@ -361,7 +365,10 @@ namespace ACunicombat.Mechs
         };
         public TrackId CandidateTrackId => candidateTrackId;
         public TrackId SttTrackId => sttTrackId;
-        public bool HasStt => sttTrackId.IsValid && TryGetTrack(sttTrackId, out _);
+        public bool HasStt =>
+            sttTrackId.IsValid &&
+            TryGetTrack(sttTrackId, out var track) &&
+            !IsAuthenticatedFriendly(track);
         public float DesignationProgress => designationProgress;
         public float PointDefenseRating => fireControlPerformance.PointDefenseRating;
         public static IReadOnlyList<MechRadarController> ActiveControllers =>
@@ -758,7 +765,24 @@ namespace ACunicombat.Mechs
             }
         }
 
-        public int CopyTracks(TrackSnapshot[] destination) =>
+        public int CopyTracks(TrackSnapshot[] destination)
+        {
+            var count = CopyRawTracks(destination);
+            if (count <= 0)
+            {
+                return count;
+            }
+
+            EnsureMissileTrackCache();
+            for (var i = 0; i < count; i++)
+            {
+                ApplyResolvedMissileIdentity(ref destination[i]);
+            }
+
+            return count;
+        }
+
+        private int CopyRawTracks(TrackSnapshot[] destination) =>
             driver != null ? driver.CopyTracks(destination) : 0;
 
         public int CopyMissileTracks(MissileTrackSnapshot[] destination)
@@ -769,36 +793,7 @@ namespace ACunicombat.Mechs
                 return 0;
             }
 
-            var now = SimTimeSeconds;
-            if (double.IsNaN(missileTrackCacheTime) ||
-                Math.Abs(now - missileTrackCacheTime) > 1e-9)
-            {
-                var trackCount = CopyTracks(trackScratch);
-                var threatCount = CopyThreats(threatScratch);
-                var electroOpticalCount =
-                    driver.CopyElectroOpticalObservations(
-                        electroOpticalScratch);
-                var laserRangeCount =
-                    driver.CopyLaserRangeObservations(
-                        laserRangeScratch);
-                missileTrackCacheCount = MissileTrackFusion.Fuse(
-                    in missileTrackFusionConfig,
-                    missileTrackFusionState,
-                    trackScratch,
-                    trackCount,
-                    threatScratch,
-                    threatCount,
-                    electroOpticalScratch,
-                    electroOpticalCount,
-                    laserRangeScratch,
-                    laserRangeCount,
-                    ToDouble3(transform.position),
-                    ToDouble3(playerVelocity),
-                    now,
-                    missileTrackCache);
-                ApplyFriendlyMissileIdentification(now);
-                missileTrackCacheTime = now;
-            }
+            EnsureMissileTrackCache();
 
             var copyCount = Math.Min(
                 missileTrackCacheCount,
@@ -808,6 +803,69 @@ namespace ACunicombat.Mechs
                 destination,
                 copyCount);
             return copyCount;
+        }
+
+        private void EnsureMissileTrackCache()
+        {
+            if (driver == null)
+            {
+                return;
+            }
+
+            var now = SimTimeSeconds;
+            if (!double.IsNaN(missileTrackCacheTime) &&
+                Math.Abs(now - missileTrackCacheTime) <= 1e-9)
+            {
+                return;
+            }
+
+            var trackCount = CopyRawTracks(trackScratch);
+            var threatCount = CopyThreats(threatScratch);
+            var electroOpticalCount =
+                driver.CopyElectroOpticalObservations(
+                    electroOpticalScratch);
+            var laserRangeCount =
+                driver.CopyLaserRangeObservations(
+                    laserRangeScratch);
+            missileTrackCacheCount = MissileTrackFusion.Fuse(
+                in missileTrackFusionConfig,
+                missileTrackFusionState,
+                trackScratch,
+                trackCount,
+                threatScratch,
+                threatCount,
+                electroOpticalScratch,
+                electroOpticalCount,
+                laserRangeScratch,
+                laserRangeCount,
+                ToDouble3(transform.position),
+                ToDouble3(playerVelocity),
+                now,
+                missileTrackCache);
+            ApplyFriendlyMissileIdentification(now);
+            missileTrackCacheTime = now;
+        }
+
+        private void ApplyResolvedMissileIdentity(ref TrackSnapshot track)
+        {
+            for (var i = 0; i < missileTrackCacheCount; i++)
+            {
+                var missileTrack = missileTrackCache[i];
+                if (!missileTrack.TrackId.Equals(track.TrackId) ||
+                    !missileTrack.IsFriendly)
+                {
+                    continue;
+                }
+
+                track.ObjectClass = TrackObjectClass.Missile;
+                track.Affiliation = TrackAffiliation.Friendly;
+                track.IdentityConfidence = missileTrack.IdentityConfidence;
+                track.MissileRole = missileTrack.MissionRole;
+                track.MissileRoleConfidence =
+                    missileTrack.MissionRoleConfidence;
+                track.SourceMask |= TrackSourceMask.DataLink;
+                return;
+            }
         }
 
         public bool TryGetMissileTrack(
@@ -864,6 +922,11 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < count; i++)
             {
                 var track = trackScratch[i];
+                if (IsAuthenticatedFriendly(track))
+                {
+                    continue;
+                }
+
                 var selectedByFireControl =
                     track.TrackId.Equals(sttTrackId) ||
                     track.TrackId.Equals(candidateTrackId);
@@ -1025,13 +1088,27 @@ namespace ACunicombat.Mechs
         public bool TryGetBestTrack(out TrackSnapshot snapshot)
         {
             snapshot = default;
-            return driver != null && driver.TryGetBestTrack(out snapshot);
+            if (driver == null || !driver.TryGetBestTrack(out snapshot))
+            {
+                return false;
+            }
+
+            EnsureMissileTrackCache();
+            ApplyResolvedMissileIdentity(ref snapshot);
+            return true;
         }
 
         public bool TryGetTrack(TrackId trackId, out TrackSnapshot snapshot)
         {
             snapshot = default;
-            return driver != null && driver.TryGetTrack(trackId, out snapshot);
+            if (driver == null || !driver.TryGetTrack(trackId, out snapshot))
+            {
+                return false;
+            }
+
+            EnsureMissileTrackCache();
+            ApplyResolvedMissileIdentity(ref snapshot);
+            return true;
         }
 
         public bool TryGetTargetDamageAssessment(
@@ -1073,6 +1150,7 @@ namespace ACunicombat.Mechs
                 !trackOperationMode ||
                 !trackId.IsValid ||
                 !TryGetTrack(trackId, out var track) ||
+                IsAuthenticatedFriendly(track) ||
                 !IsFireControlUsable(track.Lifecycle))
             {
                 return false;
@@ -1148,7 +1226,8 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < count; i++)
             {
                 var track = trackScratch[i];
-                if (track.Lifecycle != TrackLifecycle.Confirmed)
+                if (track.Lifecycle != TrackLifecycle.Confirmed ||
+                    IsAuthenticatedFriendly(track))
                 {
                     continue;
                 }
@@ -1278,7 +1357,8 @@ namespace ACunicombat.Mechs
             {
                 var index = (current + direction * step) % count;
                 if (index < 0) index += count;
-                if (IsFireControlUsable(trackScratch[index].Lifecycle))
+                if (IsFireControlUsable(trackScratch[index].Lifecycle) &&
+                    !IsAuthenticatedFriendly(trackScratch[index]))
                 {
                     candidateTrackId = trackScratch[index].TrackId;
                     designationProgress = 0f;
@@ -1447,13 +1527,15 @@ namespace ACunicombat.Mechs
         private bool TryGetFireControlTrack(out TrackSnapshot track)
         {
             if (sttTrackId.IsValid && TryGetTrack(sttTrackId, out track) &&
-                IsFireControlUsable(track.Lifecycle))
+                IsFireControlUsable(track.Lifecycle) &&
+                !IsAuthenticatedFriendly(track))
             {
                 return true;
             }
 
             if (candidateTrackId.IsValid && TryGetTrack(candidateTrackId, out track) &&
-                IsFireControlUsable(track.Lifecycle))
+                IsFireControlUsable(track.Lifecycle) &&
+                !IsAuthenticatedFriendly(track))
             {
                 return true;
             }
@@ -1463,8 +1545,13 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            return IsFireControlUsable(track.Lifecycle);
+            return IsFireControlUsable(track.Lifecycle) &&
+                   !IsAuthenticatedFriendly(track);
         }
+
+        private static bool IsAuthenticatedFriendly(in TrackSnapshot track) =>
+            track.Affiliation == TrackAffiliation.Friendly &&
+            track.IdentityConfidence >= 0.5f;
 
         private static bool IsFireControlUsable(TrackLifecycle lifecycle) =>
             lifecycle == TrackLifecycle.Confirmed ||
@@ -2156,6 +2243,12 @@ namespace ACunicombat.Mechs
                 }
             }
 
+            if (IsAuthenticatedFriendly(track))
+            {
+                BreakSingleTargetTrack(SttBreakReason.FriendlyIdentity);
+                return;
+            }
+
             var lockRating01 = Mathf.Clamp01(radarPerformance.LockMaintenanceRating / 100f);
             var trackMemorySeconds = radarPerformance.TrackMemorySeconds > 0f
                 ? radarPerformance.TrackMemorySeconds
@@ -2547,6 +2640,7 @@ namespace ACunicombat.Mechs
                 missileLinkAllocated[index] = true;
                 missileLinkEntities[index] = linkEntity;
                 friendlyMissileReports[index] = default;
+                friendlyMissileIdentityAssociations[index].Clear();
                 return true;
             }
 
@@ -2571,7 +2665,10 @@ namespace ACunicombat.Mechs
                 }
                 missileLinkAllocated[index] = false;
                 missileLinkEntities[index] = default;
-                friendlyMissileReports[index] = default;
+                // Keep the last authenticated association until the sensor track
+                // itself disappears. Otherwise a destroyed friendly missile leaves
+                // a short-lived hostile-looking coast track on the radar display.
+                // Reallocating this terminal slot clears both records below.
                 missileLinkGenerations[index]++;
                 if (missileLinkGenerations[index] == 0)
                 {
@@ -2697,7 +2794,7 @@ namespace ACunicombat.Mechs
                     MissionRole = message.TrackPayload.MissileRole,
                     MissionRoleConfidence =
                         message.TrackPayload.MissileRoleConfidence,
-                    Timestamp = message.DeliveryTime,
+                    StateTimestamp = message.TrackPayload.LastUpdateTime,
                     Sequence = message.Sequence,
                 };
                 missileTrackCacheTime = double.NaN;
@@ -2715,27 +2812,29 @@ namespace ACunicombat.Mechs
                  reportIndex++)
             {
                 var report = friendlyMissileReports[reportIndex];
-                var age = math.max(0.0, now - report.Timestamp);
-                if (!report.Active ||
-                    age > FriendlyMissileReportRetentionSeconds)
+                if (!report.Active)
                 {
                     continue;
                 }
 
-                if (!MissileTrackFusion.TrySelectFriendlyDataLinkAssociation(
+                var resolution =
+                    MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                        ref friendlyMissileIdentityAssociations[reportIndex],
                         missileTrackCache,
                         missileTrackCacheCount,
                         friendlyMissileTrackMatched,
                         report.Position,
                         report.Velocity,
-                        report.Timestamp,
+                        report.StateTimestamp,
                         now,
                         FriendlyMissileReportRetentionSeconds,
                         FriendlyMissileAssociationMaximumMeters,
                         FriendlyMissileAssociationVelocityGateMps,
                         FriendlyMissileAssociationScoreSeparation,
                         out var trackIndex,
-                        out var score))
+                        out var score);
+                if (resolution == FriendlyIdentityResolution.None ||
+                    resolution == FriendlyIdentityResolution.Ambiguous)
                 {
                     continue;
                 }

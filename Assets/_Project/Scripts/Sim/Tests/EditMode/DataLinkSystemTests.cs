@@ -29,7 +29,10 @@ namespace ACunicombat.Tests.EditMode
             link.Tick(0.019);
             Assert.That(link.CopyInbox(receiver.TerminalId, new LinkMessage[1]), Is.Zero);
             link.Tick(0.021);
-            Assert.That(link.CopyInbox(receiver.TerminalId, new LinkMessage[1]), Is.EqualTo(1));
+            var inbox = new LinkMessage[1];
+            Assert.That(link.CopyInbox(receiver.TerminalId, inbox), Is.EqualTo(1));
+            Assert.That(inbox[0].DeliveryTime, Is.EqualTo(0.021).Within(0.0001));
+            Assert.That(inbox[0].TrackPayload.LastUpdateTime, Is.EqualTo(0.0));
         }
 
         [Test]
@@ -83,7 +86,12 @@ namespace ACunicombat.Tests.EditMode
                 NetworkId = 0,
                 SourceTerminal = source,
                 TargetTerminal = target,
-                SendTime = time
+                SendTime = time,
+                TrackPayload = new TrackSnapshot
+                {
+                    LastUpdateTime = time,
+                    LastPredictTime = time,
+                },
             };
         }
 
