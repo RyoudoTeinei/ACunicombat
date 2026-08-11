@@ -61,6 +61,10 @@ namespace ACunicombat.Tracking
         // normal gate fails instead of assuming all model error began in the latest 40 ms tick.
         private const double VehicleManeuverResponseSeconds = 0.28;
         private const double MissileManeuverAcceleration = 600.0;
+        // A precise missile return can sit just outside the normal 5-sigma gate while the
+        // constant-velocity estimate catches up with a terminal correction. Preserve a short
+        // response window instead of shrinking the maneuver allowance to the 40 ms fusion tick.
+        private const double MissileManeuverResponseSeconds = 0.12;
         private const double InitialVelocitySigmaMetersPerSecond = 300.0;
         private const double UnobservedMissAgeSeconds = 1.0;
         private const double MaximumAssociationAgeSeconds = 1.0;
@@ -723,7 +727,7 @@ namespace ACunicombat.Tracking
 
                 // 机动门限项：机体的 CV 速度估计可能在整个 QB 窗口内持续落后。
                 // 因此位置余量必须覆盖完整响应窗口，而不能随着最新一次量测间隔缩回
-                // 40 ms；导弹 response=0，仍保持原来的 a·Δt² 模型。
+                // 40 ms；导弹也保留一个更短的末段修正响应窗口。
                 var maneuverVariance = 0.0;
                 if (maneuverAcceleration > 0.0)
                 {
@@ -889,7 +893,7 @@ namespace ACunicombat.Tracking
         /// <summary>
         /// 二级门限使用的机动加速度量级（m/s²）。机体档取 340，覆盖 QB 的
         /// 90 m/s / 0.28 s ≈ 321 m/s²（见 MechFlightMotionController.ConfigureQuickBoost）。
-        /// 导弹档的过程噪声本身已经很宽，这里给同一量级只是兜底。
+        /// 导弹档的过程噪声本身已经很宽，这里给更高量级覆盖末段修正。
         /// </summary>
         private static double ResolveManeuverAcceleration(
             TrackObjectClass measuredObjectClass)
@@ -902,15 +906,20 @@ namespace ACunicombat.Tracking
         private static double ResolveManeuverResponseSeconds(
             TrackObjectClass measuredObjectClass)
         {
-            return measuredObjectClass == TrackObjectClass.AirVehicle
-                ? VehicleManeuverResponseSeconds
-                : 0.0;
+            return measuredObjectClass switch
+            {
+                TrackObjectClass.AirVehicle =>
+                    VehicleManeuverResponseSeconds,
+                TrackObjectClass.Missile =>
+                    MissileManeuverResponseSeconds,
+                _ => 0.0,
+            };
         }
 
         /// <summary>
         /// 经二级门限关联后放开速度协方差。机体至少保留一个 QB 响应窗口的
         /// a·Δt 速度不确定度，滤波器才能在这一拍跟上模型滞后，而不是下一拍
-        /// 再次掉出门限；导弹仍按实际未观测时长处理。
+        /// 再次掉出门限；导弹使用较短的末段修正响应窗口。
         /// </summary>
         private static void InflateForManeuver(
             ref TrackSlot slot,

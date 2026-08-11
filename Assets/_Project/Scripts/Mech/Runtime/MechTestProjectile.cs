@@ -2,15 +2,45 @@ using System;
 using System.Collections.Generic;
 using ACunicombat.FireControl;
 using ACunicombat.Sensing.Contracts;
+using ACunicombat.Simulation.Driver;
 using Unity.Mathematics;
 using UnityEngine;
 
 namespace ACunicombat.Mechs
 {
+	public enum InterceptorEngagementOutcome : byte
+	{
+		Missed = 0,
+		Damaged = 1,
+		Destroyed = 2,
+	}
+
+	public readonly struct InterceptorEngagementReport
+	{
+		public InterceptorEngagementReport(
+			Transform owner,
+			TrackId targetTrackId,
+			InterceptorEngagementOutcome outcome,
+			string reason)
+		{
+			Owner = owner;
+			TargetTrackId = targetTrackId;
+			Outcome = outcome;
+			Reason = reason;
+		}
+
+		public Transform Owner { get; }
+		public TrackId TargetTrackId { get; }
+		public InterceptorEngagementOutcome Outcome { get; }
+		public string Reason { get; }
+	}
+
 	[DisallowMultipleComponent]
 	public sealed class MechTestProjectile : MonoBehaviour
 	{
 		private static readonly List<MechTestProjectile> registry = new List<MechTestProjectile>();
+
+		public static event Action<InterceptorEngagementReport> InterceptorEngagementResolved;
 
 		private const float GuidanceMemorySeconds = 4f;
 
@@ -88,6 +118,10 @@ namespace ACunicombat.Mechs
 		private MechRadarController dataLinkController;
 
 		private bool interceptorMissile;
+
+		private bool configured;
+
+		private bool interceptorOutcomeReported;
 
 		private bool interceptorTargetCommitted;
 
@@ -352,6 +386,8 @@ namespace ACunicombat.Mechs
 
 		public bool IsMissile => weaponKind == TestWeaponKind.Missile;
 
+		public bool IsInterceptorMissile => IsMissile && interceptorMissile;
+
 		public bool IsInterceptableMissile
 		{
 			get
@@ -420,6 +456,12 @@ namespace ACunicombat.Mechs
 
 		private void OnDisable()
 		{
+			if (configured && IsInterceptorMissile && !interceptorOutcomeReported)
+			{
+				ReportInterceptorOutcome(
+					InterceptorEngagementOutcome.Missed,
+					"projectile_removed");
+			}
 			registry.Remove(this);
 		}
 
@@ -440,6 +482,7 @@ namespace ACunicombat.Mechs
 				dataLinkController = newRadarController;
 			}
 			interceptorMissile = newInterceptorMissile;
+			interceptorOutcomeReported = false;
 			interceptorTargetCommitted = newInterceptorMissile &&
 				(newTargetTrackId.IsValid || hasInitialGuidanceEstimate);
 			targetTrackId = newTargetTrackId;
@@ -539,6 +582,14 @@ namespace ACunicombat.Mechs
 				bool motorStartsImmediately = !coldLaunchEnabled && launchDelay <= 0f;
 				motorVisualActive = !motorStartsImmediately;
 				SetMotorVisual(motorStartsImmediately);
+			}
+			configured = true;
+			if (weaponKind == TestWeaponKind.Missile)
+			{
+				RecordProjectileTelemetry(
+					"projectile_launched",
+					string.Empty,
+					string.Empty);
 			}
 		}
 
@@ -813,6 +864,9 @@ namespace ACunicombat.Mechs
 			lifeRemaining -= dt;
 			if (lifeRemaining <= 0f)
 			{
+				ReportInterceptorOutcome(
+					InterceptorEngagementOutcome.Missed,
+					"flight_time_expired");
 				UnityEngine.Object.Destroy(base.gameObject);
 				return;
 			}
@@ -855,6 +909,9 @@ namespace ACunicombat.Mechs
 			Vector3 travel = velocity * dt;
 			if (maximumTravelDistance > 0f && distanceTravelled + travel.magnitude >= maximumTravelDistance)
 			{
+				ReportInterceptorOutcome(
+					InterceptorEngagementOutcome.Missed,
+					"maximum_range_reached");
 				UnityEngine.Object.Destroy(base.gameObject);
 				return;
 			}
@@ -1791,6 +1848,7 @@ namespace ACunicombat.Mechs
 		private void DetonateInterceptorWarhead(Vector3 detonationPoint, float predictionSeconds)
 		{
 			bool damagedAnyMissile = false;
+			bool destroyedAnyMissile = false;
 			DamagedProjectileScratch.Clear();
 			float predictionWindow = Mathf.Max(Time.fixedDeltaTime, predictionSeconds);
 			int eligibleMissileCount = 0;
@@ -1817,6 +1875,7 @@ namespace ACunicombat.Mechs
 					if (candidate.ApplyPointDefenseDamage(damage * falloff, physicalDetonationPoint, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, TestWeaponKind.Missile, effectLibrary, impactFfxId))
 					{
 						damagedAnyMissile = true;
+						destroyedAnyMissile |= !candidate.IsInterceptableMissile;
 						Debug.Log("[Interceptor] Warhead damaged missile: " + $"CPA={physicalCpaTime:0.000}s, " + $"miss={distance:0.0}m, " + $"damage={damage * falloff:0.0}, " + $"health={healthBefore:0.0}->" + $"{candidate.interceptionHealth:0.0}, " + $"destroyed={!candidate.IsInterceptableMissile}.");
 					}
 				}
@@ -1826,6 +1885,13 @@ namespace ACunicombat.Mechs
 				Debug.LogWarning("[Interceptor] Warhead detonated without a missile " + $"inside lethal radius {warheadLethalRadius:0.0}m; " + $"eligible={eligibleMissileCount}, nearest=" + $"{nearestPhysicalMissDistance:0.0}m.");
 				MechTestWeaponSystem.SpawnImpact(detonationPoint, (velocity.sqrMagnitude > 0.001f) ? (-velocity.normalized) : (-base.transform.forward), TestWeaponKind.Missile, effectLibrary, impactFfxId);
 			}
+			ReportInterceptorOutcome(
+				destroyedAnyMissile
+					? InterceptorEngagementOutcome.Destroyed
+					: damagedAnyMissile
+						? InterceptorEngagementOutcome.Damaged
+						: InterceptorEngagementOutcome.Missed,
+				"warhead_detonation");
 		}
 
 		public bool ApplyPointDefenseDamage(float incomingDamage, Vector3 hitPoint, Vector3 hitDirection, TestWeaponKind incomingWeaponKind, MechEffectPrefabLibrary incomingEffectLibrary = null, int incomingImpactFfxId = 0)
@@ -1905,6 +1971,11 @@ namespace ACunicombat.Mechs
 			MechTestProjectile hitProjectile = hit.collider.GetComponentInParent<MechTestProjectile>();
 			if (hitProjectile != null && hitProjectile.ApplyPointDefenseDamage(GetPointDefenseDamage(), hit.point, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId))
 			{
+				ReportInterceptorOutcome(
+					hitProjectile.IsInterceptableMissile
+						? InterceptorEngagementOutcome.Damaged
+						: InterceptorEngagementOutcome.Destroyed,
+					"direct_impact");
 				return;
 			}
 			CombatTestTarget hitTarget = hit.collider.GetComponentInParent<CombatTestTarget>();
@@ -1924,6 +1995,60 @@ namespace ACunicombat.Mechs
 			{
 				MechTestWeaponSystem.SpawnImpact(hit.point, hit.normal, weaponKind, effectLibrary, impactFfxId);
 			}
+			ReportInterceptorOutcome(
+				InterceptorEngagementOutcome.Missed,
+				"direct_impact_non_missile");
+		}
+
+		private void ReportInterceptorOutcome(
+			InterceptorEngagementOutcome outcome,
+			string reason)
+		{
+			if (!configured || !IsInterceptorMissile || interceptorOutcomeReported)
+			{
+				return;
+			}
+
+			interceptorOutcomeReported = true;
+			RecordProjectileTelemetry(
+				"interceptor_resolved",
+				outcome.ToString(),
+				reason);
+			InterceptorEngagementResolved?.Invoke(
+				new InterceptorEngagementReport(
+					owner,
+					targetTrackId,
+					outcome,
+					reason));
+		}
+
+		private void RecordProjectileTelemetry(
+			string eventName,
+			string outcome,
+			string reason)
+		{
+			var ownerTarget = owner != null
+				? owner.GetComponentInParent<CombatTestTarget>()
+				: null;
+			var source = owner != null
+				? owner.name + "#" + owner.GetEntityId()
+				: "unowned_projectile";
+			CombatTelemetrySession.RecordMissileProjectileEvent(
+				radarController != null
+					? radarController.SimTimeSeconds
+					: Time.timeAsDouble,
+				source,
+				eventName,
+				GetEntityId().ToString(),
+				ownerTarget != null ? ownerTarget.TeamId : 0,
+				interceptorMissile
+					? MissileMissionRole.Interceptor
+					: MissileMissionRole.AirToAir,
+				targetTrackId,
+				outcome,
+				reason,
+				base.transform.position,
+				velocity);
 		}
 
 		private void SetMotorVisual(bool active)

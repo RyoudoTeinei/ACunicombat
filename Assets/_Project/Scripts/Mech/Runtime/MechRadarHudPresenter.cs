@@ -175,6 +175,8 @@ namespace ACunicombat.Mechs
 
 		private string hitConfirmationText = "命中";
 
+		private Color hitConfirmationColor;
+
 		private float pitchLadderRollDegrees;
 
 		private static readonly Color HudGreen = new Color(0.3f, 1f, 0.5f, 1f);
@@ -258,11 +260,15 @@ namespace ACunicombat.Mechs
 		private void OnEnable()
 		{
 			CombatTestTarget.DamageApplied += HandleDamageApplied;
+			MechTestProjectile.InterceptorEngagementResolved +=
+				HandleInterceptorEngagementResolved;
 		}
 
 		private void OnDisable()
 		{
 			CombatTestTarget.DamageApplied -= HandleDamageApplied;
+			MechTestProjectile.InterceptorEngagementResolved -=
+				HandleInterceptorEngagementResolved;
 			radarOperatorAudioSource?.Stop();
 			radar?.SetTrackOperationMode(enabled: false);
 		}
@@ -445,6 +451,35 @@ namespace ACunicombat.Mechs
 			hitConfirmationText = weaponKind == TestWeaponKind.Missile
 				? "导弹命中"
 				: "命中";
+			hitConfirmationColor = HudBrightGreen;
+		}
+
+		private void HandleInterceptorEngagementResolved(
+			InterceptorEngagementReport report)
+		{
+			if (report.Owner == null || !IsDamageSourceThisMech(report.Owner))
+			{
+				return;
+			}
+
+			hitConfirmationStartedAt = Time.unscaledTime;
+			hitConfirmationUntil =
+				hitConfirmationStartedAt + 1.4f;
+			switch (report.Outcome)
+			{
+			case InterceptorEngagementOutcome.Destroyed:
+				hitConfirmationText = "拦截成功";
+				hitConfirmationColor = HudBrightGreen;
+				break;
+			case InterceptorEngagementOutcome.Damaged:
+				hitConfirmationText = "拦截命中";
+				hitConfirmationColor = HudAmber;
+				break;
+			default:
+				hitConfirmationText = "拦截失败";
+				hitConfirmationColor = HudAmber;
+				break;
+			}
 		}
 
 		private bool IsDamageSourceThisMech(Transform damageSource)
@@ -487,8 +522,11 @@ namespace ACunicombat.Mechs
 				center.y - 19f * pulse,
 				152f * pulse,
 				38f * pulse);
-			Color color = new Color(HudBrightGreen.r, HudBrightGreen.g, HudBrightGreen.b, alpha);
-			Color markerColor = new Color(HudBrightGreen.r, HudBrightGreen.g, HudBrightGreen.b, alpha * 0.9f);
+			Color baseColor = hitConfirmationColor.a > 0f
+				? hitConfirmationColor
+				: HudBrightGreen;
+			Color color = new Color(baseColor.r, baseColor.g, baseColor.b, alpha);
+			Color markerColor = new Color(baseColor.r, baseColor.g, baseColor.b, alpha * 0.9f);
 			DrawLine(
 				new Vector2(labelRect.x - 18f, center.y),
 				new Vector2(labelRect.x - 5f, center.y),
@@ -720,7 +758,7 @@ namespace ACunicombat.Mechs
 						projectile.transform.position,
 						missileTrackCount))
 				{
-					DrawTacticalMissile(center, radius, displayRange, projectile.transform.position, projectile.Velocity, HudBrightGreen, false);
+					DrawTacticalMissile(center, radius, displayRange, projectile.transform.position, projectile.Velocity, HudBrightGreen, false, false);
 				}
 			}
 			for (int j = 0; j < missileTrackCount; j++)
@@ -728,17 +766,23 @@ namespace ACunicombat.Mechs
 				MissileTrackSnapshot track = missileTracks[j];
 				if (track.IsFriendly)
 				{
-					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), HudBrightGreen, false);
+					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), HudBrightGreen, false, false);
 				}
 				else if (ShouldDisplayIncomingMissile(in track))
 				{
 					bool ownshipThreat = ShouldEmphasizeOwnshipThreat(in track);
-					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), ownshipThreat || track.IsWeaponsQuality ? HudRed : HudAmber, ownshipThreat);
+					bool interceptor = IsInferredInterceptor(in track);
+					Color color = ownshipThreat
+						? HudRed
+						: interceptor
+							? HudCyan
+							: HudAmber;
+					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), color, ownshipThreat, !ownshipThreat);
 				}
 			}
 		}
 
-		private void DrawTacticalMissile(Vector2 center, float radius, float displayRange, Vector3 worldPosition, Vector3 worldVelocity, Color color, bool emphasized)
+		private void DrawTacticalMissile(Vector2 center, float radius, float displayRange, Vector3 worldPosition, Vector3 worldVelocity, Color color, bool emphasized, bool dashed)
 		{
 			Vector3 relativeWorld = worldPosition - base.transform.position;
 			Vector3 relativeLocal = ToHeadingLocal(relativeWorld);
@@ -747,7 +791,7 @@ namespace ACunicombat.Mechs
 			{
 				float normalizedRange = horizontal.magnitude / displayRange;
 				Vector2 point = ((horizontal.sqrMagnitude > 0.0001f) ? (center + new Vector2(horizontal.x, 0f - horizontal.y).normalized * radius * normalizedRange) : center);
-				DrawDiamond(point, emphasized ? 6.5f : 5f, color, dashed: false, emphasized ? 2f : 1.3f);
+				DrawDiamond(point, emphasized ? 6.5f : 5f, color, dashed, emphasized ? 2f : 1.3f);
 				Vector3 velocityLocal = ToHeadingLocal(worldVelocity);
 				Vector2 heading = new Vector2(velocityLocal.x, 0f - velocityLocal.z);
 				if (!(heading.sqrMagnitude <= 0.01f))
@@ -1336,22 +1380,29 @@ namespace ACunicombat.Mechs
 				}
 				Vector3 position = ToVector3(track.PredictPosition(radar.SimTimeSeconds));
 				Vector3 relative = position - base.transform.position;
-				bool weaponsQuality = track.IsWeaponsQuality;
 				bool incoming = track.Incoming;
 				bool ownshipThreat = ShouldEmphasizeOwnshipThreat(in track);
+				bool inferredInterceptor = IsInferredInterceptor(in track);
+				bool interceptorAssigned = HasFriendlyInterceptorAssigned(track.TrackId);
+				bool interceptorSolutionAvailable =
+					weaponSystem != null &&
+					weaponSystem.HasInterceptorLaunchSolution &&
+					weaponSystem.InterceptorTrackId.Equals(track.TrackId);
 				float markerRadius = ownshipThreat ? radius + 2f : radius;
 				Color markerColor = ownshipThreat
 					? HudRed
-					: incoming
-					? (weaponsQuality ? HudRed : HudAmber)
-					: new Color(HudAmber.r, HudAmber.g, HudAmber.b, 0.72f);
+					: inferredInterceptor
+						? HudCyan
+						: incoming
+							? HudAmber
+							: new Color(HudAmber.r, HudAmber.g, HudAmber.b, 0.72f);
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
 				if (screen.z <= 0f || screen.x < markerRadius || screen.x > (float)Screen.width - markerRadius || screen.y < markerRadius || screen.y > (float)Screen.height - markerRadius)
 				{
 					continue;
 				}
 				Vector2 markerCenter = new Vector2(screen.x, (float)Screen.height - screen.y);
-				DrawDiamond(markerCenter, markerRadius, markerColor, !ownshipThreat && (!incoming || !weaponsQuality), ownshipThreat ? 2.2f : incoming && weaponsQuality ? 1.6f : 1.2f);
+				DrawDiamond(markerCenter, markerRadius, markerColor, !ownshipThreat, ownshipThreat ? 2.2f : 1.2f);
 				bool shaoWeiTrackSelected = weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack && weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId);
 				bool handPointDefenseTrackSelected = weaponSystem != null && weaponSystem.HasPointDefenseTrack && weaponSystem.PointDefenseTrackId.Equals(track.TrackId);
 				if (shaoWeiTrackSelected || handPointDefenseTrackSelected)
@@ -1360,14 +1411,31 @@ namespace ACunicombat.Mechs
 					float lockExtent = markerRadius + 13f;
 					DrawCornerFrame(new Rect(markerCenter.x - lockExtent, markerCenter.y - lockExtent, lockExtent * 2f, lockExtent * 2f), pointDefenseColor, 8f, 1.8f, dashed: false);
 				}
-				if (weaponSystem != null && weaponSystem.HasInterceptorLaunchSolution && weaponSystem.InterceptorTrackId.Equals(track.TrackId))
+				if (interceptorAssigned)
+				{
+					float assignedExtent = markerRadius + 9f;
+					DrawCornerFrame(new Rect(markerCenter.x - assignedExtent, markerCenter.y - assignedExtent, assignedExtent * 2f, assignedExtent * 2f), HudBrightGreen, 7f, 1.8f, dashed: false);
+				}
+				else if (interceptorSolutionAvailable)
 				{
 					float lockExtent2 = markerRadius + 8f;
 					DrawCornerFrame(new Rect(markerCenter.x - lockExtent2, markerCenter.y - lockExtent2, lockExtent2 * 2f, lockExtent2 * 2f), HudAmber, 7f, 1.6f, dashed: false);
 				}
 				float distanceKilometers = relative.magnitude / 1000f;
-				string missileLabel = ownshipThreat ? "导弹逼近" : "导弹";
+				string missileLabel = ownshipThreat
+					? "空空弹来袭"
+					: inferredInterceptor
+						? "疑似拦截弹"
+						: "未判明导弹";
 				string distanceText = ((distanceKilometers < 10f) ? $"{missileLabel} {distanceKilometers:0.00} km" : $"{missileLabel} {distanceKilometers:0.0} km");
+				if (interceptorAssigned)
+				{
+					distanceText += "  拦截中";
+				}
+				else if (interceptorSolutionAvailable)
+				{
+					distanceText += "  可拦截";
+				}
 				if (shaoWeiTrackSelected)
 				{
 					distanceText += $"  CIWS {weaponSystem.ShaoWeiPointDefenseHitProbability * 100f:0.#}%";
@@ -1431,16 +1499,40 @@ namespace ACunicombat.Mechs
 		private bool ShouldDisplayWorldMissileMarker(
 			in MissileTrackSnapshot track)
 		{
-			if (!ShouldDisplayIncomingMissile(in track))
+			return ShouldDisplayIncomingMissile(in track);
+		}
+
+		private static bool IsInferredInterceptor(
+			in MissileTrackSnapshot track)
+		{
+			return !track.IsFriendly &&
+				track.TargetIntent == MissileTargetIntent.FriendlyMissile &&
+				track.TargetIntentConfidence >= 0.75f;
+		}
+
+		private bool HasFriendlyInterceptorAssigned(TrackId trackId)
+		{
+			if (!trackId.IsValid)
 			{
 				return false;
 			}
 
-			// Keep all contacts on the tactical radar, but remove a resolved interceptor
-			// from the forward view unless its observed CPA makes it an immediate collision
-			// threat to ownship. Unknown missiles remain visible during the evidence window.
-			return !track.IsLikelyInterceptor ||
-				ShouldEmphasizeOwnshipThreat(in track);
+			IReadOnlyList<MechTestProjectile> projectiles =
+				MechTestProjectile.Registry;
+			for (int i = 0; i < projectiles.Count; i++)
+			{
+				MechTestProjectile projectile = projectiles[i];
+				if (projectile != null &&
+					projectile.IsInterceptorMissile &&
+					projectile.IsEngagementActive &&
+					projectile.IsOwnedBy(base.transform) &&
+					projectile.GuidanceTrackId.Equals(trackId))
+				{
+					return true;
+				}
+			}
+
+			return false;
 		}
 
 		private static bool ShouldEmphasizeOwnshipThreat(

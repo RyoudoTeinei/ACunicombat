@@ -157,7 +157,7 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
-        public void ImminentCpaWithAuthenticatedMissile_ResolvesInterceptorIntent()
+        public void ReciprocalMissileCrossing_DoesNotResolveInterceptorFromCpaAlone()
         {
             var state = new MissileIntentEstimatorState();
             var tracks = new[]
@@ -199,11 +199,8 @@ namespace ACunicombat.Tests.EditMode
 
             Assert.That(
                 tracks[0].TargetIntent,
-                Is.EqualTo(MissileTargetIntent.FriendlyMissile));
-            Assert.That(tracks[0].IsLikelyInterceptor, Is.True);
-            Assert.That(
-                tracks[0].IntentFriendlyMissileScore,
-                Is.GreaterThan(tracks[0].IntentOwnshipScore));
+                Is.Not.EqualTo(MissileTargetIntent.FriendlyMissile));
+            Assert.That(tracks[0].IsLikelyInterceptor, Is.False);
         }
 
         [Test]

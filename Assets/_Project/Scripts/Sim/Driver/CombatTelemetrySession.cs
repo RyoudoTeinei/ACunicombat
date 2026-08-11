@@ -132,6 +132,36 @@ namespace ACunicombat.Simulation.Driver
             }
         }
 
+        public static void RecordMissileProjectileEvent(
+            double simTime,
+            string source,
+            string eventName,
+            string projectileEntityId,
+            int ownerTeamId,
+            MissileMissionRole missionRole,
+            TrackId targetTrackId,
+            string outcome,
+            string reason,
+            Vector3 position,
+            Vector3 velocity)
+        {
+            lock (SharedLock)
+            {
+                shared?.RecordMissileProjectile(
+                    simTime,
+                    source,
+                    eventName,
+                    projectileEntityId,
+                    ownerTeamId,
+                    missionRole,
+                    targetTrackId,
+                    outcome,
+                    reason,
+                    position,
+                    velocity);
+            }
+        }
+
         public void RecordDriverStart(
             double simTime,
             string source,
@@ -607,6 +637,31 @@ namespace ACunicombat.Simulation.Driver
             String("sourceMask", track.SourceMask.ToString());
             Number("lastEvidenceTime", track.LastEvidenceTime);
             Number("kinematicUpdateTime", track.KinematicUpdateTime);
+            End();
+        }
+
+        private void RecordMissileProjectile(
+            double simTime,
+            string source,
+            string eventName,
+            string projectileEntityId,
+            int ownerTeamId,
+            MissileMissionRole missionRole,
+            TrackId targetTrackId,
+            string outcome,
+            string reason,
+            Vector3 position,
+            Vector3 velocity)
+        {
+            Begin(simTime, source, "missile_projectile", eventName);
+            String("projectileEntityId", projectileEntityId ?? string.Empty);
+            Number("ownerTeamId", ownerTeamId);
+            String("missionRole", missionRole.ToString());
+            Number("targetTrackId", targetTrackId.Packed);
+            String("outcome", outcome ?? string.Empty);
+            String("reason", reason ?? string.Empty);
+            Vector("position", new double3(position.x, position.y, position.z));
+            Vector("velocity", new double3(velocity.x, velocity.y, velocity.z));
             End();
         }
 

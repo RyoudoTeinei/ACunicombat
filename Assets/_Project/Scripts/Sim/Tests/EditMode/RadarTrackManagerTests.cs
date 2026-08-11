@@ -269,6 +269,60 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void PreciseTerminalMissileCorrection_DoesNotAllocateGhostTrack()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+            var position = new double3(0.0, 0.0, 10_000.0);
+            var velocity = new double3(0.0, 0.0, -900.0);
+            const double step = 0.04;
+
+            for (var tick = 1; tick <= 30; tick++)
+            {
+                position += velocity * step;
+                var measurement = MeasurementAtPosition(
+                    tick * step,
+                    position,
+                    velocity);
+                measurement.ObjectClass = TrackObjectClass.Missile;
+                measurement.ClassificationConfidence = 0.9f;
+                measurement.RangeVar = 1.44f;
+                measurement.AngleVar = 1e-8f;
+                measurements.Clear();
+                measurements.Add(measurement);
+                manager.Process(
+                    measurements,
+                    double3.zero,
+                    double3.zero,
+                    tick * step);
+            }
+
+            // The live 42.00 s split was only 3.3% beyond the 5-sigma gate. A terminal
+            // correction of this size is resolvable as one missile, not evidence for a second.
+            position += velocity * step + new double3(18.0, 0.0, 0.0);
+            var corrected = MeasurementAtPosition(
+                31 * step,
+                position,
+                velocity + new double3(120.0, 0.0, 0.0));
+            corrected.ObjectClass = TrackObjectClass.Missile;
+            corrected.ClassificationConfidence = 0.9f;
+            corrected.RangeVar = 1.44f;
+            corrected.AngleVar = 1e-8f;
+            measurements.Clear();
+            measurements.Add(corrected);
+            manager.Process(
+                measurements,
+                double3.zero,
+                double3.zero,
+                31 * step);
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+            Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+            Assert.That(track.Lifecycle, Is.EqualTo(TrackLifecycle.Confirmed));
+        }
+
+        [Test]
         public void SustainedQuickBoostAtFusionCadence_RemainsSingleAirVehicleTrack()
         {
             var manager = new RadarTrackManager();
