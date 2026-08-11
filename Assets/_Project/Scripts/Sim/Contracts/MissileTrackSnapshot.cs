@@ -22,6 +22,13 @@ namespace ACunicombat.Sensing.Contracts
         WeaponsQuality = 2,
     }
 
+    public enum MissileTargetIntent : byte
+    {
+        Unknown = 0,
+        Ownship = 1,
+        FriendlyMissile = 2,
+    }
+
     /// <summary>
     /// Fire-control-safe missile track. It contains only fused estimates and
     /// sensor evidence; no scene object or simulation entity identity escapes.
@@ -40,6 +47,9 @@ namespace ACunicombat.Sensing.Contracts
         public float IdentityConfidence;
         public MissileMissionRole MissionRole;
         public float MissionRoleConfidence;
+        public MissileTargetIntent TargetIntent;
+        public float TargetIntentConfidence;
+        public TrackId SuspectedTargetTrackId;
         public MissileTrackSourceMask SourceMask;
         public TrackAffiliation Affiliation;
         public MissileTrackQuality Quality;
@@ -48,6 +58,7 @@ namespace ACunicombat.Sensing.Contracts
         public float TimeToClosestApproachSeconds;
         public float ClosestApproachDistanceMeters;
         public double LastEvidenceTime;
+        public double KinematicUpdateTime;
         public double LastUpdateTime;
 
         public bool IsWarning =>
@@ -65,6 +76,16 @@ namespace ACunicombat.Sensing.Contracts
             (SourceMask & MissileTrackSourceMask.DataLink) != 0 &&
             MissionRole != MissileMissionRole.Unknown &&
             MissionRoleConfidence >= 0.5f;
+
+        public bool IsLikelyTargetingOwnship =>
+            !IsFriendly &&
+            TargetIntent == MissileTargetIntent.Ownship &&
+            TargetIntentConfidence >= 0.75f;
+
+        public bool IsLikelyInterceptor =>
+            !IsFriendly &&
+            TargetIntent == MissileTargetIntent.FriendlyMissile &&
+            TargetIntentConfidence >= 0.9f;
 
         public double3 PredictPosition(double time)
         {

@@ -262,6 +262,8 @@ namespace ACunicombat.Mechs
             new MissileTrackSnapshot[MaximumPublicTracks];
         private readonly MissileTrackFusionState missileTrackFusionState =
             new MissileTrackFusionState();
+        private readonly MissileIntentEstimatorState missileIntentEstimatorState =
+            new MissileIntentEstimatorState();
         private readonly ThreatSnapshot[] threatScratch = new ThreatSnapshot[16];
         private readonly ElectroOpticalObservation[] electroOpticalScratch =
             new ElectroOpticalObservation[
@@ -271,6 +273,8 @@ namespace ACunicombat.Mechs
                 LaserRangefinderSystem.ObservationCapacity];
         private readonly MissileTrackFusionConfig missileTrackFusionConfig =
             MissileTrackFusionConfig.Default;
+        private readonly MissileIntentEstimatorConfig missileIntentEstimatorConfig =
+            MissileIntentEstimatorConfig.Default;
         private int missileTrackCacheCount;
         private double missileTrackCacheTime = double.NaN;
         private readonly Measurement[] measurementScratch = new Measurement[MaximumPublicEchoes];
@@ -843,6 +847,14 @@ namespace ACunicombat.Mechs
                 now,
                 missileTrackCache);
             ApplyFriendlyMissileIdentification(now);
+            MissileIntentEstimator.Evaluate(
+                in missileIntentEstimatorConfig,
+                missileIntentEstimatorState,
+                missileTrackCache,
+                missileTrackCacheCount,
+                ToDouble3(transform.position),
+                ToDouble3(playerVelocity),
+                now);
             missileTrackCacheTime = now;
         }
 
@@ -851,19 +863,21 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < missileTrackCacheCount; i++)
             {
                 var missileTrack = missileTrackCache[i];
-                if (!missileTrack.TrackId.Equals(track.TrackId) ||
-                    !missileTrack.IsFriendly)
+                if (!missileTrack.TrackId.Equals(track.TrackId))
                 {
                     continue;
                 }
 
                 track.ObjectClass = TrackObjectClass.Missile;
-                track.Affiliation = TrackAffiliation.Friendly;
-                track.IdentityConfidence = missileTrack.IdentityConfidence;
                 track.MissileRole = missileTrack.MissionRole;
                 track.MissileRoleConfidence =
                     missileTrack.MissionRoleConfidence;
-                track.SourceMask |= TrackSourceMask.DataLink;
+                if (missileTrack.IsFriendly)
+                {
+                    track.Affiliation = TrackAffiliation.Friendly;
+                    track.IdentityConfidence = missileTrack.IdentityConfidence;
+                    track.SourceMask |= TrackSourceMask.DataLink;
+                }
                 return;
             }
         }

@@ -720,7 +720,7 @@ namespace ACunicombat.Mechs
 						projectile.transform.position,
 						missileTrackCount))
 				{
-					DrawTacticalMissile(center, radius, displayRange, projectile.transform.position, projectile.Velocity, HudBrightGreen);
+					DrawTacticalMissile(center, radius, displayRange, projectile.transform.position, projectile.Velocity, HudBrightGreen, false);
 				}
 			}
 			for (int j = 0; j < missileTrackCount; j++)
@@ -728,16 +728,17 @@ namespace ACunicombat.Mechs
 				MissileTrackSnapshot track = missileTracks[j];
 				if (track.IsFriendly)
 				{
-					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), HudBrightGreen);
+					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), HudBrightGreen, false);
 				}
 				else if (ShouldDisplayIncomingMissile(in track))
 				{
-					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), track.IsWeaponsQuality ? HudRed : HudAmber);
+					bool ownshipThreat = ShouldEmphasizeOwnshipThreat(in track);
+					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), ownshipThreat || track.IsWeaponsQuality ? HudRed : HudAmber, ownshipThreat);
 				}
 			}
 		}
 
-		private void DrawTacticalMissile(Vector2 center, float radius, float displayRange, Vector3 worldPosition, Vector3 worldVelocity, Color color)
+		private void DrawTacticalMissile(Vector2 center, float radius, float displayRange, Vector3 worldPosition, Vector3 worldVelocity, Color color, bool emphasized)
 		{
 			Vector3 relativeWorld = worldPosition - base.transform.position;
 			Vector3 relativeLocal = ToHeadingLocal(relativeWorld);
@@ -746,7 +747,7 @@ namespace ACunicombat.Mechs
 			{
 				float normalizedRange = horizontal.magnitude / displayRange;
 				Vector2 point = ((horizontal.sqrMagnitude > 0.0001f) ? (center + new Vector2(horizontal.x, 0f - horizontal.y).normalized * radius * normalizedRange) : center);
-				DrawDiamond(point, 5f, color, dashed: false, 1.3f);
+				DrawDiamond(point, emphasized ? 6.5f : 5f, color, dashed: false, emphasized ? 2f : 1.3f);
 				Vector3 velocityLocal = ToHeadingLocal(worldVelocity);
 				Vector2 heading = new Vector2(velocityLocal.x, 0f - velocityLocal.z);
 				if (!(heading.sqrMagnitude <= 0.01f))
@@ -1337,8 +1338,11 @@ namespace ACunicombat.Mechs
 				Vector3 relative = position - base.transform.position;
 				bool weaponsQuality = track.IsWeaponsQuality;
 				bool incoming = track.Incoming;
-				float markerRadius = (incoming && weaponsQuality ? (radius + 2f) : radius);
-				Color markerColor = incoming
+				bool ownshipThreat = ShouldEmphasizeOwnshipThreat(in track);
+				float markerRadius = ownshipThreat ? radius + 2f : radius;
+				Color markerColor = ownshipThreat
+					? HudRed
+					: incoming
 					? (weaponsQuality ? HudRed : HudAmber)
 					: new Color(HudAmber.r, HudAmber.g, HudAmber.b, 0.72f);
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
@@ -1347,7 +1351,7 @@ namespace ACunicombat.Mechs
 					continue;
 				}
 				Vector2 markerCenter = new Vector2(screen.x, (float)Screen.height - screen.y);
-				DrawDiamond(markerCenter, markerRadius, markerColor, !incoming || !weaponsQuality, incoming && weaponsQuality ? 1.6f : 1.2f);
+				DrawDiamond(markerCenter, markerRadius, markerColor, !ownshipThreat && (!incoming || !weaponsQuality), ownshipThreat ? 2.2f : incoming && weaponsQuality ? 1.6f : 1.2f);
 				bool shaoWeiTrackSelected = weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack && weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId);
 				bool handPointDefenseTrackSelected = weaponSystem != null && weaponSystem.HasPointDefenseTrack && weaponSystem.PointDefenseTrackId.Equals(track.TrackId);
 				if (shaoWeiTrackSelected || handPointDefenseTrackSelected)
@@ -1362,7 +1366,7 @@ namespace ACunicombat.Mechs
 					DrawCornerFrame(new Rect(markerCenter.x - lockExtent2, markerCenter.y - lockExtent2, lockExtent2 * 2f, lockExtent2 * 2f), HudAmber, 7f, 1.6f, dashed: false);
 				}
 				float distanceKilometers = relative.magnitude / 1000f;
-				string missileLabel = incoming ? "导弹逼近" : "导弹";
+				string missileLabel = ownshipThreat ? "导弹逼近" : "导弹";
 				string distanceText = ((distanceKilometers < 10f) ? $"{missileLabel} {distanceKilometers:0.00} km" : $"{missileLabel} {distanceKilometers:0.0} km");
 				if (shaoWeiTrackSelected)
 				{
@@ -1422,6 +1426,30 @@ namespace ACunicombat.Mechs
 				return false;
 			}
 			return IsFreshMissileEvidence(in track);
+		}
+
+		private static bool ShouldEmphasizeOwnshipThreat(
+			in MissileTrackSnapshot track)
+		{
+			if (track.IsLikelyTargetingOwnship)
+			{
+				return true;
+			}
+
+			if (track.IsLikelyInterceptor ||
+				!track.Incoming ||
+				!track.IsWeaponsQuality)
+			{
+				return false;
+			}
+
+			var timeToCpa = track.TimeToClosestApproachSeconds;
+			var emergencyCpaGate = Mathf.Max(
+				250f,
+				track.CpaUncertaintyMeters * 2f);
+			return timeToCpa >= 0f &&
+				timeToCpa <= 6f &&
+				track.ClosestApproachDistanceMeters <= emergencyCpaGate;
 		}
 
 		private bool IsFreshMissileEvidence(in MissileTrackSnapshot track)

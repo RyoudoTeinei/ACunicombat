@@ -933,6 +933,7 @@ namespace ACunicombat.FireControl
                         ClosestApproachDistanceMeters =
                             closestApproachDistance,
                         LastEvidenceTime = lastEvidenceTime,
+                        KinematicUpdateTime = track.LastUpdateTime,
                         // Position has already been propagated to now. Its
                         // epoch must therefore also be now; retaining the
                         // sensor timestamp caused every consumer to apply the
@@ -1153,6 +1154,10 @@ namespace ACunicombat.FireControl
                 math.max(
                     existing.LastEvidenceTime,
                     candidate.LastEvidenceTime);
+            merged.KinematicUpdateTime =
+                math.max(
+                    existing.KinematicUpdateTime,
+                    candidate.KinematicUpdateTime);
             merged.LastUpdateTime =
                 math.max(
                     existing.LastUpdateTime,
