@@ -36,6 +36,8 @@ namespace ACunicombat.Mechs
 
 		private const float InterceptorSeekerLockMemorySeconds = 0.65f;
 
+		private const float InterceptorFuseMeasurementMaximumAgeSeconds = 0.12f;
+
 		private const float InterceptorFuseEstimateMemorySeconds = 4f;
 
 		private const float InterceptorFuseLookAheadSeconds = 0.06f;
@@ -1490,12 +1492,20 @@ namespace ACunicombat.Mechs
 			{
 				return false;
 			}
-			if (!seekerLocked && (!interceptorMissile || !(terminalFuseEstimateMemoryRemaining > 0f)))
+			double now = radarController != null
+				? radarController.SimTimeSeconds
+				: double.NaN;
+			if (!MissileEngagementMath.CanAuthorizeProximityFuse(
+					interceptorMissile,
+					seekerLocked,
+					now,
+					seekerLastMeasurementTime,
+					InterceptorFuseMeasurementMaximumAgeSeconds))
 			{
 				return false;
 			}
-			Vector3 estimatedPosition = (seekerLocked ? seekerFuseEstimatedPosition : terminalFuseEstimatedPosition);
-			Vector3 obj = (seekerLocked ? seekerFuseEstimatedVelocity : terminalFuseEstimatedVelocity);
+			Vector3 estimatedPosition = seekerFuseEstimatedPosition;
+			Vector3 obj = seekerFuseEstimatedVelocity;
 			Vector3 relativePosition = estimatedPosition - base.transform.position;
 			Vector3 relativeVelocity = obj - velocity;
 			float fuseLookAhead = (interceptorMissile ? Mathf.Max(deltaTime, 0.06f) : deltaTime);

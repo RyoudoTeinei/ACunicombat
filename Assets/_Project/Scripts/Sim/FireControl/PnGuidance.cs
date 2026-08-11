@@ -68,6 +68,38 @@ namespace ACunicombat.FireControl
             };
         }
 
+        public static bool CanAuthorizeProximityFuse(
+            bool interceptorMissile,
+            bool seekerLocked,
+            double now,
+            double lastSeekerMeasurementTime,
+            double interceptorMaximumMeasurementAgeSeconds)
+        {
+            if (!seekerLocked)
+            {
+                return false;
+            }
+
+            // Preserve the existing air-to-air fuse behavior. Interceptors need a
+            // fresh onboard return because their handoff track may describe a
+            // different missile after a dense crossing engagement.
+            if (!interceptorMissile)
+            {
+                return true;
+            }
+
+            if (!double.IsFinite(now) ||
+                !double.IsFinite(lastSeekerMeasurementTime) ||
+                lastSeekerMeasurementTime < 0.0 ||
+                now < lastSeekerMeasurementTime)
+            {
+                return false;
+            }
+
+            return now - lastSeekerMeasurementTime <=
+                   math.max(0.0, interceptorMaximumMeasurementAgeSeconds);
+        }
+
         public static bool IsCompatibleSeekerTarget(
             bool interceptorMissile,
             TrackObjectClass objectClass,

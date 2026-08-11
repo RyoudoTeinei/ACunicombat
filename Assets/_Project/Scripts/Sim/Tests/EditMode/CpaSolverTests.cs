@@ -205,6 +205,76 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void MissileProximityFuse_RequiresFreshSeekerEvidenceForInterceptor()
+        {
+            Assert.That(
+                MissileEngagementMath.CanAuthorizeProximityFuse(
+                    false,
+                    false,
+                    10.0,
+                    9.95,
+                    0.12),
+                Is.False);
+            Assert.That(
+                MissileEngagementMath.CanAuthorizeProximityFuse(
+                    false,
+                    true,
+                    10.0,
+                    5.0,
+                    0.12),
+                Is.True,
+                "the existing air-to-air fuse lock behavior must remain unchanged");
+            Assert.That(
+                MissileEngagementMath.CanAuthorizeProximityFuse(
+                    true,
+                    false,
+                    10.0,
+                    9.95,
+                    0.12),
+                Is.False);
+            Assert.That(
+                MissileEngagementMath.CanAuthorizeProximityFuse(
+                    true,
+                    true,
+                    10.0,
+                    9.9,
+                    0.12),
+                Is.True);
+            Assert.That(
+                MissileEngagementMath.CanAuthorizeProximityFuse(
+                    true,
+                    true,
+                    10.0,
+                    9.7,
+                    0.12),
+                Is.False);
+        }
+
+        [Test]
+        public void InterceptorInertialEstimate_CannotAuthorizeProximityFuse()
+        {
+            Assert.That(
+                MissileEngagementMath.TryGetProximityPass(
+                    new float3(3f, 0f, 0f),
+                    new float3(-100f, 0f, 0f),
+                    0.06f,
+                    12f,
+                    out _,
+                    out _),
+                Is.True,
+                "the stale handoff estimate reproduces the geometric trigger");
+            Assert.That(
+                MissileEngagementMath.CanAuthorizeProximityFuse(
+                    true,
+                    false,
+                    31.01,
+                    30.2,
+                    0.12),
+                Is.False,
+                "inertial guidance must not authorize the interceptor fuze");
+        }
+
+        [Test]
         public void MissileEventOrdering_PreservesEarlierDirectImpact()
         {
             Assert.That(
