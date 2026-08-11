@@ -151,6 +151,82 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void OverlappingReturnInsideFiveSigma_DoesNotUseTighterSecondHitGate()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+            var velocity = new double3(0.0, 0.0, -350.0);
+            var first = MeasurementAtPosition(
+                0.04,
+                new double3(0.0, 0.0, 7_400.0),
+                velocity);
+            first.ObjectClass = TrackObjectClass.Missile;
+            first.ClassificationConfidence = 0.9f;
+            var overlappingDwell = MeasurementAtPosition(
+                0.04,
+                new double3(25.0, 0.0, 7_398.0),
+                velocity);
+            overlappingDwell.ObjectClass = TrackObjectClass.Missile;
+            overlappingDwell.ClassificationConfidence = 0.9f;
+            measurements.Add(first);
+            measurements.Add(overlappingDwell);
+
+            manager.Process(
+                measurements,
+                double3.zero,
+                double3.zero,
+                0.04);
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+            Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+            Assert.That(track.HitCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ManyOverlappingReturns_DoNotCollapseCovarianceOrSplitNextTick()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(20, Allocator.Temp);
+            var velocity = new double3(0.0, 0.0, -350.0);
+            for (var i = 0; i < 12; i++)
+            {
+                var measurement = MeasurementAtPosition(
+                    0.04,
+                    new double3(i % 2 == 0 ? 3.0 : -3.0, 0.0, 7_400.0),
+                    velocity);
+                measurement.ObjectClass = TrackObjectClass.Missile;
+                measurement.ClassificationConfidence = 0.9f;
+                measurements.Add(measurement);
+            }
+
+            manager.Process(
+                measurements,
+                double3.zero,
+                double3.zero,
+                0.04);
+            measurements.Clear();
+            var next = MeasurementAtPosition(
+                0.08,
+                new double3(20.0, 0.0, 7_386.0),
+                velocity);
+            next.ObjectClass = TrackObjectClass.Missile;
+            next.ClassificationConfidence = 0.9f;
+            measurements.Add(next);
+
+            manager.Process(
+                measurements,
+                double3.zero,
+                double3.zero,
+                0.08);
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+            Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+            Assert.That(track.HitCount, Is.EqualTo(2));
+        }
+
+        [Test]
         public void HighAccelerationMissileAtSearchCadence_RemainsSingleTrack()
         {
             var manager = new RadarTrackManager();

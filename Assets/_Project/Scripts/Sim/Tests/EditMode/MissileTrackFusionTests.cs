@@ -229,7 +229,7 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
-        public void FriendlyIdentity_KeepsAuthenticatedTrackAcrossReportOutage()
+        public void FriendlyIdentity_ExpiresAfterAuthenticationCoastWindow()
         {
             var trackId = new TrackId(new Handle(12, 1));
             var tracks = new[]
@@ -268,12 +268,13 @@ namespace ACunicombat.Tests.EditMode
 
             Assert.That(
                 resolution,
-                Is.EqualTo(FriendlyIdentityResolution.Coasting));
-            Assert.That(trackIndex, Is.Zero);
+                Is.EqualTo(FriendlyIdentityResolution.None));
+            Assert.That(trackIndex, Is.EqualTo(-1));
+            Assert.That(association.HasTrack, Is.False);
         }
 
         [Test]
-        public void FriendlyIdentity_DoesNotCoastThroughFreshAmbiguity()
+        public void FriendlyIdentity_KeepsAuthenticatedTrackThroughBriefAmbiguity()
         {
             var associatedTrackId = new TrackId(new Handle(13, 1));
             var tracks = new[]
@@ -320,8 +321,8 @@ namespace ACunicombat.Tests.EditMode
 
             Assert.That(
                 resolution,
-                Is.EqualTo(FriendlyIdentityResolution.Ambiguous));
-            Assert.That(trackIndex, Is.EqualTo(-1));
+                Is.EqualTo(FriendlyIdentityResolution.Coasting));
+            Assert.That(trackIndex, Is.Zero);
         }
 
         [Test]
@@ -372,9 +373,84 @@ namespace ACunicombat.Tests.EditMode
 
             Assert.That(
                 resolution,
+                Is.EqualTo(FriendlyIdentityResolution.Coasting));
+            Assert.That(trackIndex, Is.Zero);
+            Assert.That(association.TrackId, Is.EqualTo(associatedTrackId));
+        }
+
+        [Test]
+        public void FriendlyIdentity_ExpiredBindingAllowsReplacementAuthentication()
+        {
+            var replacementId = new TrackId(new Handle(17, 1));
+            var tracks = new[]
+            {
+                new MissileTrackSnapshot
+                {
+                    TrackId = new TrackId(new Handle(16, 1)),
+                    Position = new double3(500.0, 0.0, 1_000.0),
+                    Velocity = new double3(0.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 5f,
+                    LastUpdateTime = 20.0,
+                },
+                new MissileTrackSnapshot
+                {
+                    TrackId = replacementId,
+                    Position = new double3(1.0, 0.0, 1_000.0),
+                    Velocity = new double3(0.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 5f,
+                    LastUpdateTime = 20.0,
+                },
+            };
+            var association = new FriendlyMissileIdentityAssociation
+            {
+                TrackId = tracks[0].TrackId,
+                LastAuthenticatedTime = 10.0,
+                LastAssociationScore = 0.1,
+            };
+
+            var resolution = MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                ref association,
+                tracks,
+                tracks.Length,
+                new bool[tracks.Length],
+                new double3(0.0, 0.0, 1_000.0),
+                new double3(0.0, 0.0, -200.0),
+                20.0,
+                20.0,
+                1.0,
+                120f,
+                180f,
+                0.35,
+                out var trackIndex,
+                out _);
+
+            Assert.That(
+                resolution,
                 Is.EqualTo(FriendlyIdentityResolution.Ambiguous));
             Assert.That(trackIndex, Is.EqualTo(-1));
-            Assert.That(association.TrackId, Is.EqualTo(associatedTrackId));
+            Assert.That(association.HasTrack, Is.False);
+
+            resolution = MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                ref association,
+                tracks,
+                tracks.Length,
+                new bool[tracks.Length],
+                new double3(0.0, 0.0, 1_000.0),
+                new double3(0.0, 0.0, -200.0),
+                20.0,
+                20.04,
+                1.0,
+                120f,
+                180f,
+                0.35,
+                out trackIndex,
+                out _);
+
+            Assert.That(
+                resolution,
+                Is.EqualTo(FriendlyIdentityResolution.Authenticated));
+            Assert.That(trackIndex, Is.EqualTo(1));
+            Assert.That(association.TrackId, Is.EqualTo(replacementId));
         }
 
         [Test]

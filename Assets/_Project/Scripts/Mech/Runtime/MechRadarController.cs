@@ -1181,7 +1181,9 @@ namespace ACunicombat.Mechs
             }
 
             if (track.Lifecycle != TrackLifecycle.Confirmed ||
-                !IsInsideStableTrackRange(track))
+                !IsInsideStableTrackRange(track) ||
+                !IsWithinBodyRadarFrame(
+                    PredictTrackPosition(track) - transform.position))
             {
                 return false;
             }
@@ -2373,7 +2375,12 @@ namespace ACunicombat.Mechs
             var runtimeState = GetComponent<MechRuntimeState>();
             var installedStats = runtimeState != null ? runtimeState.AggregatedStats : null;
             headPerformance = installedStats?.headSensorPerformance?.Clone() ??
-                new MechHeadSensorPerformance();
+                MechHeadSensorPerformance.CreateStandardFallback();
+            if (!headPerformance.HasData)
+            {
+                headPerformance =
+                    MechHeadSensorPerformance.CreateStandardFallback();
+            }
             radarPerformance = MechFireControlPerformanceModel.BuildRadarProfile(installedStats);
             fireControlPerformance = MechFireControlPerformanceModel.BuildFireControlProfile(
                 installedStats,
@@ -2850,6 +2857,17 @@ namespace ACunicombat.Mechs
                         FriendlyMissileAssociationScoreSeparation,
                         out var trackIndex,
                         out var score);
+                var resolvedTrackId = trackIndex >= 0 &&
+                                      trackIndex < missileTrackCacheCount
+                    ? missileTrackCache[trackIndex].TrackId
+                    : default;
+                driver.RecordFriendlyIdentityResolution(
+                    report.SourceTerminal,
+                    resolution,
+                    friendlyMissileIdentityAssociations[reportIndex].TrackId,
+                    resolvedTrackId,
+                    score,
+                    Math.Max(0.0, now - report.StateTimestamp));
                 if (resolution == FriendlyIdentityResolution.None ||
                     resolution == FriendlyIdentityResolution.Ambiguous)
                 {

@@ -58,6 +58,18 @@ namespace ACunicombat.Editor.Tests
 		}
 
 		[Test]
+		public void StandardHeadSensorFallback_IsOperational()
+		{
+			MechHeadSensorPerformance sensor =
+				MechHeadSensorPerformance.CreateStandardFallback();
+
+			Assert.That(sensor.HasData, Is.True);
+			Assert.That(sensor.referenceHotRangeKm, Is.GreaterThanOrEqualTo(30f));
+			Assert.That(sensor.trackCapacity, Is.GreaterThanOrEqualTo(8));
+			Assert.That(sensor.identificationCapability, Is.GreaterThan(0f));
+		}
+
+		[Test]
 		public void TestedWeaponSource_IncludesAdditionalRiflesAndShaoWeiVariants()
 		{
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_1310"), (IResolveConstraint)(object)Is.True);

@@ -328,9 +328,17 @@ namespace ACunicombat.FireControl
                     if (associatedTrackIndex >= 0 &&
                         trackIndex != associatedTrackIndex)
                     {
-                        trackIndex = -1;
-                        score = double.PositiveInfinity;
-                        return FriendlyIdentityResolution.Ambiguous;
+                        return TryCoastAuthenticatedIdentity(
+                            ref association,
+                            tracks,
+                            trackCount,
+                            trackAlreadyMatched,
+                            now,
+                            reportFreshnessSeconds,
+                            out trackIndex,
+                            out score)
+                            ? FriendlyIdentityResolution.Coasting
+                            : FriendlyIdentityResolution.Ambiguous;
                     }
 
                     association.TrackId = tracks[trackIndex].TrackId;
@@ -351,23 +359,75 @@ namespace ACunicombat.FireControl
                         maximumPositionGateMeters,
                         velocityGateMetersPerSecond) > 1)
                 {
-                    trackIndex = -1;
-                    score = double.PositiveInfinity;
-                    return FriendlyIdentityResolution.Ambiguous;
+                    return TryCoastAuthenticatedIdentity(
+                        ref association,
+                        tracks,
+                        trackCount,
+                        trackAlreadyMatched,
+                        now,
+                        reportFreshnessSeconds,
+                        out trackIndex,
+                        out score)
+                        ? FriendlyIdentityResolution.Coasting
+                        : FriendlyIdentityResolution.Ambiguous;
                 }
 
                 if (associatedTrackIndex >= 0 &&
                     associatedCandidateIndex < 0)
                 {
-                    trackIndex = -1;
-                    score = double.PositiveInfinity;
-                    return FriendlyIdentityResolution.Ambiguous;
+                    return TryCoastAuthenticatedIdentity(
+                        ref association,
+                        tracks,
+                        trackCount,
+                        trackAlreadyMatched,
+                        now,
+                        reportFreshnessSeconds,
+                        out trackIndex,
+                        out score)
+                        ? FriendlyIdentityResolution.Coasting
+                        : FriendlyIdentityResolution.Ambiguous;
                 }
             }
 
+            if (TryCoastAuthenticatedIdentity(
+                    ref association,
+                    tracks,
+                    trackCount,
+                    trackAlreadyMatched,
+                    now,
+                    reportFreshnessSeconds,
+                    out trackIndex,
+                    out score))
+            {
+                return FriendlyIdentityResolution.Coasting;
+            }
+
+            association.Clear();
+            trackIndex = -1;
+            score = double.PositiveInfinity;
+            return FriendlyIdentityResolution.None;
+        }
+
+        private static bool TryCoastAuthenticatedIdentity(
+            ref FriendlyMissileIdentityAssociation association,
+            MissileTrackSnapshot[] tracks,
+            int trackCount,
+            bool[] trackAlreadyMatched,
+            double now,
+            double maximumCoastSeconds,
+            out int trackIndex,
+            out double score)
+        {
+            trackIndex = -1;
+            score = double.PositiveInfinity;
             if (!association.HasTrack)
             {
-                return FriendlyIdentityResolution.None;
+                return false;
+            }
+            if (now - association.LastAuthenticatedTime > maximumCoastSeconds)
+            {
+                association.Clear();
+                return false;
             }
 
             var count = math.min(
@@ -383,11 +443,10 @@ namespace ACunicombat.FireControl
 
                 trackIndex = i;
                 score = association.LastAssociationScore;
-                return FriendlyIdentityResolution.Coasting;
+                return true;
             }
 
-            association.Clear();
-            return FriendlyIdentityResolution.None;
+            return false;
         }
 
         private static int FindAssociatedTrack(

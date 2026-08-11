@@ -17,66 +17,121 @@ if ([string]::IsNullOrWhiteSpace($Path)) {
 }
 
 $resolved = (Resolve-Path -LiteralPath $Path).Path
-$records = [System.Collections.Generic.List[object]]::new()
+$eventCounts = @{}
+$allocations = [System.Collections.Generic.List[object]]::new()
+$latestMissiles = @{}
+$previousAffiliations = @{}
+$affiliationTransitions = @{}
+$identityResolutions = @{}
+$records = 0
 $invalidLines = 0
+$allocationFailures = 0
+
 Get-Content -LiteralPath $resolved | ForEach-Object {
     try {
-        $records.Add(($_ | ConvertFrom-Json))
+        $record = $_ | ConvertFrom-Json
     }
     catch {
         $invalidLines++
+        return
+    }
+
+    $records++
+    $eventKey = "$($record.system), $($record.event)"
+    $eventCounts[$eventKey] = 1 + [int]($eventCounts[$eventKey])
+
+    if ($record.system -eq 'radar_tracking') {
+        if ($record.event -eq 'TrackAllocated') {
+            $allocations.Add($record)
+        }
+        elseif ($record.event -eq 'TrackAllocationFailed') {
+            $allocationFailures++
+        }
+    }
+
+    if ($record.system -eq 'missile_fusion' -and
+        $record.event -eq 'track_snapshot') {
+        $trackKey = "$($record.source)|$($record.trackId)"
+        $latestMissiles[$trackKey] = $record
+        if ($previousAffiliations.ContainsKey($trackKey) -and
+            $previousAffiliations[$trackKey] -ne $record.affiliation) {
+            $transition = "$($previousAffiliations[$trackKey]) -> $($record.affiliation)"
+            $affiliationTransitions[$transition] =
+                1 + [int]($affiliationTransitions[$transition])
+        }
+        $previousAffiliations[$trackKey] = $record.affiliation
+    }
+
+    if ($record.system -eq 'identity' -and
+        $record.event -eq 'friendly_missile_resolution') {
+        $identityResolutions[$record.resolution] =
+            1 + [int]($identityResolutions[$record.resolution])
     }
 }
 
 Write-Output "Combat telemetry: $resolved"
-Write-Output "Records: $($records.Count), invalid JSON lines: $invalidLines"
+Write-Output "Records: $records, invalid JSON lines: $invalidLines"
 Write-Output ''
 Write-Output 'Event counts:'
-$records |
-    Group-Object system, event |
-    Sort-Object Count -Descending |
-    ForEach-Object { '{0,8}  {1}' -f $_.Count, $_.Name }
-
-$allocations = @($records | Where-Object {
-    $_.system -eq 'radar_tracking' -and $_.event -eq 'TrackAllocated'
-} | Sort-Object source, simTime)
+$eventCounts.GetEnumerator() |
+    Sort-Object Value -Descending |
+    ForEach-Object { '{0,8}  {1}' -f $_.Value, $_.Key }
 
 Write-Output ''
 Write-Output "Radar track allocations: $($allocations.Count)"
+Write-Output "Radar allocation failures: $allocationFailures"
 Write-Output 'Suspected rapid duplicate allocations (same source/class, <=1 s, <=2 km):'
+$previousAllocations = @{}
 $suspects = 0
-for ($i = 1; $i -lt $allocations.Count; $i++) {
-    $previous = $allocations[$i - 1]
-    $current = $allocations[$i]
-    if ($previous.source -ne $current.source -or
-        $previous.objectClass -ne $current.objectClass) {
-        continue
+foreach ($current in ($allocations | Sort-Object simTime)) {
+    $allocationKey = "$($current.source)|$($current.objectClass)"
+    if ($previousAllocations.ContainsKey($allocationKey)) {
+        $previous = $previousAllocations[$allocationKey]
+        $dt = [double]$current.simTime - [double]$previous.simTime
+        if ($dt -ge 0 -and $dt -le 1.0) {
+            $dx = [double]$current.measurementPosition.x - [double]$previous.measurementPosition.x
+            $dy = [double]$current.measurementPosition.y - [double]$previous.measurementPosition.y
+            $dz = [double]$current.measurementPosition.z - [double]$previous.measurementPosition.z
+            $distance = [Math]::Sqrt($dx * $dx + $dy * $dy + $dz * $dz)
+            if ($distance -le 2000.0) {
+                $suspects++
+                '{0,8:F3}s  dt={1:F3}s  distance={2:F1}m  track={3}  gate={4}  source={5}' -f `
+                    [double]$current.simTime, $dt, $distance, $current.trackId, `
+                    $current.gateSquared, $current.source
+            }
+        }
     }
-    $dt = [double]$current.simTime - [double]$previous.simTime
-    if ($dt -lt 0 -or $dt -gt 1.0) {
-        continue
-    }
-    $dx = [double]$current.measurementPosition.x - [double]$previous.measurementPosition.x
-    $dy = [double]$current.measurementPosition.y - [double]$previous.measurementPosition.y
-    $dz = [double]$current.measurementPosition.z - [double]$previous.measurementPosition.z
-    $distance = [Math]::Sqrt($dx * $dx + $dy * $dy + $dz * $dz)
-    if ($distance -le 2000.0) {
-        $suspects++
-        '{0,8:F3}s  dt={1:F3}s  distance={2:F1}m  track={3}  gateRejects={4}  source={5}' -f `
-            [double]$current.simTime, $dt, $distance, $current.trackId, `
-            $current.gateRejected, $current.source
-    }
+    $previousAllocations[$allocationKey] = $current
 }
 if ($suspects -eq 0) {
     Write-Output 'None.'
 }
 
 Write-Output ''
+Write-Output 'Missile affiliation transitions:'
+if ($affiliationTransitions.Count -eq 0) {
+    Write-Output 'None.'
+}
+else {
+    $affiliationTransitions.GetEnumerator() |
+        Sort-Object Value -Descending |
+        ForEach-Object { '{0,8}  {1}' -f $_.Value, $_.Key }
+}
+
+Write-Output ''
+Write-Output 'Friendly missile identity resolutions:'
+if ($identityResolutions.Count -eq 0) {
+    Write-Output 'No structured identity events in this log.'
+}
+else {
+    $identityResolutions.GetEnumerator() |
+        Sort-Object Value -Descending |
+        ForEach-Object { '{0,8}  {1}' -f $_.Value, $_.Key }
+}
+
+Write-Output ''
 Write-Output 'Latest missile intent states:'
-$records |
-    Where-Object { $_.system -eq 'missile_fusion' -and $_.event -eq 'track_snapshot' } |
-    Group-Object source, trackId |
-    ForEach-Object { $_.Group | Sort-Object simTime | Select-Object -Last 1 } |
+$latestMissiles.Values |
     Sort-Object source, trackId |
-    Format-Table source, trackId, affiliation, quality, incoming, targetIntent, `
-        targetIntentConfidence, closestApproachDistanceMeters -AutoSize
+    Format-Table source, trackId, affiliation, quality, incoming, missionRole, `
+        targetIntent, targetIntentConfidence, closestApproachDistanceMeters -AutoSize

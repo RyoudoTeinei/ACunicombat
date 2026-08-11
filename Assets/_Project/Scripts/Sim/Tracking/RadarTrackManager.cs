@@ -355,6 +355,11 @@ namespace ACunicombat.Tracking
                         measurement.Timestamp,
                         ResolveManeuverAcceleration(measurement.ObjectClass));
                 }
+                // Multiple overlapping dwells in one sensor tick are correlated views of the
+                // same state. Let them refine the estimate, but do not count them as independent
+                // evidence by shrinking the covariance again. Repeated covariance collapse made
+                // the next legitimate return miss even a 5-sigma association gate.
+                var covarianceBeforeOverlap = slot.Filter.P;
                 Cmkf.UpdatePosition(ref slot.Filter, cartesian, cartesianCovariance);
                 if (!float.IsNaN(measurement.RadialVelocity))
                 {
@@ -368,6 +373,11 @@ namespace ACunicombat.Tracking
                         measurement.Direction,
                         (float)worldRadialVelocity,
                         math.max(measurement.VelocityVar, 1e-3f));
+                }
+
+                if (!firstAssociationThisTick)
+                {
+                    slot.Filter.P = covarianceBeforeOverlap;
                 }
 
                 slot.LastUpdateTime = measurement.Timestamp;
@@ -732,16 +742,12 @@ namespace ACunicombat.Tracking
                     normalizedDistance += delta[axis] * delta[axis] / variance;
                 }
 
-                // 本 tick 已吃到量测的槽门限收紧 4×：同目标重叠驻留的重复量测
-                // 归一化距离 ≪ 门限仍可合并，但近距编队的相邻目标不再被
-                // 已关联的航迹抢走（最近邻无排他性的最小缓解）。
-                // Overlapping dwells may report the same small, fast target
-                // several times in one fusion tick. The tighter second-hit
-                // gate still merges those returns without allowing the wider
-                // missile maneuver covariance to absorb a nearby missile.
-                var gate = associated[i]
-                    ? AssociationGateSquared * 0.25
-                    : AssociationGateSquared;
+                // A second return in the same tick must use the same statistical gate as the
+                // first one. Tightening it to 2.5 sigma split overlapping dwells into new tracks:
+                // the rejected return was still inside the normal 5-sigma uncertainty volume.
+                // Targets that cannot be resolved inside that volume should remain one track
+                // until their measurements separate; inventing a second track is false precision.
+                var gate = AssociationGateSquared;
                 if (normalizedDistance < stats.BestNormalizedDistanceSquared)
                 {
                     stats.BestNormalizedDistanceSquared = normalizedDistance;

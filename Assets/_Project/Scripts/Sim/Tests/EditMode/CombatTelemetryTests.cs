@@ -8,6 +8,7 @@ using ACunicombat.Tracking;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Mathematics;
+using UnityEngine;
 
 namespace ACunicombat.Tests.EditMode
 {
@@ -87,6 +88,50 @@ namespace ACunicombat.Tests.EditMode
                     diagnostic =>
                         diagnostic.Kind == RadarTrackDiagnosticKind.AssociationAccepted),
                 Is.True);
+        }
+
+        [Test]
+        public void UnityLog_UsesLatestSimulationTime()
+        {
+            var directory = Path.Combine(
+                Path.GetTempPath(),
+                "acunicombat-telemetry-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string path;
+                using (var session = new CombatTelemetrySession(
+                           directory,
+                           "test-session",
+                           64 * 1024))
+                {
+                    session.RecordDriverStart(
+                        12.5,
+                        "test-radar",
+                        7,
+                        0.01,
+                        0.04,
+                        0.04);
+                    session.RecordUnityLog(
+                        "sensor failure",
+                        "test stack",
+                        LogType.Error);
+                    session.Flush();
+                    path = session.CurrentFilePath;
+                }
+
+                var lines = File.ReadAllLines(path);
+                Assert.That(lines, Has.Length.EqualTo(2));
+                Assert.That(lines[1], Does.Contain("\"simTime\":12.5"));
+                Assert.That(lines[1], Does.Contain("\"system\":\"application\""));
+            }
+            finally
+            {
+                if (Directory.Exists(directory))
+                {
+                    Directory.Delete(directory, true);
+                }
+            }
         }
 
         private static Measurement MeasurementAt(double timestamp)

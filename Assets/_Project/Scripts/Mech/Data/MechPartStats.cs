@@ -824,6 +824,26 @@ namespace ACunicombat.Mechs
 		public bool HasData => supportedBands != MechElectroOpticalBand.None ||
 			pointingCapability > 0f || searchCapability > 0f || trackingCapability > 0f;
 
+		public static MechHeadSensorPerformance CreateStandardFallback()
+		{
+			return new MechHeadSensorPerformance
+			{
+				pointingCapability = 62f,
+				searchCapability = 58f,
+				trackingCapability = 64f,
+				identificationCapability = 60f,
+				maximumMagnification = 12f,
+				referenceHotRangeKm = 32f,
+				referenceColdRangeKm = 18f,
+				trackCapacity = 12,
+				referenceRangeErrorM = 180f,
+				laserRangefinderRangeKm = 20f,
+				laserRangefinderErrorM = 0.75f,
+				supportedBands = MechElectroOpticalBand.Visible |
+					MechElectroOpticalBand.Mwir
+			};
+		}
+
 		public MechHeadSensorPerformance Clone()
 		{
 			return new MechHeadSensorPerformance

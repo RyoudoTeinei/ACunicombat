@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using ACunicombat.DataLink;
+using ACunicombat.FireControl;
 using ACunicombat.Sensing.Contracts;
 using ACunicombat.Sensors;
 using ACunicombat.Tracking;
@@ -31,12 +32,17 @@ namespace ACunicombat.Simulation.Driver
         private readonly StringBuilder line = new StringBuilder(2048);
         private readonly Dictionary<string, MissileRecordState> missileStates =
             new Dictionary<string, MissileRecordState>();
+        private readonly Dictionary<string, ThreatRecordState> threatStates =
+            new Dictionary<string, ThreatRecordState>();
+        private readonly Dictionary<string, string> friendlyIdentityStates =
+            new Dictionary<string, string>();
         private StreamWriter writer;
         private DateTime nextFlushUtc;
         private long sequence;
         private int part;
         private bool disposed;
         private bool eventOpen;
+        private double latestSimTime;
 
         private struct MissileRecordState
         {
@@ -46,6 +52,14 @@ namespace ACunicombat.Simulation.Driver
             public MissileTrackQuality Quality;
             public TrackAffiliation Affiliation;
             public bool Incoming;
+            public double LastRecordTime;
+        }
+
+        private struct ThreatRecordState
+        {
+            public EsmThreatLevel Level;
+            public EsmWaveformClass WaveformClass;
+            public double LastRecordTime;
         }
 
         public CombatTelemetrySession(
@@ -107,7 +121,11 @@ namespace ACunicombat.Simulation.Driver
                 if (sharedUsers == 0)
                 {
                     Application.logMessageReceived -= shared.OnUnityLog;
-                    shared.WriteSimple(0.0, "session", "telemetry", "session_end");
+                    shared.WriteSimple(
+                        shared.latestSimTime,
+                        "session",
+                        "telemetry",
+                        "session_end");
                     shared.Dispose();
                     shared = null;
                 }
@@ -461,8 +479,28 @@ namespace ACunicombat.Simulation.Driver
             End();
         }
 
-        public void RecordThreat(double simTime, string source, in ThreatSnapshot threat)
+        public void RecordThreat(
+            double simTime,
+            string source,
+            in ThreatSnapshot threat,
+            bool includeUnchanged = false)
         {
+            var key = source + ":" +
+                      threat.ThreatId.Packed.ToString(CultureInfo.InvariantCulture);
+            if (!includeUnchanged &&
+                threatStates.TryGetValue(key, out var previous) &&
+                previous.Level == threat.Level &&
+                previous.WaveformClass == threat.WaveformClass &&
+                simTime - previous.LastRecordTime < 1.0)
+            {
+                return;
+            }
+            threatStates[key] = new ThreatRecordState
+            {
+                Level = threat.Level,
+                WaveformClass = threat.WaveformClass,
+                LastRecordTime = simTime,
+            };
             Begin(simTime, source, "esm_maw", "threat_snapshot");
             Number("threatId", threat.ThreatId.Packed);
             Vector("direction", threat.DirectionWorld);
@@ -507,7 +545,7 @@ namespace ACunicombat.Simulation.Driver
             string stackTrace,
             LogType type)
         {
-            Begin(0.0, "unity", "application", "log");
+            Begin(latestSimTime, "unity", "application", "log");
             String("level", type.ToString());
             String("message", condition ?? string.Empty);
             String("stackTrace", stackTrace ?? string.Empty);
@@ -528,14 +566,15 @@ namespace ACunicombat.Simulation.Driver
                 Quality = track.Quality,
                 Affiliation = track.Affiliation,
                 Incoming = track.Incoming,
+                LastRecordTime = simTime,
             };
             if (missileStates.TryGetValue(key, out var previous) &&
-                Math.Abs(previous.KinematicUpdateTime - current.KinematicUpdateTime) <= 1e-9 &&
                 previous.Intent == current.Intent &&
                 Math.Abs(previous.IntentConfidence - current.IntentConfidence) < 0.001f &&
                 previous.Quality == current.Quality &&
                 previous.Affiliation == current.Affiliation &&
-                previous.Incoming == current.Incoming)
+                previous.Incoming == current.Incoming &&
+                simTime - previous.LastRecordTime < 0.25)
             {
                 return;
             }
@@ -564,6 +603,37 @@ namespace ACunicombat.Simulation.Driver
             String("sourceMask", track.SourceMask.ToString());
             Number("lastEvidenceTime", track.LastEvidenceTime);
             Number("kinematicUpdateTime", track.KinematicUpdateTime);
+            End();
+        }
+
+        public void RecordFriendlyIdentityResolution(
+            double simTime,
+            string source,
+            LinkTerminalId sourceTerminal,
+            FriendlyIdentityResolution resolution,
+            TrackId associatedTrackId,
+            TrackId resolvedTrackId,
+            double score,
+            double reportAgeSeconds)
+        {
+            var key = source + ":" +
+                      sourceTerminal.Packed.ToString(CultureInfo.InvariantCulture);
+            var state = resolution + ":" + associatedTrackId.Packed + ":" +
+                        resolvedTrackId.Packed;
+            if (friendlyIdentityStates.TryGetValue(key, out var previous) &&
+                string.Equals(previous, state, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            friendlyIdentityStates[key] = state;
+            Begin(simTime, source, "identity", "friendly_missile_resolution");
+            Number("sourceTerminal", sourceTerminal.Packed);
+            String("resolution", resolution.ToString());
+            Number("associatedTrackId", associatedTrackId.Packed);
+            Number("resolvedTrackId", resolvedTrackId.Packed);
+            Number("associationScore", score);
+            Number("reportAgeSeconds", reportAgeSeconds);
             End();
         }
 
@@ -627,6 +697,10 @@ namespace ACunicombat.Simulation.Driver
                 if (!eventOpen)
                 {
                     return;
+                }
+                if (simTime > latestSimTime)
+                {
+                    latestSimTime = simTime;
                 }
                 line.Clear();
                 line.Append('{');
