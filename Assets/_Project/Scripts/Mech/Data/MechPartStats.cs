@@ -767,6 +767,34 @@ namespace ACunicombat.Mechs
 		}
 	}
 
+	[Serializable]
+	public sealed class MechRadiatorPerformance
+	{
+		[Min(0f)] public float ratedDissipationKw;
+		[Min(0f)] public float thermalCapacityMj;
+		[Min(0f)] public float idlePumpPowerKw;
+		[Min(0f)] public float activePumpPowerKw;
+		[Min(0f)] public float idleHeatKw;
+		[Min(0f)] public float activeHeatKw;
+		[Min(0f)] public float thermalSignatureIncrement;
+
+		public bool HasData => ratedDissipationKw > 0f || thermalCapacityMj > 0f;
+
+		public MechRadiatorPerformance Clone()
+		{
+			return new MechRadiatorPerformance
+			{
+				ratedDissipationKw = ratedDissipationKw,
+				thermalCapacityMj = thermalCapacityMj,
+				idlePumpPowerKw = idlePumpPowerKw,
+				activePumpPowerKw = activePumpPowerKw,
+				idleHeatKw = idleHeatKw,
+				activeHeatKw = activeHeatKw,
+				thermalSignatureIncrement = thermalSignatureIncrement
+			};
+		}
+	}
+
 	[Flags]
 	public enum MechElectroOpticalBand
 	{
@@ -868,6 +896,7 @@ namespace ACunicombat.Mechs
 		public MechCorePerformance corePerformance = new MechCorePerformance();
 		public MechLegPerformance legPerformance = new MechLegPerformance();
 		public MechBoosterPerformance boosterPerformance = new MechBoosterPerformance();
+		public MechRadiatorPerformance radiatorPerformance = new MechRadiatorPerformance();
 
 		[Header("Derived")]
 		public float idlePowerSurplusMw;
@@ -927,6 +956,7 @@ namespace ACunicombat.Mechs
 			corePerformance = new MechCorePerformance();
 			legPerformance = new MechLegPerformance();
 			boosterPerformance = new MechBoosterPerformance();
+			radiatorPerformance = new MechRadiatorPerformance();
 			idlePowerSurplusMw = 0f;
 			peakPowerSurplusMw = 0f;
 			heatSurplusMw = 0f;
@@ -1058,6 +1088,14 @@ namespace ACunicombat.Mechs
 			depletedEnergyRestartFraction = Mathf.Max(
 				depletedEnergyRestartFraction,
 				generator.depletedRestartFraction);
+		}
+
+		public void AddRadiatorPerformance(MechRadiatorPerformance radiator)
+		{
+			if (radiator != null && radiator.HasData)
+			{
+				radiatorPerformance = radiator.Clone();
+			}
 		}
 
 		public void AddRadarPerformance(MechRadarPerformance radar)

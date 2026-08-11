@@ -106,6 +106,7 @@ namespace ACunicombat.Mechs
             target.corePerformance = source.corePerformance?.Clone() ?? new MechCorePerformance();
             target.legPerformance = source.legPerformance?.Clone() ?? new MechLegPerformance();
             target.boosterPerformance = source.boosterPerformance?.Clone() ?? new MechBoosterPerformance();
+            target.radiatorPerformance = source.radiatorPerformance?.Clone() ?? new MechRadiatorPerformance();
             target.idlePowerSurplusMw = source.idlePowerSurplusMw;
             target.peakPowerSurplusMw = source.peakPowerSurplusMw;
             target.heatSurplusMw = source.heatSurplusMw;

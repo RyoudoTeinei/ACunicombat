@@ -1,8 +1,8 @@
 ﻿<Solution>
   <Project Path="Assembly-CSharp.csproj" />
   <Project Path="ACunicombat.Sensing.Contracts.csproj" />
-  <Project Path="Assembly-CSharp-Editor.csproj" />
   <Project Path="ACunicombat.FireControl.csproj" />
+  <Project Path="Assembly-CSharp-Editor.csproj" />
   <Project Path="ACunicombat.Tests.EditMode.csproj" />
   <Project Path="ACunicombat.Sensors.csproj" />
   <Project Path="ACunicombat.Tracking.csproj" />

@@ -82,6 +82,8 @@ namespace ACunicombat.Mechs
                     radar = 0.8f; thermal = 2f; electromagnetic = 0.5f; break;
                 case MechPartSlot.Generator:
                     radar = 0.3f; thermal = 1f; electromagnetic = 1.5f; break;
+                case MechPartSlot.Radiator:
+                    radar = 0.7f; thermal = 3f; electromagnetic = 0.4f; break;
                 case MechPartSlot.Radar:
                     radar = 0.4f; thermal = 0.3f; electromagnetic = 2.5f; break;
                 case MechPartSlot.FireControlSystem:

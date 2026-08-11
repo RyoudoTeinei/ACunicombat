@@ -54,6 +54,10 @@ namespace ACunicombat.Mechs
                 {
                     target.AddGeneratorPerformance(assignment.part.GeneratorPerformance);
                 }
+                else if (assignment.part.Slot == MechPartSlot.Radiator)
+                {
+                    target.AddRadiatorPerformance(assignment.part.RadiatorPerformance);
+                }
                 else if (assignment.part.Slot == MechPartSlot.Radar)
                 {
                     target.AddRadarPerformance(assignment.part.RadarPerformance);

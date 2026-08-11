@@ -40,7 +40,7 @@ namespace ACunicombat.Mechs
 
 		private static readonly Color ComparisonBaselineColor = new Color(0.44f, 0.56f, 0.65f, 1f);
 
-		private static readonly MechPartSlot[] Slots = new MechPartSlot[14]
+		private static readonly MechPartSlot[] Slots = new MechPartSlot[15]
 		{
 			MechPartSlot.LeftHandWeapon,
 			MechPartSlot.RightHandWeapon,
@@ -53,6 +53,7 @@ namespace ACunicombat.Mechs
 			MechPartSlot.Booster,
 			MechPartSlot.FireControlSystem,
 			MechPartSlot.Generator,
+			MechPartSlot.Radiator,
 			MechPartSlot.Radar,
 			MechPartSlot.DataLinkTerminal,
 			MechPartSlot.Extension
@@ -74,11 +75,12 @@ namespace ACunicombat.Mechs
 			MechPartSlot.Legs
 		};
 
-		private static readonly MechPartSlot[] InternalSlots = new MechPartSlot[6]
+		private static readonly MechPartSlot[] InternalSlots = new MechPartSlot[7]
 		{
 			MechPartSlot.Booster,
 			MechPartSlot.FireControlSystem,
 			MechPartSlot.Generator,
+			MechPartSlot.Radiator,
 			MechPartSlot.Radar,
 			MechPartSlot.DataLinkTerminal,
 			MechPartSlot.Extension
@@ -784,12 +786,13 @@ namespace ACunicombat.Mechs
 			bool hasCoreNozzles = part.Slot == MechPartSlot.Core && part.CorePerformance != null && part.CorePerformance.HasData;
 			bool hasBoosterData = part.Slot == MechPartSlot.Booster && part.BoosterPerformance != null && part.BoosterPerformance.HasData;
 			bool hasGeneratorData = part.Slot == MechPartSlot.Generator && part.GeneratorPerformance != null && part.GeneratorPerformance.HasData;
+			bool hasRadiatorData = part.Slot == MechPartSlot.Radiator && part.RadiatorPerformance != null && part.RadiatorPerformance.HasData;
 			bool hasRadarData = part.Slot == MechPartSlot.Radar && part.RadarPerformance != null && part.RadarPerformance.HasData;
 			bool hasFireControlData = part.Slot == MechPartSlot.FireControlSystem && part.FireControlPerformance != null && part.FireControlPerformance.HasData;
 			bool hasDataLinkData = part.Slot == MechPartSlot.DataLinkTerminal && part.DataLinkPerformance != null && part.DataLinkPerformance.HasData;
 			float viewHeight = entry.IsWeapon
 				? (part.HasTag("point-defense") ? 2100f : 1500f)
-				: (hasImportedInternalData ? 1180f : ((hasCoreNozzles || hasBoosterData || hasGeneratorData || hasRadarData || hasFireControlData || hasDataLinkData) ? 2100f : 1760f));
+				: (hasImportedInternalData ? 1180f : ((hasCoreNozzles || hasBoosterData || hasGeneratorData || hasRadiatorData || hasRadarData || hasFireControlData || hasDataLinkData) ? 2100f : 1760f));
 			Rect view = new Rect(0f, 0f, rect.width - 18f, viewHeight);
 			selectedStatsScroll = GUI.BeginScrollView(rect, selectedStatsScroll, view);
 			float y = 0f;
@@ -813,6 +816,10 @@ namespace ACunicombat.Mechs
 			else if (hasGeneratorData)
 			{
 				DrawGeneratorPartStats(view, ref y, part, equippedPart);
+			}
+			else if (hasRadiatorData)
+			{
+				DrawRadiatorPartStats(view, ref y, part, equippedPart);
 			}
 			else if (hasRadarData)
 			{
@@ -1195,6 +1202,31 @@ namespace ACunicombat.Mechs
 			DrawPartComparisonMetric(view, ref y, "待机产热", ToKilowatts(stats.idleHeatMw), ToKilowatts(equippedStats?.idleHeatMw), 10000f, "0.#", " kW", higherIsBetter: false);
 			DrawPartComparisonMetric(view, ref y, "工作产热", ToKilowatts(stats.activeHeatMw), ToKilowatts(equippedStats?.activeHeatMw), 30000f, "0.#", " kW", higherIsBetter: false);
 			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 300f, "0.0", " MJ", higherIsBetter: true);
+		}
+
+		private void DrawRadiatorPartStats(
+			Rect view,
+			ref float y,
+			MechPartDefinition part,
+			MechPartDefinition equippedPart)
+		{
+			MechPartStats stats = part.Stats;
+			MechPartStats equippedStats = equippedPart?.Stats;
+			MechRadiatorPerformance radiator = part.RadiatorPerformance ?? new MechRadiatorPerformance();
+			MechRadiatorPerformance equippedRadiator = equippedPart?.RadiatorPerformance;
+			bool hasEquipped = equippedRadiator != null && equippedRadiator.HasData;
+
+			DrawPartMetricGroup(view, ref y, "结构与特征");
+			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 8000f, "0", " kg", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "热特征增量", radiator.thermalSignatureIncrement, hasEquipped ? equippedRadiator.thermalSignatureIncrement : null, 10f, "0.0", string.Empty, higherIsBetter: false);
+			DrawPartMetricGroup(view, ref y, "散热性能");
+			DrawPartComparisonMetric(view, ref y, "额定散热能力", radiator.ratedDissipationKw, hasEquipped ? equippedRadiator.ratedDissipationKw : null, 40000f, "0", " kW", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "热容量", radiator.thermalCapacityMj, hasEquipped ? equippedRadiator.thermalCapacityMj : null, 300f, "0.0", " MJ", higherIsBetter: true);
+			DrawPartMetricGroup(view, ref y, "泵组负载");
+			DrawPartComparisonMetric(view, ref y, "待机功耗", radiator.idlePumpPowerKw, hasEquipped ? equippedRadiator.idlePumpPowerKw : null, 3000f, "0", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作功耗", radiator.activePumpPowerKw, hasEquipped ? equippedRadiator.activePumpPowerKw : null, 6000f, "0", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机产热", radiator.idleHeatKw, hasEquipped ? equippedRadiator.idleHeatKw : null, 1000f, "0", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作产热", radiator.activeHeatKw, hasEquipped ? equippedRadiator.activeHeatKw : null, 2000f, "0", " kW", higherIsBetter: false);
 		}
 
 		private static string FormatElectroOpticalBands(MechElectroOpticalBand bands)
@@ -2142,6 +2174,7 @@ namespace ACunicombat.Mechs
 				MechPartSlot.Booster => "推进", 
 				MechPartSlot.FireControlSystem => "火控", 
 				MechPartSlot.Generator => "能源", 
+				MechPartSlot.Radiator => "散热",
 				MechPartSlot.Radar => "雷达", 
 				MechPartSlot.DataLinkTerminal => "数据链",
 				MechPartSlot.Extension => "扩展", 
@@ -2159,6 +2192,7 @@ namespace ACunicombat.Mechs
 				MechPartSlot.Legs => "腿部", 
 				MechPartSlot.Booster => "推进器", 
 				MechPartSlot.Generator => "发电机", 
+				MechPartSlot.Radiator => "散热器",
 				MechPartSlot.FireControlSystem => "火控系统", 
 				MechPartSlot.Radar => "雷达", 
 				MechPartSlot.DataLinkTerminal => "数据链终端",

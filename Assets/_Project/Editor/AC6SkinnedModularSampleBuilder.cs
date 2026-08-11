@@ -473,6 +473,32 @@ public static class AC6SkinnedModularSampleBuilder
 			}
 		}
 
+		MechPartDefinition sampleRadiator = CreateInternalPart(
+			"AC6_SKIN_SAMPLE_RADIATOR",
+			"Standard Vacuum Radiator",
+			MechPartSlot.Radiator,
+			BuildSampleRadiatorStats(),
+			radiatorPerformance: BuildSampleRadiatorPerformance());
+		if (sampleRadiator != null)
+		{
+			string[] radiatorLoadoutGuids = AssetDatabase.FindAssets(
+				"t:MechLoadoutDefinition",
+				new[] { "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Loadouts" });
+			foreach (string guid in radiatorLoadoutGuids)
+			{
+				var loadout = AssetDatabase.LoadAssetAtPath<MechLoadoutDefinition>(
+					AssetDatabase.GUIDToAssetPath(guid));
+				if (loadout == null || loadout.TryGetPart(MechPartSlot.Radiator, out _))
+				{
+					continue;
+				}
+				var assignments = new List<MechPartAssignment>(loadout.Assignments);
+				assignments.Add(Assignment(MechPartSlot.Radiator, sampleRadiator));
+				loadout.EditorConfigure(loadout.LoadoutId, loadout.DisplayName, assignments);
+				refreshedCount++;
+			}
+		}
+
 		if (refreshedCount > 0)
 		{
 			AssetDatabase.SaveAssets();
@@ -1775,6 +1801,12 @@ public static class AC6SkinnedModularSampleBuilder
 				MechPartSlot.Generator,
 				BuildSampleGeneratorStats(),
 				BuildSampleGeneratorPerformance()),
+			[MechPartSlot.Radiator] = CreateInternalPart(
+				"AC6_SKIN_SAMPLE_RADIATOR",
+				"Standard Vacuum Radiator",
+				MechPartSlot.Radiator,
+				BuildSampleRadiatorStats(),
+				radiatorPerformance: BuildSampleRadiatorPerformance()),
 			[MechPartSlot.FireControlSystem] = CreateInternalPart("AC6_SKIN_SAMPLE_FCS", "Sample Fire Control System", MechPartSlot.FireControlSystem, BuildSampleFireControlStats(), fireControlPerformance: BuildSampleFireControlPerformance()),
 			[MechPartSlot.Radar] = CreateInternalPart("AC6_SKIN_SAMPLE_RADAR", "Sample Active Radar", MechPartSlot.Radar, BuildSampleRadarStats(), radarPerformance: BuildSampleRadarPerformance()),
 			[MechPartSlot.DataLinkTerminal] = CreateInternalPart("AC6_SKIN_SAMPLE_DATALINK", "Standard Tactical Data Link Terminal", MechPartSlot.DataLinkTerminal, BuildSampleDataLinkStats(), dataLinkPerformance: BuildSampleDataLinkPerformance())
@@ -2070,10 +2102,11 @@ public static class AC6SkinnedModularSampleBuilder
 		MechGeneratorPerformance generatorPerformance = null,
 		MechRadarPerformance radarPerformance = null,
 		MechFireControlPerformance fireControlPerformance = null,
-		MechDataLinkPerformance dataLinkPerformance = null)
+		MechDataLinkPerformance dataLinkPerformance = null,
+		MechRadiatorPerformance radiatorPerformance = null)
 	{
 		MechPartDefinition part = LoadOrCreateAsset<MechPartDefinition>("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Parts/" + id + ".asset");
-		part.EditorConfigure(id, displayName, slot, MechPartCategory.Internal, null, stats, Array.Empty<MechMountPointDefinition>(), new string[2] { "internal", "sample" }, newGeneratorPerformance: generatorPerformance, newRadarPerformance: radarPerformance, newFireControlPerformance: fireControlPerformance, newDataLinkPerformance: dataLinkPerformance);
+		part.EditorConfigure(id, displayName, slot, MechPartCategory.Internal, null, stats, Array.Empty<MechMountPointDefinition>(), new string[2] { "internal", "sample" }, newGeneratorPerformance: generatorPerformance, newRadarPerformance: radarPerformance, newFireControlPerformance: fireControlPerformance, newDataLinkPerformance: dataLinkPerformance, newRadiatorPerformance: radiatorPerformance);
 		return part;
 	}
 
@@ -2087,6 +2120,7 @@ public static class AC6SkinnedModularSampleBuilder
 			Assignment(MechPartSlot.Legs, frameParts[FrameKey(MechPartSlot.Legs, legsCode)]),
 			Assignment(MechPartSlot.Booster, boosters[coreCode]),
 			Assignment(MechPartSlot.Generator, internals[MechPartSlot.Generator]),
+			Assignment(MechPartSlot.Radiator, internals[MechPartSlot.Radiator]),
 			Assignment(MechPartSlot.FireControlSystem, internals[MechPartSlot.FireControlSystem]),
 			Assignment(MechPartSlot.Radar, internals[MechPartSlot.Radar]),
 			Assignment(MechPartSlot.DataLinkTerminal, internals[MechPartSlot.DataLinkTerminal]),
@@ -2198,7 +2232,7 @@ public static class AC6SkinnedModularSampleBuilder
 				idleHeatMw = 0.22f * scale,
 				activeHeatMw = 0.72f * scale,
 				heatGenerationMw = 0.72f * scale,
-				heatDissipationMw = 2.4f * scale,
+				heatDissipationMw = 0.5f * scale,
 				heatCapacityMj = 160f * scale
 			}, 
 			_ => new MechPartStats(), 
@@ -2218,7 +2252,7 @@ public static class AC6SkinnedModularSampleBuilder
 			idleHeatMw = 0.28f * scale,
 			activeHeatMw = 1.25f * scale,
 			heatGenerationMw = 1.25f * scale,
-			heatDissipationMw = 18f * scale,
+			heatDissipationMw = 1.5f * scale,
 			heatCapacityMj = 240f * scale,
 			hardpointCapacityKg = 16000f * scale,
 			rcsThrustKn = 360f * scale
@@ -2283,6 +2317,36 @@ public static class AC6SkinnedModularSampleBuilder
 			energyRechargeDelayS = 0.75f,
 			depletedRestartFraction = 0.2f,
 			startupTimeS = 7.5f
+		};
+	}
+
+	private static MechPartStats BuildSampleRadiatorStats()
+	{
+		return ApplySignatureDefaults(new MechPartStats
+		{
+			massKg = 2800f,
+			idlePowerDrawMw = 0.25f,
+			peakPowerDrawMw = 1.2f,
+			idleHeatMw = 0.06f,
+			activeHeatMw = 0.22f,
+			heatGenerationMw = 0.22f,
+			heatDissipationMw = 18.4f,
+			heatCapacityMj = 120f,
+			thermalSignature = 3f
+		}, MechPartSlot.Radiator);
+	}
+
+	private static MechRadiatorPerformance BuildSampleRadiatorPerformance()
+	{
+		return new MechRadiatorPerformance
+		{
+			ratedDissipationKw = 18400f,
+			thermalCapacityMj = 120f,
+			idlePumpPowerKw = 250f,
+			activePumpPowerKw = 1200f,
+			idleHeatKw = 60f,
+			activeHeatKw = 220f,
+			thermalSignatureIncrement = 3f
 		};
 	}
 

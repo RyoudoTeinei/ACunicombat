@@ -8,6 +8,46 @@ using UnityEngine;
 
 public static class AC6FullPartCatalogBuilder
 {
+	private const string RadiatorMigrationSessionKey =
+		"ACunicombat.StandardRadiatorMigration.v1";
+
+	[InitializeOnLoadMethod]
+	private static void ScheduleStandardRadiatorMigration()
+	{
+		if (SessionState.GetBool(RadiatorMigrationSessionKey, false))
+		{
+			return;
+		}
+
+		EditorApplication.delayCall += () =>
+		{
+			if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling)
+			{
+				return;
+			}
+
+			SessionState.SetBool(RadiatorMigrationSessionKey, true);
+			const string partPath =
+				"Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Parts/AC6_SKIN_SAMPLE_RADIATOR.asset";
+			MechPartCatalog catalog = AssetDatabase.LoadAssetAtPath<MechPartCatalog>(
+				"Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Resources/AC6FullPartCatalog.asset");
+			if (AssetDatabase.LoadAssetAtPath<MechPartDefinition>(partPath) != null &&
+				catalog?.Find("AC6_SKIN_SAMPLE_RADIATOR") != null)
+			{
+				return;
+			}
+
+			if (!BuildAvailableCatalog(out string report))
+			{
+				Debug.LogError("[AC6FullPartCatalog] 标准散热器自动迁移失败：" + report);
+			}
+			else
+			{
+				Debug.Log("[AC6FullPartCatalog] 标准散热器已自动加入目录与默认配装。");
+			}
+		};
+	}
+
 	[Serializable]
 	private sealed class FullManifest
 	{
@@ -188,6 +228,7 @@ public static class AC6FullPartCatalogBuilder
 	{
 		"BS_A_1010",
 		"AC6_SKIN_SAMPLE_GENERATOR",
+		"AC6_SKIN_SAMPLE_RADIATOR",
 		"AC6_SKIN_SAMPLE_FCS",
 		"AC6_SKIN_SAMPLE_RADAR",
 		"AC6_SKIN_SAMPLE_DATALINK"
@@ -361,6 +402,7 @@ public static class AC6FullPartCatalogBuilder
 			MechPartSlot.Legs => "标准腿部基准数值已录入，已验证视觉装配、承载、上升、反向、横向与 RCS 喷口数据。",
 			MechPartSlot.Booster => "标准主推进器基准数值已录入，已验证视觉装配、主向推进、AB、QB 与装配驱动功耗。",
 			MechPartSlot.Generator => "标准发电机基准数值已录入，储能容量、回充功率与启动参数已接入机动能量系统。",
+			MechPartSlot.Radiator => "标准真空散热器基准数值已录入，额定散热能力已接入机体运行时热特征冷却。",
 			MechPartSlot.FireControlSystem => "当前火控基准数值已录入，已验证航迹解算、武器授权、制导通道与点防御流程。",
 			MechPartSlot.Radar => "当前雷达基准数值已录入，已验证搜索、TWS、STT、导弹识别与航迹维持流程。",
 			MechPartSlot.DataLinkTerminal => "标准数据链终端参数已录入，已接入友军识别、航迹共享、制导上行、带宽与通信延迟。",
@@ -482,7 +524,7 @@ public static class AC6FullPartCatalogBuilder
 		MechWeaponPerformance weaponPerformance = source.WeaponPerformance != null && source.WeaponPerformance.IsConfigured
 			? source.WeaponPerformance
 			: AC6TestWeaponProfileFactory.Create(source.PartId);
-		mechPartDefinition.EditorConfigure(source.PartId, source.DisplayName, source.Slot, source.Category, source.ModelPrefab, source.Stats, source.MountPoints, source.Tags, source.MaterialOverrides, source.VisualRigMode, source.SkinnedAnimationClip, source.AncestorDriverSlot, source.AncestorDrivenBoneNames, source.InstantiateVisualAtAllMounts, source.EquipmentAnimations, source.DefaultEquipmentActionId, source.PlayDefaultEquipmentActionOnAssemble, source.LocalPosition, source.LocalEulerAngles, source.LocalScale, source.PreviewModelPrefab, source.PreviewImage, source.InternalPerformance, source.HeadSensorPerformance, source.ArmPerformance, source.CorePerformance, source.LegPerformance, source.BoosterPerformance, source.GeneratorPerformance, source.RadarPerformance, source.FireControlPerformance, weaponPerformance, source.DataLinkPerformance);
+		mechPartDefinition.EditorConfigure(source.PartId, source.DisplayName, source.Slot, source.Category, source.ModelPrefab, source.Stats, source.MountPoints, source.Tags, source.MaterialOverrides, source.VisualRigMode, source.SkinnedAnimationClip, source.AncestorDriverSlot, source.AncestorDrivenBoneNames, source.InstantiateVisualAtAllMounts, source.EquipmentAnimations, source.DefaultEquipmentActionId, source.PlayDefaultEquipmentActionOnAssemble, source.LocalPosition, source.LocalEulerAngles, source.LocalScale, source.PreviewModelPrefab, source.PreviewImage, source.InternalPerformance, source.HeadSensorPerformance, source.ArmPerformance, source.CorePerformance, source.LegPerformance, source.BoosterPerformance, source.GeneratorPerformance, source.RadarPerformance, source.FireControlPerformance, weaponPerformance, source.DataLinkPerformance, source.RadiatorPerformance);
 		EditorUtility.SetDirty(mechPartDefinition);
 		return mechPartDefinition;
 	}
@@ -543,7 +585,7 @@ public static class AC6FullPartCatalogBuilder
 				idleHeatMw = 0.28f,
 				activeHeatMw = 1.25f,
 				heatGenerationMw = 1.25f,
-				heatDissipationMw = 18f,
+				heatDissipationMw = 1.5f,
 				heatCapacityMj = 240f,
 				hardpointCapacityKg = 16000f,
 				rcsThrustKn = 360f
@@ -573,7 +615,7 @@ public static class AC6FullPartCatalogBuilder
 				idleHeatMw = 0.22f,
 				activeHeatMw = 0.72f,
 				heatGenerationMw = 0.72f,
-				heatDissipationMw = 2.4f,
+				heatDissipationMw = 0.5f,
 				heatCapacityMj = 160f
 			};
 		case MechPartSlot.Booster:

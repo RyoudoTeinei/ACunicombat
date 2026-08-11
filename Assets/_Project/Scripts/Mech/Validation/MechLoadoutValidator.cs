@@ -266,7 +266,7 @@ namespace ACunicombat.Mechs
             {
                 result.Add(
                     MechValidationSeverity.Warning,
-                    MechPartSlot.Core,
+                    MechPartSlot.Radiator,
                     "HEAT_BUDGET_NEGATIVE",
                     $"Heat generation exceeds dissipation by {-stats.heatSurplusMw * 1000f:0.#} kW.");
             }

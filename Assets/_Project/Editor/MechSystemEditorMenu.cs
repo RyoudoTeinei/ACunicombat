@@ -43,7 +43,7 @@ public static class MechSystemEditorMenu
                 structurePoints = 1500f,
                 idlePowerDrawMw = 2f,
                 peakPowerDrawMw = 4f,
-                heatDissipationMw = 18f,
+                heatDissipationMw = 1.5f,
                 heatCapacityMj = 600f,
                 radarCrossSection = 2.2f,
                 thermalSignature = 1.2f,
@@ -148,6 +148,26 @@ public static class MechSystemEditorMenu
             },
             null,
             "internal", "generator");
+
+        var radiator = CreatePart(
+            "Sample_Radiator",
+            "Sample RAD-1010 Vacuum Radiator",
+            MechPartSlot.Radiator,
+            MechPartCategory.Internal,
+            new MechPartStats
+            {
+                massKg = 2800f,
+                idlePowerDrawMw = 0.25f,
+                peakPowerDrawMw = 1.2f,
+                idleHeatMw = 0.06f,
+                activeHeatMw = 0.22f,
+                heatGenerationMw = 0.22f,
+                heatDissipationMw = 18.4f,
+                heatCapacityMj = 120f,
+                thermalSignature = 3f
+            },
+            null,
+            "internal", "radiator");
 
         var fcs = CreatePart(
             "Sample_FCS",
@@ -267,6 +287,7 @@ public static class MechSystemEditorMenu
                 Assignment(MechPartSlot.Legs, legs),
                 Assignment(MechPartSlot.Booster, booster),
                 Assignment(MechPartSlot.Generator, generator),
+                Assignment(MechPartSlot.Radiator, radiator),
                 Assignment(MechPartSlot.FireControlSystem, fcs),
                 Assignment(MechPartSlot.Radar, radar),
                 Assignment(MechPartSlot.LeftHandWeapon, leftRifle),

@@ -50,6 +50,10 @@ namespace ACunicombat.Mechs
         [SerializeField] private float heatingTauSeconds = 1.2f;
         [Tooltip("真空辐射散热慢，冷却时间常数显著大于加热——这是热惯性玩法的来源。")]
         [SerializeField] private float coolingTauSeconds = 6f;
+        [Tooltip("标准测试机体的总散热能力。实际冷却时间按当前配装的总散热能力成反比缩放。")]
+        [SerializeField] private float referenceHeatDissipationKw = 20400f;
+        [SerializeField] private float minimumCoolingTauSeconds = 1.5f;
+        [SerializeField] private float maximumCoolingTauSeconds = 90f;
         [Tooltip("蒙皮从推进器传导升温的比例。")]
         [Range(0f, 1f)] [SerializeField] private float skinConductionFraction = 0.22f;
 
@@ -158,8 +162,26 @@ namespace ACunicombat.Mechs
         {
             var index = (int)channel;
             var current = temperatures[index];
-            var tau = targetK > current ? heatingTauSeconds : coolingTauSeconds;
+            var tau = targetK > current ? heatingTauSeconds : ResolveCoolingTauSeconds();
             temperatures[index] = Mathf.Lerp(current, targetK, 1f - Mathf.Exp(-dt / Mathf.Max(0.01f, tau)));
+        }
+
+        private float ResolveCoolingTauSeconds()
+        {
+            float dissipationKw = runtimeState?.AggregatedStats != null
+                ? runtimeState.AggregatedStats.heatDissipationMw * 1000f
+                : referenceHeatDissipationKw;
+            if (dissipationKw <= 0.01f)
+            {
+                return maximumCoolingTauSeconds;
+            }
+
+            float scaledTau = coolingTauSeconds *
+                Mathf.Max(0.01f, referenceHeatDissipationKw) / dissipationKw;
+            return Mathf.Clamp(
+                scaledTau,
+                Mathf.Max(0.01f, minimumCoolingTauSeconds),
+                Mathf.Max(minimumCoolingTauSeconds, maximumCoolingTauSeconds));
         }
 
         /// <summary>部件在 showcase 控制器 Start() 里才装配完，按装配数变化惰性重绑。</summary>

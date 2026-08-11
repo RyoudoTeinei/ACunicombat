@@ -92,6 +92,7 @@ namespace ACunicombat.Editor.Tests
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_LG_M_2010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_NATIVE_BS_A_1010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_SAMPLE_GENERATOR"), (IResolveConstraint)(object)Is.True);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_SAMPLE_RADIATOR"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_SAMPLE_FCS"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_SAMPLE_RADAR"), (IResolveConstraint)(object)Is.True);
 		}
@@ -140,6 +141,33 @@ namespace ACunicombat.Editor.Tests
 			Assert.That(stats.energyRechargePowerKw, Is.EqualTo(70000f));
 			Assert.That(stats.energyRechargeDelayS, Is.EqualTo(0.75f));
 			Assert.That(stats.depletedEnergyRestartFraction, Is.EqualTo(0.2f));
+		}
+
+		[Test]
+		public void RadiatorPerformance_ClonesRatedCoolingAndPumpLoads()
+		{
+			var radiator = new MechRadiatorPerformance
+			{
+				ratedDissipationKw = 18400f,
+				thermalCapacityMj = 120f,
+				idlePumpPowerKw = 250f,
+				activePumpPowerKw = 1200f,
+				idleHeatKw = 60f,
+				activeHeatKw = 220f,
+				thermalSignatureIncrement = 3f
+			};
+
+			MechRadiatorPerformance clone = radiator.Clone();
+
+			Assert.That(clone, Is.Not.SameAs(radiator));
+			Assert.That(clone.ratedDissipationKw, Is.EqualTo(18400f));
+			Assert.That(clone.thermalCapacityMj, Is.EqualTo(120f));
+			Assert.That(clone.activePumpPowerKw, Is.EqualTo(1200f));
+			Assert.That(clone.thermalSignatureIncrement, Is.EqualTo(3f));
+			var aggregate = new MechAggregatedStats();
+			aggregate.AddRadiatorPerformance(radiator);
+			Assert.That(aggregate.radiatorPerformance.ratedDissipationKw, Is.EqualTo(18400f));
+			Assert.That(MechSlotRules.GetDefaultRequiredSlots(), Does.Contain(MechPartSlot.Radiator));
 		}
 
 		[Test]

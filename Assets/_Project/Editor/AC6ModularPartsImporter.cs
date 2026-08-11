@@ -154,7 +154,7 @@ public static class AC6ModularPartsImporter
                 structurePoints = 1450f * massScale,
                 idlePowerDrawMw = 2f,
                 peakPowerDrawMw = 4f,
-                heatDissipationMw = 18f * massScale,
+                heatDissipationMw = 1.5f * massScale,
                 heatCapacityMj = 600f * massScale,
                 radarCrossSection = 2.1f * massScale,
                 thermalSignature = 1.1f * massScale,
@@ -200,7 +200,7 @@ public static class AC6ModularPartsImporter
                 idleHeatMw = 0.22f * massScale,
                 activeHeatMw = 0.72f * massScale,
                 heatGenerationMw = 0.72f * massScale,
-                heatDissipationMw = 2.4f * massScale,
+                heatDissipationMw = 0.5f * massScale,
                 heatCapacityMj = 160f * massScale,
                 radarCrossSection = 1.8f * massScale,
                 thermalSignature = 0.6f * massScale
@@ -925,6 +925,24 @@ public static class AC6ModularPartsImporter
             },
             "internal", "generator", "ac6-imported");
 
+        createdParts["AC6_RAD_Test_Radiator"] = CreateInternal(
+            "AC6_RAD_Test_Radiator",
+            "AC6 Test Vacuum Radiator",
+            MechPartSlot.Radiator,
+            new MechPartStats
+            {
+                massKg = 2800f,
+                idlePowerDrawMw = 0.25f,
+                peakPowerDrawMw = 1.2f,
+                idleHeatMw = 0.06f,
+                activeHeatMw = 0.22f,
+                heatGenerationMw = 0.22f,
+                heatDissipationMw = 18.4f,
+                heatCapacityMj = 120f,
+                thermalSignature = 3f
+            },
+            "internal", "radiator", "ac6-imported");
+
         createdParts["AC6_FCS_Test_Computer"] = CreateInternal(
             "AC6_FCS_Test_Computer",
             "AC6 Test Track Computer",
@@ -986,6 +1004,7 @@ public static class AC6ModularPartsImporter
                 Assignment(MechPartSlot.Legs, parts, "AC6_LG_M_1010"),
                 Assignment(MechPartSlot.Booster, parts, "AC6_BS_A_1010"),
                 Assignment(MechPartSlot.Generator, parts, "AC6_GEN_Test_Reactor"),
+                Assignment(MechPartSlot.Radiator, parts, "AC6_RAD_Test_Radiator"),
                 Assignment(MechPartSlot.FireControlSystem, parts, "AC6_FCS_Test_Computer"),
                 Assignment(MechPartSlot.Radar, parts, "AC6_RDR_Test_Array"),
                 Assignment(MechPartSlot.LeftHandWeapon, parts, "AC6_WP_0010_Left_Rifle"),

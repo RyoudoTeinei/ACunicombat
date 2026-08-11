@@ -15,6 +15,7 @@ namespace ACunicombat.Mechs
         Legs = 40,
         Booster = 50,
         Generator = 60,
+        Radiator = 65,
         FireControlSystem = 70,
         Radar = 80,
         DataLinkTerminal = 90,
@@ -63,6 +64,7 @@ namespace ACunicombat.Mechs
             MechPartSlot.RightArm,
             MechPartSlot.Booster,
             MechPartSlot.Generator,
+            MechPartSlot.Radiator,
             MechPartSlot.FireControlSystem,
             MechPartSlot.Radar,
             MechPartSlot.DataLinkTerminal,
@@ -80,6 +82,7 @@ namespace ACunicombat.Mechs
             MechPartSlot.Legs,
             MechPartSlot.Booster,
             MechPartSlot.Generator,
+            MechPartSlot.Radiator,
             MechPartSlot.FireControlSystem
         };
 
@@ -95,6 +98,7 @@ namespace ACunicombat.Mechs
                 case MechPartSlot.Legs:
                 case MechPartSlot.Booster:
                 case MechPartSlot.Generator:
+                case MechPartSlot.Radiator:
                 case MechPartSlot.FireControlSystem:
                 case MechPartSlot.Radar:
                 case MechPartSlot.DataLinkTerminal:
@@ -148,6 +152,8 @@ namespace ACunicombat.Mechs
                     return "FCS";
                 case MechPartSlot.DataLinkTerminal:
                     return "Data Link Terminal";
+                case MechPartSlot.Radiator:
+                    return "Radiator";
                 case MechPartSlot.LeftHandWeapon:
                     return "Left Hand Weapon";
                 case MechPartSlot.RightHandWeapon:
@@ -181,6 +187,8 @@ namespace ACunicombat.Mechs
                     return new Vector3(0f, 1.15f, -0.85f);
                 case MechPartSlot.Generator:
                     return new Vector3(0f, 1.1f, -0.25f);
+                case MechPartSlot.Radiator:
+                    return new Vector3(0f, 1.15f, -0.55f);
                 case MechPartSlot.FireControlSystem:
                     return new Vector3(0f, 1.45f, 0.25f);
                 case MechPartSlot.Radar:

@@ -77,6 +77,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechLegPerformance legPerformance = new MechLegPerformance();
         [SerializeField] private MechBoosterPerformance boosterPerformance = new MechBoosterPerformance();
         [SerializeField] private MechGeneratorPerformance generatorPerformance = new MechGeneratorPerformance();
+        [SerializeField] private MechRadiatorPerformance radiatorPerformance = new MechRadiatorPerformance();
         [SerializeField] private MechRadarPerformance radarPerformance = new MechRadarPerformance();
         [SerializeField] private MechFireControlPerformance fireControlPerformance = new MechFireControlPerformance();
         [SerializeField] private MechDataLinkPerformance dataLinkPerformance = new MechDataLinkPerformance();
@@ -116,6 +117,7 @@ namespace ACunicombat.Mechs
         public MechLegPerformance LegPerformance => legPerformance;
         public MechBoosterPerformance BoosterPerformance => boosterPerformance;
         public MechGeneratorPerformance GeneratorPerformance => generatorPerformance;
+        public MechRadiatorPerformance RadiatorPerformance => radiatorPerformance;
         public MechRadarPerformance RadarPerformance => radarPerformance;
         public MechFireControlPerformance FireControlPerformance => fireControlPerformance;
         public MechDataLinkPerformance DataLinkPerformance => dataLinkPerformance;
@@ -190,7 +192,8 @@ namespace ACunicombat.Mechs
             MechRadarPerformance newRadarPerformance = null,
             MechFireControlPerformance newFireControlPerformance = null,
             MechWeaponPerformance newWeaponPerformance = null,
-            MechDataLinkPerformance newDataLinkPerformance = null)
+            MechDataLinkPerformance newDataLinkPerformance = null,
+            MechRadiatorPerformance newRadiatorPerformance = null)
         {
             partId = newPartId;
             displayName = newDisplayName;
@@ -238,6 +241,7 @@ namespace ACunicombat.Mechs
             legPerformance = newLegPerformance?.Clone() ?? new MechLegPerformance();
             boosterPerformance = newBoosterPerformance?.Clone() ?? new MechBoosterPerformance();
             generatorPerformance = newGeneratorPerformance?.Clone() ?? new MechGeneratorPerformance();
+            radiatorPerformance = newRadiatorPerformance?.Clone() ?? new MechRadiatorPerformance();
             radarPerformance = newRadarPerformance?.Clone() ?? new MechRadarPerformance();
             fireControlPerformance = newFireControlPerformance?.Clone() ?? new MechFireControlPerformance();
             dataLinkPerformance = newDataLinkPerformance?.Clone() ?? new MechDataLinkPerformance();
