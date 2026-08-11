@@ -774,10 +774,8 @@ namespace ACunicombat.Mechs
 					bool interceptor = IsInferredInterceptor(in track);
 					Color color = ownshipThreat
 						? HudRed
-						: interceptor
-							? HudCyan
-							: HudAmber;
-					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), color, ownshipThreat, !ownshipThreat);
+						: HudAmber;
+					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), color, ownshipThreat, !ownshipThreat && !interceptor);
 				}
 			}
 		}
@@ -1391,18 +1389,16 @@ namespace ACunicombat.Mechs
 				float markerRadius = ownshipThreat ? radius + 2f : radius;
 				Color markerColor = ownshipThreat
 					? HudRed
-					: inferredInterceptor
-						? HudCyan
-						: incoming
-							? HudAmber
-							: new Color(HudAmber.r, HudAmber.g, HudAmber.b, 0.72f);
+					: incoming
+						? HudAmber
+						: new Color(HudAmber.r, HudAmber.g, HudAmber.b, 0.72f);
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
 				if (screen.z <= 0f || screen.x < markerRadius || screen.x > (float)Screen.width - markerRadius || screen.y < markerRadius || screen.y > (float)Screen.height - markerRadius)
 				{
 					continue;
 				}
 				Vector2 markerCenter = new Vector2(screen.x, (float)Screen.height - screen.y);
-				DrawDiamond(markerCenter, markerRadius, markerColor, !ownshipThreat, ownshipThreat ? 2.2f : 1.2f);
+				DrawDiamond(markerCenter, markerRadius, markerColor, !ownshipThreat && !inferredInterceptor, ownshipThreat ? 2.2f : 1.2f);
 				bool shaoWeiTrackSelected = weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack && weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId);
 				bool handPointDefenseTrackSelected = weaponSystem != null && weaponSystem.HasPointDefenseTrack && weaponSystem.PointDefenseTrackId.Equals(track.TrackId);
 				if (shaoWeiTrackSelected || handPointDefenseTrackSelected)
