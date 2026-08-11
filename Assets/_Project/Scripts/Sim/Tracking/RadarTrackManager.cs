@@ -56,6 +56,10 @@ namespace ACunicombat.Tracking
         private const double MissileVelocityProcessNoise = 90_000.0;
         // 二级机动门限的加速度量级。340 覆盖 QB 的 321 m/s²（90 m/s / 0.28 s）。
         private const double VehicleManeuverAcceleration = 340.0;
+        // Position measurements can continue throughout a boost while the CV velocity estimate
+        // lags by almost the full delta-v. Preserve one QB burn of velocity uncertainty when the
+        // normal gate fails instead of assuming all model error began in the latest 40 ms tick.
+        private const double VehicleManeuverResponseSeconds = 0.28;
         private const double MissileManeuverAcceleration = 600.0;
         private const double InitialVelocitySigmaMetersPerSecond = 300.0;
         private const double UnobservedMissAgeSeconds = 1.0;
@@ -353,7 +357,8 @@ namespace ACunicombat.Tracking
                     InflateForManeuver(
                         ref slot,
                         measurement.Timestamp,
-                        ResolveManeuverAcceleration(measurement.ObjectClass));
+                        ResolveManeuverAcceleration(measurement.ObjectClass),
+                        ResolveManeuverResponseSeconds(measurement.ObjectClass));
                 }
                 // Multiple overlapping dwells in one sensor tick are correlated views of the
                 // same state. Let them refine the estimate, but do not count them as independent
@@ -716,17 +721,20 @@ namespace ACunicombat.Tracking
 
                 stats.CandidateCount++;
 
-                // 机动门限项：距上次量测 Δt 之后，一次 maneuverAcceleration 量级的机动
-                // 最多把目标带偏约 a·Δt²（取整而非 ½ 以留余量），按 1σ 计入位置方差。
-                // maneuverAcceleration = 0 时该项为零，退化为原来的常规门限。
+                // 机动门限项：对机体保留一个完整 QB 响应窗口的速度模型误差，位置门限
+                // 使用 a·Δt·max(Δt, response)。这覆盖量测持续存在、但 CV 速度估计仍落后
+                // 近一个完整 delta-v 的情况；导弹 response=0，保持原来的 a·Δt² 模型。
                 var maneuverVariance = 0.0;
                 if (maneuverAcceleration > 0.0)
                 {
                     var unobservedSeconds = math.max(
                         0.0,
                         measurementTime - slots[i].LastUpdateTime);
+                    var responseSeconds = ResolveManeuverResponseSeconds(
+                        measuredObjectClass);
                     var maneuverOffset =
-                        maneuverAcceleration * unobservedSeconds * unobservedSeconds;
+                        maneuverAcceleration * unobservedSeconds *
+                        math.max(unobservedSeconds, responseSeconds);
                     maneuverVariance = maneuverOffset * maneuverOffset;
                 }
 
@@ -889,20 +897,30 @@ namespace ACunicombat.Tracking
                 : VehicleManeuverAcceleration;
         }
 
+        private static double ResolveManeuverResponseSeconds(
+            TrackObjectClass measuredObjectClass)
+        {
+            return measuredObjectClass == TrackObjectClass.AirVehicle
+                ? VehicleManeuverResponseSeconds
+                : 0.0;
+        }
+
         /// <summary>
-        /// 经二级门限关联后放开速度协方差：一次未被观测到的机动最多改变速度
-        /// a·Δt，把它作为 1σ 加进速度对角线，滤波器才能在这一拍就跟上新速度，
-        /// 而不是被旧的小协方差压住、下一拍继续掉出门限。
+        /// 经二级门限关联后放开速度协方差。机体至少保留一个 QB 响应窗口的
+        /// a·Δt 速度不确定度，滤波器才能在这一拍跟上模型滞后，而不是下一拍
+        /// 再次掉出门限；导弹仍按实际未观测时长处理。
         /// </summary>
         private static void InflateForManeuver(
             ref TrackSlot slot,
             double measurementTime,
-            double maneuverAcceleration)
+            double maneuverAcceleration,
+            double responseSeconds)
         {
             var unobservedSeconds = math.max(
                 0.0,
                 measurementTime - slot.LastUpdateTime);
-            var velocityUncertainty = maneuverAcceleration * unobservedSeconds;
+            var velocityUncertainty = maneuverAcceleration *
+                                      math.max(unobservedSeconds, responseSeconds);
             if (velocityUncertainty <= 0.0)
             {
                 return;

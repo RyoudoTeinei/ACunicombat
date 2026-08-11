@@ -183,6 +183,10 @@ namespace ACunicombat.Mechs
 
 		private Vector3 seekerEstimatedVelocity;
 
+		private Vector3 seekerFuseEstimatedPosition;
+
+		private Vector3 seekerFuseEstimatedVelocity;
+
 		private Vector3 terminalFuseEstimatedPosition;
 
 		private Vector3 terminalFuseEstimatedVelocity;
@@ -1061,8 +1065,12 @@ namespace ACunicombat.Mechs
 			{
 				if (refreshesTerminalEstimate)
 				{
-					terminalFuseEstimatedPosition = targetPosition;
-					terminalFuseEstimatedVelocity = targetVelocity;
+					terminalFuseEstimatedPosition = seekerLocked
+						? seekerFuseEstimatedPosition
+						: targetPosition;
+					terminalFuseEstimatedVelocity = seekerLocked
+						? seekerFuseEstimatedVelocity
+						: targetVelocity;
 					terminalFuseEstimateMemoryRemaining = GetTerminalEstimateMemorySeconds();
 				}
 				Vector3 toTarget = targetPosition - base.transform.position;
@@ -1310,6 +1318,7 @@ namespace ACunicombat.Mechs
 			if (seekerLocked)
 			{
 				seekerEstimatedPosition += seekerEstimatedVelocity * deltaTime;
+				seekerFuseEstimatedPosition += seekerFuseEstimatedVelocity * deltaTime;
 				seekerLockMemoryRemaining -= deltaTime;
 				if (seekerLockMemoryRemaining <= 0f)
 				{
@@ -1383,16 +1392,16 @@ namespace ACunicombat.Mechs
 				Vector3 measuredTargetVelocity = EstimateSeekerTargetVelocity(in bestMeasurement, velocity);
 				float selectedMeasurementAge = Mathf.Max(0f, (float)(radarController.SimTimeSeconds - bestMeasurement.Timestamp));
 				Vector3 measuredPositionNow = base.transform.position - velocity * selectedMeasurementAge + relativePosition + measuredTargetVelocity * selectedMeasurementAge;
-				if (interceptorTargetCommitted)
-				{
-					seekerEstimatedPosition = Vector3.Lerp(referencePosition, measuredPositionNow, 0.35f);
-					seekerEstimatedVelocity = Vector3.Lerp(referenceVelocity, measuredTargetVelocity, 0.2f);
-				}
-				else
-				{
-					seekerEstimatedPosition = measuredPositionNow;
-					seekerEstimatedVelocity = measuredTargetVelocity;
-				}
+				var estimates = MissileEngagementMath.ResolveSeekerMeasurement(
+					interceptorTargetCommitted,
+					ToFloat3(referencePosition),
+					ToFloat3(referenceVelocity),
+					ToFloat3(measuredPositionNow),
+					ToFloat3(measuredTargetVelocity));
+				seekerEstimatedPosition = ToVector3(estimates.GuidancePosition);
+				seekerEstimatedVelocity = ToVector3(estimates.GuidanceVelocity);
+				seekerFuseEstimatedPosition = ToVector3(estimates.FusePosition);
+				seekerFuseEstimatedVelocity = ToVector3(estimates.FuseVelocity);
 				seekerLastMeasurementTime = bestMeasurement.Timestamp;
 				seekerLocked = true;
 				seekerLockMemoryRemaining = (interceptorMissile ? 0.65f : 0.35f);
@@ -1485,8 +1494,8 @@ namespace ACunicombat.Mechs
 			{
 				return false;
 			}
-			Vector3 estimatedPosition = (seekerLocked ? seekerEstimatedPosition : terminalFuseEstimatedPosition);
-			Vector3 obj = (seekerLocked ? seekerEstimatedVelocity : terminalFuseEstimatedVelocity);
+			Vector3 estimatedPosition = (seekerLocked ? seekerFuseEstimatedPosition : terminalFuseEstimatedPosition);
+			Vector3 obj = (seekerLocked ? seekerFuseEstimatedVelocity : terminalFuseEstimatedVelocity);
 			Vector3 relativePosition = estimatedPosition - base.transform.position;
 			Vector3 relativeVelocity = obj - velocity;
 			float fuseLookAhead = (interceptorMissile ? Mathf.Max(deltaTime, 0.06f) : deltaTime);

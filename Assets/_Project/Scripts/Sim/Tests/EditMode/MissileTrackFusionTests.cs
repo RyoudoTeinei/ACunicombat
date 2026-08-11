@@ -326,6 +326,92 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void FreshAmbiguousReports_SupportOriginalIdentityBeyondAuthenticationWindow()
+        {
+            var associatedTrackId = new TrackId(new Handle(13, 1));
+            var tracks = new[]
+            {
+                new MissileTrackSnapshot
+                {
+                    TrackId = associatedTrackId,
+                    Position = new double3(1.0, 0.0, 1_000.0),
+                    Velocity = new double3(0.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+                new MissileTrackSnapshot
+                {
+                    TrackId = new TrackId(new Handle(14, 1)),
+                    Position = new double3(3.0, 0.0, 1_000.0),
+                    Velocity = new double3(5.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+            };
+            var association = new FriendlyMissileIdentityAssociation
+            {
+                TrackId = associatedTrackId,
+                LastAuthenticatedTime = 10.0,
+                LastSupportedTime = 10.0,
+                LastAssociationScore = 0.1,
+            };
+
+            for (var i = 1; i <= 3; i++)
+            {
+                var now = 10.0 + i * 0.8;
+                tracks[0].LastUpdateTime = now;
+                tracks[1].LastUpdateTime = now;
+                var resolution =
+                    MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                        ref association,
+                        tracks,
+                        tracks.Length,
+                        new bool[tracks.Length],
+                        new double3(0.0, 0.0, 1_000.0),
+                        new double3(0.0, 0.0, -200.0),
+                        now,
+                        now,
+                        1.0,
+                        120f,
+                        180f,
+                        0.35,
+                        out var trackIndex,
+                        out _);
+
+                Assert.That(
+                    resolution,
+                    Is.EqualTo(FriendlyIdentityResolution.Coasting));
+                Assert.That(trackIndex, Is.Zero);
+                Assert.That(association.TrackId, Is.EqualTo(associatedTrackId));
+                Assert.That(association.LastAuthenticatedTime, Is.EqualTo(10.0));
+                Assert.That(association.LastSupportedTime, Is.EqualTo(now));
+            }
+
+            var expiredResolution =
+                MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                    ref association,
+                    tracks,
+                    tracks.Length,
+                    new bool[tracks.Length],
+                    new double3(0.0, 0.0, 1_000.0),
+                    new double3(0.0, 0.0, -200.0),
+                    12.4,
+                    14.0,
+                    1.0,
+                    120f,
+                    180f,
+                    0.35,
+                    out var expiredTrackIndex,
+                    out _);
+
+            Assert.That(
+                expiredResolution,
+                Is.EqualTo(FriendlyIdentityResolution.None));
+            Assert.That(expiredTrackIndex, Is.EqualTo(-1));
+            Assert.That(association.HasTrack, Is.False);
+        }
+
+        [Test]
         public void FriendlyIdentity_DoesNotJumpToCloserCompetingTrack()
         {
             var associatedTrackId = new TrackId(new Handle(15, 1));

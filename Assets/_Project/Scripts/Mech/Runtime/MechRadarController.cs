@@ -242,6 +242,9 @@ namespace ACunicombat.Mechs
         private readonly FriendlyMissileIdentityAssociation[]
             friendlyMissileIdentityAssociations =
                 new FriendlyMissileIdentityAssociation[64];
+        private readonly FriendlyMissileIntentCandidate[]
+            friendlyMissileIntentCandidates =
+                new FriendlyMissileIntentCandidate[64];
         private readonly LinkMessage[] ownLinkInboxScratch = new LinkMessage[64];
 
         private struct UplinkSubscription
@@ -847,11 +850,15 @@ namespace ACunicombat.Mechs
                 now,
                 missileTrackCache);
             ApplyFriendlyMissileIdentification(now);
+            var friendlyMissileIntentCandidateCount =
+                BuildFriendlyMissileIntentCandidates(now);
             MissileIntentEstimator.Evaluate(
                 in missileIntentEstimatorConfig,
                 missileIntentEstimatorState,
                 missileTrackCache,
                 missileTrackCacheCount,
+                friendlyMissileIntentCandidates,
+                friendlyMissileIntentCandidateCount,
                 ToDouble3(transform.position),
                 ToDouble3(playerVelocity),
                 now);
@@ -2881,6 +2888,39 @@ namespace ACunicombat.Mechs
                     report.MissionRole,
                     report.MissionRoleConfidence);
             }
+        }
+
+        private int BuildFriendlyMissileIntentCandidates(double now)
+        {
+            var count = 0;
+            for (var reportIndex = MissileLinkIndexStart;
+                 reportIndex < friendlyMissileReports.Length &&
+                 count < friendlyMissileIntentCandidates.Length;
+                 reportIndex++)
+            {
+                var report = friendlyMissileReports[reportIndex];
+                if (!report.Active ||
+                    !missileLinkAllocated[reportIndex] ||
+                    missileLinkGenerations[reportIndex] !=
+                        report.SourceTerminal.Value.Generation ||
+                    now - report.StateTimestamp >
+                        missileIntentEstimatorConfig.MaximumEvidenceAgeSeconds)
+                {
+                    continue;
+                }
+
+                friendlyMissileIntentCandidates[count++] =
+                    new FriendlyMissileIntentCandidate
+                    {
+                        TrackId = friendlyMissileIdentityAssociations[reportIndex]
+                            .TrackId,
+                        Position = report.Position,
+                        Velocity = report.Velocity,
+                        LastEvidenceTime = report.StateTimestamp,
+                    };
+            }
+
+            return count;
         }
 
         public bool BeginGuidanceUplink(

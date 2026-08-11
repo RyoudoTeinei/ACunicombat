@@ -4,6 +4,17 @@ using Unity.Mathematics;
 
 namespace ACunicombat.FireControl
 {
+    public struct FriendlyMissileIntentCandidate
+    {
+        public TrackId TrackId;
+        public double3 Position;
+        public double3 Velocity;
+        public double LastEvidenceTime;
+
+        public readonly double3 PredictPosition(double now) =>
+            Position + Velocity * math.max(0.0, now - LastEvidenceTime);
+    }
+
     public struct MissileIntentEstimatorConfig
     {
         public double MaximumEvidenceAgeSeconds;
@@ -118,6 +129,29 @@ namespace ACunicombat.FireControl
             double3 ownshipVelocity,
             double now)
         {
+            Evaluate(
+                in config,
+                state,
+                tracks,
+                trackCount,
+                null,
+                0,
+                ownshipPosition,
+                ownshipVelocity,
+                now);
+        }
+
+        public static void Evaluate(
+            in MissileIntentEstimatorConfig config,
+            MissileIntentEstimatorState state,
+            MissileTrackSnapshot[] tracks,
+            int trackCount,
+            FriendlyMissileIntentCandidate[] friendlyMissileCandidates,
+            int friendlyMissileCandidateCount,
+            double3 ownshipPosition,
+            double3 ownshipVelocity,
+            double now)
+        {
             if (state == null || tracks == null || trackCount <= 0)
             {
                 return;
@@ -146,6 +180,8 @@ namespace ACunicombat.FireControl
                         in track,
                         tracks,
                         count,
+                        friendlyMissileCandidates,
+                        friendlyMissileCandidateCount,
                         ownshipPosition,
                         ownshipVelocity,
                         now);
@@ -161,6 +197,8 @@ namespace ACunicombat.FireControl
             in MissileTrackSnapshot track,
             MissileTrackSnapshot[] tracks,
             int trackCount,
+            FriendlyMissileIntentCandidate[] friendlyMissileCandidates,
+            int friendlyMissileCandidateCount,
             double3 ownshipPosition,
             double3 ownshipVelocity,
             double now)
@@ -188,6 +226,34 @@ namespace ACunicombat.FireControl
                     in track,
                     candidate.PredictPosition(now),
                     candidate.PredictVelocity(now));
+                if (score > friendlyMissileScore)
+                {
+                    friendlyMissileScore = score;
+                    friendlyMissileTarget = candidate.TrackId;
+                }
+            }
+
+            var candidateCount = friendlyMissileCandidates == null
+                ? 0
+                : math.min(
+                    friendlyMissileCandidateCount,
+                    friendlyMissileCandidates.Length);
+            for (var i = 0; i < candidateCount; i++)
+            {
+                var candidate = friendlyMissileCandidates[i];
+                if ((candidate.TrackId.IsValid &&
+                     candidate.TrackId.Equals(track.TrackId)) ||
+                    now - candidate.LastEvidenceTime >
+                        config.MaximumEvidenceAgeSeconds)
+                {
+                    continue;
+                }
+
+                var score = ScoreCandidate(
+                    in config,
+                    in track,
+                    candidate.PredictPosition(now),
+                    candidate.Velocity);
                 if (score > friendlyMissileScore)
                 {
                     friendlyMissileScore = score;

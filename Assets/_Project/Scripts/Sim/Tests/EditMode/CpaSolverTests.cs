@@ -171,6 +171,40 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void SeekerGuidanceSmoothing_DoesNotCreateFuseTargetInEmptySpace()
+        {
+            var update = MissileEngagementMath.ResolveSeekerMeasurement(
+                true,
+                new float3(-53f, 0f, 0f),
+                float3.zero,
+                new float3(107f, 0f, 0f),
+                float3.zero);
+
+            Assert.That(update.GuidancePosition.x, Is.EqualTo(3f).Within(1e-4f));
+            Assert.That(update.FusePosition.x, Is.EqualTo(107f).Within(1e-4f));
+            Assert.That(
+                MissileEngagementMath.TryGetProximityPass(
+                    update.GuidancePosition,
+                    update.GuidanceVelocity,
+                    0.06f,
+                    12f,
+                    out _,
+                    out _),
+                Is.True,
+                "the old smoothed estimate reproduces the false fuze trigger");
+            Assert.That(
+                MissileEngagementMath.TryGetProximityPass(
+                    update.FusePosition,
+                    update.FuseVelocity,
+                    0.06f,
+                    12f,
+                    out _,
+                    out _),
+                Is.False,
+                "the fuze must remain on the latest measured target state");
+        }
+
+        [Test]
         public void MissileEventOrdering_PreservesEarlierDirectImpact()
         {
             Assert.That(

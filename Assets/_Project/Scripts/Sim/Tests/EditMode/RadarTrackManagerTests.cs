@@ -269,6 +269,101 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void SustainedQuickBoostAtFusionCadence_RemainsSingleAirVehicleTrack()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+            var position = new double3(0.0, 100.0, 5_000.0);
+            var velocity = new double3(150.0, 0.0, 0.0);
+            var acceleration = new double3(-340.0, 0.0, 0.0);
+            const double step = 0.04;
+
+            for (var tick = 1; tick <= 80; tick++)
+            {
+                if (tick > 50 && tick <= 57)
+                {
+                    position += velocity * step +
+                                acceleration * (0.5 * step * step);
+                    velocity += acceleration * step;
+                }
+                else
+                {
+                    position += velocity * step;
+                }
+
+                var time = tick * step;
+                var measurement = MeasurementAtPosition(
+                    time,
+                    position,
+                    velocity);
+                measurement.ObjectClass = TrackObjectClass.AirVehicle;
+                measurement.ClassificationConfidence = 0.9f;
+                measurement.RangeVar = 1.44f;
+                measurement.AngleVar = 1e-8f;
+                measurements.Clear();
+                measurements.Add(measurement);
+
+                manager.Process(
+                    measurements,
+                    double3.zero,
+                    double3.zero,
+                    time);
+            }
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+            Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+            Assert.That(track.Lifecycle, Is.EqualTo(TrackLifecycle.Confirmed));
+            Assert.That(track.Position.x, Is.EqualTo(position.x).Within(5.0));
+        }
+
+        [Test]
+        public void QuickBoostVelocityModelLag_DoesNotAllocateAirVehicleGhost()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+            var position = new double3(0.0, 100.0, 5_000.0);
+            var velocity = new double3(150.0, 0.0, 0.0);
+            const double step = 0.04;
+
+            for (var tick = 1; tick <= 80; tick++)
+            {
+                // The tracker can leave a boost with almost one complete QB delta-v of lag even
+                // though position returns continued throughout the burn. Association must cover
+                // that velocity-model error for at least the next sensor interval.
+                if (tick == 51)
+                {
+                    velocity += new double3(-90.0, 0.0, 0.0);
+                }
+                position += velocity * step;
+
+                var time = tick * step;
+                var measurement = MeasurementAtPosition(
+                    time,
+                    position,
+                    velocity);
+                measurement.ObjectClass = TrackObjectClass.AirVehicle;
+                measurement.ClassificationConfidence = 0.9f;
+                measurement.RangeVar = 1.44f;
+                measurement.AngleVar = 1e-8f;
+                measurements.Clear();
+                measurements.Add(measurement);
+
+                manager.Process(
+                    measurements,
+                    double3.zero,
+                    double3.zero,
+                    time);
+            }
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+            Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+            Assert.That(track.Lifecycle, Is.EqualTo(TrackLifecycle.Confirmed));
+            Assert.That(track.Position.x, Is.EqualTo(position.x).Within(5.0));
+        }
+
+        [Test]
         public void CoLocatedAircraftAndMissile_ReturnsRemainSeparateTracks()
         {
             var manager = new RadarTrackManager();

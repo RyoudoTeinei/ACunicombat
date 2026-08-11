@@ -136,6 +136,7 @@ namespace ACunicombat.FireControl
     {
         public TrackId TrackId;
         public double LastAuthenticatedTime;
+        public double LastSupportedTime;
         public double LastAssociationScore;
 
         public bool HasTrack => TrackId.IsValid;
@@ -328,6 +329,10 @@ namespace ACunicombat.FireControl
                     if (associatedTrackIndex >= 0 &&
                         trackIndex != associatedTrackIndex)
                     {
+                        RefreshAuthenticatedTrackSupport(
+                            ref association,
+                            associatedCandidateIndex,
+                            now);
                         return TryCoastAuthenticatedIdentity(
                             ref association,
                             tracks,
@@ -343,6 +348,7 @@ namespace ACunicombat.FireControl
 
                     association.TrackId = tracks[trackIndex].TrackId;
                     association.LastAuthenticatedTime = now;
+                    association.LastSupportedTime = now;
                     association.LastAssociationScore = score;
                     return FriendlyIdentityResolution.Authenticated;
                 }
@@ -359,6 +365,10 @@ namespace ACunicombat.FireControl
                         maximumPositionGateMeters,
                         velocityGateMetersPerSecond) > 1)
                 {
+                    RefreshAuthenticatedTrackSupport(
+                        ref association,
+                        associatedCandidateIndex,
+                        now);
                     return TryCoastAuthenticatedIdentity(
                         ref association,
                         tracks,
@@ -424,7 +434,10 @@ namespace ACunicombat.FireControl
             {
                 return false;
             }
-            if (now - association.LastAuthenticatedTime > maximumCoastSeconds)
+            var lastSupportTime = math.max(
+                association.LastAuthenticatedTime,
+                association.LastSupportedTime);
+            if (now - lastSupportTime > maximumCoastSeconds)
             {
                 association.Clear();
                 return false;
@@ -447,6 +460,17 @@ namespace ACunicombat.FireControl
             }
 
             return false;
+        }
+
+        private static void RefreshAuthenticatedTrackSupport(
+            ref FriendlyMissileIdentityAssociation association,
+            int associatedCandidateIndex,
+            double now)
+        {
+            if (association.HasTrack && associatedCandidateIndex >= 0)
+            {
+                association.LastSupportedTime = now;
+            }
         }
 
         private static int FindAssociatedTrack(

@@ -98,6 +98,109 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void AuthenticatedDataLinkCandidate_ResolvesInterceptorWithoutFriendlyRadarTrack()
+        {
+            var state = new MissileIntentEstimatorState();
+            var targetPosition = new double3(-2_000.0, 0.0, 6_000.0);
+            var hostilePosition = new double3(5_000.0, 0.0, 9_000.0);
+            var targetVelocity = new double3(0.0, 0.0, 600.0);
+            var leadPoint = MissileEngagementMath.PredictLeadPoint(
+                ToFloat3(hostilePosition),
+                ToFloat3(targetPosition),
+                ToFloat3(targetVelocity),
+                1_200f,
+                12f);
+            var tracks = new[]
+            {
+                HostileMissile(
+                    4,
+                    hostilePosition,
+                    math.normalize((double3)leadPoint - hostilePosition) *
+                    1_200.0),
+            };
+            var candidates = new FriendlyMissileIntentCandidate[1];
+
+            for (var i = 0; i < 4; i++)
+            {
+                var now = 10.0 + i * 0.24;
+                tracks[0].KinematicUpdateTime = now;
+                tracks[0].LastEvidenceTime = now;
+                tracks[0].LastUpdateTime = now;
+                candidates[0] = new FriendlyMissileIntentCandidate
+                {
+                    TrackId = new TrackId(new Handle(5, 1)),
+                    Position = targetPosition,
+                    Velocity = targetVelocity,
+                    LastEvidenceTime = now,
+                };
+
+                MissileIntentEstimator.Evaluate(
+                    MissileIntentEstimatorConfig.Default,
+                    state,
+                    tracks,
+                    tracks.Length,
+                    candidates,
+                    candidates.Length,
+                    double3.zero,
+                    double3.zero,
+                    now);
+            }
+
+            Assert.That(
+                tracks[0].TargetIntent,
+                Is.EqualTo(MissileTargetIntent.FriendlyMissile),
+                $"confidence={tracks[0].TargetIntentConfidence:0.000}");
+            Assert.That(tracks[0].IsLikelyInterceptor, Is.True);
+            Assert.That(
+                tracks[0].SuspectedTargetTrackId,
+                Is.EqualTo(candidates[0].TrackId));
+        }
+
+        [Test]
+        public void DataLinkCandidateForSameTrack_DoesNotRelabelFriendlyIdentityDropout()
+        {
+            var state = new MissileIntentEstimatorState();
+            var track = HostileMissile(
+                4,
+                new double3(5_000.0, 0.0, 9_000.0),
+                new double3(-900.0, 0.0, -300.0));
+            var tracks = new[] { track };
+            var candidates = new[]
+            {
+                new FriendlyMissileIntentCandidate
+                {
+                    TrackId = track.TrackId,
+                    Position = track.Position,
+                    Velocity = track.Velocity,
+                    LastEvidenceTime = 10.0,
+                },
+            };
+
+            for (var i = 0; i < 8; i++)
+            {
+                var now = 10.0 + i * 0.24;
+                tracks[0].KinematicUpdateTime = now;
+                tracks[0].LastEvidenceTime = now;
+                tracks[0].LastUpdateTime = now;
+                candidates[0].LastEvidenceTime = now;
+                MissileIntentEstimator.Evaluate(
+                    MissileIntentEstimatorConfig.Default,
+                    state,
+                    tracks,
+                    tracks.Length,
+                    candidates,
+                    candidates.Length,
+                    new double3(-2_000.0, 0.0, 6_000.0),
+                    new double3(0.0, 0.0, 600.0),
+                    now);
+            }
+
+            Assert.That(
+                tracks[0].TargetIntent,
+                Is.Not.EqualTo(MissileTargetIntent.FriendlyMissile));
+        }
+
+        [Test]
         public void CollinearOwnshipAndFriendlyMissile_RemainsUnknown()
         {
             var state = new MissileIntentEstimatorState();

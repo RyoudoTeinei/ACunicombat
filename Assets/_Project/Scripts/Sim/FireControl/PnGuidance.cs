@@ -30,6 +30,44 @@ namespace ACunicombat.FireControl
 
     public static class MissileEngagementMath
     {
+        public struct SeekerMeasurementUpdate
+        {
+            public float3 GuidancePosition;
+            public float3 GuidanceVelocity;
+            public float3 FusePosition;
+            public float3 FuseVelocity;
+        }
+
+        public static SeekerMeasurementUpdate ResolveSeekerMeasurement(
+            bool smoothGuidance,
+            float3 referencePosition,
+            float3 referenceVelocity,
+            float3 measuredPosition,
+            float3 measuredVelocity,
+            float positionBlend = 0.35f,
+            float velocityBlend = 0.2f)
+        {
+            return new SeekerMeasurementUpdate
+            {
+                GuidancePosition = smoothGuidance
+                    ? math.lerp(
+                        referencePosition,
+                        measuredPosition,
+                        math.saturate(positionBlend))
+                    : measuredPosition,
+                GuidanceVelocity = smoothGuidance
+                    ? math.lerp(
+                        referenceVelocity,
+                        measuredVelocity,
+                        math.saturate(velocityBlend))
+                    : measuredVelocity,
+                // A blend between an old prediction and a new return can pass through empty
+                // space. It is suitable for stable guidance, never for a proximity decision.
+                FusePosition = measuredPosition,
+                FuseVelocity = measuredVelocity,
+            };
+        }
+
         public static bool IsCompatibleSeekerTarget(
             bool interceptorMissile,
             TrackObjectClass objectClass,
