@@ -1139,6 +1139,11 @@ namespace ACunicombat.Mechs
 			if (radar != null &&
 				radar.TryGetTargetDamageAssessment(track.TrackId, out var assessment))
 			{
+				if (assessment.Condition == MechTargetDamageCondition.Nominal)
+				{
+					return;
+				}
+
 				label = DamageConditionLabel(assessment.Condition);
 				color = DamageConditionColor(assessment.Condition);
 			}
@@ -1149,7 +1154,7 @@ namespace ACunicombat.Mechs
 			var frameTop = center.y - markerSize * 0.5f;
 			var rect = new Rect(
 				frameLeft - 172f,
-				frameTop - 24f,
+				frameTop + 1f,
 				160f,
 				22f);
 			GUI.Label(ClampToScreen(rect, 8f), label, smallStyle);
