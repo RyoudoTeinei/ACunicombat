@@ -33,11 +33,44 @@ namespace ACunicombat.Tests.EditMode
                 out var score);
 
             Assert.That(matched, Is.True);
-            MissileTrackFusion.ApplyFriendlyDataLinkIdentity(ref track, score);
+            MissileTrackFusion.ApplyFriendlyDataLinkIdentity(
+                ref track,
+                score,
+                MissileMissionRole.Interceptor,
+                1f);
             Assert.That(track.IsFriendly, Is.True);
+            Assert.That(
+                track.MissionRole,
+                Is.EqualTo(MissileMissionRole.Interceptor));
+            Assert.That(
+                track.MissionRoleConfidence,
+                Is.EqualTo(track.IdentityConfidence).Within(0.0001f));
+            Assert.That(track.HasAuthenticatedMissionRole, Is.True);
             Assert.That(
                 track.SourceMask & MissileTrackSourceMask.DataLink,
                 Is.EqualTo(MissileTrackSourceMask.DataLink));
+        }
+
+        [Test]
+        public void AuthenticatedFriendlyReport_ClearsStaleRoleWhenReportRoleIsUnknown()
+        {
+            var track = new MissileTrackSnapshot
+            {
+                MissionRole = MissileMissionRole.Interceptor,
+                MissionRoleConfidence = 1f,
+            };
+
+            MissileTrackFusion.ApplyFriendlyDataLinkIdentity(
+                ref track,
+                0.0,
+                MissileMissionRole.Unknown,
+                1f);
+
+            Assert.That(
+                track.MissionRole,
+                Is.EqualTo(MissileMissionRole.Unknown));
+            Assert.That(track.MissionRoleConfidence, Is.Zero);
+            Assert.That(track.HasAuthenticatedMissionRole, Is.False);
         }
 
         [Test]
@@ -73,6 +106,146 @@ namespace ACunicombat.Tests.EditMode
                     1.0,
                     120f,
                     180f,
+                    out _),
+                Is.False);
+        }
+
+        [Test]
+        public void FriendlyReport_SelectsBestTrackRegardlessOfTrackOrder()
+        {
+            var tracks = new[]
+            {
+                new MissileTrackSnapshot
+                {
+                    Position = new double3(35.0, 0.0, 1_000.0),
+                    Velocity = new double3(20.0, 0.0, -180.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+                new MissileTrackSnapshot
+                {
+                    Position = new double3(0.5, 0.0, 1_000.0),
+                    Velocity = new double3(0.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+            };
+
+            Assert.That(
+                MissileTrackFusion.TrySelectFriendlyDataLinkAssociation(
+                    tracks,
+                    tracks.Length,
+                    new bool[tracks.Length],
+                    new double3(0.0, 0.0, 1_000.0),
+                    new double3(0.0, 0.0, -200.0),
+                    10.0,
+                    10.0,
+                    1.0,
+                    120f,
+                    180f,
+                    0.35,
+                    out var trackIndex,
+                    out _),
+                Is.True);
+            Assert.That(trackIndex, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void FriendlyReport_DoesNotAssignIdentityWhenTwoMissilesAreAmbiguous()
+        {
+            var tracks = new[]
+            {
+                new MissileTrackSnapshot
+                {
+                    Position = new double3(1.0, 0.0, 1_000.0),
+                    Velocity = new double3(0.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+                new MissileTrackSnapshot
+                {
+                    Position = new double3(3.0, 0.0, 1_000.0),
+                    Velocity = new double3(5.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 20f,
+                    LastUpdateTime = 10.0,
+                },
+            };
+
+            Assert.That(
+                MissileTrackFusion.TrySelectFriendlyDataLinkAssociation(
+                    tracks,
+                    tracks.Length,
+                    new bool[tracks.Length],
+                    new double3(0.0, 0.0, 1_000.0),
+                    new double3(0.0, 0.0, -200.0),
+                    10.0,
+                    10.0,
+                    1.0,
+                    120f,
+                    180f,
+                    0.35,
+                    out _,
+                    out _),
+                Is.False);
+        }
+
+        [Test]
+        public void TrackReacquisition_DoesNotReplaceAircraftWithNearbyMissile()
+        {
+            var previous = ReacquisitionTrack(
+                3,
+                TrackObjectClass.AirVehicle,
+                new double3(0.0, 0.0, 1_000.0),
+                0.8f);
+            var candidates = new[]
+            {
+                ReacquisitionTrack(
+                    4,
+                    TrackObjectClass.Missile,
+                    new double3(2.0, 0.0, 1_000.0),
+                    1f),
+                ReacquisitionTrack(
+                    5,
+                    TrackObjectClass.AirVehicle,
+                    new double3(45.0, 0.0, 1_000.0),
+                    0.6f),
+            };
+
+            Assert.That(
+                TrackReacquisition.TrySelectCandidate(
+                    in previous,
+                    candidates,
+                    candidates.Length,
+                    10.0,
+                    150f,
+                    out var selected),
+                Is.True);
+            Assert.That(
+                selected.TrackId,
+                Is.EqualTo(candidates[1].TrackId));
+        }
+
+        [Test]
+        public void TrackReacquisition_RejectsDifferentClassWhenNoMatchExists()
+        {
+            var previous = ReacquisitionTrack(
+                3,
+                TrackObjectClass.AirVehicle,
+                new double3(0.0, 0.0, 1_000.0),
+                0.8f);
+            var missile = ReacquisitionTrack(
+                4,
+                TrackObjectClass.Missile,
+                new double3(2.0, 0.0, 1_000.0),
+                1f);
+
+            Assert.That(
+                TrackReacquisition.TrySelectCandidate(
+                    in previous,
+                    new[] { missile },
+                    1,
+                    10.0,
+                    150f,
                     out _),
                 Is.False);
         }
@@ -671,6 +844,28 @@ namespace ACunicombat.Tests.EditMode
             track.SetCovariance(1, 1, 100.0);
             track.SetCovariance(2, 2, 400.0);
             return track;
+        }
+
+        private static TrackSnapshot ReacquisitionTrack(
+            int index,
+            TrackObjectClass objectClass,
+            double3 position,
+            float confidence)
+        {
+            return new TrackSnapshot
+            {
+                TrackId = new TrackId(new Handle(index, 1)),
+                Position = position,
+                Velocity = double3.zero,
+                Confidence = confidence,
+                ObjectClass = objectClass,
+                Classification = 0.9f,
+                LastUpdateTime = 10.0,
+                LastPredictTime = 10.0,
+                HitCount = 3,
+                Lifecycle = TrackLifecycle.Confirmed,
+                SourceMask = TrackSourceMask.Radar,
+            };
         }
 
         private static ThreatSnapshot Threat(

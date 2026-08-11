@@ -176,9 +176,12 @@ public static class AC6FullPartCatalogBuilder
 	private static readonly HashSet<string> TestedFrameKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 	{
 		"HD_M_1010",
+		"HD_M_2010",
 		"AM_M_1010",
+		"AM_M_3010",
 		"BD_M_1010",
-		"LG_M_1010"
+		"LG_M_1010",
+		"LG_M_2010"
 	};
 
 	private static readonly HashSet<string> TestedInternalKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -186,7 +189,8 @@ public static class AC6FullPartCatalogBuilder
 		"BS_A_1010",
 		"AC6_SKIN_SAMPLE_GENERATOR",
 		"AC6_SKIN_SAMPLE_FCS",
-		"AC6_SKIN_SAMPLE_RADAR"
+		"AC6_SKIN_SAMPLE_RADAR",
+		"AC6_SKIN_SAMPLE_DATALINK"
 	};
 
 	private static readonly Dictionary<string, string> KnownPartKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -359,6 +363,7 @@ public static class AC6FullPartCatalogBuilder
 			MechPartSlot.Generator => "标准发电机基准数值已录入，储能容量、回充功率与启动参数已接入机动能量系统。",
 			MechPartSlot.FireControlSystem => "当前火控基准数值已录入，已验证航迹解算、武器授权、制导通道与点防御流程。",
 			MechPartSlot.Radar => "当前雷达基准数值已录入，已验证搜索、TWS、STT、导弹识别与航迹维持流程。",
+			MechPartSlot.DataLinkTerminal => "标准数据链终端参数已录入，已接入友军识别、航迹共享、制导上行、带宽与通信延迟。",
 			_ => "当前战斗原型正在使用，已验证安装、开火、弹药与装填流程。"
 		};
 	}
@@ -477,7 +482,7 @@ public static class AC6FullPartCatalogBuilder
 		MechWeaponPerformance weaponPerformance = source.WeaponPerformance != null && source.WeaponPerformance.IsConfigured
 			? source.WeaponPerformance
 			: AC6TestWeaponProfileFactory.Create(source.PartId);
-		mechPartDefinition.EditorConfigure(source.PartId, source.DisplayName, source.Slot, source.Category, source.ModelPrefab, source.Stats, source.MountPoints, source.Tags, source.MaterialOverrides, source.VisualRigMode, source.SkinnedAnimationClip, source.AncestorDriverSlot, source.AncestorDrivenBoneNames, source.InstantiateVisualAtAllMounts, source.EquipmentAnimations, source.DefaultEquipmentActionId, source.PlayDefaultEquipmentActionOnAssemble, source.LocalPosition, source.LocalEulerAngles, source.LocalScale, source.PreviewModelPrefab, source.PreviewImage, source.InternalPerformance, source.HeadSensorPerformance, source.ArmPerformance, source.CorePerformance, source.LegPerformance, source.BoosterPerformance, source.GeneratorPerformance, source.RadarPerformance, source.FireControlPerformance, weaponPerformance);
+		mechPartDefinition.EditorConfigure(source.PartId, source.DisplayName, source.Slot, source.Category, source.ModelPrefab, source.Stats, source.MountPoints, source.Tags, source.MaterialOverrides, source.VisualRigMode, source.SkinnedAnimationClip, source.AncestorDriverSlot, source.AncestorDrivenBoneNames, source.InstantiateVisualAtAllMounts, source.EquipmentAnimations, source.DefaultEquipmentActionId, source.PlayDefaultEquipmentActionOnAssemble, source.LocalPosition, source.LocalEulerAngles, source.LocalScale, source.PreviewModelPrefab, source.PreviewImage, source.InternalPerformance, source.HeadSensorPerformance, source.ArmPerformance, source.CorePerformance, source.LegPerformance, source.BoosterPerformance, source.GeneratorPerformance, source.RadarPerformance, source.FireControlPerformance, weaponPerformance, source.DataLinkPerformance);
 		EditorUtility.SetDirty(mechPartDefinition);
 		return mechPartDefinition;
 	}

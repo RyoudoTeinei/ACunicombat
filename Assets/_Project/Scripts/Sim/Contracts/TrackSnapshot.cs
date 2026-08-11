@@ -26,6 +26,13 @@ namespace ACunicombat.Sensing.Contracts
         Missile = 2,
     }
 
+    public enum MissileMissionRole : byte
+    {
+        Unknown = 0,
+        AirToAir = 1,
+        Interceptor = 2,
+    }
+
     [Flags]
     public enum TrackSourceMask : uint
     {
@@ -51,6 +58,8 @@ namespace ACunicombat.Sensing.Contracts
         public fixed double CovarianceUpperTriangular[21];
         public float Confidence;
         public TrackObjectClass ObjectClass;
+        public MissileMissionRole MissileRole;
+        public float MissileRoleConfidence;
         public float Classification;
         public float IdentityConfidence;
         public TrackAffiliation Affiliation;

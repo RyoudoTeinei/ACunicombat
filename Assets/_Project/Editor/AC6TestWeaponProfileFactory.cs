@@ -68,6 +68,7 @@ internal static class AC6TestWeaponProfileFactory
                 "INT",
                 16,
                 2,
+                300f,
                 MissileFlightProfile.InterceptorDefault);
         }
 
@@ -79,6 +80,7 @@ internal static class AC6TestWeaponProfileFactory
                 "MSL",
                 4,
                 6,
+                3120f,
                 MissileFlightProfile.AirToAirDefault);
         }
 
@@ -175,6 +177,7 @@ internal static class AC6TestWeaponProfileFactory
         string hudLabel,
         int magazineCapacity,
         int magazineCount,
+        float directHitDamage,
         MissileFlightProfile flightProfile)
     {
         return new MechWeaponPerformance
@@ -183,7 +186,7 @@ internal static class AC6TestWeaponProfileFactory
             role = role,
             weaponType = weaponType,
             hudLabel = hudLabel,
-            directHitDamage = 300f,
+            directHitDamage = directHitDamage,
             muzzleVelocityMetersPerSecond = flightProfile.EjectionSpeedMps,
             projectileLifetimeSeconds = flightProfile.MaximumFlightTimeSeconds,
             maximumRangeMeters = flightProfile.MaximumRangeMeters,

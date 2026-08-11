@@ -63,6 +63,29 @@ namespace ACunicombat.Editor.Tests
         }
 
         [Test]
+        public void ResetToward_WithModelYawOffset_PreservesLogicalHeading()
+        {
+            motion.ConfigureModelForwardYawOffset(180f);
+            mechObject.transform.position = new Vector3(0f, 11f, 150f);
+            var target = Vector3.zero;
+            var expectedDirection =
+                (target - mechObject.transform.position).normalized;
+
+            motion.ResetReferencePlaneToward(target);
+
+            Assert.That(
+                Vector3.Angle(
+                    motion.LogicalRotation * Vector3.forward,
+                    expectedDirection),
+                Is.LessThan(0.01f));
+            Assert.That(
+                Vector3.Angle(
+                    mechObject.transform.rotation * Vector3.back,
+                    expectedDirection),
+                Is.LessThan(0.01f));
+        }
+
+        [Test]
         public void ReferenceViewPitch_IsMeasuredFromDynamicHorizon()
         {
             motion.ResetReferencePlaneToRotation(

@@ -79,6 +79,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechGeneratorPerformance generatorPerformance = new MechGeneratorPerformance();
         [SerializeField] private MechRadarPerformance radarPerformance = new MechRadarPerformance();
         [SerializeField] private MechFireControlPerformance fireControlPerformance = new MechFireControlPerformance();
+        [SerializeField] private MechDataLinkPerformance dataLinkPerformance = new MechDataLinkPerformance();
         [SerializeField] private MechWeaponPerformance weaponPerformance = new MechWeaponPerformance();
         [SerializeField] private List<MechMountPointDefinition> mountPoints = new List<MechMountPointDefinition>();
         [SerializeField] private List<MechPartSlot> requiredInstalledSlots = new List<MechPartSlot>();
@@ -117,6 +118,7 @@ namespace ACunicombat.Mechs
         public MechGeneratorPerformance GeneratorPerformance => generatorPerformance;
         public MechRadarPerformance RadarPerformance => radarPerformance;
         public MechFireControlPerformance FireControlPerformance => fireControlPerformance;
+        public MechDataLinkPerformance DataLinkPerformance => dataLinkPerformance;
         public MechWeaponPerformance WeaponPerformance => weaponPerformance;
         public IReadOnlyList<MechMountPointDefinition> MountPoints => mountPoints;
         public IReadOnlyList<MechPartSlot> RequiredInstalledSlots => requiredInstalledSlots;
@@ -187,7 +189,8 @@ namespace ACunicombat.Mechs
             MechGeneratorPerformance newGeneratorPerformance = null,
             MechRadarPerformance newRadarPerformance = null,
             MechFireControlPerformance newFireControlPerformance = null,
-            MechWeaponPerformance newWeaponPerformance = null)
+            MechWeaponPerformance newWeaponPerformance = null,
+            MechDataLinkPerformance newDataLinkPerformance = null)
         {
             partId = newPartId;
             displayName = newDisplayName;
@@ -237,6 +240,7 @@ namespace ACunicombat.Mechs
             generatorPerformance = newGeneratorPerformance?.Clone() ?? new MechGeneratorPerformance();
             radarPerformance = newRadarPerformance?.Clone() ?? new MechRadarPerformance();
             fireControlPerformance = newFireControlPerformance?.Clone() ?? new MechFireControlPerformance();
+            dataLinkPerformance = newDataLinkPerformance?.Clone() ?? new MechDataLinkPerformance();
             weaponPerformance = newWeaponPerformance?.Clone() ?? new MechWeaponPerformance();
             mountPoints = newMountPoints == null
                 ? new List<MechMountPointDefinition>()

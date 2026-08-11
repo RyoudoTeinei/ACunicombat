@@ -40,7 +40,7 @@ namespace ACunicombat.Mechs
 
 		private static readonly Color ComparisonBaselineColor = new Color(0.44f, 0.56f, 0.65f, 1f);
 
-		private static readonly MechPartSlot[] Slots = new MechPartSlot[13]
+		private static readonly MechPartSlot[] Slots = new MechPartSlot[14]
 		{
 			MechPartSlot.LeftHandWeapon,
 			MechPartSlot.RightHandWeapon,
@@ -54,6 +54,7 @@ namespace ACunicombat.Mechs
 			MechPartSlot.FireControlSystem,
 			MechPartSlot.Generator,
 			MechPartSlot.Radar,
+			MechPartSlot.DataLinkTerminal,
 			MechPartSlot.Extension
 		};
 
@@ -73,12 +74,13 @@ namespace ACunicombat.Mechs
 			MechPartSlot.Legs
 		};
 
-		private static readonly MechPartSlot[] InternalSlots = new MechPartSlot[5]
+		private static readonly MechPartSlot[] InternalSlots = new MechPartSlot[6]
 		{
 			MechPartSlot.Booster,
 			MechPartSlot.FireControlSystem,
 			MechPartSlot.Generator,
 			MechPartSlot.Radar,
+			MechPartSlot.DataLinkTerminal,
 			MechPartSlot.Extension
 		};
 
@@ -784,9 +786,10 @@ namespace ACunicombat.Mechs
 			bool hasGeneratorData = part.Slot == MechPartSlot.Generator && part.GeneratorPerformance != null && part.GeneratorPerformance.HasData;
 			bool hasRadarData = part.Slot == MechPartSlot.Radar && part.RadarPerformance != null && part.RadarPerformance.HasData;
 			bool hasFireControlData = part.Slot == MechPartSlot.FireControlSystem && part.FireControlPerformance != null && part.FireControlPerformance.HasData;
+			bool hasDataLinkData = part.Slot == MechPartSlot.DataLinkTerminal && part.DataLinkPerformance != null && part.DataLinkPerformance.HasData;
 			float viewHeight = entry.IsWeapon
 				? (part.HasTag("point-defense") ? 2100f : 1500f)
-				: (hasImportedInternalData ? 1180f : ((hasCoreNozzles || hasBoosterData || hasGeneratorData || hasRadarData || hasFireControlData) ? 2100f : 1760f));
+				: (hasImportedInternalData ? 1180f : ((hasCoreNozzles || hasBoosterData || hasGeneratorData || hasRadarData || hasFireControlData || hasDataLinkData) ? 2100f : 1760f));
 			Rect view = new Rect(0f, 0f, rect.width - 18f, viewHeight);
 			selectedStatsScroll = GUI.BeginScrollView(rect, selectedStatsScroll, view);
 			float y = 0f;
@@ -818,6 +821,10 @@ namespace ACunicombat.Mechs
 			else if (hasFireControlData)
 			{
 				DrawFireControlPartStats(view, ref y, part, equippedPart);
+			}
+			else if (hasDataLinkData)
+			{
+				DrawDataLinkPartStats(view, ref y, part, equippedPart);
 			}
 			else if (hasImportedInternalData)
 			{
@@ -901,6 +908,32 @@ namespace ACunicombat.Mechs
 			DrawPartComparisonMetric(view, ref y, "制导通道", fcs.guidanceChannelCapacity, compare ? equippedFcs.guidanceChannelCapacity : null, 16f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "多目标交战容量", fcs.multiTargetEngagementCapacity, compare ? equippedFcs.multiTargetEngagementCapacity : null, 16f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "点防御性能", fcs.pointDefenseRating, compare ? equippedFcs.pointDefenseRating : null, 100f, "0", string.Empty, higherIsBetter: true);
+		}
+
+		private void DrawDataLinkPartStats(Rect view, ref float y, MechPartDefinition part, MechPartDefinition equippedPart)
+		{
+			MechPartStats stats = part.Stats;
+			MechPartStats equippedStats = equippedPart?.Stats;
+			MechDataLinkPerformance link = part.DataLinkPerformance;
+			MechDataLinkPerformance equippedLink = equippedPart?.DataLinkPerformance;
+			bool compare = equippedLink != null && equippedLink.HasData;
+			DrawPartMetricGroup(view, ref y, "结构与负载");
+			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 5000f, "0", " kg", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机功耗", ToKilowatts(stats.idlePowerDrawMw), ToKilowatts(equippedStats?.idlePowerDrawMw), 5000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作功耗", ToKilowatts(stats.peakPowerDrawMw), ToKilowatts(equippedStats?.peakPowerDrawMw), 10000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "待机产热", ToKilowatts(stats.idleHeatMw), ToKilowatts(equippedStats?.idleHeatMw), 5000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "工作产热", ToKilowatts(stats.activeHeatMw), ToKilowatts(equippedStats?.activeHeatMw), 10000f, "0.#", " kW", higherIsBetter: false);
+			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 100f, "0.0", " MJ", higherIsBetter: true);
+			DrawPartMetricGroup(view, ref y, "通信性能");
+			DrawPartComparisonMetric(view, ref y, "参考通信距离", link.referenceCommunicationRangeKm, compare ? equippedLink.referenceCommunicationRangeKm : null, 300f, "0.0", " km", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "数据带宽", link.bandwidthKbps, compare ? equippedLink.bandwidthKbps : null, 4096f, "0", " kbps", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "最大网络节点", link.maximumNetworkNodes, compare ? equippedLink.maximumNetworkNodes : null, 63f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "航迹共享刷新率", link.trackShareUpdateRateHz, compare ? equippedLink.trackShareUpdateRateHz : null, 30f, "0.0", " Hz", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "制导更新率", link.guidanceUpdateRateHz, compare ? equippedLink.guidanceUpdateRateHz : null, 30f, "0.0", " Hz", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "端到端延迟", link.endToEndLatencyMs, compare ? equippedLink.endToEndLatencyMs : null, 200f, "0.0", " ms", higherIsBetter: false);
+			DrawPartMetricGroup(view, ref y, "链路生存性");
+			DrawPartComparisonMetric(view, ref y, "抗干扰能力", link.jamResistanceRating, compare ? equippedLink.jamResistanceRating : null, 100f, "0", string.Empty, higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "低截获能力", link.lowProbabilityOfInterceptRating, compare ? equippedLink.lowProbabilityOfInterceptRating : null, 100f, "0", string.Empty, higherIsBetter: true);
 		}
 
 		private void DrawImportedInternalPartStats(Rect view, ref float y, MechPartDefinition part, MechPartDefinition equippedPart)
@@ -2110,6 +2143,7 @@ namespace ACunicombat.Mechs
 				MechPartSlot.FireControlSystem => "火控", 
 				MechPartSlot.Generator => "能源", 
 				MechPartSlot.Radar => "雷达", 
+				MechPartSlot.DataLinkTerminal => "数据链",
 				MechPartSlot.Extension => "扩展", 
 				_ => slot.ToString(), 
 			};
@@ -2127,6 +2161,7 @@ namespace ACunicombat.Mechs
 				MechPartSlot.Generator => "发电机", 
 				MechPartSlot.FireControlSystem => "火控系统", 
 				MechPartSlot.Radar => "雷达", 
+				MechPartSlot.DataLinkTerminal => "数据链终端",
 				MechPartSlot.Extension => "扩展系统", 
 				MechPartSlot.LeftHandWeapon => "左手武器", 
 				MechPartSlot.RightHandWeapon => "右手武器", 

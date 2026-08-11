@@ -142,6 +142,8 @@ namespace ACunicombat.Mechs
 
         private void Start()
         {
+            AlignInitialAttitudeToObjective();
+
             if (rig != null)
             {
                 rig.ConfigureAiControl();
@@ -149,6 +151,24 @@ namespace ACunicombat.Mechs
             }
 
             ApplyIdentificationTint();
+        }
+
+        private void AlignInitialAttitudeToObjective()
+        {
+            if (motion == null || objective == null)
+            {
+                return;
+            }
+
+            var targetPosition = objective.AimPoint.position;
+            if ((targetPosition - transform.position).sqrMagnitude <= 0.0001f)
+            {
+                return;
+            }
+
+            motion.ResetReferencePlaneToward(targetPosition);
+            UpdateSensorCamera(
+                (targetPosition - transform.position).normalized);
         }
 
         private void OnDestroy()
@@ -333,7 +353,6 @@ namespace ACunicombat.Mechs
             var missileUncertaintyLimit = Mathf.Max(120f, range * 0.025f);
             if (range >= missileMinimumRangeMeters &&
                 range <= missileMaximumRangeMeters &&
-                angularError <= 24f &&
                 track.Confidence >= 0.72f &&
                 uncertaintyMeters <= missileUncertaintyLimit &&
                 Time.time >= nextMissileTime &&

@@ -171,6 +171,36 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void MissileEventOrdering_PreservesEarlierDirectImpact()
+        {
+            Assert.That(
+                MissileEngagementMath.ProximityOccursBeforeImpact(
+                    0.012f,
+                    0.008f),
+                Is.False);
+        }
+
+        [Test]
+        public void MissileEventOrdering_PrefersImpactWhenEventsCoincide()
+        {
+            Assert.That(
+                MissileEngagementMath.ProximityOccursBeforeImpact(
+                    0.01f,
+                    0.01005f),
+                Is.False);
+        }
+
+        [Test]
+        public void MissileEventOrdering_AllowsEarlierProximityBurst()
+        {
+            Assert.That(
+                MissileEngagementMath.ProximityOccursBeforeImpact(
+                    0.005f,
+                    0.012f),
+                Is.True);
+        }
+
+        [Test]
         public void MissileLineOfSightRate_IsZeroForPureClosingMotion()
         {
             var rate = MissileEngagementMath.LineOfSightRate(

@@ -68,9 +68,16 @@ namespace ACunicombat.Mechs
 
 		private static readonly Collider[] OverlapScratch = new Collider[64];
 
-		private static readonly HashSet<CombatTestTarget> DamagedScratch = new HashSet<CombatTestTarget>();
+		private static readonly Dictionary<CombatTestTarget, BlastContact> BlastContactScratch = new Dictionary<CombatTestTarget, BlastContact>();
 
 		private static readonly HashSet<MechTestProjectile> DamagedProjectileScratch = new HashSet<MechTestProjectile>();
+
+		private struct BlastContact
+		{
+			public Vector3 Point;
+
+			public float Distance;
+		}
 
 		private Transform owner;
 
@@ -257,9 +264,29 @@ namespace ACunicombat.Mechs
 
 		private MechMissilePlume missilePlume;
 
+		private Transform missilePresentationRoot;
+
+		private MechMissileVisualInterpolator missileVisualInterpolator;
+
 		private const float MissilePlumeFallbackNozzleOffset = 1.8f;
 
 		private const float MissilePlumeScale = 1f;
+
+		public void ConfigureMissilePresentation(Transform presentationRoot)
+		{
+			missilePresentationRoot = presentationRoot;
+			if (missilePresentationRoot == null)
+			{
+				return;
+			}
+
+			missileVisualInterpolator = missilePresentationRoot.GetComponent<MechMissileVisualInterpolator>();
+			if (missileVisualInterpolator == null)
+			{
+				missileVisualInterpolator = missilePresentationRoot.gameObject.AddComponent<MechMissileVisualInterpolator>();
+			}
+			missileVisualInterpolator.Configure(base.transform);
+		}
 
 		private static Material rcsParticleMaterial;
 
@@ -463,8 +490,8 @@ namespace ACunicombat.Mechs
 			if (weaponKind == TestWeaponKind.Missile)
 			{
 				missilePlume = base.gameObject.AddComponent<MechMissilePlume>();
-				missilePlume.Build(1.8f, 1f);
-				CreateRcsThrusterVisuals();
+				missilePlume.Build(1.8f, 1f, missilePresentationRoot);
+				CreateRcsThrusterVisuals(missilePresentationRoot);
 			}
 			if (weaponKind == TestWeaponKind.Missile)
 			{
@@ -592,7 +619,6 @@ namespace ACunicombat.Mechs
 			{
 				TryRegisterRadarObserver(
 					radarController,
-					registerAsHostileTarget: false,
 					primary: true);
 			}
 
@@ -610,14 +636,12 @@ namespace ACunicombat.Mechs
 
 				TryRegisterRadarObserver(
 					observer,
-					registerAsHostileTarget: true,
 					primary: false);
 			}
 		}
 
 		private void TryRegisterRadarObserver(
 			MechRadarController controller,
-			bool registerAsHostileTarget,
 			bool primary)
 		{
 			if (controller == null ||
@@ -626,7 +650,6 @@ namespace ACunicombat.Mechs
 					velocity,
 					seekerMaximumRange,
 					seekerHalfAngleRadians * 2f * Mathf.Rad2Deg,
-					registerAsHostileTarget,
 					out var handle))
 			{
 				return;
@@ -743,7 +766,6 @@ namespace ACunicombat.Mechs
 					SetMotorVisual(active: true);
 				}
 			}
-			bool proximityDetonated = false;
 			if (weaponKind == TestWeaponKind.Missile)
 			{
 				missileFlightTime += dt;
@@ -756,11 +778,6 @@ namespace ACunicombat.Mechs
 					}
 				}
 				UpdateRcsThrusterVisuals(dt);
-				proximityDetonated = TryDetonateProximity(dt);
-			}
-			if (proximityDetonated)
-			{
-				return;
 			}
 			Vector3 travel = velocity * dt;
 			if (maximumTravelDistance > 0f && distanceTravelled + travel.magnitude >= maximumTravelDistance)
@@ -772,6 +789,31 @@ namespace ACunicombat.Mechs
 			bool hasSweepHit = TryFindHit(travel, out hit);
 			float speed = velocity.magnitude;
 			float sweepTime = ((hasSweepHit && speed > 0.001f) ? (hit.distance / speed) : float.PositiveInfinity);
+			if (weaponKind == TestWeaponKind.Missile &&
+				TryFindMissileProximityPass(
+					dt,
+					out var missileFuseTime,
+					out var missileDetonationPoint,
+					out var missileMissDistance,
+					out var missileFuseRadius) &&
+				MissileEngagementMath.ProximityOccursBeforeImpact(
+					missileFuseTime,
+					sweepTime))
+			{
+				if (interceptorMissile)
+				{
+					Debug.Log("[Interceptor] Proximity fuze triggered: " +
+						$"CPA={missileFuseTime:0.000}s, " +
+						$"miss={missileMissDistance:0.0}m, " +
+						$"radius={missileFuseRadius:0.0}m, " +
+						"seeker=" + (seekerLocked ? "locked" : "inertial") + ".");
+				}
+				DetonateWarhead(
+					missileDetonationPoint,
+					interceptorMissile ? missileFuseTime : 0f);
+				UnityEngine.Object.Destroy(base.gameObject);
+				return;
+			}
 			if (cannonFuseArmedAtTickStart && TryFindCannonProximityPass(dt, out var cannonFuseTime, out var cannonDetonationPoint, out var cannonMissDistance) && cannonFuseTime <= sweepTime)
 			{
 				Debug.Log("[CannonFuze] proximity burst " + $"CPA={cannonFuseTime:0.000}s " + $"miss={cannonMissDistance:0.0}m " + $"trigger={proximityFuseRadius:0.0}m.", this);
@@ -806,8 +848,15 @@ namespace ACunicombat.Mechs
 						dataLinkController.SendFriendlyMissileTrackReport(
 							linkTerminal,
 							base.transform.position,
-							velocity);
-						friendlyLinkReportRemaining = 0.1f;
+							velocity,
+							interceptorMissile
+								? MissileMissionRole.Interceptor
+								: MissileMissionRole.AirToAir);
+						friendlyLinkReportRemaining =
+							dataLinkController.GetFriendlyMissileReportIntervalSeconds(
+								interceptorMissile
+									? MissileMissionRole.Interceptor
+									: MissileMissionRole.AirToAir);
 					}
 				}
 			}
@@ -815,6 +864,12 @@ namespace ACunicombat.Mechs
 			if (weaponKind != TestWeaponKind.Missile && velocity.sqrMagnitude > 0.001f)
 			{
 				base.transform.rotation = Quaternion.LookRotation(velocity.normalized, base.transform.up);
+			}
+			else if (weaponKind == TestWeaponKind.Missile)
+			{
+				missileVisualInterpolator?.CaptureSimulationPose(
+					base.transform.position,
+					base.transform.rotation);
 			}
 		}
 
@@ -1342,8 +1397,17 @@ namespace ACunicombat.Mechs
 			return 0.8f;
 		}
 
-		private bool TryDetonateProximity(float deltaTime)
+		private bool TryFindMissileProximityPass(
+			float deltaTime,
+			out float detonationTime,
+			out Vector3 detonationPoint,
+			out float missDistance,
+			out float effectiveFuseRadius)
 		{
+			detonationTime = float.PositiveInfinity;
+			detonationPoint = default(Vector3);
+			missDistance = float.PositiveInfinity;
+			effectiveFuseRadius = proximityFuseRadius;
 			if (missileFlightTime < proximityFuseArmTime || distanceTravelled < proximityFuseSafeDistance)
 			{
 				return false;
@@ -1357,22 +1421,21 @@ namespace ACunicombat.Mechs
 			Vector3 relativePosition = estimatedPosition - base.transform.position;
 			Vector3 relativeVelocity = obj - velocity;
 			float fuseLookAhead = (interceptorMissile ? Mathf.Max(deltaTime, 0.06f) : deltaTime);
-			float effectiveFuseRadius = proximityFuseRadius;
 			if (interceptorMissile)
 			{
 				effectiveFuseRadius += Mathf.Min(8f, terminalFuseEstimateUncertaintyMeters * 0.05f);
 			}
-			if (!MissileEngagementMath.TryGetProximityPass(ToFloat3(relativePosition), ToFloat3(relativeVelocity), fuseLookAhead, effectiveFuseRadius, out var timeToClosestApproach, out var predictedMissDistance))
+			if (!MissileEngagementMath.TryGetProximityPass(
+					ToFloat3(relativePosition),
+					ToFloat3(relativeVelocity),
+					fuseLookAhead,
+					effectiveFuseRadius,
+					out detonationTime,
+					out missDistance))
 			{
 				return false;
 			}
-			Vector3 detonationPoint = base.transform.position + velocity * timeToClosestApproach;
-			if (interceptorMissile)
-			{
-				Debug.Log("[Interceptor] Proximity fuze triggered: " + $"CPA={timeToClosestApproach:0.000}s, " + $"miss={predictedMissDistance:0.0}m, " + $"radius={effectiveFuseRadius:0.0}m, " + "seeker=" + (seekerLocked ? "locked" : "inertial") + ".");
-			}
-			DetonateWarhead(detonationPoint, interceptorMissile ? timeToClosestApproach : 0f);
-			UnityEngine.Object.Destroy(base.gameObject);
+			detonationPoint = base.transform.position + velocity * detonationTime;
 			return true;
 		}
 
@@ -1387,11 +1450,36 @@ namespace ACunicombat.Mechs
 			bool damagedAnyTarget = false;
 			CombatTestTarget ownship = CombatTestTarget.Ownship;
 			bool ownshipDamaged = false;
-			DamagedScratch.Clear();
+			BlastContactScratch.Clear();
 			for (int i = 0; i < colliderCount; i++)
 			{
-				CombatTestTarget candidate = OverlapScratch[i].GetComponentInParent<CombatTestTarget>();
-				bool damagedCandidate = TryDamageCombatTarget(candidate, detonationPoint);
+				Collider overlap = OverlapScratch[i];
+				CombatTestTarget candidate = overlap.GetComponentInParent<CombatTestTarget>();
+				if (candidate == null || !candidate.IsAlive)
+				{
+					continue;
+				}
+
+				Vector3 contactPoint = overlap.ClosestPoint(detonationPoint);
+				float distance = Vector3.Distance(detonationPoint, contactPoint);
+				if (!BlastContactScratch.TryGetValue(candidate, out var contact) ||
+					distance < contact.Distance)
+				{
+					BlastContactScratch[candidate] = new BlastContact
+					{
+						Point = contactPoint,
+						Distance = distance,
+					};
+				}
+			}
+			foreach (var pair in BlastContactScratch)
+			{
+				CombatTestTarget candidate = pair.Key;
+				BlastContact contact = pair.Value;
+				bool damagedCandidate = TryDamageCombatTarget(
+					candidate,
+					contact.Point,
+					contact.Distance);
 				damagedAnyTarget = damagedAnyTarget || damagedCandidate;
 				ownshipDamaged |= damagedCandidate && candidate == ownship;
 			}
@@ -1428,19 +1516,33 @@ namespace ACunicombat.Mechs
 			return false;
 		}
 
-		private bool TryDamageCombatTarget(CombatTestTarget candidate, Vector3 detonationPoint)
+		private bool TryDamageCombatTarget(
+			CombatTestTarget candidate,
+			Vector3 contactPoint,
+			float surfaceDistance)
 		{
-			if (candidate == null || !candidate.IsAlive || !DamagedScratch.Add(candidate))
+			if (candidate == null || !candidate.IsAlive)
 			{
 				return false;
 			}
-			float distance = Vector3.Distance(detonationPoint, candidate.AimPoint.position);
-			if (distance > warheadLethalRadius)
+			if (surfaceDistance > warheadLethalRadius)
 			{
 				return false;
 			}
-			float falloff = Mathf.Lerp(0.25f, 1f, 1f - distance / warheadLethalRadius);
-			candidate.ApplyDamage(damage * falloff, detonationPoint, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId, owner);
+			float falloff = Mathf.Lerp(
+				0.25f,
+				1f,
+				1f - surfaceDistance / warheadLethalRadius);
+			candidate.ApplyDamage(
+				damage * falloff,
+				contactPoint,
+				(velocity.sqrMagnitude > 0.001f)
+					? velocity.normalized
+					: base.transform.forward,
+				weaponKind,
+				effectLibrary,
+				impactFfxId,
+				owner);
 			return true;
 		}
 
@@ -1766,7 +1868,7 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private void CreateRcsThrusterVisuals()
+		private void CreateRcsThrusterVisuals(Transform presentationRoot)
 		{
 			float[] ringPositions = new float[2] { 0.78f, 0.08f };
 			Vector3[] exhaustDirections = new Vector3[4]
@@ -1777,8 +1879,11 @@ namespace ACunicombat.Mechs
 				Vector3.down
 			};
 			GameObject root = new GameObject("Missile_RCS_Thrusters");
-			root.transform.SetParent(base.transform, worldPositionStays: false);
-			root.transform.localScale = new Vector3(SafeReciprocal(base.transform.localScale.x), SafeReciprocal(base.transform.localScale.y), SafeReciprocal(base.transform.localScale.z));
+			Transform visualParent = presentationRoot != null ? presentationRoot : base.transform;
+			root.transform.SetParent(visualParent, worldPositionStays: false);
+			root.transform.localScale = presentationRoot != null
+				? Vector3.one
+				: new Vector3(SafeReciprocal(base.transform.localScale.x), SafeReciprocal(base.transform.localScale.y), SafeReciprocal(base.transform.localScale.z));
 			rcsParticles = new ParticleSystem[8];
 			rcsExhaustDirectionsLocal = new Vector3[rcsParticles.Length];
 			rcsTorqueAxesLocal = new Vector3[rcsParticles.Length];
@@ -1916,6 +2021,12 @@ namespace ACunicombat.Mechs
 		private void OnDestroy()
 		{
 			ReleaseGuidanceChannel();
+			if (missilePresentationRoot != null)
+			{
+				UnityEngine.Object.Destroy(missilePresentationRoot.gameObject);
+				missilePresentationRoot = null;
+				missileVisualInterpolator = null;
+			}
 			for (var i = 0; i < radarObservers.Count; i++)
 			{
 				var observer = radarObservers[i];

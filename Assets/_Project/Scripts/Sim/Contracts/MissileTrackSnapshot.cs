@@ -38,6 +38,8 @@ namespace ACunicombat.Sensing.Contracts
         public float CpaUncertaintyMeters;
         public float Confidence;
         public float IdentityConfidence;
+        public MissileMissionRole MissionRole;
+        public float MissionRoleConfidence;
         public MissileTrackSourceMask SourceMask;
         public TrackAffiliation Affiliation;
         public MissileTrackQuality Quality;
@@ -57,6 +59,12 @@ namespace ACunicombat.Sensing.Contracts
         public bool IsFriendly =>
             Affiliation == TrackAffiliation.Friendly &&
             IdentityConfidence >= 0.5f;
+
+        public bool HasAuthenticatedMissionRole =>
+            IsFriendly &&
+            (SourceMask & MissileTrackSourceMask.DataLink) != 0 &&
+            MissionRole != MissileMissionRole.Unknown &&
+            MissionRoleConfidence >= 0.5f;
 
         public double3 PredictPosition(double time)
         {

@@ -12,6 +12,7 @@
         "ACunicombat.ElectronicWarfare",
         "ACunicombat.Tracking",
         "ACunicombat.FireControl",
+        "ACunicombat.DataLink",
         "Unity.Mathematics",
         "Unity.Collections"
     ],

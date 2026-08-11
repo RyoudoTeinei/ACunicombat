@@ -340,6 +340,9 @@ namespace ACunicombat.Mechs
                     weapons.SetHandPointDefensePriorityEnabled(
                         !weapons.HandPointDefensePriorityEnabled);
                     break;
+                case SystemCategory.Devices when index == 0 && radar != null:
+                    radar.CycleDataLinkPolicy();
+                    break;
             }
         }
 
@@ -349,6 +352,7 @@ namespace ACunicombat.Mechs
             SystemCategory.ElectroOptical => 1,
             SystemCategory.Propulsion => 1,
             SystemCategory.FireControl => 1,
+            SystemCategory.Devices => 1,
             _ => 0,
         };
 
@@ -360,6 +364,7 @@ namespace ACunicombat.Mechs
                 (SystemCategory.ElectroOptical, 0) => "缩放跟踪 STT 目标",
                 (SystemCategory.Propulsion, 0) => "矢量推力",
                 (SystemCategory.FireControl, 0) => "手部武器拦截优先",
+                (SystemCategory.Devices, 0) => "数据链策略",
                 _ => "未定义控制",
             };
 
@@ -371,6 +376,7 @@ namespace ACunicombat.Mechs
                 (SystemCategory.ElectroOptical, 0) => "按住 CapsLock 缩放时自动把视线保持在 STT 目标上",
                 (SystemCategory.Propulsion, 0) => "允许主推进器在机械偏转范围内参与侧向与升降控制",
                 (SystemCategory.FireControl, 0) => "开启时导弹与机体重合会优先拦截；关闭时优先攻击机体航迹",
+                (SystemCategory.Devices, 0) => "切换自动、态势优先、防空优先与无线电静默模式",
                 _ => string.Empty,
             };
 
@@ -397,6 +403,9 @@ namespace ACunicombat.Mechs
                     return true;
                 case SystemCategory.FireControl when index == 0 && weapons != null:
                     state = weapons.HandPointDefensePriorityEnabled;
+                    return true;
+                case SystemCategory.Devices when index == 0 && radar != null:
+                    state = radar.DataLinkTransmitEnabled;
                     return true;
                 default:
                     state = false;
@@ -557,10 +566,15 @@ namespace ACunicombat.Mechs
                     statusStyle.normal.textColor = !available
                         ? TextMuted
                         : state ? Green : Amber;
+                    var statusText = !available
+                        ? "不可用"
+                        : category == SystemCategory.Devices && radar != null
+                            ? radar.DataLinkPolicyDisplayName
+                            : state ? "开启" : "关闭";
                     GUI.Label(
                         new Rect(row.xMax - 120f * scale, row.y + 5f * scale,
                             96f * scale, 38f * scale),
-                        !available ? "不可用" : state ? "开启" : "关闭",
+                        statusText,
                         statusStyle);
                     GUI.Label(
                         new Rect(row.x + 52f * scale, row.y + 45f * scale,

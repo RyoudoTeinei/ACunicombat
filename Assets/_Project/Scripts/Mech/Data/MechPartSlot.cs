@@ -17,6 +17,7 @@ namespace ACunicombat.Mechs
         Generator = 60,
         FireControlSystem = 70,
         Radar = 80,
+        DataLinkTerminal = 90,
         LeftHandWeapon = 100,
         RightHandWeapon = 101,
         LeftBackWeapon = 110,
@@ -64,6 +65,7 @@ namespace ACunicombat.Mechs
             MechPartSlot.Generator,
             MechPartSlot.FireControlSystem,
             MechPartSlot.Radar,
+            MechPartSlot.DataLinkTerminal,
             MechPartSlot.LeftHandWeapon,
             MechPartSlot.RightHandWeapon,
             MechPartSlot.LeftBackWeapon,
@@ -95,6 +97,7 @@ namespace ACunicombat.Mechs
                 case MechPartSlot.Generator:
                 case MechPartSlot.FireControlSystem:
                 case MechPartSlot.Radar:
+                case MechPartSlot.DataLinkTerminal:
                     return true;
                 default:
                     return false;
@@ -143,6 +146,8 @@ namespace ACunicombat.Mechs
             {
                 case MechPartSlot.FireControlSystem:
                     return "FCS";
+                case MechPartSlot.DataLinkTerminal:
+                    return "Data Link Terminal";
                 case MechPartSlot.LeftHandWeapon:
                     return "Left Hand Weapon";
                 case MechPartSlot.RightHandWeapon:
@@ -180,6 +185,8 @@ namespace ACunicombat.Mechs
                     return new Vector3(0f, 1.45f, 0.25f);
                 case MechPartSlot.Radar:
                     return new Vector3(0f, 2.35f, 0.2f);
+                case MechPartSlot.DataLinkTerminal:
+                    return new Vector3(0f, 1.45f, -0.15f);
                 case MechPartSlot.LeftHandWeapon:
                     return new Vector3(-1.35f, 0.95f, 0.2f);
                 case MechPartSlot.RightHandWeapon:

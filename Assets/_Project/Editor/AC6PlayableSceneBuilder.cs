@@ -70,6 +70,8 @@ public static class AC6PlayableSceneBuilder
     private const string PoseRoot = "Tools/LocalOut/actions";
     private const string LoadoutRoot =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Loadouts";
+    private const string FullPartCatalogPath =
+        "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Resources/AC6FullPartCatalog.asset";
 
     private static readonly (MechPartSlot Slot, string Token)[] FrameSlots =
     {
@@ -1760,8 +1762,12 @@ public static class AC6PlayableSceneBuilder
             playerMech.transform.parent);
         root.name = objectName;
         root.transform.position = position;
-        root.transform.rotation = Quaternion.LookRotation(
+        var logicalRotation = Quaternion.LookRotation(
             playerMech.transform.position - position,
+            Vector3.up);
+        var motion = root.GetComponent<MechFlightMotionController>();
+        root.transform.rotation = logicalRotation * Quaternion.AngleAxis(
+            motion != null ? motion.ModelForwardYawOffset : 0f,
             Vector3.up);
 
         var assembler = root.GetComponent<MechAssembler>();
@@ -1864,6 +1870,15 @@ public static class AC6PlayableSceneBuilder
         }
 
         var assignments = new List<MechPartAssignment>();
+        var catalog = AssetDatabase.LoadAssetAtPath<MechPartCatalog>(
+            FullPartCatalogPath);
+        if (catalog == null)
+        {
+            throw new InvalidOperationException(
+                $"Cannot build AI loadout '{loadoutId}' because the canonical " +
+                $"part catalog is missing at '{FullPartCatalogPath}'.");
+        }
+
         foreach (var playerAssignment in
                  playerLoadout.EnumerateEnabledAssignments())
         {
@@ -1872,6 +1887,17 @@ public static class AC6PlayableSceneBuilder
                 frameSource.TryGetPart(playerAssignment.slot, out var framePart))
             {
                 part = framePart;
+            }
+
+            part = ResolveCanonicalPartForLoadout(part, catalog);
+            if (MechSlotRules.IsWeaponSlot(playerAssignment.slot) &&
+                (part == null || part.WeaponPerformance == null ||
+                 !part.WeaponPerformance.IsConfigured))
+            {
+                throw new InvalidOperationException(
+                    $"AI loadout '{loadoutId}' cannot use unconfigured weapon " +
+                    $"'{part?.PartId ?? "<missing>"}' in slot " +
+                    $"{playerAssignment.slot}.");
             }
 
             assignments.Add(new MechPartAssignment
@@ -1895,6 +1921,19 @@ public static class AC6PlayableSceneBuilder
         EditorUtility.SetDirty(loadout);
         AssetDatabase.SaveAssets();
         return loadout;
+    }
+
+    internal static MechPartDefinition ResolveCanonicalPartForLoadout(
+        MechPartDefinition part,
+        MechPartCatalog catalog)
+    {
+        if (part == null || catalog == null)
+        {
+            return part;
+        }
+
+        var canonicalPart = catalog.Find(part.PartId)?.LoadPart();
+        return canonicalPart != null ? canonicalPart : part;
     }
 
     private static void CreateRampCourse(

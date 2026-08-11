@@ -447,6 +447,32 @@ public static class AC6SkinnedModularSampleBuilder
 			refreshedCount++;
 		}
 
+		MechPartDefinition sampleDataLink = CreateInternalPart(
+			"AC6_SKIN_SAMPLE_DATALINK",
+			"Standard Tactical Data Link Terminal",
+			MechPartSlot.DataLinkTerminal,
+			BuildSampleDataLinkStats(),
+			dataLinkPerformance: BuildSampleDataLinkPerformance());
+		if (sampleDataLink != null)
+		{
+			string[] loadoutGuids = AssetDatabase.FindAssets(
+				"t:MechLoadoutDefinition",
+				new[] { "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Loadouts" });
+			foreach (string guid in loadoutGuids)
+			{
+				var loadout = AssetDatabase.LoadAssetAtPath<MechLoadoutDefinition>(
+					AssetDatabase.GUIDToAssetPath(guid));
+				if (loadout == null || loadout.TryGetPart(MechPartSlot.DataLinkTerminal, out _))
+				{
+					continue;
+				}
+				var assignments = new List<MechPartAssignment>(loadout.Assignments);
+				assignments.Add(Assignment(MechPartSlot.DataLinkTerminal, sampleDataLink));
+				loadout.EditorConfigure(loadout.LoadoutId, loadout.DisplayName, assignments);
+				refreshedCount++;
+			}
+		}
+
 		if (refreshedCount > 0)
 		{
 			AssetDatabase.SaveAssets();
@@ -1750,9 +1776,25 @@ public static class AC6SkinnedModularSampleBuilder
 				BuildSampleGeneratorStats(),
 				BuildSampleGeneratorPerformance()),
 			[MechPartSlot.FireControlSystem] = CreateInternalPart("AC6_SKIN_SAMPLE_FCS", "Sample Fire Control System", MechPartSlot.FireControlSystem, BuildSampleFireControlStats(), fireControlPerformance: BuildSampleFireControlPerformance()),
-			[MechPartSlot.Radar] = CreateInternalPart("AC6_SKIN_SAMPLE_RADAR", "Sample Active Radar", MechPartSlot.Radar, BuildSampleRadarStats(), radarPerformance: BuildSampleRadarPerformance())
+			[MechPartSlot.Radar] = CreateInternalPart("AC6_SKIN_SAMPLE_RADAR", "Sample Active Radar", MechPartSlot.Radar, BuildSampleRadarStats(), radarPerformance: BuildSampleRadarPerformance()),
+			[MechPartSlot.DataLinkTerminal] = CreateInternalPart("AC6_SKIN_SAMPLE_DATALINK", "Standard Tactical Data Link Terminal", MechPartSlot.DataLinkTerminal, BuildSampleDataLinkStats(), dataLinkPerformance: BuildSampleDataLinkPerformance())
 		};
 	}
+
+	private static MechPartStats BuildSampleDataLinkStats() => ApplySignatureDefaults(
+		new MechPartStats
+		{
+			massKg = 650f,
+			idlePowerDrawMw = 0.12f,
+			peakPowerDrawMw = 0.45f,
+			idleHeatMw = 0.08f,
+			activeHeatMw = 0.30f,
+			heatCapacityMj = 16f
+		},
+		MechPartSlot.DataLinkTerminal);
+
+	private static MechDataLinkPerformance BuildSampleDataLinkPerformance() =>
+		MechDataLinkPerformance.CreateStandardFallback();
 
 	private static MechPartStats BuildSampleFireControlStats() => ApplySignatureDefaults(
 		new MechPartStats
@@ -2027,10 +2069,11 @@ public static class AC6SkinnedModularSampleBuilder
 		MechPartStats stats,
 		MechGeneratorPerformance generatorPerformance = null,
 		MechRadarPerformance radarPerformance = null,
-		MechFireControlPerformance fireControlPerformance = null)
+		MechFireControlPerformance fireControlPerformance = null,
+		MechDataLinkPerformance dataLinkPerformance = null)
 	{
 		MechPartDefinition part = LoadOrCreateAsset<MechPartDefinition>("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Parts/" + id + ".asset");
-		part.EditorConfigure(id, displayName, slot, MechPartCategory.Internal, null, stats, Array.Empty<MechMountPointDefinition>(), new string[2] { "internal", "sample" }, newGeneratorPerformance: generatorPerformance, newRadarPerformance: radarPerformance, newFireControlPerformance: fireControlPerformance);
+		part.EditorConfigure(id, displayName, slot, MechPartCategory.Internal, null, stats, Array.Empty<MechMountPointDefinition>(), new string[2] { "internal", "sample" }, newGeneratorPerformance: generatorPerformance, newRadarPerformance: radarPerformance, newFireControlPerformance: fireControlPerformance, newDataLinkPerformance: dataLinkPerformance);
 		return part;
 	}
 
@@ -2046,6 +2089,7 @@ public static class AC6SkinnedModularSampleBuilder
 			Assignment(MechPartSlot.Generator, internals[MechPartSlot.Generator]),
 			Assignment(MechPartSlot.FireControlSystem, internals[MechPartSlot.FireControlSystem]),
 			Assignment(MechPartSlot.Radar, internals[MechPartSlot.Radar]),
+			Assignment(MechPartSlot.DataLinkTerminal, internals[MechPartSlot.DataLinkTerminal]),
 			Assignment(MechPartSlot.LeftHandWeapon, weapons[(key == "Uniform1010") ? "WP_L_1310" : (leftHandWeaponKey ?? LeftHandWeaponForCode(armsCode))]),
 			Assignment(MechPartSlot.RightHandWeapon, weapons[(key == "Uniform1010") ? "WP_R_1610" : "WP_R_1310"]),
 			Assignment(MechPartSlot.LeftBackWeapon, weapons[(key == "Uniform1010") ? "WP_L_4250" : "WP_L_4210"]),

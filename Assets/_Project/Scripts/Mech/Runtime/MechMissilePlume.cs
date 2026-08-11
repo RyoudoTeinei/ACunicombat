@@ -35,7 +35,7 @@ namespace ACunicombat.Mechs
         /// 在导弹本体上构建羽焰。喷口位置由实际挂载的弹体模型量出，
         /// <paramref name="fallbackNozzleOffset"/> 只在没有可测模型时兜底（单位：米）。
         /// </summary>
-        public void Build(float fallbackNozzleOffset, float scale)
+        public void Build(float fallbackNozzleOffset, float scale, Transform presentationRoot = null)
         {
             if (!Application.isPlaying || coreSystem != null)
             {
@@ -43,20 +43,28 @@ namespace ACunicombat.Mechs
             }
 
             scale = Mathf.Max(0.1f, scale);
-            var nozzleOffset = MeasureTailOffsetMeters(fallbackNozzleOffset);
+            var visualParent = presentationRoot != null ? presentationRoot : transform;
+            var nozzleOffset = MeasureTailOffsetMeters(fallbackNozzleOffset, visualParent);
 
             var root = new GameObject("Missile_Plume");
-            root.transform.SetParent(transform, false);
+            root.transform.SetParent(visualParent, false);
             // 羽焰朝弹体尾部喷出。
             root.transform.localRotation = Quaternion.LookRotation(Vector3.back);
-            root.transform.localScale = new Vector3(
-                SafeReciprocal(transform.localScale.x),
-                SafeReciprocal(transform.localScale.y),
-                SafeReciprocal(transform.localScale.z));
-            // 弹体 localScale 是非均匀的 (0.18, 0.18, 0.8)，所以世界米不能直接当 localPosition 用；
-            // 经弹体自身的逆变换换算后，倒数缩放的 root 内 1 单位才等于 1 世界米。
-            root.transform.localPosition =
-                transform.InverseTransformVector(-transform.forward * nozzleOffset);
+            if (presentationRoot != null)
+            {
+                root.transform.localScale = Vector3.one;
+                root.transform.localPosition = Vector3.back * nozzleOffset;
+            }
+            else
+            {
+                root.transform.localScale = new Vector3(
+                    SafeReciprocal(transform.localScale.x),
+                    SafeReciprocal(transform.localScale.y),
+                    SafeReciprocal(transform.localScale.z));
+                // 兼容没有展示根节点的旧调用路径。
+                root.transform.localPosition =
+                    transform.InverseTransformVector(-transform.forward * nozzleOffset);
+            }
 
             var thermal = root.AddComponent<MechEffectThermalAppearance>();
             thermal.Configure(MechEffectThermalAppearance.Signature.HotSaturating);
@@ -352,11 +360,11 @@ namespace ACunicombat.Mechs
         /// （<c>MechTestWeaponSystem.TryAttachMissileVisual</c>），所以尾端位置不是常量；
         /// 写死偏移会让羽焰从弹体中段喷出来。
         /// </summary>
-        private float MeasureTailOffsetMeters(float fallback)
+        private float MeasureTailOffsetMeters(float fallback, Transform visualRoot)
         {
-            var renderers = GetComponentsInChildren<Renderer>(true);
-            var origin = transform.position;
-            var forward = transform.forward;
+            var renderers = visualRoot.GetComponentsInChildren<Renderer>(true);
+            var origin = visualRoot.position;
+            var forward = visualRoot.forward;
             var tail = 0f;
             var measured = false;
 

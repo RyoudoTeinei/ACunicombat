@@ -14,6 +14,96 @@ using UnityEngine;
 
 namespace ACunicombat.Mechs
 {
+    public enum MechTargetDamageCondition : byte
+    {
+        Unknown = 0,
+        Nominal = 1,
+        LightDamage = 2,
+        ModerateDamage = 3,
+        HeavyDamage = 4,
+        CriticalDamage = 5,
+    }
+
+    public readonly struct MechTargetDamageAssessment
+    {
+        public MechTargetDamageAssessment(
+            TrackId trackId,
+            MechTargetDamageCondition condition,
+            float confidence,
+            double observationTime)
+        {
+            TrackId = trackId;
+            Condition = condition;
+            Confidence = Mathf.Clamp01(confidence);
+            ObservationTime = observationTime;
+        }
+
+        public TrackId TrackId { get; }
+        public MechTargetDamageCondition Condition { get; }
+        public float Confidence { get; }
+        public double ObservationTime { get; }
+    }
+
+    public static class MechTargetDamageAssessmentMath
+    {
+        public const float MinimumUsableSensorQuality = 0.2f;
+
+        public static float CalculateObservedHealthFraction(
+            float actualHealthFraction,
+            float sensorQuality,
+            float healthVariation)
+        {
+            var noisyHealth = Mathf.Clamp01(
+                Mathf.Clamp01(actualHealthFraction) *
+                Mathf.Clamp(healthVariation, 0.9f, 1.1f));
+            var diagnosticGain = Mathf.Lerp(
+                0.65f,
+                1f,
+                Mathf.Clamp01(sensorQuality));
+            return Mathf.Clamp01(
+                1f - (1f - noisyHealth) * diagnosticGain);
+        }
+
+        public static MechTargetDamageCondition Classify(
+            float observedHealthFraction,
+            float sensorQuality)
+        {
+            if (sensorQuality < MinimumUsableSensorQuality)
+            {
+                return MechTargetDamageCondition.Unknown;
+            }
+
+            var health = Mathf.Clamp01(observedHealthFraction);
+            if (health >= 0.88f) return MechTargetDamageCondition.Nominal;
+            if (health >= 0.68f) return MechTargetDamageCondition.LightDamage;
+            if (health >= 0.43f) return MechTargetDamageCondition.ModerateDamage;
+            if (health >= 0.18f) return MechTargetDamageCondition.HeavyDamage;
+            return MechTargetDamageCondition.CriticalDamage;
+        }
+
+        public static float DeterministicHealthVariation(uint trackKey, uint sequence)
+        {
+            var value = trackKey ^ (sequence * 0x9E3779B9u) ^ 0xA511E9B3u;
+            value ^= value >> 16;
+            value *= 0x7FEB352Du;
+            value ^= value >> 15;
+            value *= 0x846CA68Bu;
+            value ^= value >> 16;
+            return Mathf.Lerp(
+                0.9f,
+                1.1f,
+                (value & 0x00FFFFFFu) / 16777215f);
+        }
+    }
+
+    public enum MechDataLinkPolicy : byte
+    {
+        Automatic = 0,
+        SituationalAwareness = 10,
+        AirDefense = 20,
+        Silent = 30
+    }
+
     /// <summary>
     /// Bridges scene truth into the deterministic sensor simulation and exposes only measurements,
     /// tracks, radar status and fire-control products to gameplay/UI consumers.
@@ -75,6 +165,16 @@ namespace ACunicombat.Mechs
             public int ReferenceCount;
         }
 
+        private struct DamageAssessmentState
+        {
+            public float SmoothedHealthFraction;
+            public float Confidence;
+            public double LastObservationTime;
+            public double NextObservationTime;
+            public uint ObservationSequence;
+            public bool HasHealthEstimate;
+        }
+
         private SimulationDriver driver;
         private Camera aimingCamera;
         private MechFlightMotionController flightMotion;
@@ -100,13 +200,14 @@ namespace ACunicombat.Mechs
         [SerializeField] private bool autoEquipTestEmitters = true;
         [SerializeField] private bool radarPowerEnabled = true;
         [SerializeField] private bool retainSttWhenOperationModeDisabled;
+        [SerializeField] private MechDataLinkPolicy dataLinkPolicy =
+            MechDataLinkPolicy.Automatic;
 
         // ---- 数据链：本机终端 index 1，导弹终端 8..63；EmitterId 用 32+index
         // 区段与雷达发射机（0 区段）分开，ESM 消隐按 EmitterId 精确匹配。----
         private const int MissileLinkIndexStart = 8;
         private const int LinkEmitterIndexBase = 32;
         private const byte GuidanceNetworkId = 0;
-        private const float GuidanceUplinkIntervalSeconds = 0.25f;
         private const float GuidanceReacquisitionGateMeters = 350f;
         // STT 重获门限比制导链路窄：玩家锁定错目标的代价比导弹丢中段修正更高。
         // 实测被拆分的虚影与真目标相距约 50 m（截图 T03/T05：5.54 vs 5.49 km），
@@ -115,6 +216,7 @@ namespace ACunicombat.Mechs
         private const float FriendlyMissileReportRetentionSeconds = 1.0f;
         private const float FriendlyMissileAssociationMaximumMeters = 120f;
         private const float FriendlyMissileAssociationVelocityGateMps = 180f;
+        private const double FriendlyMissileAssociationScoreSeparation = 0.35;
         private readonly LinkTerminalId ownLinkTerminalId = new LinkTerminalId(new Handle(1, 1));
         private readonly bool[] missileLinkAllocated = new bool[64];
         private readonly byte[] missileLinkGenerations = new byte[64];
@@ -126,13 +228,16 @@ namespace ACunicombat.Mechs
             public LinkTerminalId SourceTerminal;
             public double3 Position;
             public double3 Velocity;
+            public MissileMissionRole MissionRole;
+            public float MissionRoleConfidence;
             public double Timestamp;
             public ulong Sequence;
         }
 
         private readonly FriendlyMissileLinkReport[] friendlyMissileReports =
             new FriendlyMissileLinkReport[64];
-        private readonly bool[] friendlyMissileReportMatched = new bool[64];
+        private readonly bool[] friendlyMissileTrackMatched =
+            new bool[MaximumPublicTracks];
         private readonly LinkMessage[] ownLinkInboxScratch = new LinkMessage[64];
 
         private struct UplinkSubscription
@@ -199,11 +304,18 @@ namespace ACunicombat.Mechs
         private Vector3 searchFrameUp;
         private MechRadarPerformanceProfile radarPerformance;
         private MechFireControlComputerProfile fireControlPerformance;
+        private MechHeadSensorPerformance headPerformance =
+            new MechHeadSensorPerformance();
+        private MechDataLinkPerformance dataLinkPerformance =
+            MechDataLinkPerformance.CreateStandardFallback();
         private double sttLastMaintainableTime = double.NegativeInfinity;
         private int fireControlReservationFrame = -1;
         private int fireControlSolutionReservations;
         private int weaponControlReservations;
         private readonly HashSet<TrackId> fireControlTargetReservations = new HashSet<TrackId>();
+        private readonly Dictionary<TrackId, DamageAssessmentState> damageAssessments =
+            new Dictionary<TrackId, DamageAssessmentState>();
+        private TrackId damageAssessmentTrackId;
 
         private float RuntimeRadarRangeMeters =>
             radarPerformance.MaximumRangeMeters > 0f
@@ -237,6 +349,16 @@ namespace ACunicombat.Mechs
         public bool RadarPowerEnabled => radarPowerEnabled;
         public bool RetainSttWhenOperationModeDisabled =>
             retainSttWhenOperationModeDisabled;
+        public MechDataLinkPolicy DataLinkPolicy => dataLinkPolicy;
+        public bool DataLinkTransmitEnabled =>
+            dataLinkPolicy != MechDataLinkPolicy.Silent;
+        public string DataLinkPolicyDisplayName => dataLinkPolicy switch
+        {
+            MechDataLinkPolicy.SituationalAwareness => "态势优先",
+            MechDataLinkPolicy.AirDefense => "防空优先",
+            MechDataLinkPolicy.Silent => "静默",
+            _ => "自动"
+        };
         public TrackId CandidateTrackId => candidateTrackId;
         public TrackId SttTrackId => sttTrackId;
         public bool HasStt => sttTrackId.IsValid && TryGetTrack(sttTrackId, out _);
@@ -371,6 +493,50 @@ namespace ACunicombat.Mechs
             retainSttWhenOperationModeDisabled = enabled;
         }
 
+        public void CycleDataLinkPolicy()
+        {
+            dataLinkPolicy = dataLinkPolicy switch
+            {
+                MechDataLinkPolicy.Automatic => MechDataLinkPolicy.SituationalAwareness,
+                MechDataLinkPolicy.SituationalAwareness => MechDataLinkPolicy.AirDefense,
+                MechDataLinkPolicy.AirDefense => MechDataLinkPolicy.Silent,
+                _ => MechDataLinkPolicy.Automatic
+            };
+        }
+
+        public float GetFriendlyMissileReportIntervalSeconds(
+            MissileMissionRole missionRole)
+        {
+            if (!DataLinkTransmitEnabled)
+            {
+                return 0.5f;
+            }
+
+            var baseRate = Mathf.Max(0.25f, dataLinkPerformance.trackShareUpdateRateHz);
+            var multiplier = dataLinkPolicy switch
+            {
+                MechDataLinkPolicy.SituationalAwareness => 1.5f,
+                MechDataLinkPolicy.AirDefense when
+                    missionRole == MissileMissionRole.Interceptor => 2f,
+                MechDataLinkPolicy.AirDefense => 0.5f,
+                _ => 1f
+            };
+            return 1f / Mathf.Max(0.25f, baseRate * multiplier);
+        }
+
+        private float RuntimeGuidanceUplinkIntervalSeconds
+        {
+            get
+            {
+                var rate = Mathf.Max(0.25f, dataLinkPerformance.guidanceUpdateRateHz);
+                if (dataLinkPolicy == MechDataLinkPolicy.AirDefense)
+                {
+                    rate *= 1.25f;
+                }
+                return 1f / rate;
+            }
+        }
+
         public void BreakSingleTargetTrack()
         {
             BreakSingleTargetTrack(SttBreakReason.Manual);
@@ -404,7 +570,6 @@ namespace ACunicombat.Mechs
             Vector3 velocity,
             float maximumRangeMeters,
             float beamWidthDegrees,
-            bool registerAsHostileRadarTarget,
             out MissileSeekerHandle handle)
         {
             EnsureInitialized();
@@ -475,41 +640,40 @@ namespace ACunicombat.Mechs
                             },
                     });
 
-                if (registerAsHostileRadarTarget)
+                // Detectability is a physical property. Affiliation is assigned later
+                // by authenticated data-link association, never by target registration.
+                driver.RegisterRadarTarget(new RadarTargetProfile
                 {
-                    driver.RegisterRadarTarget(new RadarTargetProfile
+                    EntityId = entity,
+                    RadarCrossSectionSquareMeters = 0.04f,
+                    ObjectClass = TrackObjectClass.Missile,
+                    ClassificationSignature = 0.9f,
+                });
+                driver.RegisterElectroOpticalTarget(
+                    new ElectroOpticalTargetProfile
                     {
                         EntityId = entity,
-                        RadarCrossSectionSquareMeters = 0.04f,
-                        ObjectClass = TrackObjectClass.Missile,
+                        SignatureDb = 30f,
+                        ReferenceDiameterMeters = 0.5f,
+                        ObjectClass =
+                            TrackObjectClass.Missile,
                         ClassificationSignature = 0.9f,
                     });
-                    driver.RegisterElectroOpticalTarget(
-                        new ElectroOpticalTargetProfile
-                        {
-                            EntityId = entity,
-                            SignatureDb = 30f,
-                            ReferenceDiameterMeters = 0.5f,
-                            ObjectClass =
-                                TrackObjectClass.Missile,
-                            ClassificationSignature = 0.9f,
-                        });
-                    driver.RegisterLaserRangeTarget(
-                        new LaserRangeTargetProfile
-                        {
-                            EntityId = entity,
-                            ReflectivityDb = 0f,
-                            ObjectClass =
-                                TrackObjectClass.Missile,
-                            ClassificationSignature = 0.9f,
-                        });
-                }
+                driver.RegisterLaserRangeTarget(
+                    new LaserRangeTargetProfile
+                    {
+                        EntityId = entity,
+                        ReflectivityDb = 0f,
+                        ObjectClass =
+                            TrackObjectClass.Missile,
+                        ClassificationSignature = 0.9f,
+                    });
 
                 auxiliarySensorAllocated[index] = true;
                 handle = new MissileSeekerHandle(
                     entity,
                     sensor,
-                    registerAsHostileRadarTarget);
+                    radarTargetRegistered: true);
                 return true;
             }
 
@@ -830,7 +994,9 @@ namespace ACunicombat.Mechs
                 ScanElevationDegrees = RuntimeSearchElevationDegrees,
                 BeamAzimuthDegrees = beamAzimuthDegrees,
                 BeamElevationDegrees = beamElevationDegrees,
-                BeamWidthDegrees = SearchBeamWidthDegrees,
+                BeamWidthDegrees = hasStt
+                    ? SttBeamWidthDegrees
+                    : SearchBeamWidthDegrees,
                 SearchFrameProgress = searchPattern.FrameProgress,
                 SearchColumnCount = searchPattern.ColumnCount,
                 SearchRowCount = searchPattern.RowCount,
@@ -866,6 +1032,37 @@ namespace ACunicombat.Mechs
         {
             snapshot = default;
             return driver != null && driver.TryGetTrack(trackId, out snapshot);
+        }
+
+        public bool TryGetTargetDamageAssessment(
+            TrackId trackId,
+            out MechTargetDamageAssessment assessment)
+        {
+            assessment = default;
+            if (!trackId.IsValid ||
+                !trackId.Equals(sttTrackId) ||
+                !damageAssessments.TryGetValue(trackId, out var state))
+            {
+                return false;
+            }
+
+            var now = SimTimeSeconds;
+            if (now - state.LastObservationTime > 2.5)
+            {
+                return false;
+            }
+
+            var condition = state.HasHealthEstimate
+                ? MechTargetDamageAssessmentMath.Classify(
+                    state.SmoothedHealthFraction,
+                    state.Confidence)
+                : MechTargetDamageCondition.Unknown;
+            assessment = new MechTargetDamageAssessment(
+                trackId,
+                condition,
+                state.Confidence,
+                state.LastObservationTime);
+            return true;
         }
 
         public bool TryAssignFireControlTrack(
@@ -910,26 +1107,14 @@ namespace ACunicombat.Mechs
             float basePositionGateMeters,
             out TrackSnapshot snapshot)
         {
-            snapshot = default;
-            if (!TryGetBestTrack(out var candidate))
-            {
-                return false;
-            }
-
-            var previousPosition = PredictTrackPosition(previousTrack);
-            var candidatePosition = PredictTrackPosition(candidate);
-            var previousAge = math.max(0.0, SimTimeSeconds - previousTrack.LastUpdateTime);
-            var positionGate = math.max(
+            var count = CopyTracks(trackScratch);
+            return TrackReacquisition.TrySelectCandidate(
+                in previousTrack,
+                trackScratch,
+                count,
+                SimTimeSeconds,
                 basePositionGateMeters,
-                basePositionGateMeters + math.length(previousTrack.Velocity) * previousAge * 0.5);
-            if (math.distancesq(ToDouble3(previousPosition), ToDouble3(candidatePosition)) >
-                positionGate * positionGate)
-            {
-                return false;
-            }
-
-            snapshot = candidate;
-            return true;
+                out snapshot);
         }
 
         /// <summary>
@@ -1152,7 +1337,6 @@ namespace ACunicombat.Mechs
 
         public bool TryAuthorizeMissileLaunch(
             MissileGuidanceMode guidanceMode,
-            float coneDegrees,
             in MissileKinematicProfile kinematics,
             TrackObjectClass requiredTargetClass,
             out TrackSnapshot track,
@@ -1161,7 +1345,6 @@ namespace ACunicombat.Mechs
         {
             guidanceChannelToken = 0;
             if (!TryGetMissileFireSolution(
-                    coneDegrees,
                     kinematics,
                     out track,
                     out solution))
@@ -1195,7 +1378,6 @@ namespace ACunicombat.Mechs
         }
 
         public bool TryGetMissileFireSolution(
-            float coneDegrees,
             in MissileKinematicProfile kinematics,
             out TrackSnapshot track,
             out FireSolution solution)
@@ -1225,12 +1407,7 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            var ray = GetAimRay();
-            var toIntercept =
-                ToVector3(solution.InterceptPoint) - ray.origin;
-            return toIntercept.sqrMagnitude > 0.001f &&
-                   Vector3.Angle(ray.direction, toIntercept) <=
-                   coneDegrees;
+            return true;
         }
 
         public void ReleaseGuidanceChannel(int token)
@@ -1435,16 +1612,232 @@ namespace ACunicombat.Mechs
             ConsumeFriendlyMissileReports();
         }
 
+        private void LateUpdate()
+        {
+            if (!initialized || !HasStt ||
+                !TryGetTrack(sttTrackId, out var track) ||
+                track.ObjectClass != TrackObjectClass.AirVehicle)
+            {
+                damageAssessmentTrackId = default;
+                damageAssessments.Clear();
+                return;
+            }
+
+            if (!damageAssessmentTrackId.Equals(track.TrackId))
+            {
+                damageAssessmentTrackId = track.TrackId;
+                damageAssessments.Clear();
+            }
+
+            UpdateTargetDamageAssessment(in track);
+        }
+
+        private void UpdateTargetDamageAssessment(in TrackSnapshot track)
+        {
+            var now = SimTimeSeconds;
+            damageAssessments.TryGetValue(track.TrackId, out var state);
+            if (now + 1e-6 < state.NextObservationTime)
+            {
+                return;
+            }
+
+            if (!TryResolveSceneTarget(in track, out var target))
+            {
+                state.HasHealthEstimate = false;
+                state.Confidence = 0f;
+                state.LastObservationTime = now;
+                state.NextObservationTime = now + 0.75;
+                damageAssessments[track.TrackId] = state;
+                return;
+            }
+
+            var targetPosition = target.AimPoint != null
+                ? target.AimPoint.position
+                : target.transform.position;
+            var rangeMeters = Vector3.Distance(transform.position, targetPosition);
+            var sensorQuality = CalculateDamageAssessmentSensorQuality(
+                in track,
+                target,
+                targetPosition,
+                rangeMeters);
+            state.ObservationSequence++;
+            var variation = MechTargetDamageAssessmentMath.DeterministicHealthVariation(
+                track.TrackId.Packed,
+                state.ObservationSequence);
+            var observedHealth = MechTargetDamageAssessmentMath.CalculateObservedHealthFraction(
+                target.HealthFraction,
+                sensorQuality,
+                variation);
+
+            if (sensorQuality >= MechTargetDamageAssessmentMath.MinimumUsableSensorQuality)
+            {
+                var smoothing = Mathf.Lerp(0.28f, 0.68f, sensorQuality);
+                state.SmoothedHealthFraction = state.HasHealthEstimate
+                    ? Mathf.Lerp(state.SmoothedHealthFraction, observedHealth, smoothing)
+                    : observedHealth;
+                state.HasHealthEstimate = true;
+            }
+            else
+            {
+                state.HasHealthEstimate = false;
+            }
+
+            state.Confidence = sensorQuality;
+            state.LastObservationTime = now;
+            state.NextObservationTime = now + Mathf.Lerp(1.4f, 0.35f, sensorQuality);
+            damageAssessments[track.TrackId] = state;
+        }
+
+        private bool TryResolveSceneTarget(
+            in TrackSnapshot track,
+            out CombatTestTarget target)
+        {
+            target = null;
+            var predictedPosition = PredictTrackPosition(track);
+            var covarianceSum =
+                track.GetCovariance(0, 0) +
+                track.GetCovariance(1, 1) +
+                track.GetCovariance(2, 2);
+            var positionVariance = double.IsFinite(covarianceSum)
+                ? Mathf.Max(0f, (float)covarianceSum)
+                : 0f;
+            var associationGate = Mathf.Clamp(
+                Mathf.Sqrt(positionVariance) * 4f + 60f,
+                120f,
+                1500f);
+            var bestDistance = associationGate;
+            var sensorPlatform = GetComponentInParent<CombatTestTarget>();
+
+            for (var i = 0; i < sceneTargetCount; i++)
+            {
+                var candidate = sceneTargets[i];
+                if (candidate == null || !candidate.IsAlive ||
+                    !IsAffiliationCompatible(track.Affiliation, sensorPlatform, candidate))
+                {
+                    continue;
+                }
+
+                var candidatePosition = candidate.AimPoint != null
+                    ? candidate.AimPoint.position
+                    : candidate.transform.position;
+                var distance = Vector3.Distance(predictedPosition, candidatePosition);
+                if (distance >= bestDistance)
+                {
+                    continue;
+                }
+
+                bestDistance = distance;
+                target = candidate;
+            }
+
+            return target != null;
+        }
+
+        private static bool IsAffiliationCompatible(
+            TrackAffiliation affiliation,
+            CombatTestTarget sensorPlatform,
+            CombatTestTarget candidate)
+        {
+            if (sensorPlatform == null || affiliation == TrackAffiliation.Unknown)
+            {
+                return true;
+            }
+
+            var sameTeam = sensorPlatform.TeamId == candidate.TeamId;
+            return affiliation == TrackAffiliation.Friendly ? sameTeam : !sameTeam;
+        }
+
+        private float CalculateDamageAssessmentSensorQuality(
+            in TrackSnapshot track,
+            CombatTestTarget target,
+            Vector3 targetPosition,
+            float rangeMeters)
+        {
+            var opticalQuality = 0f;
+            if ((track.SourceMask & TrackSourceMask.ElectroOptical) != 0 &&
+                headPerformance != null &&
+                headPerformance.HasData)
+            {
+                var thermal01 = Mathf.Clamp01(target.ThermalSignature / 8f);
+                var referenceRangeMeters = Mathf.Lerp(
+                    Mathf.Max(0.1f, headPerformance.referenceColdRangeKm),
+                    Mathf.Max(0.1f, headPerformance.referenceHotRangeKm),
+                    thermal01) * 1000f;
+                var rangeQuality = SmoothFalloff(
+                    rangeMeters / Mathf.Max(100f, referenceRangeMeters),
+                    0.45f,
+                    1.05f);
+                var sensorForward = aimingCamera != null
+                    ? aimingCamera.transform.forward
+                    : transform.forward;
+                var lineOfSight = targetPosition - transform.position;
+                var offBoresight = lineOfSight.sqrMagnitude > 0.01f
+                    ? Vector3.Angle(sensorForward, lineOfSight)
+                    : 0f;
+                var pointingLimit = Mathf.Lerp(
+                    18f,
+                    95f,
+                    Mathf.Clamp01(headPerformance.pointingCapability / 100f));
+                var pointingQuality = SmoothFalloff(
+                    offBoresight,
+                    pointingLimit * 0.65f,
+                    pointingLimit);
+                var capability =
+                    headPerformance.identificationCapability * 0.5f +
+                    headPerformance.trackingCapability * 0.3f +
+                    headPerformance.pointingCapability * 0.2f;
+                opticalQuality = Mathf.Clamp01(capability / 100f) *
+                                 rangeQuality *
+                                 pointingQuality;
+            }
+
+            var electromagneticQuality = 0f;
+            if ((track.SourceMask & TrackSourceMask.Radar) != 0)
+            {
+                var stableRange = Mathf.Max(100f, radarPerformance.StableTrackRangeMeters);
+                var rangeQuality = SmoothFalloff(
+                    rangeMeters / stableRange,
+                    0.55f,
+                    1.15f);
+                electromagneticQuality = Mathf.Clamp01(
+                    radarPerformance.LockMaintenanceRating / 100f) *
+                    rangeQuality;
+            }
+
+            if ((track.SourceMask & TrackSourceMask.Esm) != 0)
+            {
+                var emissionQuality = Mathf.Clamp01(
+                    target.ElectromagneticSignature / 10f) *
+                    Mathf.Clamp01(track.Classification);
+                electromagneticQuality = 1f -
+                    (1f - electromagneticQuality) *
+                    (1f - emissionQuality);
+            }
+
+            var fusedQuality = 1f -
+                (1f - opticalQuality) *
+                (1f - electromagneticQuality);
+            return Mathf.Clamp01(fusedQuality * Mathf.Lerp(
+                0.55f,
+                1f,
+                Mathf.Clamp01(track.Confidence)));
+        }
+
+        private static float SmoothFalloff(float value, float fullAt, float zeroAt)
+        {
+            var t = Mathf.InverseLerp(fullAt, zeroAt, value);
+            var smooth = t * t * (3f - 2f * t);
+            return 1f - smooth;
+        }
+
         private void ScheduleDwells()
         {
             var now = driver.SimTimeSeconds;
-            var aimRay = GetAimRay();
             var hasStt = HasStt;
             if (now + 1e-6 >= nextSearchDwellTime)
             {
                 ScheduleSearchBatch(
                     now,
-                    aimRay,
                     hasStt ? SttSearchDwellsPerTick : SearchDwellsPerTick);
                 nextSearchDwellTime = now + RuntimeSearchIntervalSeconds;
             }
@@ -1595,15 +1988,11 @@ namespace ACunicombat.Mechs
                 now + PointDefenseRevisitIntervalSeconds;
         }
 
-        private void ScheduleSearchBatch(double now, Ray aimRay, int dwellCount)
+        private void ScheduleSearchBatch(double now, int dwellCount)
         {
+            CaptureSearchFrame();
             for (var i = 0; i < dwellCount; i++)
             {
-                if (searchPattern.IsFrameStart)
-                {
-                    CaptureSearchFrame(aimRay);
-                }
-
                 var cell = searchPattern.Next();
                 var direction = SearchDirection(cell.x, cell.y);
                 driver.ScheduleRadarDwell(new Dwell
@@ -1624,7 +2013,10 @@ namespace ACunicombat.Mechs
         {
             var count = CopyTracks(trackScratch);
             Span<bool> pickedThisCall = stackalloc bool[MaximumPublicTracks];
-            for (var scheduled = 0; scheduled < TwsRevisitsPerTick; scheduled++)
+            var scheduled = 0;
+            for (var attempts = 0;
+                 attempts < count && scheduled < TwsRevisitsPerTick;
+                 attempts++)
             {
                 // 每轮挑"最久未访"的到期航迹，而不是按槽位序取前 N 个——
                 // 槽位序在满载时会让高索引航迹饥饿。
@@ -1676,8 +2068,11 @@ namespace ACunicombat.Mechs
                 var selectedSlot = selected.TrackId.Value.Index;
                 var predictedPosition = PredictTrackPosition(selected);
                 var direction = (predictedPosition - transform.position).normalized;
-                if (direction.sqrMagnitude < 0.5f)
+                if (direction.sqrMagnitude < 0.5f ||
+                    !IsWithinBodyRadarFrame(direction))
                 {
+                    nextTwsRevisitTimes[selectedSlot] = now +
+                        RuntimeTwsRevisitIntervalSeconds;
                     continue;
                 }
 
@@ -1695,6 +2090,7 @@ namespace ACunicombat.Mechs
                         : DwellPriority.TrackWhileScan,
                     Sequence = ++dwellSequence,
                 });
+                scheduled++;
                 nextTwsRevisitTimes[selectedSlot] = now +
                     (hasStt
                         ? RuntimeTwsRevisitIntervalSeconds * 1.5f
@@ -1702,19 +2098,12 @@ namespace ACunicombat.Mechs
             }
         }
 
-        private void CaptureSearchFrame(Ray aimRay)
+        private void CaptureSearchFrame()
         {
-            searchFrameForward = aimRay.direction.normalized;
-            var referenceUp = aimingCamera != null
-                ? aimingCamera.transform.up
-                : transform.up;
-            searchFrameRight = Vector3.Cross(referenceUp, searchFrameForward).normalized;
-            if (searchFrameRight.sqrMagnitude < 0.5f)
-            {
-                searchFrameRight = transform.right;
-            }
-
-            searchFrameUp = Vector3.Cross(searchFrameForward, searchFrameRight).normalized;
+            var frameRotation = GetBodyRadarFrameRotation();
+            searchFrameForward = frameRotation * Vector3.forward;
+            searchFrameRight = frameRotation * Vector3.right;
+            searchFrameUp = frameRotation * Vector3.up;
         }
 
         private Vector3 SearchDirection(float azimuthDegrees, float elevationDegrees)
@@ -1830,14 +2219,7 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            if (flightMotion == null)
-            {
-                flightMotion = GetComponent<MechFlightMotionController>();
-            }
-
-            var frameRotation = flightMotion != null
-                ? flightMotion.LogicalRotation
-                : transform.rotation;
+            var frameRotation = GetBodyRadarFrameRotation();
             var localDirection =
                 Quaternion.Inverse(frameRotation) * worldDirection.normalized;
             if (localDirection.z <= 0f)
@@ -1858,6 +2240,18 @@ namespace ACunicombat.Mechs
                    Mathf.Abs(elevation) <= RuntimeSearchElevationDegrees * 0.5f;
         }
 
+        private Quaternion GetBodyRadarFrameRotation()
+        {
+            if (flightMotion == null)
+            {
+                flightMotion = GetComponent<MechFlightMotionController>();
+            }
+
+            return flightMotion != null
+                ? flightMotion.LogicalRotation
+                : transform.rotation;
+        }
+
         private void EnsureInitialized()
         {
             if (initialized)
@@ -1868,12 +2262,18 @@ namespace ACunicombat.Mechs
             if (aimingCamera == null) aimingCamera = Camera.main;
             var runtimeState = GetComponent<MechRuntimeState>();
             var installedStats = runtimeState != null ? runtimeState.AggregatedStats : null;
-            var headPerformance = installedStats?.headSensorPerformance ??
+            headPerformance = installedStats?.headSensorPerformance?.Clone() ??
                 new MechHeadSensorPerformance();
             radarPerformance = MechFireControlPerformanceModel.BuildRadarProfile(installedStats);
             fireControlPerformance = MechFireControlPerformanceModel.BuildFireControlProfile(
                 installedStats,
                 radarPerformance);
+            dataLinkPerformance = installedStats?.dataLinkPerformance?.Clone() ??
+                MechDataLinkPerformance.CreateStandardFallback();
+            if (!dataLinkPerformance.HasData)
+            {
+                dataLinkPerformance = MechDataLinkPerformance.CreateStandardFallback();
+            }
             searchPattern = new RasterScanPattern(
                 RuntimeSearchAzimuthDegrees,
                 RuntimeSearchElevationDegrees,
@@ -1932,13 +2332,17 @@ namespace ACunicombat.Mechs
                 OwnerEntityId = playerEntity,
                 EmitterId = new EmitterId(new Handle(LinkEmitterIndexBase + 1, 1)),
                 NetworkId = GuidanceNetworkId,
-                TransmitPowerDb = 52f,
-                SidelobeLevelDb = -30f,
+                TransmitPowerDb = dataLinkPerformance.transmitPowerDb,
+                SidelobeLevelDb = dataLinkPerformance.sidelobeLevelDb,
                 BeamWidthRadians = 20f * Mathf.Deg2Rad,
-                ReceiveSensitivityDb = -60f,
-                MaxRangeMeters = 150_000.0,
-                FrequencyBand = 2,
-                WaveformId = 10,
+                ReceiveSensitivityDb = dataLinkPerformance.receiveSensitivityDb,
+                MaxRangeMeters = dataLinkPerformance.referenceCommunicationRangeKm * 1000.0,
+                BandwidthKilobitsPerSecond = dataLinkPerformance.bandwidthKbps,
+                MaxNetworkNodes = dataLinkPerformance.maximumNetworkNodes,
+                ProcessingLatencySeconds = dataLinkPerformance.endToEndLatencyMs * 0.0005f,
+                JamResistanceDb = dataLinkPerformance.jamResistanceRating * 0.12f,
+                FrequencyBand = (ushort)Mathf.Clamp(dataLinkPerformance.frequencyBand, 1, ushort.MaxValue),
+                WaveformId = (ushort)Mathf.Clamp(dataLinkPerformance.waveformId, 1, ushort.MaxValue),
             });
 
             // 被动告警接收机：消隐本机雷达与本机链路终端；本机导弹导引头的辐射
@@ -2095,6 +2499,16 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
+            var allocatedNodeCount = 1;
+            for (var i = MissileLinkIndexStart; i < missileLinkAllocated.Length; i++)
+            {
+                if (missileLinkAllocated[i]) allocatedNodeCount++;
+            }
+            if (allocatedNodeCount >= Mathf.Max(1, dataLinkPerformance.maximumNetworkNodes))
+            {
+                return false;
+            }
+
             for (var index = MissileLinkIndexStart; index < missileLinkAllocated.Length; index++)
             {
                 if (missileLinkAllocated[index])
@@ -2122,9 +2536,13 @@ namespace ACunicombat.Mechs
                     SidelobeLevelDb = -30f,
                     BeamWidthRadians = 2f * Mathf.PI,
                     ReceiveSensitivityDb = -70f,
-                    MaxRangeMeters = 150_000.0,
-                    FrequencyBand = 2,
-                    WaveformId = 10,
+                    MaxRangeMeters = dataLinkPerformance.referenceCommunicationRangeKm * 1000.0,
+                    BandwidthKilobitsPerSecond = dataLinkPerformance.bandwidthKbps,
+                    MaxNetworkNodes = dataLinkPerformance.maximumNetworkNodes,
+                    ProcessingLatencySeconds = dataLinkPerformance.endToEndLatencyMs * 0.0005f,
+                    JamResistanceDb = dataLinkPerformance.jamResistanceRating * 0.12f,
+                    FrequencyBand = (ushort)Mathf.Clamp(dataLinkPerformance.frequencyBand, 1, ushort.MaxValue),
+                    WaveformId = (ushort)Mathf.Clamp(dataLinkPerformance.waveformId, 1, ushort.MaxValue),
                 });
                 missileLinkAllocated[index] = true;
                 missileLinkEntities[index] = linkEntity;
@@ -2178,9 +2596,11 @@ namespace ACunicombat.Mechs
         public bool SendFriendlyMissileTrackReport(
             LinkTerminalId terminalId,
             Vector3 position,
-            Vector3 velocity)
+            Vector3 velocity,
+            MissileMissionRole missionRole)
         {
-            if (!TryGetOwnedMissileLinkEntity(terminalId, out _))
+            if (!DataLinkTransmitEnabled ||
+                !TryGetOwnedMissileLinkEntity(terminalId, out _))
             {
                 return false;
             }
@@ -2200,6 +2620,9 @@ namespace ACunicombat.Mechs
                     Velocity = ToDouble3(velocity),
                     Confidence = 1f,
                     ObjectClass = TrackObjectClass.Missile,
+                    MissileRole = missionRole,
+                    MissileRoleConfidence =
+                        missionRole == MissileMissionRole.Unknown ? 0f : 1f,
                     Classification = 1f,
                     IdentityConfidence = 1f,
                     Affiliation = TrackAffiliation.Friendly,
@@ -2271,6 +2694,9 @@ namespace ACunicombat.Mechs
                     SourceTerminal = message.SourceTerminal,
                     Position = message.TrackPayload.Position,
                     Velocity = message.TrackPayload.Velocity,
+                    MissionRole = message.TrackPayload.MissileRole,
+                    MissionRoleConfidence =
+                        message.TrackPayload.MissileRoleConfidence,
                     Timestamp = message.DeliveryTime,
                     Sequence = message.Sequence,
                 };
@@ -2281,58 +2707,45 @@ namespace ACunicombat.Mechs
         private void ApplyFriendlyMissileIdentification(double now)
         {
             Array.Clear(
-                friendlyMissileReportMatched,
+                friendlyMissileTrackMatched,
                 0,
-                friendlyMissileReportMatched.Length);
-            for (var trackIndex = 0;
-                 trackIndex < missileTrackCacheCount;
-                 trackIndex++)
+                friendlyMissileTrackMatched.Length);
+            for (var reportIndex = MissileLinkIndexStart;
+                 reportIndex < friendlyMissileReports.Length;
+                 reportIndex++)
             {
-                ref var track = ref missileTrackCache[trackIndex];
-                var bestReportIndex = -1;
-                var bestScore = double.PositiveInfinity;
-                for (var reportIndex = MissileLinkIndexStart;
-                     reportIndex < friendlyMissileReports.Length;
-                     reportIndex++)
-                {
-                    var report = friendlyMissileReports[reportIndex];
-                    var age = math.max(0.0, now - report.Timestamp);
-                    if (!report.Active ||
-                        friendlyMissileReportMatched[reportIndex] ||
-                        age > FriendlyMissileReportRetentionSeconds)
-                    {
-                        continue;
-                    }
-
-                    if (!MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(
-                            in track,
-                            report.Position,
-                            report.Velocity,
-                            report.Timestamp,
-                            now,
-                            FriendlyMissileReportRetentionSeconds,
-                            FriendlyMissileAssociationMaximumMeters,
-                            FriendlyMissileAssociationVelocityGateMps,
-                            out var score))
-                    {
-                        continue;
-                    }
-                    if (score < bestScore)
-                    {
-                        bestScore = score;
-                        bestReportIndex = reportIndex;
-                    }
-                }
-
-                if (bestReportIndex < 0)
+                var report = friendlyMissileReports[reportIndex];
+                var age = math.max(0.0, now - report.Timestamp);
+                if (!report.Active ||
+                    age > FriendlyMissileReportRetentionSeconds)
                 {
                     continue;
                 }
 
-                friendlyMissileReportMatched[bestReportIndex] = true;
+                if (!MissileTrackFusion.TrySelectFriendlyDataLinkAssociation(
+                        missileTrackCache,
+                        missileTrackCacheCount,
+                        friendlyMissileTrackMatched,
+                        report.Position,
+                        report.Velocity,
+                        report.Timestamp,
+                        now,
+                        FriendlyMissileReportRetentionSeconds,
+                        FriendlyMissileAssociationMaximumMeters,
+                        FriendlyMissileAssociationVelocityGateMps,
+                        FriendlyMissileAssociationScoreSeparation,
+                        out var trackIndex,
+                        out var score))
+                {
+                    continue;
+                }
+
+                friendlyMissileTrackMatched[trackIndex] = true;
                 MissileTrackFusion.ApplyFriendlyDataLinkIdentity(
-                    ref track,
-                    bestScore);
+                    ref missileTrackCache[trackIndex],
+                    score,
+                    report.MissionRole,
+                    report.MissionRoleConfidence);
             }
         }
 
@@ -2418,6 +2831,11 @@ namespace ACunicombat.Mechs
         /// </summary>
         private void PumpGuidanceUplinks(double now)
         {
+            if (!DataLinkTransmitEnabled)
+            {
+                return;
+            }
+
             for (var i = 0; i < uplinkSubscriptions.Length; i++)
             {
                 var subscription = uplinkSubscriptions[i];
@@ -2453,7 +2871,7 @@ namespace ACunicombat.Mechs
                     else
                     {
                         // 无可发的航迹：跳过本周期，链路静默（导弹端靠记忆外推）。
-                        subscription.NextSendTime = now + GuidanceUplinkIntervalSeconds;
+                        subscription.NextSendTime = now + RuntimeGuidanceUplinkIntervalSeconds;
                         uplinkSubscriptions[i] = subscription;
                         continue;
                     }
@@ -2469,7 +2887,7 @@ namespace ACunicombat.Mechs
                     SendTime = now,
                     TrackPayload = track,
                 });
-                subscription.NextSendTime = now + GuidanceUplinkIntervalSeconds;
+                subscription.NextSendTime = now + RuntimeGuidanceUplinkIntervalSeconds;
                 uplinkSubscriptions[i] = subscription;
             }
         }
@@ -2593,17 +3011,21 @@ namespace ACunicombat.Mechs
 
         private void UpdateBeamAngles(Vector3 worldDirection)
         {
+            ResolveBodyRadarAngles(
+                worldDirection,
+                out beamAzimuthDegrees,
+                out beamElevationDegrees);
+        }
+
+        private void ResolveBodyRadarAngles(
+            Vector3 worldDirection,
+            out float azimuthDegrees,
+            out float elevationDegrees)
+        {
             var direction = worldDirection.normalized;
-            var local = searchFrameForward.sqrMagnitude > 0.5f
-                ? new Vector3(
-                    Vector3.Dot(direction, searchFrameRight),
-                    Vector3.Dot(direction, searchFrameUp),
-                    Vector3.Dot(direction, searchFrameForward))
-                : (aimingCamera != null
-                    ? aimingCamera.transform.InverseTransformDirection(direction)
-                    : transform.InverseTransformDirection(direction));
-            beamAzimuthDegrees = Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
-            beamElevationDegrees = Mathf.Asin(Mathf.Clamp(local.y, -1f, 1f)) * Mathf.Rad2Deg;
+            var local = Quaternion.Inverse(GetBodyRadarFrameRotation()) * direction;
+            azimuthDegrees = Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
+            elevationDegrees = Mathf.Asin(Mathf.Clamp(local.y, -1f, 1f)) * Mathf.Rad2Deg;
         }
 
         private Ray GetAimRay()

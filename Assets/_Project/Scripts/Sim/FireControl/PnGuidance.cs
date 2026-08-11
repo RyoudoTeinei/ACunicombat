@@ -254,5 +254,20 @@ namespace ACunicombat.FireControl
             closestDistance = (float)result.Distance;
             return closestDistance <= fuseRadius;
         }
+
+        public static bool ProximityOccursBeforeImpact(
+            float proximityTimeSeconds,
+            float impactTimeSeconds,
+            float coincidenceToleranceSeconds = 0.0001f)
+        {
+            if (!math.isfinite(proximityTimeSeconds))
+            {
+                return false;
+            }
+
+            return proximityTimeSeconds +
+                   math.max(0f, coincidenceToleranceSeconds) <
+                   impactTimeSeconds;
+        }
     }
 }

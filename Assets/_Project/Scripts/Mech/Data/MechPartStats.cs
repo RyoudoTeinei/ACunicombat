@@ -257,6 +257,72 @@ namespace ACunicombat.Mechs
 		}
 	}
 
+	[Serializable]
+	public sealed class MechDataLinkPerformance
+	{
+		[Min(0f)] public float referenceCommunicationRangeKm;
+		[Min(0f)] public float bandwidthKbps;
+		[Range(1, 63)] public int maximumNetworkNodes = 8;
+		[Min(0f)] public float trackShareUpdateRateHz;
+		[Min(0f)] public float guidanceUpdateRateHz;
+		[Min(0f)] public float endToEndLatencyMs;
+		[Range(0f, 100f)] public float jamResistanceRating;
+		[Range(0f, 100f)] public float lowProbabilityOfInterceptRating;
+		public float transmitPowerDb = 52f;
+		public float sidelobeLevelDb = -30f;
+		public float receiveSensitivityDb = -60f;
+		[Range(1, ushort.MaxValue)] public int frequencyBand = 2;
+		[Range(1, ushort.MaxValue)] public int waveformId = 10;
+
+		public bool HasData => referenceCommunicationRangeKm > 0f &&
+			bandwidthKbps > 0f && maximumNetworkNodes > 0;
+
+		public void CopyFrom(MechDataLinkPerformance other)
+		{
+			if (other == null) return;
+			referenceCommunicationRangeKm = other.referenceCommunicationRangeKm;
+			bandwidthKbps = other.bandwidthKbps;
+			maximumNetworkNodes = other.maximumNetworkNodes;
+			trackShareUpdateRateHz = other.trackShareUpdateRateHz;
+			guidanceUpdateRateHz = other.guidanceUpdateRateHz;
+			endToEndLatencyMs = other.endToEndLatencyMs;
+			jamResistanceRating = other.jamResistanceRating;
+			lowProbabilityOfInterceptRating = other.lowProbabilityOfInterceptRating;
+			transmitPowerDb = other.transmitPowerDb;
+			sidelobeLevelDb = other.sidelobeLevelDb;
+			receiveSensitivityDb = other.receiveSensitivityDb;
+			frequencyBand = other.frequencyBand;
+			waveformId = other.waveformId;
+		}
+
+		public MechDataLinkPerformance Clone()
+		{
+			var clone = new MechDataLinkPerformance();
+			clone.CopyFrom(this);
+			return clone;
+		}
+
+		public static MechDataLinkPerformance CreateStandardFallback()
+		{
+			return new MechDataLinkPerformance
+			{
+				referenceCommunicationRangeKm = 150f,
+				bandwidthKbps = 512f,
+				maximumNetworkNodes = 24,
+				trackShareUpdateRateHz = 10f,
+				guidanceUpdateRateHz = 4f,
+				endToEndLatencyMs = 20f,
+				jamResistanceRating = 60f,
+				lowProbabilityOfInterceptRating = 40f,
+				transmitPowerDb = 52f,
+				sidelobeLevelDb = -30f,
+				receiveSensitivityDb = -60f,
+				frequencyBand = 2,
+				waveformId = 10
+			};
+		}
+	}
+
 	public enum MechArmThrusterRole
 	{
 		Lateral = 0,
@@ -795,6 +861,8 @@ namespace ACunicombat.Mechs
 		public float momentumWheelTurnRateDegPerSecond;
 		public MechRadarPerformance radarPerformance = new MechRadarPerformance();
 		public MechFireControlPerformance fireControlPerformance = new MechFireControlPerformance();
+		public MechDataLinkPerformance dataLinkPerformance =
+			MechDataLinkPerformance.CreateStandardFallback();
 		public MechHeadSensorPerformance headSensorPerformance = new MechHeadSensorPerformance();
 		public MechArmPerformance armPerformance = new MechArmPerformance();
 		public MechCorePerformance corePerformance = new MechCorePerformance();
@@ -853,6 +921,7 @@ namespace ACunicombat.Mechs
 			momentumWheelTurnRateDegPerSecond = 0f;
 			radarPerformance = new MechRadarPerformance();
 			fireControlPerformance = new MechFireControlPerformance();
+			dataLinkPerformance = MechDataLinkPerformance.CreateStandardFallback();
 			headSensorPerformance = new MechHeadSensorPerformance();
 			armPerformance = new MechArmPerformance();
 			corePerformance = new MechCorePerformance();
@@ -1015,6 +1084,16 @@ namespace ACunicombat.Mechs
 				fireControlPerformance = new MechFireControlPerformance();
 			}
 			fireControlPerformance.CopyFrom(fireControl);
+		}
+
+		public void AddDataLinkPerformance(MechDataLinkPerformance dataLink)
+		{
+			if (dataLink == null || !dataLink.HasData)
+			{
+				return;
+			}
+			dataLinkPerformance ??= MechDataLinkPerformance.CreateStandardFallback();
+			dataLinkPerformance.CopyFrom(dataLink);
 		}
 
 		public void RecalculateDerived()

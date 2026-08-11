@@ -24,6 +24,10 @@ namespace ACunicombat.DataLink
         public float BeamWidthRadians;
         public float ReceiveSensitivityDb;
         public double MaxRangeMeters;
+        public float BandwidthKilobitsPerSecond;
+        public int MaxNetworkNodes;
+        public float ProcessingLatencySeconds;
+        public float JamResistanceDb;
         public ushort FrequencyBand;
         public ushort WaveformId;
     }
@@ -43,6 +47,7 @@ namespace ACunicombat.DataLink
         public const int MaxTerminals = 64;
         public const int OutboxCapacity = 256;
         public const int InboxCapacity = 512;
+        private const float EstimatedMessageKilobits = 2f;
 
         public struct DeliveredLinkMessage
         {
@@ -50,11 +55,21 @@ namespace ACunicombat.DataLink
             public LinkMessage Message;
         }
 
+        private struct PendingDelivery
+        {
+            public LinkTerminalId Receiver;
+            public LinkMessage Message;
+            public double AvailableTime;
+        }
+
         private readonly SimWorld world;
         private readonly LinkTerminalProfile[] terminals = new LinkTerminalProfile[MaxTerminals];
         private readonly bool[] terminalRegistered = new bool[MaxTerminals];
+        private readonly float[] transmitCredits = new float[MaxTerminals];
+        private readonly double[] transmitCreditTimes = new double[MaxTerminals];
         private NativeList<LinkMessage> outbox;
         private NativeList<DeliveredLinkMessage> inbox;
+        private NativeList<PendingDelivery> pendingDeliveries;
         private NativeList<EmissionEvent> emissionRing;
         private ulong sequenceCounter;
 
@@ -65,6 +80,7 @@ namespace ACunicombat.DataLink
             this.world = world;
             outbox = new NativeList<LinkMessage>(OutboxCapacity, Allocator.Persistent);
             inbox = new NativeList<DeliveredLinkMessage>(InboxCapacity, Allocator.Persistent);
+            pendingDeliveries = new NativeList<PendingDelivery>(InboxCapacity, Allocator.Persistent);
             emissionRing = new NativeList<EmissionEvent>(OutboxCapacity, Allocator.Persistent);
         }
 
@@ -81,6 +97,8 @@ namespace ACunicombat.DataLink
 
             terminals[index] = profile;
             terminalRegistered[index] = true;
+            transmitCredits[index] = MathfMaxMessageBurst(profile.BandwidthKilobitsPerSecond);
+            transmitCreditTimes[index] = double.NaN;
         }
 
         public void UnregisterTerminal(LinkTerminalId terminalId)
@@ -90,16 +108,40 @@ namespace ACunicombat.DataLink
                 terminals[index].TerminalId.Equals(terminalId))
             {
                 terminalRegistered[index] = false;
+                transmitCredits[index] = 0f;
+                transmitCreditTimes[index] = 0.0;
             }
         }
 
         /// <summary>入队发送；投递发生在下一个链路 Tick（一 Tick 固有时延）。</summary>
         public bool Send(in LinkMessage message)
         {
-            if (!TryGetTerminal(message.SourceTerminal, out _) ||
+            if (!TryGetTerminal(message.SourceTerminal, out var sender) ||
                 outbox.Length >= OutboxCapacity)
             {
                 return false;
+            }
+
+            var index = message.SourceTerminal.Value.Index;
+            var now = message.SendTime;
+            var bandwidth = math.max(0f, sender.BandwidthKilobitsPerSecond);
+            if (bandwidth > 0f)
+            {
+                var lastTime = transmitCreditTimes[index];
+                if (double.IsNaN(lastTime))
+                {
+                    lastTime = now;
+                }
+                var elapsed = math.max(0.0, now - lastTime);
+                transmitCredits[index] = math.min(
+                    MathfMaxMessageBurst(bandwidth),
+                    transmitCredits[index] + (float)elapsed * bandwidth / EstimatedMessageKilobits);
+                transmitCreditTimes[index] = now;
+                if (transmitCredits[index] < 1f)
+                {
+                    return false;
+                }
+                transmitCredits[index] -= 1f;
             }
 
             var stamped = message;
@@ -112,6 +154,22 @@ namespace ACunicombat.DataLink
         {
             emissionRing.Clear();
             inbox.Clear();
+            for (var i = pendingDeliveries.Length - 1; i >= 0; i--)
+            {
+                var pending = pendingDeliveries[i];
+                if (pending.AvailableTime > simTime || inbox.Length >= InboxCapacity)
+                {
+                    continue;
+                }
+                var delivered = pending.Message;
+                delivered.DeliveryTime = simTime;
+                inbox.Add(new DeliveredLinkMessage
+                {
+                    Receiver = pending.Receiver,
+                    Message = delivered,
+                });
+                pendingDeliveries.RemoveAtSwapBack(i);
+            }
             for (var i = 0; i < outbox.Length; i++)
             {
                 var message = outbox[i];
@@ -211,7 +269,8 @@ namespace ACunicombat.DataLink
                 // 被寻址方处于主瓣（定向波束即指向它；全向恒主瓣）。
                 // TODO(EW)：margin −= 对准该接收机的 JamContribution → 干扰致断链。
                 var receivedDb = sender.TransmitPowerDb - 20f * (float)math.log10(range);
-                var marginDb = receivedDb - receiver.ReceiveSensitivityDb;
+                var marginDb = receivedDb - receiver.ReceiveSensitivityDb +
+                    math.max(0f, receiver.JamResistanceDb);
                 if (marginDb <= 0f)
                 {
                     continue;
@@ -232,14 +291,33 @@ namespace ACunicombat.DataLink
                 }
 
                 var delivered = message;
-                delivered.DeliveryTime = simTime;
                 delivered.DeliveredMarginDb = marginDb;
-                inbox.Add(new DeliveredLinkMessage
+                var latencySeconds = math.max(0f,
+                    sender.ProcessingLatencySeconds + receiver.ProcessingLatencySeconds);
+                if (latencySeconds <= 0.0001f)
                 {
-                    Receiver = receiver.TerminalId,
-                    Message = delivered,
-                });
+                    delivered.DeliveryTime = simTime;
+                    inbox.Add(new DeliveredLinkMessage
+                    {
+                        Receiver = receiver.TerminalId,
+                        Message = delivered,
+                    });
+                }
+                else if (pendingDeliveries.Length < InboxCapacity)
+                {
+                    pendingDeliveries.Add(new PendingDelivery
+                    {
+                        Receiver = receiver.TerminalId,
+                        Message = delivered,
+                        AvailableTime = simTime + latencySeconds,
+                    });
+                }
             }
+        }
+
+        private static float MathfMaxMessageBurst(float bandwidthKilobitsPerSecond)
+        {
+            return math.max(1f, bandwidthKilobitsPerSecond / EstimatedMessageKilobits);
         }
 
         /// <summary>取某终端本 Tick 收到的报文。消费端按 Sequence 去重。</summary>
@@ -282,6 +360,7 @@ namespace ACunicombat.DataLink
         {
             outbox.Dispose();
             inbox.Dispose();
+            pendingDeliveries.Dispose();
             emissionRing.Dispose();
         }
     }

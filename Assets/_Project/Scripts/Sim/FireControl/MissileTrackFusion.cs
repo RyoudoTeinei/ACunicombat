@@ -177,15 +177,95 @@ namespace ACunicombat.FireControl
             return true;
         }
 
+        public static bool TrySelectFriendlyDataLinkAssociation(
+            MissileTrackSnapshot[] tracks,
+            int trackCount,
+            bool[] trackAlreadyMatched,
+            double3 reportPosition,
+            double3 reportVelocity,
+            double reportTimestamp,
+            double now,
+            double retentionSeconds,
+            float maximumPositionGateMeters,
+            float velocityGateMetersPerSecond,
+            double minimumScoreSeparation,
+            out int trackIndex,
+            out double score)
+        {
+            trackIndex = -1;
+            score = double.PositiveInfinity;
+            if (tracks == null || trackAlreadyMatched == null)
+            {
+                return false;
+            }
+
+            var count = math.min(
+                math.min(trackCount, tracks.Length),
+                trackAlreadyMatched.Length);
+            var secondBestScore = double.PositiveInfinity;
+            for (var i = 0; i < count; i++)
+            {
+                if (trackAlreadyMatched[i] ||
+                    !TryScoreFriendlyDataLinkAssociation(
+                        in tracks[i],
+                        reportPosition,
+                        reportVelocity,
+                        reportTimestamp,
+                        now,
+                        retentionSeconds,
+                        maximumPositionGateMeters,
+                        velocityGateMetersPerSecond,
+                        out var candidateScore))
+                {
+                    continue;
+                }
+
+                if (candidateScore < score)
+                {
+                    secondBestScore = score;
+                    score = candidateScore;
+                    trackIndex = i;
+                }
+                else if (candidateScore < secondBestScore)
+                {
+                    secondBestScore = candidateScore;
+                }
+            }
+
+            if (trackIndex < 0)
+            {
+                return false;
+            }
+
+            // When an interceptor is inside the same association volume as our
+            // missile, proximity alone cannot establish identity. Leave both
+            // tracks unknown so the warning layer cannot hide a possible threat.
+            return double.IsPositiveInfinity(secondBestScore) ||
+                   secondBestScore - score >= minimumScoreSeparation;
+        }
+
         public static void ApplyFriendlyDataLinkIdentity(
             ref MissileTrackSnapshot track,
-            double associationScore)
+            double associationScore,
+            MissileMissionRole missionRole = MissileMissionRole.Unknown,
+            float missionRoleConfidence = 0f)
         {
             track.Affiliation = TrackAffiliation.Friendly;
             track.IdentityConfidence = math.clamp(
                 (float)(1.0 - associationScore * 0.2),
                 0.6f,
                 1f);
+            var knownMissionRole =
+                missionRole == MissileMissionRole.AirToAir ||
+                missionRole == MissileMissionRole.Interceptor;
+            track.MissionRole = knownMissionRole
+                ? missionRole
+                : MissileMissionRole.Unknown;
+            track.MissionRoleConfidence = knownMissionRole
+                ? math.min(
+                    track.IdentityConfidence,
+                    math.saturate(missionRoleConfidence))
+                : 0f;
             track.SourceMask |= MissileTrackSourceMask.DataLink;
         }
 
@@ -793,6 +873,19 @@ namespace ACunicombat.FireControl
                 math.max(
                     existing.Confidence,
                     candidate.Confidence);
+            if (existing.MissionRoleConfidence >
+                candidate.MissionRoleConfidence)
+            {
+                merged.MissionRole = existing.MissionRole;
+                merged.MissionRoleConfidence =
+                    existing.MissionRoleConfidence;
+            }
+            else
+            {
+                merged.MissionRole = candidate.MissionRole;
+                merged.MissionRoleConfidence =
+                    candidate.MissionRoleConfidence;
+            }
             merged.PositionUncertaintyMeters =
                 math.min(
                     existing.PositionUncertaintyMeters,
@@ -1154,5 +1247,72 @@ namespace ACunicombat.FireControl
 
             return (float)Math.Sqrt(variance);
         }
+    }
+
+    public static class TrackReacquisition
+    {
+        public static bool TrySelectCandidate(
+            in TrackSnapshot previousTrack,
+            TrackSnapshot[] candidates,
+            int candidateCount,
+            double now,
+            float basePositionGateMeters,
+            out TrackSnapshot selected)
+        {
+            selected = default;
+            if (candidates == null || !previousTrack.TrackId.IsValid)
+            {
+                return false;
+            }
+
+            var previousPosition = previousTrack.PredictPosition(now);
+            var previousAge = math.max(
+                0.0,
+                now - previousTrack.LastUpdateTime);
+            var positionGate = math.max(
+                basePositionGateMeters,
+                basePositionGateMeters +
+                math.length(previousTrack.Velocity) * previousAge * 0.5);
+            var positionGateSquared = positionGate * positionGate;
+            var bestDistanceSquared = double.PositiveInfinity;
+            var bestConfidence = float.NegativeInfinity;
+            var count = math.min(candidateCount, candidates.Length);
+            for (var i = 0; i < count; i++)
+            {
+                var candidate = candidates[i];
+                if (!candidate.TrackId.IsValid ||
+                    candidate.TrackId.Equals(previousTrack.TrackId) ||
+                    candidate.Lifecycle == TrackLifecycle.Dropped ||
+                    !IsClassCompatible(
+                        previousTrack.ObjectClass,
+                        candidate.ObjectClass))
+                {
+                    continue;
+                }
+
+                var distanceSquared = math.distancesq(
+                    previousPosition,
+                    candidate.PredictPosition(now));
+                if (distanceSquared > positionGateSquared ||
+                    distanceSquared > bestDistanceSquared ||
+                    (distanceSquared == bestDistanceSquared &&
+                     candidate.Confidence <= bestConfidence))
+                {
+                    continue;
+                }
+
+                bestDistanceSquared = distanceSquared;
+                bestConfidence = candidate.Confidence;
+                selected = candidate;
+            }
+
+            return selected.TrackId.IsValid;
+        }
+
+        private static bool IsClassCompatible(
+            TrackObjectClass previousClass,
+            TrackObjectClass candidateClass) =>
+            previousClass == TrackObjectClass.Unknown ||
+            previousClass == candidateClass;
     }
 }

@@ -79,15 +79,17 @@ namespace ACunicombat.Editor.Tests
 		}
 
 		[Test]
-		public void TestedPartSource_MarksValidatedMelanderFramePartsAsTested()
+		public void TestedPartSource_MarksValidatedPlayerAndEnemyPartsAsTested()
 		{
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_HD_M_1010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_AM_M_1010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_BD_M_1010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_FULL_AM_M_1010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_FULL_BD_M_1010"), (IResolveConstraint)(object)Is.True);
-			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_HD_M_2010"), (IResolveConstraint)(object)Is.False);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_HD_M_2010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_BD_M_2010"), (IResolveConstraint)(object)Is.False);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_AM_M_3010"), (IResolveConstraint)(object)Is.True);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_LG_M_2010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_NATIVE_BS_A_1010"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_SAMPLE_GENERATOR"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedPart("AC6_SKIN_SAMPLE_FCS"), (IResolveConstraint)(object)Is.True);
@@ -550,8 +552,12 @@ namespace ACunicombat.Editor.Tests
 				Assert.That<int>(interceptor.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)32));
 				Assert.That<float>(interceptor.SeekerRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)12000f));
 				Assert.That<bool>(interceptor.HasProximityFuse, (IResolveConstraint)(object)Is.True);
+				Assert.That<float>(interceptor.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)300f));
+				Assert.That<float>(mirroredInterceptor.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)interceptor.DirectHitDamage));
 				Assert.That<bool>(TryGetTestWeaponPerformance(mechTestWeaponSystem, "AC6_NATIVE_WP_R_4290", out var airToAir), (IResolveConstraint)(object)Is.True);
 				Assert.That<bool>(TryGetTestWeaponPerformance(mechTestWeaponSystem, "AC6_NATIVE_WP_L_4290", out var mirroredAirToAir), (IResolveConstraint)(object)Is.True);
+				Assert.That<float>(airToAir.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)3120f));
+				Assert.That<float>(mirroredAirToAir.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)airToAir.DirectHitDamage));
 				Assert.That<float>(airToAir.EffectiveRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)50000f));
 				Assert.That<int>(airToAir.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)24));
 				Assert.That<float>(airToAir.MaximumAngularRateDegreesPerSecond, (IResolveConstraint)(object)Is.EqualTo((object)240f));

@@ -62,6 +62,10 @@ namespace ACunicombat.Mechs
                 {
                     target.AddFireControlPerformance(assignment.part.FireControlPerformance);
                 }
+                else if (assignment.part.Slot == MechPartSlot.DataLinkTerminal)
+                {
+                    target.AddDataLinkPerformance(assignment.part.DataLinkPerformance);
+                }
             }
 
             target.RecalculateDerived();

@@ -231,9 +231,6 @@ namespace ACunicombat.Mechs
 		[SerializeField]
 		private float gunAutoAimDegrees = 4f;
 
-		[SerializeField]
-		private float missileLockDegrees = 24f;
-
 		[Header("Hand weapon ammunition")]
 		[SerializeField]
 		[Min(1f)]
@@ -2363,7 +2360,7 @@ namespace ACunicombat.Mechs
 				return false;
 			}
 			MissileKinematicProfile missileKinematics = BuildMissileKinematics(launchProfile);
-			if (radarController == null || !radarController.TryAuthorizeMissileLaunch(MissileGuidanceMode.ActiveRadar, missileLockDegrees, in missileKinematics, TrackObjectClass.AirVehicle, out var track, out var solution, out var guidanceToken))
+			if (radarController == null || !radarController.TryAuthorizeMissileLaunch(MissileGuidanceMode.ActiveRadar, in missileKinematics, TrackObjectClass.AirVehicle, out var track, out var solution, out var guidanceToken))
 			{
 				Debug.LogWarning($"[MechTestWeaponSystem] {slot} launch inhibited: no authorized radar track, " + "weapon-envelope solution, seeker handoff, or free guidance channel.", this);
 				return false;
@@ -2635,9 +2632,15 @@ namespace ACunicombat.Mechs
 			}
 			Renderer placeholderRenderer = projectile.GetComponent<Renderer>();
 			placeholderRenderer.sharedMaterial = GetProjectileMaterial(kind);
+			Transform missilePresentationRoot = null;
 			if (kind == TestWeaponKind.Missile)
 			{
-				TryAttachMissileVisual(projectile.transform, placeholderRenderer, aimingCamera, interceptorMissile);
+				var presentation = new GameObject("Missile_PresentationRoot");
+				presentation.transform.SetPositionAndRotation(
+					projectile.transform.position,
+					projectile.transform.rotation);
+				missilePresentationRoot = presentation.transform;
+				TryAttachMissileVisual(missilePresentationRoot, placeholderRenderer, aimingCamera, interceptorMissile);
 			}
 			switch (kind)
 			{
@@ -2655,6 +2658,10 @@ namespace ACunicombat.Mechs
 				break;
 			}
 			MechTestProjectile projectileBehaviour = projectile.AddComponent<MechTestProjectile>();
+			if (missilePresentationRoot != null)
+			{
+				projectileBehaviour.ConfigureMissilePresentation(missilePresentationRoot);
+			}
 			if (interceptorRoundLethalRadius > 0f)
 			{
 				projectileBehaviour.ConfigureInterceptorRound(interceptorRoundLethalRadius, interceptorRoundArmSeconds, interceptorRoundSafeDistance);
@@ -3425,7 +3432,7 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private static void TryAttachMissileVisual(Transform projectile, Renderer placeholderRenderer, Camera presentationCamera, bool interceptorMissile)
+		private static void TryAttachMissileVisual(Transform presentationRoot, Renderer placeholderRenderer, Camera presentationCamera, bool interceptorMissile)
 		{
 			bool useLeftMissile = interceptorMissile;
 			string resourcePath = (useLeftMissile ? "Projectiles/r27_white" : "Projectiles/r77_gridfin");
@@ -3454,8 +3461,8 @@ namespace ACunicombat.Mechs
 				return;
 			}
 			GameObject holder = new GameObject(missileName + "_MissileVisual");
-			holder.transform.SetParent(projectile, worldPositionStays: false);
-			holder.transform.localScale = ReciprocalScale(projectile.localScale);
+			holder.transform.SetParent(presentationRoot, worldPositionStays: false);
+			holder.transform.localScale = Vector3.one;
 			GameObject visual = UnityEngine.Object.Instantiate(missileVisualPrefab, holder.transform, worldPositionStays: false);
 			visual.name = missileName + "_MissileModel";
 			visual.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.Euler(-90f, 0f, 0f));

@@ -135,6 +135,8 @@ namespace ACunicombat.Mechs
 
 		private RadarStatusSnapshot radarStatus;
 
+		private float radarSweepVisualPhase;
+
 		private MechThirdPersonCamera aimController;
 
 		private MechFlightMotionController motion;
@@ -318,6 +320,7 @@ namespace ACunicombat.Mechs
 			displayTrackCount = CountDisplayTracks();
 			echoCount = radar.CopyEchoes(echoes);
 			radarStatus = radar.GetStatusSnapshot();
+			UpdateRadarSweepVisual();
 			UpdateRadarOperatorAudio();
 		}
 
@@ -769,14 +772,30 @@ namespace ACunicombat.Mechs
 			DrawLine(fanApex, fanApex + RadarDirection(halfAngle * 0.5f) * fanRadius, HudDimGreen, 1f);
 			if (showScan)
 			{
-				float beamAngle = Mathf.Clamp(radarStatus.BeamAzimuthDegrees, 0f - halfAngle, halfAngle);
-				float beamHalfWidth = Mathf.Max(1f, radarStatus.BeamWidthDegrees * 0.5f);
-				Color beamFill = new Color(HudBrightGreen.r, HudBrightGreen.g, HudBrightGreen.b, 0.28f);
+				ResolveDisplayedRadarBeam(
+					halfAngle,
+					out float beamAngle,
+					out _,
+					out float beamWidth);
+				float beamHalfWidth = Mathf.Max(1f, beamWidth * 0.5f);
+				Color beamFill = new Color(
+					HudBrightGreen.r,
+					HudBrightGreen.g,
+					HudBrightGreen.b,
+					0.28f);
 				for (float angle2 = beamAngle - beamHalfWidth; angle2 <= beamAngle + beamHalfWidth; angle2 += 1f)
 				{
-					DrawLine(fanApex, fanApex + RadarDirection(Mathf.Clamp(angle2, 0f - halfAngle, halfAngle)) * fanRadius, beamFill, 4f);
+					DrawLine(
+						fanApex,
+						fanApex + RadarDirection(Mathf.Clamp(angle2, 0f - halfAngle, halfAngle)) * fanRadius,
+						beamFill,
+						4f);
 				}
-				DrawLine(fanApex, fanApex + RadarDirection(beamAngle) * fanRadius, HudBrightGreen, 2.6f);
+				DrawLine(
+					fanApex,
+					fanApex + RadarDirection(beamAngle) * fanRadius,
+					HudBrightGreen,
+					2.6f);
 			}
 			if (showTrackData)
 			{
@@ -801,16 +820,97 @@ namespace ACunicombat.Mechs
 			}
 			if (showScan)
 			{
+				ResolveDisplayedRadarBeam(
+					halfAngle,
+					out _,
+					out float beamElevation,
+					out _);
 				float elevationHalf = Mathf.Max(1f, radarStatus.ScanElevationDegrees * 0.5f);
-				float elevationNormalized = Mathf.InverseLerp(elevationHalf, 0f - elevationHalf, Mathf.Clamp(radarStatus.BeamElevationDegrees, 0f - elevationHalf, elevationHalf));
+				float elevationNormalized = Mathf.InverseLerp(elevationHalf, 0f - elevationHalf, Mathf.Clamp(beamElevation, 0f - elevationHalf, elevationHalf));
 				float elevationY = Mathf.Lerp(elevationTop, elevationBottom, elevationNormalized);
-				DrawLine(new Vector2(elevationX - 10f, elevationY), new Vector2(elevationX + 10f, elevationY), HudBrightGreen, 2.5f);
+				DrawLine(
+					new Vector2(elevationX - 10f, elevationY),
+					new Vector2(elevationX + 10f, elevationY),
+					HudBrightGreen,
+					2.5f);
 			}
 			statusStyle.normal.textColor = HudGreen;
 			string radarStatusText = !radar.RadarPowerEnabled
 				? $"航迹 {(showTrackData ? displayTrackCount : 0)}/{radarStatus.TrackCapacity}\nSTT OFF\n\n雷达 OFF\n被动接收"
 				: ((!showScan) ? "航迹 --/--\nSTT OFF\n\n发射机 BIT\n制导 OFF" : ((!showTrackData) ? "航迹 --/--\nSTT OFF\n\n扫描 ON\n处理器 BIT" : ($"航迹 {displayTrackCount}/{radarStatus.TrackCapacity}\n" + "STT " + sttText + "\n\n" + $"负载 {radarStatus.DwellLoad * 100f:0}%\n" + $"制导 {radarStatus.GuidanceChannelsUsed}/" + $"{radarStatus.GuidanceChannelCapacity}")));
 			GUI.Label(new Rect(rect.x + 458f, rect.y + 66f, 92f, 220f), radarStatusText, statusStyle);
+		}
+
+		private void UpdateRadarSweepVisual()
+		{
+			if (!radar.RadarPowerEnabled ||
+				radarStatus.Mode == RadarOperatingMode.SingleTargetTrack)
+			{
+				return;
+			}
+
+			float traversalRate = Mathf.Max(0.05f, radarStatus.RefreshRateHz) * 0.5f;
+			radarSweepVisualPhase = Mathf.Repeat(
+				radarSweepVisualPhase + Time.unscaledDeltaTime * traversalRate,
+				2f);
+		}
+
+		private void ResolveDisplayedRadarBeam(
+			float halfAngle,
+			out float azimuthDegrees,
+			out float elevationDegrees,
+			out float widthDegrees)
+		{
+			if (radarStatus.Mode == RadarOperatingMode.SingleTargetTrack &&
+				TryGetSttRadarAngles(out azimuthDegrees, out elevationDegrees))
+			{
+				azimuthDegrees = Mathf.Clamp(azimuthDegrees, -halfAngle, halfAngle);
+				widthDegrees = radarStatus.BeamWidthDegrees;
+				return;
+			}
+
+			float normalizedSweep = Mathf.PingPong(radarSweepVisualPhase, 1f);
+			azimuthDegrees = Mathf.Lerp(-halfAngle, halfAngle, normalizedSweep);
+			elevationDegrees = radarStatus.BeamElevationDegrees;
+			widthDegrees = radarStatus.BeamWidthDegrees;
+		}
+
+		private bool TryGetSttRadarAngles(
+			out float azimuthDegrees,
+			out float elevationDegrees)
+		{
+			azimuthDegrees = 0f;
+			elevationDegrees = 0f;
+			if (!radarStatus.SttTrackId.IsValid)
+			{
+				return false;
+			}
+
+			for (int i = 0; i < trackCount; i++)
+			{
+				if (!tracks[i].TrackId.Equals(radarStatus.SttTrackId))
+				{
+					continue;
+				}
+
+				Vector3 direction =
+					radar.PredictTrackPosition(in tracks[i]) - transform.position;
+				if (direction.sqrMagnitude < 0.0001f)
+				{
+					return false;
+				}
+
+				Quaternion bodyRotation = motion != null
+					? motion.LogicalRotation
+					: transform.rotation;
+				Vector3 local = Quaternion.Inverse(bodyRotation) * direction.normalized;
+				azimuthDegrees = Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
+				float horizontal = Mathf.Sqrt(local.x * local.x + local.z * local.z);
+				elevationDegrees = Mathf.Atan2(local.y, horizontal) * Mathf.Rad2Deg;
+				return true;
+			}
+
+			return false;
 		}
 
 		private void DrawRadarFanTracks(Vector2 apex, float radius, float halfAngle, float displayRange)
@@ -856,8 +956,8 @@ namespace ACunicombat.Mechs
 		private void DrawTrackOperationOverlay()
 		{
 			Vector2 center = GetReticleGuiPosition();
-			Vector2 ringCenter = new Vector2((float)Screen.width * 0.5f, (float)Screen.height * 0.5f);
 			float ringRadius = Mathf.Clamp((float)Screen.height * 0.75f, 320f, (float)Screen.height * 0.8f) * 0.5f;
+			Vector2 ringCenter = GetBodyForwardGuiPosition(ringRadius);
 			DrawSmoothTrackOperationRing(ringCenter, ringRadius);
 			for (int i = 0; i < 4; i++)
 			{
@@ -901,13 +1001,13 @@ namespace ACunicombat.Mechs
 
 		private void DrawSightElevationLadder(Vector2 center, float radius)
 		{
-			Vector3 cameraForward = viewCamera.transform.forward.normalized;
+			Vector3 bodyForward = GetBodyForwardWorld();
 			Vector3 referenceUp = GetReferenceUp();
-			float sightElevationDegrees = Mathf.Asin(Mathf.Clamp(Vector3.Dot(cameraForward, referenceUp), -1f, 1f)) * 57.29578f;
+			float sightElevationDegrees = Mathf.Asin(Mathf.Clamp(Vector3.Dot(bodyForward, referenceUp), -1f, 1f)) * 57.29578f;
 			float verticalFovRadians = Mathf.Clamp(viewCamera.fieldOfView, 1f, 179f) * (MathF.PI / 180f);
 			float focalPixels = (float)Screen.height * 0.5f / Mathf.Tan(verticalFovRadians * 0.5f);
 			Matrix4x4 previousGuiMatrix = GUI.matrix;
-			GUIUtility.RotateAroundPivot(ResolvePitchLadderRollDegrees(cameraForward, referenceUp), center);
+			GUIUtility.RotateAroundPivot(ResolvePitchLadderRollDegrees(bodyForward, referenceUp), center);
 			DrawMirroredPitchTick(center, radius, 0f, 10f, 44f, HudBrightGreen, 2.1f, null);
 			for (int pitchDegrees = -80; pitchDegrees <= 80; pitchDegrees += 5)
 			{
@@ -999,7 +1099,10 @@ namespace ACunicombat.Mechs
 					if (num)
 					{
 						DrawCornerFrame(new Rect(center.x - size * 0.5f, center.y - size * 0.5f, size, size), color, isTentative ? 7f : 10f, isStt ? 2.8f : 1.7f, dashed);
-						DrawTrackVelocityVector(center, size, position, ToVector3(track.Velocity), alpha);
+						if (!IsMissileTrack(in track))
+						{
+							DrawTrackVelocityVector(center, size, position, ToVector3(track.Velocity), alpha);
+						}
 					}
 					Vector3 relative = position - base.transform.position;
 					Vector3 lineOfSight = ((relative.sqrMagnitude > 0.01f) ? relative.normalized : base.transform.forward);
@@ -1011,8 +1114,70 @@ namespace ACunicombat.Mechs
 					smallStyle.alignment = TextAnchor.MiddleCenter;
 					GUI.Label(ClampToScreen(new Rect(center.x - 105f, center.y - size * 0.5f - 25f, 210f, 22f), 8f), $"{relative.magnitude / 1000f:0.00} km  " + $"{displayedClosing:+0;-0;0} m/s", smallStyle);
 					GUI.Label(ClampToScreen(new Rect(center.x - 100f, center.y + size * 0.5f + 4f, 200f, 22f), 8f), TrackLabel(track.TrackId) + "  " + lifecycle + "  " + classification, smallStyle);
+					if (isStt && track.ObjectClass == TrackObjectClass.AirVehicle)
+					{
+						DrawTargetDamageAssessment(center, size, in track);
+					}
 				}
 			}
+		}
+
+		private void DrawTargetDamageAssessment(
+			Vector2 center,
+			float markerSize,
+			in TrackSnapshot track)
+		{
+			string label = "损伤评估中";
+			Color color = HudWhite;
+			if (radar != null &&
+				radar.TryGetTargetDamageAssessment(track.TrackId, out var assessment))
+			{
+				label = DamageConditionLabel(assessment.Condition);
+				color = DamageConditionColor(assessment.Condition);
+			}
+
+			smallStyle.normal.textColor = color;
+			smallStyle.alignment = TextAnchor.MiddleRight;
+			var frameLeft = center.x - markerSize * 0.5f;
+			var frameTop = center.y - markerSize * 0.5f;
+			var rect = new Rect(
+				frameLeft - 172f,
+				frameTop - 24f,
+				160f,
+				22f);
+			GUI.Label(ClampToScreen(rect, 8f), label, smallStyle);
+		}
+
+		private static string DamageConditionLabel(MechTargetDamageCondition condition)
+		{
+			return condition switch
+			{
+				MechTargetDamageCondition.Nominal => "无明显损伤",
+				MechTargetDamageCondition.LightDamage => "轻度受损",
+				MechTargetDamageCondition.ModerateDamage => "中度受损",
+				MechTargetDamageCondition.HeavyDamage => "重度受损",
+				MechTargetDamageCondition.CriticalDamage => "濒临失效",
+				_ => "损伤不明",
+			};
+		}
+
+		private static Color DamageConditionColor(MechTargetDamageCondition condition)
+		{
+			return condition switch
+			{
+				MechTargetDamageCondition.Nominal => HudGreen,
+				MechTargetDamageCondition.LightDamage => HudAmber,
+				MechTargetDamageCondition.ModerateDamage => new Color(1f, 0.48f, 0.12f, 0.95f),
+				MechTargetDamageCondition.HeavyDamage => HudRed,
+				MechTargetDamageCondition.CriticalDamage => HudRed,
+				_ => HudWhite,
+			};
+		}
+
+		private bool IsMissileTrack(in TrackSnapshot track)
+		{
+			return track.ObjectClass == TrackObjectClass.Missile ||
+				(radar != null && radar.TryGetMissileTrack(track.TrackId, out _));
 		}
 
 		private void DrawTrackVelocityVector(Vector2 center, float markerSize, Vector3 worldPosition, Vector3 worldVelocity, float alpha)
@@ -1134,10 +1299,13 @@ namespace ACunicombat.Mechs
 					distanceText += $"  CIWS {weaponSystem.ShaoWeiPointDefenseHitProbability * 100f:0.#}%";
 				}
 				Vector2 labelCenter = new Vector2(screen.x, (float)Screen.height - screen.y + markerRadius + 12f);
-				float labelWidth = (shaoWeiTrackSelected ? 180f : 100f);
-				Rect position2 = ClampToScreen(new Rect(labelCenter.x - labelWidth * 0.5f, labelCenter.y, labelWidth, 24f), 4f);
 				smallStyle.alignment = TextAnchor.UpperCenter;
 				smallStyle.normal.textColor = markerColor;
+				float measuredLabelWidth = smallStyle.CalcSize(new GUIContent(distanceText)).x + 12f;
+				float labelWidth = Mathf.Min(
+					Mathf.Max(shaoWeiTrackSelected ? 180f : 100f, measuredLabelWidth),
+					Mathf.Max(1f, Screen.width - 8f));
+				Rect position2 = ClampToScreen(new Rect(labelCenter.x - labelWidth * 0.5f, labelCenter.y, labelWidth, 24f), 4f);
 				GUI.Label(position2, distanceText, smallStyle);
 			}
 		}
@@ -1436,7 +1604,7 @@ namespace ACunicombat.Mechs
 		private Vector3 GetHeadingForward()
 		{
 			Vector3 up = GetReferenceUp();
-			Vector3 forward = ((aimController != null) ? (aimController.AimRotation * Vector3.forward) : ((viewCamera != null) ? viewCamera.transform.forward : base.transform.forward));
+			Vector3 forward = GetBodyForwardWorld();
 			forward = Vector3.ProjectOnPlane(forward, up);
 			if (!(forward.sqrMagnitude > 0.001f))
 			{
@@ -1492,6 +1660,38 @@ namespace ACunicombat.Mechs
 			Vector2 viewportPoint = GetAimViewportPoint();
 			Vector3 screen = viewCamera.ViewportToScreenPoint(new Vector3(viewportPoint.x, viewportPoint.y, 0f));
 			return new Vector2(screen.x, (float)Screen.height - screen.y);
+		}
+
+		private Vector2 GetBodyForwardGuiPosition(float ringRadius)
+		{
+			if (viewCamera == null)
+			{
+				return new Vector2((float)Screen.width * 0.5f, (float)Screen.height * 0.5f);
+			}
+
+			Vector3 bodyForward = GetBodyForwardWorld();
+			Vector3 screen = viewCamera.WorldToScreenPoint(
+				viewCamera.transform.position + bodyForward * 1000f);
+			if (screen.z <= 0f)
+			{
+				return new Vector2((float)Screen.width * 0.5f, (float)Screen.height * 0.5f);
+			}
+
+			Vector2 point = new Vector2(screen.x, (float)Screen.height - screen.y);
+			float visibleMargin = Mathf.Clamp(ringRadius * 0.12f, 24f, 64f);
+			point.x = Mathf.Clamp(point.x, visibleMargin, (float)Screen.width - visibleMargin);
+			point.y = Mathf.Clamp(point.y, visibleMargin, (float)Screen.height - visibleMargin);
+			return point;
+		}
+
+		private Vector3 GetBodyForwardWorld()
+		{
+			Vector3 forward = motion != null
+				? motion.LogicalRotation * Vector3.forward
+				: base.transform.forward;
+			return forward.sqrMagnitude > 0.001f
+				? forward.normalized
+				: Vector3.forward;
 		}
 
 		private Vector2 GetAimViewportPoint()
