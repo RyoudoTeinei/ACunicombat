@@ -46,7 +46,7 @@ MonoBehaviour:
     radarAperture: 0
     radarRefreshHz: 0
     sensorPrecision: 0
-    trackCapacity: 8
+    trackCapacity: 16
     fireControlQuality: 48
     guidanceChannels: 3
     radarCrossSection: 0

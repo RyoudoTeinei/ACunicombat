@@ -26,6 +26,9 @@ namespace ACunicombat.FireControl
         public float ZeroHeadingEvidenceDegrees;
         public float MinimumGuidanceAccelerationMetersPerSecondSquared;
         public float GuidanceDirectionToleranceDegrees;
+        public float CloseInterceptMaximumRangeMeters;
+        public float CloseInterceptMaximumCpaMeters;
+        public float CloseInterceptMaximumTimeSeconds;
         public float EvidenceFilterTimeSeconds;
         public float MinimumEvidenceDurationSeconds;
         public int MinimumEvidenceSamples;
@@ -49,6 +52,9 @@ namespace ACunicombat.FireControl
                 ZeroHeadingEvidenceDegrees = 30f,
                 MinimumGuidanceAccelerationMetersPerSecondSquared = 8f,
                 GuidanceDirectionToleranceDegrees = 65f,
+                CloseInterceptMaximumRangeMeters = 3_000f,
+                CloseInterceptMaximumCpaMeters = 650f,
+                CloseInterceptMaximumTimeSeconds = 3f,
                 EvidenceFilterTimeSeconds = 0.45f,
                 MinimumEvidenceDurationSeconds = 0.45f,
                 MinimumEvidenceSamples = 4,
@@ -209,6 +215,7 @@ namespace ACunicombat.FireControl
                 ownshipPosition,
                 ownshipVelocity);
             var friendlyMissileScore = 0f;
+            var closeInterceptEvidence = 0f;
             var friendlyMissileTarget = default(TrackId);
             for (var i = 0; i < trackCount; i++)
             {
@@ -226,10 +233,22 @@ namespace ACunicombat.FireControl
                     in track,
                     candidate.PredictPosition(now),
                     candidate.PredictVelocity(now));
+                var closeEvidence = ScoreCloseInterceptEvidence(
+                    in config,
+                    in track,
+                    candidate.PredictPosition(now),
+                    candidate.PredictVelocity(now));
+                if (closeEvidence > 0f)
+                {
+                    score = math.max(
+                        score,
+                        0.55f + closeEvidence * 0.45f);
+                }
                 if (score > friendlyMissileScore)
                 {
                     friendlyMissileScore = score;
                     friendlyMissileTarget = candidate.TrackId;
+                    closeInterceptEvidence = closeEvidence;
                 }
             }
 
@@ -249,17 +268,39 @@ namespace ACunicombat.FireControl
                     continue;
                 }
 
+                var candidatePosition = candidate.PredictPosition(now);
                 var score = ScoreCandidate(
                     in config,
                     in track,
-                    candidate.PredictPosition(now),
+                    candidatePosition,
                     candidate.Velocity);
+                var closeEvidence = ScoreCloseInterceptEvidence(
+                    in config,
+                    in track,
+                    candidatePosition,
+                    candidate.Velocity);
+                if (closeEvidence > 0f)
+                {
+                    score = math.max(
+                        score,
+                        0.55f + closeEvidence * 0.45f);
+                }
                 if (score > friendlyMissileScore)
                 {
                     friendlyMissileScore = score;
                     friendlyMissileTarget = candidate.TrackId;
+                    closeInterceptEvidence = closeEvidence;
                 }
             }
+
+            // A small predicted miss distance against an authenticated friendly missile is
+            // stronger evidence than a broad heading match against ownship. This resolves the
+            // common collinear case only once the interceptor is actually converging on the
+            // friendly missile; distant crossings remain ambiguous.
+            ownshipScore *= math.lerp(
+                1f,
+                0.5f,
+                closeInterceptEvidence);
 
             var previousKinematicTime = entry.LastKinematicUpdateTime;
             entry.LastKinematicUpdateTime = track.KinematicUpdateTime;
@@ -487,6 +528,67 @@ namespace ACunicombat.FireControl
                 headingScore * 0.72f + closingScore * 0.28f);
         }
 
+        private static float ScoreCloseInterceptEvidence(
+            in MissileIntentEstimatorConfig config,
+            in MissileTrackSnapshot missile,
+            double3 targetPosition,
+            double3 targetVelocity)
+        {
+            var offset = targetPosition - missile.Position;
+            var range = math.length(offset);
+            if (range <= 1.0 ||
+                range > math.max(1f, config.CloseInterceptMaximumRangeMeters))
+            {
+                return 0f;
+            }
+
+            var relativeVelocity = targetVelocity - missile.Velocity;
+            var relativeSpeedSquared = math.lengthsq(relativeVelocity);
+            if (relativeSpeedSquared <= 1.0)
+            {
+                return 0f;
+            }
+
+            var closingSpeed = -math.dot(relativeVelocity, offset / range);
+            if (closingSpeed < config.MinimumClosingSpeedMetersPerSecond)
+            {
+                return 0f;
+            }
+
+            var timeToCpa = -math.dot(offset, relativeVelocity) /
+                            relativeSpeedSquared;
+            var maximumTime = math.max(
+                0.1f,
+                config.CloseInterceptMaximumTimeSeconds);
+            if (timeToCpa < 0.0 || timeToCpa > maximumTime)
+            {
+                return 0f;
+            }
+
+            var cpaDistance = math.length(
+                offset + relativeVelocity * timeToCpa);
+            var cpaScore = InverseRange(
+                (float)cpaDistance,
+                75f,
+                math.max(76f, config.CloseInterceptMaximumCpaMeters));
+            if (cpaScore <= 0f)
+            {
+                return 0f;
+            }
+
+            var rangeScore = InverseRange(
+                (float)range,
+                400f,
+                math.max(401f, config.CloseInterceptMaximumRangeMeters));
+            var timeScore = InverseRange(
+                (float)timeToCpa,
+                0.25f,
+                maximumTime);
+            return math.saturate(
+                cpaScore *
+                (0.45f + rangeScore * 0.3f + timeScore * 0.25f));
+        }
+
         private static float InverseRange(
             float value,
             float fullEvidence,
@@ -554,6 +656,8 @@ namespace ACunicombat.FireControl
         {
             track.TargetIntent = entry.Intent;
             track.TargetIntentConfidence = entry.Confidence;
+            track.IntentOwnshipScore = entry.OwnshipScore;
+            track.IntentFriendlyMissileScore = entry.FriendlyMissileScore;
             track.SuspectedTargetTrackId = entry.SuspectedTargetTrackId;
             track.MissionRole = entry.Intent switch
             {

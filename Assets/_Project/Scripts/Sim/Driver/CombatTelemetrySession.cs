@@ -597,6 +597,10 @@ namespace ACunicombat.Simulation.Driver
             Number("missionRoleConfidence", track.MissionRoleConfidence);
             String("targetIntent", track.TargetIntent.ToString());
             Number("targetIntentConfidence", track.TargetIntentConfidence);
+            Number("intentOwnshipScore", track.IntentOwnshipScore);
+            Number(
+                "intentFriendlyMissileScore",
+                track.IntentFriendlyMissileScore);
             Number("suspectedTargetTrackId", track.SuspectedTargetTrackId.Packed);
             Number("timeToCpaSeconds", track.TimeToClosestApproachSeconds);
             Number("closestApproachDistanceMeters", track.ClosestApproachDistanceMeters);

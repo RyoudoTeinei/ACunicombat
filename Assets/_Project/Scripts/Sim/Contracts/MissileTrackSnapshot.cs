@@ -49,6 +49,8 @@ namespace ACunicombat.Sensing.Contracts
         public float MissionRoleConfidence;
         public MissileTargetIntent TargetIntent;
         public float TargetIntentConfidence;
+        public float IntentOwnshipScore;
+        public float IntentFriendlyMissileScore;
         public TrackId SuspectedTargetTrackId;
         public MissileTrackSourceMask SourceMask;
         public TrackAffiliation Affiliation;

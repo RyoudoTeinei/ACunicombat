@@ -205,7 +205,7 @@ namespace ACunicombat.Mechs
 				range * 0.75f,
 				100f,
 				60f,
-				Mathf.Clamp(stats?.trackCapacity ?? 8, 1, MechRadarPerformance.RadarTrackManagerSafetyLimit),
+				Mathf.Clamp(stats?.trackCapacity ?? 16, 1, MechRadarPerformance.RadarTrackManagerSafetyLimit),
 				1,
 				120f,
 				3f,

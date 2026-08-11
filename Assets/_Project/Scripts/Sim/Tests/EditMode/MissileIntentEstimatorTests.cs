@@ -157,6 +157,56 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void ImminentCpaWithAuthenticatedMissile_ResolvesInterceptorIntent()
+        {
+            var state = new MissileIntentEstimatorState();
+            var tracks = new[]
+            {
+                HostileMissile(
+                    4,
+                    new double3(0.0, 0.0, 1_000.0),
+                    new double3(0.0, 0.0, -1_400.0)),
+            };
+            var candidates = new[]
+            {
+                new FriendlyMissileIntentCandidate
+                {
+                    TrackId = new TrackId(new Handle(5, 1)),
+                    Position = new double3(40.0, 0.0, 750.0),
+                    Velocity = new double3(0.0, 0.0, 1_400.0),
+                    LastEvidenceTime = 10.0,
+                },
+            };
+
+            for (var i = 0; i < 4; i++)
+            {
+                var now = 10.0 + i * 0.24;
+                tracks[0].KinematicUpdateTime = now;
+                tracks[0].LastEvidenceTime = now;
+                tracks[0].LastUpdateTime = now;
+                candidates[0].LastEvidenceTime = now;
+                MissileIntentEstimator.Evaluate(
+                    MissileIntentEstimatorConfig.Default,
+                    state,
+                    tracks,
+                    tracks.Length,
+                    candidates,
+                    candidates.Length,
+                    new double3(0.0, 0.0, -4_000.0),
+                    double3.zero,
+                    now);
+            }
+
+            Assert.That(
+                tracks[0].TargetIntent,
+                Is.EqualTo(MissileTargetIntent.FriendlyMissile));
+            Assert.That(tracks[0].IsLikelyInterceptor, Is.True);
+            Assert.That(
+                tracks[0].IntentFriendlyMissileScore,
+                Is.GreaterThan(tracks[0].IntentOwnshipScore));
+        }
+
+        [Test]
         public void DataLinkCandidateForSameTrack_DoesNotRelabelFriendlyIdentityDropout()
         {
             var state = new MissileIntentEstimatorState();

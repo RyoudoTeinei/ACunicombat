@@ -283,6 +283,41 @@ namespace ACunicombat.FireControl
             out int trackIndex,
             out double score)
         {
+            return ResolveFriendlyDataLinkIdentity(
+                ref association,
+                tracks,
+                trackCount,
+                trackAlreadyMatched,
+                reportPosition,
+                reportVelocity,
+                reportStateTimestamp,
+                now,
+                reportFreshnessSeconds,
+                reportFreshnessSeconds,
+                maximumPositionGateMeters,
+                velocityGateMetersPerSecond,
+                minimumScoreSeparation,
+                out trackIndex,
+                out score);
+        }
+
+        public static FriendlyIdentityResolution ResolveFriendlyDataLinkIdentity(
+            ref FriendlyMissileIdentityAssociation association,
+            MissileTrackSnapshot[] tracks,
+            int trackCount,
+            bool[] trackAlreadyMatched,
+            double3 reportPosition,
+            double3 reportVelocity,
+            double reportStateTimestamp,
+            double now,
+            double reportFreshnessSeconds,
+            double identityCoastSeconds,
+            float maximumPositionGateMeters,
+            float velocityGateMetersPerSecond,
+            double minimumScoreSeparation,
+            out int trackIndex,
+            out double score)
+        {
             trackIndex = -1;
             score = double.PositiveInfinity;
             if (tracks == null || trackAlreadyMatched == null)
@@ -339,7 +374,7 @@ namespace ACunicombat.FireControl
                             trackCount,
                             trackAlreadyMatched,
                             now,
-                            reportFreshnessSeconds,
+                            identityCoastSeconds,
                             out trackIndex,
                             out score)
                             ? FriendlyIdentityResolution.Coasting
@@ -375,7 +410,7 @@ namespace ACunicombat.FireControl
                         trackCount,
                         trackAlreadyMatched,
                         now,
-                        reportFreshnessSeconds,
+                        identityCoastSeconds,
                         out trackIndex,
                         out score)
                         ? FriendlyIdentityResolution.Coasting
@@ -391,7 +426,7 @@ namespace ACunicombat.FireControl
                         trackCount,
                         trackAlreadyMatched,
                         now,
-                        reportFreshnessSeconds,
+                        identityCoastSeconds,
                         out trackIndex,
                         out score)
                         ? FriendlyIdentityResolution.Coasting
@@ -405,7 +440,7 @@ namespace ACunicombat.FireControl
                     trackCount,
                     trackAlreadyMatched,
                     now,
-                    reportFreshnessSeconds,
+                    identityCoastSeconds,
                     out trackIndex,
                     out score))
             {

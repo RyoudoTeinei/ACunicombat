@@ -953,7 +953,7 @@ public static class AC6ModularPartsImporter
                 idlePowerDrawMw = 1.4f,
                 peakPowerDrawMw = 3f,
                 fireControlQuality = 48f,
-                trackCapacity = 8,
+                trackCapacity = 16,
                 guidanceChannels = 3,
                 electromagneticSignature = 0.4f
             },

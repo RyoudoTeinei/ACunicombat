@@ -1853,7 +1853,7 @@ public static class AC6SkinnedModularSampleBuilder
 		heatCapacityMj = 25f,
 		radarRangeKm = 42f,
 		radarRefreshHz = 2.5f,
-		trackCapacity = 8
+		trackCapacity = 16
 		},
 		MechPartSlot.Radar);
 
@@ -1864,7 +1864,7 @@ public static class AC6SkinnedModularSampleBuilder
 			stableTrackRangeKm = 30f,
 			searchAzimuthDeg = 100f,
 			searchElevationDeg = 60f,
-			trackCapacity = 8,
+			trackCapacity = 16,
 			sttChannelCapacity = 1,
 			maximumTrackingRateDegPerSecond = 140f,
 			trackMemorySeconds = 3f,

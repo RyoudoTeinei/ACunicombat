@@ -721,9 +721,9 @@ namespace ACunicombat.Tracking
 
                 stats.CandidateCount++;
 
-                // 机动门限项：对机体保留一个完整 QB 响应窗口的速度模型误差，位置门限
-                // 使用 a·Δt·max(Δt, response)。这覆盖量测持续存在、但 CV 速度估计仍落后
-                // 近一个完整 delta-v 的情况；导弹 response=0，保持原来的 a·Δt² 模型。
+                // 机动门限项：机体的 CV 速度估计可能在整个 QB 窗口内持续落后。
+                // 因此位置余量必须覆盖完整响应窗口，而不能随着最新一次量测间隔缩回
+                // 40 ms；导弹 response=0，仍保持原来的 a·Δt² 模型。
                 var maneuverVariance = 0.0;
                 if (maneuverAcceleration > 0.0)
                 {
@@ -732,9 +732,11 @@ namespace ACunicombat.Tracking
                         measurementTime - slots[i].LastUpdateTime);
                     var responseSeconds = ResolveManeuverResponseSeconds(
                         measuredObjectClass);
+                    var maneuverWindow = math.max(
+                        unobservedSeconds,
+                        responseSeconds);
                     var maneuverOffset =
-                        maneuverAcceleration * unobservedSeconds *
-                        math.max(unobservedSeconds, responseSeconds);
+                        maneuverAcceleration * maneuverWindow * maneuverWindow;
                     maneuverVariance = maneuverOffset * maneuverOffset;
                 }
 
@@ -939,52 +941,141 @@ namespace ACunicombat.Tracking
             in Measurement measurement,
             double timestamp)
         {
+            var slotIndex = FindFreeSlot();
+            if (slotIndex < 0)
+            {
+                slotIndex = FindCapacityReplacement(
+                    measurement.ObjectClass,
+                    timestamp);
+                if (slotIndex < 0)
+                {
+                    return -1;
+                }
+
+                var replaced = slots[slotIndex];
+                Emit(new RadarTrackDiagnostic
+                {
+                    Kind = RadarTrackDiagnosticKind.TrackReleased,
+                    Timestamp = timestamp,
+                    MeasurementIndex = -1,
+                    TrackId = replaced.Id,
+                    ObjectClass = replaced.ObjectClass,
+                    PreviousLifecycle = replaced.Lifecycle.State,
+                    Lifecycle = TrackLifecycle.Dropped,
+                    TrackPosition = replaced.Filter.Position,
+                    TrackAgeSeconds = math.max(
+                        0.0,
+                        timestamp - replaced.LastUpdateTime),
+                    CoastCount = replaced.Lifecycle.MissCount,
+                    Reason = "capacity_replacement",
+                });
+                ReleaseTrack(slotIndex);
+            }
+
+            Matrix6 covariance = default;
+            for (var axis = 0; axis < 3; axis++)
+            {
+                covariance[axis, axis] = math.max(
+                    measurementCovariance[axis, axis],
+                    1.0);
+                covariance[axis + 3, axis + 3] =
+                    InitialVelocitySigmaMetersPerSecond *
+                    InitialVelocitySigmaMetersPerSecond;
+            }
+
+            var lifecycle = TrackLifecycleMachine.Create();
+            slots[slotIndex] = new TrackSlot
+            {
+                Active = true,
+                Id = new TrackId(
+                    new Handle(slotIndex, generations[slotIndex])),
+                Filter = new FilterState
+                {
+                    Position = position,
+                    Velocity = double3.zero,
+                    P = covariance,
+                    Time = timestamp,
+                },
+                Lifecycle = lifecycle,
+                LastUpdateTime = timestamp,
+                SourceMask = TrackSourceMask.Radar,
+                Confidence = 0.2f,
+                ObjectClass = measurement.ObjectClass,
+                ClassificationConfidence =
+                    math.saturate(
+                        measurement.ClassificationConfidence * 0.5f),
+            };
+            // The caller performs the first update and records exactly one lifecycle hit.
+            // Additional overlapping dwells in the same fusion tick may still refine this
+            // track, but they must not create duplicate tracks or inflate its hit count.
+            associated[slotIndex] = false;
+            activeCount++;
+            return slotIndex;
+        }
+
+        private int FindFreeSlot()
+        {
             for (var i = 0; i < activeCapacity; i++)
             {
-                if (slots[i].Active)
+                if (!slots[i].Active)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private int FindCapacityReplacement(
+            TrackObjectClass incomingClass,
+            double timestamp)
+        {
+            var bestIndex = -1;
+            var bestRank = int.MaxValue;
+            var bestAge = double.NegativeInfinity;
+            for (var i = 0; i < activeCapacity; i++)
+            {
+                var slot = slots[i];
+                if (!slot.Active)
                 {
                     continue;
                 }
 
-                Matrix6 covariance = default;
-                for (var axis = 0; axis < 3; axis++)
+                // A missile-only burst must never evict the platform track that fire control
+                // and STT depend on. A fresh platform return may, however, reclaim a slot from
+                // a missile when the processor is completely saturated.
+                if (incomingClass == TrackObjectClass.Missile &&
+                    slot.ObjectClass == TrackObjectClass.AirVehicle)
                 {
-                    covariance[axis, axis] = math.max(measurementCovariance[axis, axis], 1.0);
-                    covariance[axis + 3, axis + 3] =
-                        InitialVelocitySigmaMetersPerSecond *
-                        InitialVelocitySigmaMetersPerSecond;
+                    continue;
                 }
 
-                var lifecycle = TrackLifecycleMachine.Create();
-                slots[i] = new TrackSlot
+                var rank = slot.Lifecycle.State switch
                 {
-                    Active = true,
-                    Id = new TrackId(new Handle(i, generations[i])),
-                    Filter = new FilterState
-                    {
-                        Position = position,
-                        Velocity = double3.zero,
-                        P = covariance,
-                        Time = timestamp,
-                    },
-                    Lifecycle = lifecycle,
-                    LastUpdateTime = timestamp,
-                    SourceMask = TrackSourceMask.Radar,
-                    Confidence = 0.2f,
-                    ObjectClass = measurement.ObjectClass,
-                    ClassificationConfidence =
-                        math.saturate(
-                            measurement.ClassificationConfidence * 0.5f),
+                    TrackLifecycle.Degraded => 0,
+                    TrackLifecycle.Coasting => 1,
+                    TrackLifecycle.Tentative => 2,
+                    TrackLifecycle.Confirmed
+                        when incomingClass == TrackObjectClass.AirVehicle &&
+                             slot.ObjectClass != TrackObjectClass.AirVehicle => 3,
+                    _ => int.MaxValue,
                 };
-                // The caller performs the first update and records exactly one lifecycle hit.
-                // Additional overlapping dwells in the same fusion tick may still refine this
-                // track, but they must not create duplicate tracks or inflate its hit count.
-                associated[i] = false;
-                activeCount++;
-                return i;
+                if (rank == int.MaxValue)
+                {
+                    continue;
+                }
+
+                var age = math.max(0.0, timestamp - slot.LastUpdateTime);
+                if (rank < bestRank ||
+                    (rank == bestRank && age > bestAge))
+                {
+                    bestRank = rank;
+                    bestAge = age;
+                    bestIndex = i;
+                }
             }
 
-            return -1;
+            return bestIndex;
         }
 
         private void ReleaseTrack(int index)

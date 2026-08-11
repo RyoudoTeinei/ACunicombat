@@ -326,6 +326,53 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void FreshReports_KeepKnownTrackIdentityThroughKinematicGateDropout()
+        {
+            var trackId = new TrackId(new Handle(13, 1));
+            var tracks = new[]
+            {
+                new MissileTrackSnapshot
+                {
+                    TrackId = trackId,
+                    Position = new double3(500.0, 0.0, 1_000.0),
+                    Velocity = new double3(400.0, 0.0, -200.0),
+                    PositionUncertaintyMeters = 5f,
+                    LastUpdateTime = 11.5,
+                },
+            };
+            var association = new FriendlyMissileIdentityAssociation
+            {
+                TrackId = trackId,
+                LastAuthenticatedTime = 10.0,
+                LastSupportedTime = 10.0,
+                LastAssociationScore = 0.2,
+            };
+
+            var resolution = MissileTrackFusion.ResolveFriendlyDataLinkIdentity(
+                ref association,
+                tracks,
+                tracks.Length,
+                new bool[tracks.Length],
+                new double3(0.0, 0.0, 1_000.0),
+                new double3(0.0, 0.0, -200.0),
+                11.4,
+                11.5,
+                1.0,
+                2.5,
+                120f,
+                180f,
+                0.35,
+                out var trackIndex,
+                out _);
+
+            Assert.That(
+                resolution,
+                Is.EqualTo(FriendlyIdentityResolution.Coasting));
+            Assert.That(trackIndex, Is.Zero);
+            Assert.That(association.TrackId, Is.EqualTo(trackId));
+        }
+
+        [Test]
         public void FreshAmbiguousReports_SupportOriginalIdentityBeyondAuthenticationWindow()
         {
             var associatedTrackId = new TrackId(new Handle(13, 1));

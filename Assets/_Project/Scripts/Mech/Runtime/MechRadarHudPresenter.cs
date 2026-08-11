@@ -1330,7 +1330,7 @@ namespace ACunicombat.Mechs
 			for (int i = 0; i < missileTrackCount; i++)
 			{
 				MissileTrackSnapshot track = missileTracks[i];
-				if (!ShouldDisplayIncomingMissile(in track))
+				if (!ShouldDisplayWorldMissileMarker(in track))
 				{
 					continue;
 				}
@@ -1428,6 +1428,21 @@ namespace ACunicombat.Mechs
 			return IsFreshMissileEvidence(in track);
 		}
 
+		private bool ShouldDisplayWorldMissileMarker(
+			in MissileTrackSnapshot track)
+		{
+			if (!ShouldDisplayIncomingMissile(in track))
+			{
+				return false;
+			}
+
+			// Keep all contacts on the tactical radar, but remove a resolved interceptor
+			// from the forward view unless its observed CPA makes it an immediate collision
+			// threat to ownship. Unknown missiles remain visible during the evidence window.
+			return !track.IsLikelyInterceptor ||
+				ShouldEmphasizeOwnshipThreat(in track);
+		}
+
 		private static bool ShouldEmphasizeOwnshipThreat(
 			in MissileTrackSnapshot track)
 		{
@@ -1436,8 +1451,7 @@ namespace ACunicombat.Mechs
 				return true;
 			}
 
-			if (track.IsLikelyInterceptor ||
-				!track.Incoming ||
+			if (!track.Incoming ||
 				!track.IsWeaponsQuality)
 			{
 				return false;

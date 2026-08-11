@@ -215,6 +215,7 @@ namespace ACunicombat.Mechs
         // 150 m 有余量而不至于跨到编队里的另一架。
         private const float SttReacquisitionGateMeters = 150f;
         private const float FriendlyMissileReportRetentionSeconds = 1.0f;
+        private const float FriendlyMissileIdentityCoastSeconds = 2.5f;
         private const float FriendlyMissileAssociationMaximumMeters = 120f;
         private const float FriendlyMissileAssociationVelocityGateMps = 180f;
         private const double FriendlyMissileAssociationScoreSeparation = 0.35;
@@ -2859,6 +2860,7 @@ namespace ACunicombat.Mechs
                         report.StateTimestamp,
                         now,
                         FriendlyMissileReportRetentionSeconds,
+                        FriendlyMissileIdentityCoastSeconds,
                         FriendlyMissileAssociationMaximumMeters,
                         FriendlyMissileAssociationVelocityGateMps,
                         FriendlyMissileAssociationScoreSeparation,

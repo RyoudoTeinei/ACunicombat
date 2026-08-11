@@ -364,6 +364,126 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void QuickBoostResidualInsideResponseEnvelope_DoesNotSplitTrack()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+            var position = new double3(0.0, 100.0, 5_000.0);
+            var velocity = new double3(0.0, 0.0, -300.0);
+            const double step = 0.04;
+
+            for (var tick = 1; tick <= 60; tick++)
+            {
+                position += velocity * step;
+                measurements.Clear();
+                var measurement = MeasurementAtPosition(
+                    tick * step,
+                    position,
+                    velocity);
+                measurement.ObjectClass = TrackObjectClass.AirVehicle;
+                measurement.ClassificationConfidence = 0.9f;
+                measurement.RangeVar = 1.44f;
+                measurement.AngleVar = 1e-8f;
+                measurements.Add(measurement);
+                manager.Process(
+                    measurements,
+                    double3.zero,
+                    double3.zero,
+                    tick * step);
+            }
+
+            // Reproduces the live failure mode: the radar continues returning a precise
+            // position while the CV estimate still carries the pre-QB velocity.
+            position += new double3(20.0, 0.0, 0.0);
+            measurements.Clear();
+            var boosted = MeasurementAtPosition(
+                61 * step,
+                position,
+                velocity + new double3(90.0, 0.0, 0.0));
+            boosted.ObjectClass = TrackObjectClass.AirVehicle;
+            boosted.ClassificationConfidence = 0.9f;
+            boosted.RangeVar = 1.44f;
+            boosted.AngleVar = 1e-8f;
+            measurements.Add(boosted);
+            manager.Process(
+                measurements,
+                double3.zero,
+                double3.zero,
+                61 * step);
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void SaturatedTracker_ReplacesTentativeMissileForAirVehicle()
+        {
+            var manager = new RadarTrackManager();
+            manager.ConfigureLimits(2, 3.0);
+            using var measurements =
+                new NativeList<Measurement>(4, Allocator.Temp);
+
+            for (var i = 0; i < 2; i++)
+            {
+                var missile = MeasurementAtPosition(
+                    0.04,
+                    new double3(i * 1_000.0, 0.0, 5_000.0),
+                    double3.zero);
+                missile.ObjectClass = TrackObjectClass.Missile;
+                missile.ClassificationConfidence = 0.9f;
+                measurements.Add(missile);
+            }
+            manager.Process(measurements, double3.zero, 0.04);
+
+            measurements.Clear();
+            var aircraft = MeasurementAtPosition(
+                0.08,
+                new double3(3_000.0, 0.0, 5_000.0),
+                double3.zero);
+            aircraft.ObjectClass = TrackObjectClass.AirVehicle;
+            aircraft.ClassificationConfidence = 0.9f;
+            measurements.Add(aircraft);
+            manager.Process(measurements, double3.zero, 0.08);
+
+            var tracks = new TrackSnapshot[2];
+            Assert.That(manager.CopyTracks(tracks), Is.EqualTo(2));
+            Assert.That(
+                new[] { tracks[0].ObjectClass, tracks[1].ObjectClass },
+                Does.Contain(TrackObjectClass.AirVehicle));
+        }
+
+        [Test]
+        public void SaturatedTracker_DoesNotReplaceAirVehicleForMissile()
+        {
+            var manager = new RadarTrackManager();
+            manager.ConfigureLimits(1, 3.0);
+            using var measurements =
+                new NativeList<Measurement>(2, Allocator.Temp);
+            var aircraft = MeasurementAtPosition(
+                0.04,
+                new double3(0.0, 0.0, 5_000.0),
+                double3.zero);
+            aircraft.ObjectClass = TrackObjectClass.AirVehicle;
+            aircraft.ClassificationConfidence = 0.9f;
+            measurements.Add(aircraft);
+            manager.Process(measurements, double3.zero, 0.04);
+
+            measurements.Clear();
+            var missile = MeasurementAtPosition(
+                0.08,
+                new double3(1_000.0, 0.0, 5_000.0),
+                double3.zero);
+            missile.ObjectClass = TrackObjectClass.Missile;
+            missile.ClassificationConfidence = 0.9f;
+            measurements.Add(missile);
+            manager.Process(measurements, double3.zero, 0.08);
+
+            Assert.That(manager.Count, Is.EqualTo(1));
+            Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+            Assert.That(track.ObjectClass, Is.EqualTo(TrackObjectClass.AirVehicle));
+        }
+
+        [Test]
         public void CoLocatedAircraftAndMissile_ReturnsRemainSeparateTracks()
         {
             var manager = new RadarTrackManager();

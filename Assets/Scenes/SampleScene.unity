@@ -3043,7 +3043,7 @@ MonoBehaviour:
     radarAperture: 1.3
     radarRefreshHz: 2.5
     sensorPrecision: 38
-    trackCapacity: 8
+    trackCapacity: 16
     fireControlQuality: 48
     guidanceChannels: 3
     radarCrossSection: 7.05
