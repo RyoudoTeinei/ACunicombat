@@ -9,7 +9,7 @@ namespace ACunicombat.Tests.EditMode
     public class MissileIntentEstimatorTests
     {
         [Test]
-        public void PersistentOwnshipGeometry_ResolvesAirToAirIntent()
+        public void PersistentOwnshipGeometry_ResolvesIntentWithoutInferringRole()
         {
             var state = new MissileIntentEstimatorState();
             var tracks = new[]
@@ -32,8 +32,8 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(tracks[0].IsLikelyTargetingOwnship, Is.True);
             Assert.That(
                 tracks[0].MissionRole,
-                Is.EqualTo(MissileMissionRole.AirToAir));
-            Assert.That(tracks[0].IsLikelyAirToAir, Is.True);
+                Is.EqualTo(MissileMissionRole.Unknown));
+            Assert.That(tracks[0].IsLikelyAirToAir, Is.False);
         }
 
         [Test]
@@ -60,7 +60,7 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
-        public void PersistentFriendlyMissileGeometry_ResolvesInterceptorIntent()
+        public void PersistentFriendlyMissileGeometry_ResolvesIntentWithoutInferringRole()
         {
             var state = new MissileIntentEstimatorState();
             var targetPosition = new double3(-2_000.0, 0.0, 6_000.0);
@@ -89,13 +89,13 @@ namespace ACunicombat.Tests.EditMode
                 tracks[0].TargetIntent,
                 Is.EqualTo(MissileTargetIntent.FriendlyMissile),
                 $"confidence={tracks[0].TargetIntentConfidence:0.000}");
-            Assert.That(tracks[0].IsLikelyInterceptor, Is.True);
+            Assert.That(tracks[0].IsLikelyInterceptor, Is.False);
             Assert.That(
                 tracks[0].SuspectedTargetTrackId,
                 Is.EqualTo(tracks[1].TrackId));
             Assert.That(
                 tracks[0].MissionRole,
-                Is.EqualTo(MissileMissionRole.Interceptor));
+                Is.EqualTo(MissileMissionRole.Unknown));
         }
 
         [Test]
@@ -151,7 +151,7 @@ namespace ACunicombat.Tests.EditMode
                 tracks[0].TargetIntent,
                 Is.EqualTo(MissileTargetIntent.FriendlyMissile),
                 $"confidence={tracks[0].TargetIntentConfidence:0.000}");
-            Assert.That(tracks[0].IsLikelyInterceptor, Is.True);
+            Assert.That(tracks[0].IsLikelyInterceptor, Is.False);
             Assert.That(
                 tracks[0].SuspectedTargetTrackId,
                 Is.EqualTo(candidates[0].TrackId));
@@ -402,7 +402,105 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(
                 tracks[0].TargetIntent,
                 Is.EqualTo(MissileTargetIntent.FriendlyMissile));
-            Assert.That(tracks[0].IsLikelyInterceptor, Is.True);
+            Assert.That(tracks[0].IsLikelyInterceptor, Is.False);
+            Assert.That(
+                tracks[0].MissionRole,
+                Is.EqualTo(MissileMissionRole.Unknown));
+        }
+
+        [Test]
+        public void StrongFreshMainlobeEvidence_AcceleratesOwnshipIntent()
+        {
+            var state = new MissileIntentEstimatorState();
+            var tracks = new[]
+            {
+                HostileMissile(
+                    4,
+                    new double3(0.0, 0.0, 10_000.0),
+                    new double3(0.0, 0.0, -1_000.0)),
+            };
+
+            for (var i = 0; i < 3; i++)
+            {
+                var now = 10.0 + i * 0.08;
+                tracks[0].KinematicUpdateTime = now;
+                tracks[0].LastEvidenceTime = now;
+                tracks[0].LastUpdateTime = now;
+                tracks[0].SeekerOwnshipEvidence = 0.85f;
+                tracks[0].LastSeekerMainlobeTime = now;
+                MissileIntentEstimator.Evaluate(
+                    MissileIntentEstimatorConfig.Default,
+                    state,
+                    tracks,
+                    tracks.Length,
+                    double3.zero,
+                    double3.zero,
+                    now);
+            }
+
+            Assert.That(
+                tracks[0].TargetIntent,
+                Is.EqualTo(MissileTargetIntent.Ownship));
+            Assert.That(tracks[0].IsLikelyTargetingOwnship, Is.True);
+        }
+
+        [Test]
+        public void SidelobeDiscovery_DoesNotAccelerateOwnshipIntent()
+        {
+            var state = new MissileIntentEstimatorState();
+            var tracks = new[]
+            {
+                HostileMissile(
+                    4,
+                    new double3(0.0, 0.0, 10_000.0),
+                    new double3(0.0, 0.0, -1_000.0)),
+            };
+            tracks[0].SourceMask |= MissileTrackSourceMask.Rwr;
+
+            for (var i = 0; i < 3; i++)
+            {
+                var now = 10.0 + i * 0.08;
+                tracks[0].KinematicUpdateTime = now;
+                tracks[0].LastEvidenceTime = now;
+                tracks[0].LastUpdateTime = now;
+                MissileIntentEstimator.Evaluate(
+                    MissileIntentEstimatorConfig.Default,
+                    state,
+                    tracks,
+                    tracks.Length,
+                    double3.zero,
+                    double3.zero,
+                    now);
+            }
+
+            Assert.That(
+                tracks[0].TargetIntent,
+                Is.EqualTo(MissileTargetIntent.Unknown));
+        }
+
+        [Test]
+        public void EsmAirToAirRole_DoesNotImplyOwnshipIntent()
+        {
+            var track = HostileMissile(
+                5,
+                new double3(0.0, 0.0, 5_000.0),
+                new double3(0.0, 0.0, 800.0));
+            track.MissionRole = MissileMissionRole.AirToAir;
+            track.MissionRoleConfidence = 0.9f;
+            track.MissionRoleEvidence =
+                MissileMissionRoleEvidence.EsmWaveform;
+            var tracks = new[] { track };
+
+            EvaluateSamples(
+                new MissileIntentEstimatorState(),
+                tracks,
+                8);
+
+            Assert.That(tracks[0].IsLikelyAirToAir, Is.True);
+            Assert.That(tracks[0].IsLikelyTargetingOwnship, Is.False);
+            Assert.That(
+                tracks[0].TargetIntent,
+                Is.EqualTo(MissileTargetIntent.Unknown));
         }
 
         [Test]

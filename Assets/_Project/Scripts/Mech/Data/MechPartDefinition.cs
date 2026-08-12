@@ -234,6 +234,12 @@ namespace ACunicombat.Mechs
                 stats = new MechPartStats();
             }
             stats.CopyFrom(newStats);
+			if (newCategory == MechPartCategory.Frame &&
+				(newSlot == MechPartSlot.Head || newSlot == MechPartSlot.Core ||
+				 newSlot == MechPartSlot.Arms || newSlot == MechPartSlot.Legs))
+			{
+				stats.PopulateMassBreakdownFromDurability();
+			}
             internalPerformance = newInternalPerformance?.Clone() ?? new MechInternalPartPerformance();
             headSensorPerformance = newHeadSensorPerformance?.Clone() ?? new MechHeadSensorPerformance();
             armPerformance = newArmPerformance?.Clone() ?? new MechArmPerformance();

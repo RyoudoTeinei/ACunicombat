@@ -61,6 +61,13 @@ namespace ACunicombat.Sensing.Contracts
         public float IntentOwnshipScore;
         public float IntentFriendlyMissileScore;
         public TrackId SuspectedTargetTrackId;
+        /// <summary>
+        /// RWR 对“该导引头主瓣正在照射本机”的融合证据。旁瓣接触恒为零。
+        /// </summary>
+        public float SeekerOwnshipEvidence;
+        public double LastSeekerMainlobeTime;
+        public float SeekerMainlobeContinuousSeconds;
+        public float SeekerMainlobePowerTrendDbPerSecond;
         public MissileTrackSourceMask SourceMask;
         public TrackAffiliation Affiliation;
         public MissileTrackQuality Quality;

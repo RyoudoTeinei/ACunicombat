@@ -24,6 +24,11 @@ namespace ACunicombat.FireControl
         public float MinimumClassification;
         public float MinimumConfirmationConfidence;
         public float ConfirmationExitConfidence;
+        public double SeekerMainlobeMaximumAgeSeconds;
+        public float SeekerMainlobeContinuousEvidenceSeconds;
+        public float SeekerMainlobeRisingPowerThresholdDbPerSecond;
+        public float SeekerMainlobeFullPowerTrendDbPerSecond;
+        public float SeekerMainlobeMinimumIncomingEvidence;
         public double CorroborationHoldSeconds;
         public double ConfirmationHoldSeconds;
         public double IncomingHoldSeconds;
@@ -57,6 +62,11 @@ namespace ACunicombat.FireControl
                 MinimumClassification = 0.35f,
                 MinimumConfirmationConfidence = 0.55f,
                 ConfirmationExitConfidence = 0.42f,
+                SeekerMainlobeMaximumAgeSeconds = 0.2,
+                SeekerMainlobeContinuousEvidenceSeconds = 0.15f,
+                SeekerMainlobeRisingPowerThresholdDbPerSecond = 0.5f,
+                SeekerMainlobeFullPowerTrendDbPerSecond = 3f,
+                SeekerMainlobeMinimumIncomingEvidence = 0.45f,
                 CorroborationHoldSeconds = 2.5,
                 ConfirmationHoldSeconds = 1.5,
                 IncomingHoldSeconds = 1.0,
@@ -796,6 +806,10 @@ namespace ACunicombat.FireControl
                 var lastEvidenceTime = track.LastUpdateTime;
                 var sensorMissionRole = MissileMissionRole.Unknown;
                 var sensorMissionRoleConfidence = 0f;
+                var seekerOwnshipEvidence = 0f;
+                var lastSeekerMainlobeTime = -1.0;
+                var seekerMainlobeContinuousSeconds = 0f;
+                var seekerMainlobePowerTrend = 0f;
 
                 AssociateThreats(
                     in config,
@@ -811,7 +825,11 @@ namespace ACunicombat.FireControl
                     ref confidence,
                     ref lastEvidenceTime,
                     ref sensorMissionRole,
-                    ref sensorMissionRoleConfidence);
+                    ref sensorMissionRoleConfidence,
+                    ref seekerOwnshipEvidence,
+                    ref lastSeekerMainlobeTime,
+                    ref seekerMainlobeContinuousSeconds,
+                    ref seekerMainlobePowerTrend);
                 var opticalConfirmed =
                     AssociateElectroOpticalObservation(
                         in config,
@@ -904,7 +922,8 @@ namespace ACunicombat.FireControl
                         guidedThreatMaximumCpa,
                         cpaUncertainty);
                 var guidedIncoming =
-                    (sourceMask & MissileTrackSourceMask.Rwr) != 0 &&
+                    seekerOwnshipEvidence >=
+                        config.SeekerMainlobeMinimumIncomingEvidence &&
                     range <= config.GuidedThreatRangeMeters &&
                     closingSpeed >=
                         config.MinimumClosingSpeedMetersPerSecond &&
@@ -1113,6 +1132,13 @@ namespace ACunicombat.FireControl
                                 MissileMissionRole.Unknown
                                 ? MissileMissionRoleEvidence.None
                                 : MissileMissionRoleEvidence.EsmWaveform,
+                        SeekerOwnshipEvidence = seekerOwnshipEvidence,
+                        LastSeekerMainlobeTime =
+                            lastSeekerMainlobeTime,
+                        SeekerMainlobeContinuousSeconds =
+                            seekerMainlobeContinuousSeconds,
+                        SeekerMainlobePowerTrendDbPerSecond =
+                            seekerMainlobePowerTrend,
                         SourceMask = sourceMask,
                         Quality = quality,
                         Confirmed = confirmed,
@@ -1318,6 +1344,18 @@ namespace ACunicombat.FireControl
                 math.max(
                     existing.Confidence,
                     candidate.Confidence);
+            if (candidate.SeekerOwnshipEvidence >
+                existing.SeekerOwnshipEvidence)
+            {
+                merged.SeekerOwnshipEvidence =
+                    candidate.SeekerOwnshipEvidence;
+                merged.LastSeekerMainlobeTime =
+                    candidate.LastSeekerMainlobeTime;
+                merged.SeekerMainlobeContinuousSeconds =
+                    candidate.SeekerMainlobeContinuousSeconds;
+                merged.SeekerMainlobePowerTrendDbPerSecond =
+                    candidate.SeekerMainlobePowerTrendDbPerSecond;
+            }
             if (existing.MissionRoleConfidence >
                 candidate.MissionRoleConfidence)
             {
@@ -1372,7 +1410,11 @@ namespace ACunicombat.FireControl
             ref float confidence,
             ref double lastUpdate,
             ref MissileMissionRole missionRole,
-            ref float missionRoleConfidence)
+            ref float missionRoleConfidence,
+            ref float seekerOwnshipEvidence,
+            ref double lastSeekerMainlobeTime,
+            ref float seekerMainlobeContinuousSeconds,
+            ref float seekerMainlobePowerTrend)
         {
             if (threats == null ||
                 math.lengthsq(relativePosition) <= 0.01)
@@ -1412,11 +1454,7 @@ namespace ACunicombat.FireControl
                     rwrUpdate = math.max(
                         rwrUpdate,
                         threat.LastSeenTime);
-                    if (EsmWaveformClassification
-                            .TryGetMissileMissionRole(
-                                threat.WaveformClass,
-                                out var observedRole) &&
-                        TryAssociateThreatRoleToRadarTrack(
+                    if (TryAssociateThreatToRadarTrack(
                             in config,
                             radarTrackIndex,
                             radarTracks,
@@ -1426,15 +1464,55 @@ namespace ACunicombat.FireControl
                             now,
                             out var angularConfidence))
                     {
-                        var observedConfidence =
-                            threat.IdentificationConfidence *
-                            angularConfidence;
-                        if (observedConfidence >
-                            missionRoleConfidence)
+                        if (EsmWaveformClassification
+                                .TryGetMissileMissionRole(
+                                    threat.WaveformClass,
+                                    out var observedRole))
                         {
-                            missionRole = observedRole;
-                            missionRoleConfidence =
-                                observedConfidence;
+                            var observedConfidence =
+                                threat.IdentificationConfidence *
+                                angularConfidence;
+                            if (observedConfidence >
+                                missionRoleConfidence)
+                            {
+                                missionRole = observedRole;
+                                missionRoleConfidence =
+                                    observedConfidence;
+                            }
+                        }
+
+                        if (threat.LastMainlobeSeenTime >= 0.0 &&
+                            now - threat.LastMainlobeSeenTime <=
+                                config.SeekerMainlobeMaximumAgeSeconds)
+                        {
+                            var continuousEvidence = math.saturate(
+                                threat.ContinuousMainlobeIlluminationSeconds /
+                                math.max(
+                                    0.01f,
+                                    config.SeekerMainlobeContinuousEvidenceSeconds));
+                            var powerTrendEvidence = math.saturate(
+                                (threat.MainlobePowerTrendDbPerSecond -
+                                 config.SeekerMainlobeRisingPowerThresholdDbPerSecond) /
+                                math.max(
+                                    0.01f,
+                                    config.SeekerMainlobeFullPowerTrendDbPerSecond -
+                                    config.SeekerMainlobeRisingPowerThresholdDbPerSecond));
+                            var observedEvidence =
+                                threat.IdentificationConfidence *
+                                angularConfidence *
+                                (0.45f +
+                                 continuousEvidence * 0.35f +
+                                 powerTrendEvidence * 0.2f);
+                            if (observedEvidence > seekerOwnshipEvidence)
+                            {
+                                seekerOwnshipEvidence = observedEvidence;
+                                lastSeekerMainlobeTime =
+                                    threat.LastMainlobeSeenTime;
+                                seekerMainlobeContinuousSeconds =
+                                    threat.ContinuousMainlobeIlluminationSeconds;
+                                seekerMainlobePowerTrend =
+                                    threat.MainlobePowerTrendDbPerSecond;
+                            }
                         }
                     }
                 }
@@ -1468,7 +1546,7 @@ namespace ACunicombat.FireControl
             }
         }
 
-        private static bool TryAssociateThreatRoleToRadarTrack(
+        private static bool TryAssociateThreatToRadarTrack(
             in MissileTrackFusionConfig config,
             int expectedTrackIndex,
             TrackSnapshot[] radarTracks,

@@ -374,7 +374,7 @@ public static class MechSystemEditorMenu
 			weaponPointingErrorMrad = 0.18f,
 			thrusterNozzles = new[]
 			{
-				new MechArmThrusterNozzle { nozzleId = "arm-lateral", role = MechArmThrusterRole.Lateral, localPositionM = new Vector3(0.82f, 0.08f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 40f, gimbalLimitDeg = 8f, maximumPowerKw = 420f, maximumHeatKw = 180f },
+				new MechArmThrusterNozzle { nozzleId = "arm-lateral", role = MechArmThrusterRole.Lateral, localPositionM = new Vector3(0.82f, 0.08f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 132f, gimbalLimitDeg = 8f, maximumPowerKw = 420f, maximumHeatKw = 180f },
 				new MechArmThrusterNozzle { nozzleId = "arm-rcs-forward", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, 0.32f, 0.28f), localThrustDirection = Vector3.forward, maximumThrustKn = 75f, maximumPowerKw = 260f, maximumHeatKw = 120f },
 				new MechArmThrusterNozzle { nozzleId = "arm-rcs-rear", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, -0.18f, -0.24f), localThrustDirection = Vector3.back, maximumThrustKn = 75f, maximumPowerKw = 260f, maximumHeatKw = 120f }
 			}

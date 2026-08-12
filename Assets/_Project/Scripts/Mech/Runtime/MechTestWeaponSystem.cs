@@ -35,6 +35,10 @@ namespace ACunicombat.Mechs
 
 			public float NextFireTime;
 
+			public float SpinReadyTime;
+
+			public float LastSpinRequestTime = float.NegativeInfinity;
+
 			public float RecoilDispersionMilliradians;
 
 			public float LastDispersionUpdateTime;
@@ -136,6 +140,8 @@ namespace ACunicombat.Mechs
 
 			public bool Spinning;
 
+			public ShaoWeiMountPhase MountPhase;
+
 			public bool HasSlewedDirection;
 
 			public Vector3 SlewedDirection;
@@ -152,9 +158,24 @@ namespace ACunicombat.Mechs
 
 			public Transform AimPivot;
 
+			public bool HasNeutralAimLocalRotation;
+
+			public Quaternion NeutralAimLocalRotation;
+
 			public MechEquipmentAnimationPlayer AnimationPlayer;
 
 			public uint DispersionRandomState;
+		}
+
+		private enum ShaoWeiMountPhase : byte
+		{
+			Stowed,
+			Deploying,
+			Ready,
+			Active,
+			SpinningDown,
+			Recentering,
+			Stowing
 		}
 
 		public enum PointDefenseWithholdReason : byte
@@ -182,11 +203,17 @@ namespace ACunicombat.Mechs
 
 		private const float CannonProjectileLifetimeSeconds = 10f;
 
+		private const string ShaoWeiDeployActionId = "a000_800110";
+
 		private const string ShaoWeiSpinUpActionId = "a000_800200";
 
 		private const string ShaoWeiSustainedFireActionId = "a000_800201";
 
 		private const string ShaoWeiSpinDownActionId = "a000_800202";
+
+		private const string ShaoWeiStowActionId = "a000_800310";
+
+		private const string ShaoWeiRestActionId = "a000_800000";
 
 		private const string ShaoWeiAimPivotSuffix = "LookAt_01";
 
@@ -1305,11 +1332,15 @@ namespace ACunicombat.Mechs
 				ShaoWeiWeaponState state = GetShaoWeiState(record.slot);
 				if (state != null)
 				{
-					state.AnimationPlayer = record.instance.GetComponent<MechEquipmentAnimationPlayer>();
+					MechEquipmentAnimationPlayer animationPlayer = record.instance.GetComponent<MechEquipmentAnimationPlayer>();
 					Transform aimPivot = transforms.FirstOrDefault((Transform candidate) => candidate.name.EndsWith("LookAt_01", StringComparison.OrdinalIgnoreCase));
-					if (state.AimPivot != aimPivot)
+					if (state.AnimationPlayer != animationPlayer || state.AimPivot != aimPivot)
 					{
+						state.Spinning = false;
+						state.MountPhase = ShaoWeiMountPhase.Stowed;
+						state.HasNeutralAimLocalRotation = false;
 						ResetShaoWeiAimState(state);
+						state.AnimationPlayer = animationPlayer;
 						state.AimPivot = aimPivot;
 					}
 				}
@@ -1363,6 +1394,10 @@ namespace ACunicombat.Mechs
 			{
 				rifleProfile = ResolveAutomaticCannonProfile(state.Performance);
 				UpdateRifleDispersion(state, in rifleProfile, Time.time);
+				if (!IsAutomaticWeaponSpunUp(state, weaponPerformance, Time.time))
+				{
+					return false;
+				}
 				if (Time.time < state.NextFireTime)
 				{
 					return false;
@@ -1498,7 +1533,7 @@ namespace ACunicombat.Mechs
 			HandWeaponState state = GetHandState(slot);
 			if (state.Role == MechWeaponRole.AutomaticCannon)
 			{
-				if (fireHeld && Time.time >= state.NextFireTime)
+				if (fireHeld)
 				{
 					TryFireEquippedHandWeapon(slot);
 				}
@@ -1702,6 +1737,8 @@ namespace ACunicombat.Mechs
 			state.Reloading = false;
 			state.ReloadCompleteTime = float.NegativeInfinity;
 			state.NextFireTime = 0f;
+			state.SpinReadyTime = 0f;
+			state.LastSpinRequestTime = float.NegativeInfinity;
 			state.RecoilDispersionMilliradians = 0f;
 			state.LastDispersionUpdateTime = Time.time;
 			state.LastShotTime = float.NegativeInfinity;
@@ -1710,6 +1747,27 @@ namespace ACunicombat.Mechs
 			state.TrackedAimDirection = Vector3.zero;
 			state.AimAngularSpeedDegreesPerSecond = 0f;
 			state.LastAimUpdateTime = Time.time;
+		}
+
+		private static bool IsAutomaticWeaponSpunUp(
+			HandWeaponState state,
+			MechWeaponPerformance performance,
+			float currentTime)
+		{
+			float spinUpSeconds = Mathf.Max(0f, performance?.spinUpSeconds ?? 0f);
+			if (spinUpSeconds <= 0f)
+			{
+				return true;
+			}
+
+			float spinHoldSeconds = Mathf.Max(0.25f, spinUpSeconds * 0.75f);
+			if (currentTime - state.LastSpinRequestTime > spinHoldSeconds)
+			{
+				state.SpinReadyTime = currentTime + spinUpSeconds;
+			}
+
+			state.LastSpinRequestTime = currentTime;
+			return currentTime >= state.SpinReadyTime;
 		}
 
 		private int GetHandMagazineCapacity(HandWeaponState state)
@@ -1825,6 +1883,8 @@ namespace ACunicombat.Mechs
 			state.NextFireTime = 0f;
 			state.SpinReadyTime = 0f;
 			state.Spinning = false;
+			state.MountPhase = ShaoWeiMountPhase.Stowed;
+			state.HasNeutralAimLocalRotation = false;
 			ResetShaoWeiAimState(state);
 			state.DispersionRandomState = ((randomSeed == 0) ? 1u : randomSeed);
 		}
@@ -2894,17 +2954,32 @@ namespace ACunicombat.Mechs
 		{
 			shaoWeiPointDefenseHitProbability = 0f;
 			shaoWeiPointDefenseWithholdReason = PointDefenseWithholdReason.None;
-			UpdateShaoWeiPointDefenseSlot(MechPartSlot.LeftBackWeapon, leftShaoWeiState);
-			UpdateShaoWeiPointDefenseSlot(MechPartSlot.RightBackWeapon, rightShaoWeiState);
+			bool hasRwrLockWarning = HasShaoWeiPredeploymentWarning();
+			UpdateShaoWeiPointDefenseSlot(MechPartSlot.LeftBackWeapon, leftShaoWeiState, hasRwrLockWarning);
+			UpdateShaoWeiPointDefenseSlot(MechPartSlot.RightBackWeapon, rightShaoWeiState, hasRwrLockWarning);
 		}
 
-		private void UpdateShaoWeiPointDefenseSlot(MechPartSlot slot, ShaoWeiWeaponState state)
+		private void UpdateShaoWeiPointDefenseSlot(
+			MechPartSlot slot,
+			ShaoWeiWeaponState state,
+			bool hasRwrLockWarning)
 		{
 			MechWeaponPerformance performance = state.Performance;
 			bool installed = IsShaoWeiEquipped(slot);
 			bool hasTarget = shaoWeiPointDefenseTarget.TrackId.IsValid;
-			bool available = performance != null && enableShaoWeiPointDefense && IsShaoWeiPlatformOperational() && installed && hasTarget && state.RoundsRemaining > 0 && !state.Reloading && !state.Overheated;
-			SetShaoWeiSpinning(slot, state, available);
+			bool platformReady = performance != null &&
+				enableShaoWeiPointDefense &&
+				IsShaoWeiPlatformOperational() &&
+				installed &&
+				state.RoundsRemaining > 0 &&
+				!state.Reloading &&
+				!state.Overheated;
+			bool available = platformReady && hasTarget;
+			SetShaoWeiSpinning(
+				slot,
+				state,
+				shouldDeploy: platformReady && (hasRwrLockWarning || hasTarget),
+				shouldSpin: available);
 			if (!available)
 			{
 				state.HasAimPoint = false;
@@ -2937,7 +3012,7 @@ namespace ACunicombat.Mechs
 				shaoWeiPointDefenseHitProbability = hitProbability;
 				shaoWeiPointDefenseWithholdReason = withholdReason;
 			}
-			if (!num || Time.time < state.SpinReadyTime || Time.time < state.NextFireTime)
+			if (!num || !state.Spinning || Time.time < state.SpinReadyTime || Time.time < state.NextFireTime)
 			{
 				return;
 			}
@@ -2989,53 +3064,301 @@ namespace ACunicombat.Mechs
 			if (state.HeatMj >= performance.heatCapacityMj - 0.0001f)
 			{
 				state.Overheated = true;
-				SetShaoWeiSpinning(slot, state, shouldSpin: false);
+				SetShaoWeiSpinning(slot, state, shouldDeploy: false, shouldSpin: false);
 			}
 		}
 
-		private void SetShaoWeiSpinning(MechPartSlot slot, ShaoWeiWeaponState state, bool shouldSpin)
+		private bool HasShaoWeiPredeploymentWarning()
+		{
+			return radarController != null &&
+				radarController.TryGetHighestThreat(out var threat) &&
+				(int)threat.Level >= (int)EsmThreatLevel.Locked;
+		}
+
+		private void SetShaoWeiSpinning(
+			MechPartSlot slot,
+			ShaoWeiWeaponState state,
+			bool shouldDeploy,
+			bool shouldSpin)
 		{
 			MechWeaponPerformance performance = state.Performance;
 			MechEquipmentAnimationPlayer player = state.AnimationPlayer;
-			if (player == null && shouldSpin)
+			if (player == null && shouldDeploy)
 			{
 				ResolveMuzzles();
 				player = state.AnimationPlayer;
 			}
-			if (shouldSpin)
+			if (!shouldDeploy)
 			{
-				if (!state.Spinning)
-				{
-					state.Spinning = true;
-					state.SpinReadyTime = Time.time + Mathf.Max(0f, performance?.spinUpSeconds ?? 0f);
-					if (player != null && player.HasAction("a000_800200"))
-					{
-						player.PlayActionPreservingPose("a000_800200");
-					}
-				}
-				else if (player != null && Time.time >= state.SpinReadyTime && (!player.IsPlaying || (!string.Equals(player.ActiveActionId, "a000_800200", StringComparison.OrdinalIgnoreCase) && !string.Equals(player.ActiveActionId, "a000_800201", StringComparison.OrdinalIgnoreCase))))
-				{
-					player.PlayActionPreservingPose("a000_800201");
-				}
-			}
-			else if (state.Spinning)
-			{
-				state.Spinning = false;
-				ResetShaoWeiAimState(state);
-				if (player != null && player.HasAction("a000_800202"))
-				{
-					player.PlayActionPreservingPose("a000_800202");
-				}
+				UpdateShaoWeiShutdown(slot, state, player, shouldRemainDeployed: false);
+				return;
 			}
 
-			MechPointDefenseAudio audio = shouldSpin
-				? EnsurePointDefenseAudio()
-				: pointDefenseAudio;
-			audio?.SetRotorState(
+			switch (state.MountPhase)
+			{
+			case ShaoWeiMountPhase.Stowed:
+				if (TryPlayShaoWeiAction(player, ShaoWeiDeployActionId))
+				{
+					state.MountPhase = ShaoWeiMountPhase.Deploying;
+				}
+				else
+				{
+					state.MountPhase = ShaoWeiMountPhase.Ready;
+					CaptureShaoWeiNeutralAim(state);
+					if (shouldSpin)
+					{
+						BeginShaoWeiRotor(slot, state, player, performance);
+					}
+				}
+				break;
+			case ShaoWeiMountPhase.Deploying:
+				if (player == null || !player.IsPlaying)
+				{
+					state.MountPhase = ShaoWeiMountPhase.Ready;
+					CaptureShaoWeiNeutralAim(state);
+					if (shouldSpin)
+					{
+						BeginShaoWeiRotor(slot, state, player, performance);
+					}
+				}
+				break;
+			case ShaoWeiMountPhase.Ready:
+				if (shouldSpin)
+				{
+					BeginShaoWeiRotor(slot, state, player, performance);
+				}
+				break;
+			case ShaoWeiMountPhase.Active:
+				if (shouldSpin)
+				{
+					MaintainShaoWeiRotor(state, player);
+				}
+				else
+				{
+					UpdateShaoWeiShutdown(slot, state, player, shouldRemainDeployed: true);
+				}
+				break;
+			case ShaoWeiMountPhase.SpinningDown:
+				if (player == null || !player.IsPlaying)
+				{
+					if (shouldSpin)
+					{
+						BeginShaoWeiRotor(slot, state, player, performance);
+					}
+					else
+					{
+						BeginShaoWeiRecenter(state, player);
+					}
+				}
+				break;
+			case ShaoWeiMountPhase.Recentering:
+				if (shouldSpin)
+				{
+					BeginShaoWeiRotor(slot, state, player, performance);
+				}
+				else
+				{
+					UpdateShaoWeiRecenter(state, player, Time.deltaTime, shouldRemainDeployed: true);
+				}
+				break;
+			case ShaoWeiMountPhase.Stowing:
+				if (player == null || !player.IsPlaying)
+				{
+					CompleteShaoWeiStow(state, player);
+					SetShaoWeiSpinning(slot, state, shouldDeploy: true, shouldSpin: shouldSpin);
+				}
+				break;
+			}
+		}
+
+		private void BeginShaoWeiRotor(
+			MechPartSlot slot,
+			ShaoWeiWeaponState state,
+			MechEquipmentAnimationPlayer player,
+			MechWeaponPerformance performance)
+		{
+			state.MountPhase = ShaoWeiMountPhase.Active;
+			state.Spinning = true;
+			CaptureShaoWeiNeutralAim(state);
+			state.SpinReadyTime = Time.time + Mathf.Max(0f, performance?.spinUpSeconds ?? 0f);
+			TryPlayShaoWeiAction(player, ShaoWeiSpinUpActionId);
+			EnsurePointDefenseAudio().SetRotorState(
 				slot,
-				shouldSpin,
+				true,
 				PeekShaoWeiMuzzle(slot),
 				performance?.roundsPerMinute ?? 0f);
+		}
+
+		private static void MaintainShaoWeiRotor(
+			ShaoWeiWeaponState state,
+			MechEquipmentAnimationPlayer player)
+		{
+			if (player == null || Time.time < state.SpinReadyTime)
+			{
+				return;
+			}
+			if (!player.IsPlaying ||
+				(!string.Equals(player.ActiveActionId, ShaoWeiSpinUpActionId, StringComparison.OrdinalIgnoreCase) &&
+				 !string.Equals(player.ActiveActionId, ShaoWeiSustainedFireActionId, StringComparison.OrdinalIgnoreCase)))
+			{
+				TryPlayShaoWeiAction(player, ShaoWeiSustainedFireActionId);
+			}
+		}
+
+		private void UpdateShaoWeiShutdown(
+			MechPartSlot slot,
+			ShaoWeiWeaponState state,
+			MechEquipmentAnimationPlayer player,
+			bool shouldRemainDeployed)
+		{
+			switch (state.MountPhase)
+			{
+			case ShaoWeiMountPhase.Stowed:
+				return;
+			case ShaoWeiMountPhase.Deploying:
+				if (player == null || !player.IsPlaying)
+				{
+					BeginShaoWeiStow(state, player);
+				}
+				return;
+			case ShaoWeiMountPhase.Ready:
+				BeginShaoWeiStow(state, player);
+				return;
+			case ShaoWeiMountPhase.Active:
+				state.Spinning = false;
+				pointDefenseAudio?.SetRotorState(
+					slot,
+					false,
+					PeekShaoWeiMuzzle(slot),
+					state.Performance?.roundsPerMinute ?? 0f);
+				if (TryPlayShaoWeiAction(player, ShaoWeiSpinDownActionId))
+				{
+					state.MountPhase = ShaoWeiMountPhase.SpinningDown;
+				}
+				else
+				{
+					BeginShaoWeiRecenter(state, player);
+				}
+				return;
+			case ShaoWeiMountPhase.SpinningDown:
+				if (player == null || !player.IsPlaying)
+				{
+					BeginShaoWeiRecenter(state, player);
+				}
+				return;
+			case ShaoWeiMountPhase.Recentering:
+				UpdateShaoWeiRecenter(state, player, Time.deltaTime, shouldRemainDeployed);
+				return;
+			case ShaoWeiMountPhase.Stowing:
+				if (player == null || !player.IsPlaying)
+				{
+					CompleteShaoWeiStow(state, player);
+				}
+				return;
+			}
+		}
+
+		private static void CaptureShaoWeiNeutralAim(ShaoWeiWeaponState state)
+		{
+			if (state.HasNeutralAimLocalRotation || state.AimPivot == null)
+			{
+				return;
+			}
+			state.NeutralAimLocalRotation = state.AimPivot.localRotation;
+			state.HasNeutralAimLocalRotation = true;
+		}
+
+		private static void BeginShaoWeiRecenter(
+			ShaoWeiWeaponState state,
+			MechEquipmentAnimationPlayer player)
+		{
+			if (state.AimPivot == null || !state.HasNeutralAimLocalRotation)
+			{
+				BeginShaoWeiStow(state, player);
+				return;
+			}
+			player?.StopPlayback();
+			state.MountPhase = ShaoWeiMountPhase.Recentering;
+		}
+
+		private static void UpdateShaoWeiRecenter(
+			ShaoWeiWeaponState state,
+			MechEquipmentAnimationPlayer player,
+			float deltaTime,
+			bool shouldRemainDeployed)
+		{
+			if (state.AimPivot == null || !state.HasNeutralAimLocalRotation)
+			{
+				BeginShaoWeiStow(state, player);
+				return;
+			}
+
+			float remainingDegrees = Quaternion.Angle(
+				state.AimPivot.localRotation,
+				state.NeutralAimLocalRotation);
+			if (remainingDegrees <= 0.25f)
+			{
+				state.AimPivot.localRotation = state.NeutralAimLocalRotation;
+				ResetShaoWeiAimState(state);
+				if (shouldRemainDeployed)
+				{
+					state.MountPhase = ShaoWeiMountPhase.Ready;
+				}
+				else
+				{
+					BeginShaoWeiStow(state, player);
+				}
+				return;
+			}
+
+			float recenterSpeed = Mathf.Max(
+				1f,
+				state.Performance?.traverseRateDegreesPerSecond ?? 180f);
+			state.AimPivot.localRotation = Quaternion.RotateTowards(
+				state.AimPivot.localRotation,
+				state.NeutralAimLocalRotation,
+				recenterSpeed * Mathf.Max(0f, deltaTime));
+		}
+
+		private static void BeginShaoWeiStow(
+			ShaoWeiWeaponState state,
+			MechEquipmentAnimationPlayer player)
+		{
+			ResetShaoWeiAimState(state);
+			if (TryPlayShaoWeiAction(player, ShaoWeiStowActionId))
+			{
+				state.MountPhase = ShaoWeiMountPhase.Stowing;
+				return;
+			}
+			CompleteShaoWeiStow(state, player);
+		}
+
+		private static void CompleteShaoWeiStow(
+			ShaoWeiWeaponState state,
+			MechEquipmentAnimationPlayer player)
+		{
+			state.Spinning = false;
+			state.MountPhase = ShaoWeiMountPhase.Stowed;
+			state.HasNeutralAimLocalRotation = false;
+			ResetShaoWeiAimState(state);
+			if (player == null)
+			{
+				return;
+			}
+			player.StopPlayback();
+			if (player.HasAction(ShaoWeiRestActionId))
+			{
+				player.SampleActionAtTime(ShaoWeiRestActionId, 0f);
+			}
+		}
+
+		private static bool TryPlayShaoWeiAction(
+			MechEquipmentAnimationPlayer player,
+			string actionId)
+		{
+			return player != null &&
+				player.HasAction(actionId) &&
+				player.PlayActionPreservingPose(actionId);
 		}
 
 		private Transform PeekShaoWeiMuzzle(MechPartSlot slot)

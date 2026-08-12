@@ -52,6 +52,11 @@ namespace ACunicombat.Tracking
             public float PowerEmaDb;
             public float PowerTrendDbPerSecond;
             public int ContactCount;
+            public double LastMainlobeSeen;
+            public float ContinuousMainlobeIlluminationSeconds;
+            public float MainlobePowerEmaDb;
+            public float MainlobePowerTrendDbPerSecond;
+            public int MainlobeContactCount;
             public double LastLevelChange;
         }
 
@@ -154,6 +159,11 @@ namespace ACunicombat.Tracking
                 {
                     // 照射已中断：连续照射证据清零，锁定级不再靠陈旧累计维持。
                     slot.ContinuousIlluminationSeconds = 0f;
+                }
+                if (slot.LastMainlobeSeen < 0.0 ||
+                    simTime - slot.LastMainlobeSeen > ContinuousGapSeconds)
+                {
+                    slot.ContinuousMainlobeIlluminationSeconds = 0f;
                 }
 
                 var supported = SupportedLevel(in slot, unseen);
@@ -318,6 +328,7 @@ namespace ACunicombat.Tracking
                     LastSeen = contact.Timestamp - 1e-3, // 首条接触也能进 UpdateSlot 的间隔采样保护
                     IntervalEma = -1f,
                     PowerEmaDb = contact.ReceivedPowerDb,
+                    LastMainlobeSeen = -1.0,
                     LastLevelChange = simTime,
                 };
                 activeCount++;
@@ -353,6 +364,50 @@ namespace ACunicombat.Tracking
                 var trendSample = (contact.ReceivedPowerDb - slot.PowerEmaDb) / gap;
                 slot.PowerTrendDbPerSecond = math.lerp(
                     slot.PowerTrendDbPerSecond, trendSample, 0.3f);
+            }
+
+            if (contact.IsMainlobe)
+            {
+                if (slot.MainlobeContactCount > 0)
+                {
+                    var mainlobeGap = (float)(
+                        contact.Timestamp - slot.LastMainlobeSeen);
+                    if (mainlobeGap > 0.005f &&
+                        mainlobeGap <= ContinuousGapSeconds)
+                    {
+                        slot.ContinuousMainlobeIlluminationSeconds +=
+                            mainlobeGap;
+                    }
+                    else if (mainlobeGap > ContinuousGapSeconds)
+                    {
+                        slot.ContinuousMainlobeIlluminationSeconds = 0f;
+                    }
+
+                    if (mainlobeGap > 1e-4f)
+                    {
+                        var mainlobeTrendSample =
+                            (contact.ReceivedPowerDb -
+                             slot.MainlobePowerEmaDb) / mainlobeGap;
+                        slot.MainlobePowerTrendDbPerSecond = math.lerp(
+                            slot.MainlobePowerTrendDbPerSecond,
+                            mainlobeTrendSample,
+                            0.3f);
+                    }
+
+                    slot.MainlobePowerEmaDb = math.lerp(
+                        slot.MainlobePowerEmaDb,
+                        contact.ReceivedPowerDb,
+                        0.3f);
+                }
+                else
+                {
+                    slot.MainlobePowerEmaDb = contact.ReceivedPowerDb;
+                    slot.MainlobePowerTrendDbPerSecond = 0f;
+                    slot.ContinuousMainlobeIlluminationSeconds = 0f;
+                }
+
+                slot.LastMainlobeSeen = contact.Timestamp;
+                slot.MainlobeContactCount++;
             }
 
             slot.PowerEmaDb = math.lerp(slot.PowerEmaDb, contact.ReceivedPowerDb, 0.3f);
@@ -408,6 +463,13 @@ namespace ACunicombat.Tracking
                 ReceivedPowerDb = slot.PowerEmaDb,
                 PowerTrendDbPerSecond = slot.PowerTrendDbPerSecond,
                 ContactCount = slot.ContactCount,
+                LastMainlobeSeenTime = slot.LastMainlobeSeen,
+                ContinuousMainlobeIlluminationSeconds =
+                    slot.ContinuousMainlobeIlluminationSeconds,
+                MainlobeReceivedPowerDb = slot.MainlobePowerEmaDb,
+                MainlobePowerTrendDbPerSecond =
+                    slot.MainlobePowerTrendDbPerSecond,
+                MainlobeContactCount = slot.MainlobeContactCount,
             };
         }
     }

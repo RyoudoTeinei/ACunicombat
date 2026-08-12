@@ -36,6 +36,10 @@ namespace ACunicombat.FireControl
         public float SwitchConfidence;
         public float SwitchScoreMargin;
         public int ExitEvidenceSamples;
+        public double MaximumSeekerEvidenceAgeSeconds;
+        public float ActiveSeekerMinimumOwnshipEvidence;
+        public float ActiveSeekerMinimumEvidenceDurationSeconds;
+        public int ActiveSeekerMinimumEvidenceSamples;
 
         public static MissileIntentEstimatorConfig Default =>
             new MissileIntentEstimatorConfig
@@ -59,6 +63,10 @@ namespace ACunicombat.FireControl
                 SwitchConfidence = 0.9f,
                 SwitchScoreMargin = 0.18f,
                 ExitEvidenceSamples = 3,
+                MaximumSeekerEvidenceAgeSeconds = 0.2,
+                ActiveSeekerMinimumOwnshipEvidence = 0.65f,
+                ActiveSeekerMinimumEvidenceDurationSeconds = 0.12f,
+                ActiveSeekerMinimumEvidenceSamples = 3,
             };
     }
 
@@ -73,9 +81,12 @@ namespace ACunicombat.FireControl
             public float FriendlyMissileScore;
             public double FirstEvidenceTime;
             public double LastKinematicUpdateTime = double.NegativeInfinity;
+            public double LastSeekerEvidenceTime = double.NegativeInfinity;
+            public double LastEvidenceSampleTime = double.NegativeInfinity;
             public double LastSeenTime;
             public int EvidenceSamples;
             public int ExitEvidenceCount;
+            public bool ActiveSeekerEvidence;
         }
 
         internal readonly Dictionary<TrackId, Entry> Entries =
@@ -169,10 +180,25 @@ namespace ACunicombat.FireControl
 
                 var entry = state.GetOrCreate(track.TrackId);
                 entry.LastSeenTime = now;
-                if (now - track.LastEvidenceTime <=
-                        math.max(0.0, config.MaximumEvidenceAgeSeconds) &&
+                var freshKinematics =
+                    now - track.LastEvidenceTime <=
+                        math.max(0.0, config.MaximumEvidenceAgeSeconds);
+                var freshSeekerEvidence =
+                    track.SeekerOwnshipEvidence > 0f &&
+                    track.LastSeekerMainlobeTime >= 0.0 &&
+                    now - track.LastSeekerMainlobeTime <=
+                        math.max(
+                            0.0,
+                            config.MaximumSeekerEvidenceAgeSeconds);
+                var newKinematics =
+                    freshKinematics &&
                     track.KinematicUpdateTime >
-                        entry.LastKinematicUpdateTime + 1e-6)
+                        entry.LastKinematicUpdateTime + 1e-6;
+                var newSeekerEvidence =
+                    freshSeekerEvidence &&
+                    track.LastSeekerMainlobeTime >
+                        entry.LastSeekerEvidenceTime + 1e-6;
+                if (newKinematics || newSeekerEvidence)
                 {
                     UpdateEvidence(
                         in config,
@@ -203,11 +229,24 @@ namespace ACunicombat.FireControl
             double3 ownshipVelocity,
             double now)
         {
-            var ownshipScore = ScoreCandidate(
+            var kinematicOwnshipScore = ScoreCandidate(
                 in config,
                 in track,
                 ownshipPosition,
                 ownshipVelocity);
+            var freshSeekerEvidence =
+                track.SeekerOwnshipEvidence > 0f &&
+                track.LastSeekerMainlobeTime >= 0.0 &&
+                now - track.LastSeekerMainlobeTime <=
+                    math.max(
+                        0.0,
+                        config.MaximumSeekerEvidenceAgeSeconds);
+            var seekerOwnshipEvidence = freshSeekerEvidence
+                ? math.saturate(track.SeekerOwnshipEvidence)
+                : 0f;
+            var ownshipScore = 1f -
+                (1f - kinematicOwnshipScore) *
+                (1f - seekerOwnshipEvidence);
             var friendlyMissileScore = 0f;
             var friendlyMissileTarget = default(TrackId);
             for (var i = 0; i < trackCount; i++)
@@ -262,8 +301,25 @@ namespace ACunicombat.FireControl
                 }
             }
 
-            var previousKinematicTime = entry.LastKinematicUpdateTime;
-            entry.LastKinematicUpdateTime = track.KinematicUpdateTime;
+            var sampleTime = math.max(
+                track.KinematicUpdateTime,
+                freshSeekerEvidence
+                    ? track.LastSeekerMainlobeTime
+                    : double.NegativeInfinity);
+            var previousSampleTime = entry.LastEvidenceSampleTime;
+            entry.LastKinematicUpdateTime = math.max(
+                entry.LastKinematicUpdateTime,
+                track.KinematicUpdateTime);
+            if (freshSeekerEvidence)
+            {
+                entry.LastSeekerEvidenceTime = math.max(
+                    entry.LastSeekerEvidenceTime,
+                    track.LastSeekerMainlobeTime);
+            }
+            entry.LastEvidenceSampleTime = sampleTime;
+            entry.ActiveSeekerEvidence =
+                seekerOwnshipEvidence >=
+                    config.ActiveSeekerMinimumOwnshipEvidence;
             if (entry.EvidenceSamples == 0)
             {
                 entry.FirstEvidenceTime = now;
@@ -272,9 +328,7 @@ namespace ACunicombat.FireControl
             }
             else
             {
-                var elapsed = math.max(
-                    0.0,
-                    track.KinematicUpdateTime - previousKinematicTime);
+                var elapsed = math.max(0.0, sampleTime - previousSampleTime);
                 var filterTime = math.max(
                     0.0,
                     config.EvidenceFilterTimeSeconds);
@@ -326,15 +380,20 @@ namespace ACunicombat.FireControl
                     config.ScoreSeparationForFullConfidence));
             var requiredSamples = math.max(
                 2,
-                config.MinimumEvidenceSamples);
+                entry.ActiveSeekerEvidence
+                    ? config.ActiveSeekerMinimumEvidenceSamples
+                    : config.MinimumEvidenceSamples);
             var sampleMaturity = math.saturate(
                 (entry.EvidenceSamples - 1f) /
                 (requiredSamples - 1f));
+            var requiredDuration = entry.ActiveSeekerEvidence
+                ? config.ActiveSeekerMinimumEvidenceDurationSeconds
+                : config.MinimumEvidenceDurationSeconds;
             var timeMaturity = math.saturate(
                 (float)((now - entry.FirstEvidenceTime) /
                         math.max(
                             0.01,
-                            config.MinimumEvidenceDurationSeconds)));
+                            requiredDuration)));
             var candidateConfidence =
                 scoreStrength *
                 scoreSeparation *
@@ -553,43 +612,11 @@ namespace ACunicombat.FireControl
             ref MissileTrackSnapshot track,
             MissileIntentEstimatorState.Entry entry)
         {
-            var sensorMissionRole = track.MissionRole;
-            var sensorMissionRoleConfidence =
-                track.MissionRoleConfidence;
-            var sensorMissionRoleEvidence =
-                track.MissionRoleEvidence;
             track.TargetIntent = entry.Intent;
             track.TargetIntentConfidence = entry.Confidence;
             track.IntentOwnshipScore = entry.OwnshipScore;
             track.IntentFriendlyMissileScore = entry.FriendlyMissileScore;
             track.SuspectedTargetTrackId = entry.SuspectedTargetTrackId;
-            track.MissionRole = entry.Intent switch
-            {
-                MissileTargetIntent.Ownship =>
-                    MissileMissionRole.AirToAir,
-                MissileTargetIntent.FriendlyMissile =>
-                    MissileMissionRole.Interceptor,
-                _ => MissileMissionRole.Unknown,
-            };
-            track.MissionRoleConfidence = entry.Intent ==
-                MissileTargetIntent.Unknown
-                    ? 0f
-                    : entry.Confidence;
-            track.MissionRoleEvidence = entry.Intent ==
-                MissileTargetIntent.Unknown
-                    ? MissileMissionRoleEvidence.None
-                    : MissileMissionRoleEvidence.KinematicIntent;
-            if (sensorMissionRole !=
-                    MissileMissionRole.Unknown &&
-                sensorMissionRoleEvidence ==
-                    MissileMissionRoleEvidence.EsmWaveform)
-            {
-                track.MissionRole = sensorMissionRole;
-                track.MissionRoleConfidence =
-                    sensorMissionRoleConfidence;
-                track.MissionRoleEvidence =
-                    sensorMissionRoleEvidence;
-            }
         }
     }
 }

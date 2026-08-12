@@ -51,6 +51,11 @@ namespace ACunicombat.Sensing.Contracts
         public ushort WaveformId;
         public float WaveformConfidence;
         public EmissionType EmissionType;
+        /// <summary>
+        /// 接收机是否位于辐射主瓣内。旁瓣接触可用于发现和波形识别，
+        /// 但不能单独证明辐射源正在瞄准接收机。
+        /// </summary>
+        public bool IsMainlobe;
         public float ReceivedPowerDb;
     }
 }

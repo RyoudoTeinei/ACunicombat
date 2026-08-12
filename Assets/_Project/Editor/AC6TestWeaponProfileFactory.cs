@@ -60,6 +60,23 @@ internal static class AC6TestWeaponProfileFactory
                 AutomaticCannonAudioProfile.Legacy2A42);
         }
 
+        if (Matches(partId, "WP_L_1910") || Matches(partId, "WP_R_1910"))
+        {
+            MechWeaponPerformance profile = AutomaticCannon(
+                28f, 1550f, 2400f, 0.14f, 0.85f,
+                12, 0.015f, 0.028f, 240, 6, 6.8f,
+                AutomaticCannonAudioProfile.Gau8A);
+            profile.weaponType = "20 mm 转轮机枪";
+            profile.hudLabel = "GAT";
+            profile.recoilImpulseNewtonSeconds = 780f;
+            profile.spinUpSeconds = 0.55f;
+            profile.heatPerShotMj = 0.035f;
+            profile.heatCapacityMj = 18f;
+            profile.coolingMw = 2.8f;
+            profile.resumeThresholdMj = 7f;
+            return profile;
+        }
+
         if (Matches(partId, "WP_L_4250") || Matches(partId, "WP_R_4250"))
         {
             return Missile(

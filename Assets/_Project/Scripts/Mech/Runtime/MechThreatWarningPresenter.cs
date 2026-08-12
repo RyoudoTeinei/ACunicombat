@@ -22,6 +22,7 @@ namespace ACunicombat.Mechs
         private const float MissileThreatAssociationDegrees = 20f;
         private const float MissileThreatMaximumCpaMeters = 750f;
         private const float MissileThreatUncertaintyAllowanceMeters = 750f;
+        private const double MissileSeekerMainlobeMaximumAgeSeconds = 0.2;
 
         [Header("近距来弹显示")]
         [Tooltip("导弹告警接收功率达到该值且功率仍在上升时，整圈高亮。")]
@@ -499,9 +500,18 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            return threat.ReceivedPowerDb >= immediateMissileReceivedPowerDb ||
-                   (threat.ReceivedPowerDb >= closeMissileReceivedPowerDb &&
-                    threat.PowerTrendDbPerSecond >= closeMissilePowerTrendDbPerSecond);
+            var missileSeeker =
+                EsmWaveformClassification.IsMissileSeeker(
+                    threat.WaveformClass);
+            var receivedPower = missileSeeker
+                ? threat.MainlobeReceivedPowerDb
+                : threat.ReceivedPowerDb;
+            var powerTrend = missileSeeker
+                ? threat.MainlobePowerTrendDbPerSecond
+                : threat.PowerTrendDbPerSecond;
+            return receivedPower >= immediateMissileReceivedPowerDb ||
+                   (receivedPower >= closeMissileReceivedPowerDb &&
+                    powerTrend >= closeMissilePowerTrendDbPerSecond);
         }
 
         private EsmThreatLevel ResolveAlertLevel(in ThreatSnapshot threat)
@@ -528,10 +538,24 @@ namespace ACunicombat.Mechs
             var minimumDot = Mathf.Cos(
                 MissileThreatAssociationDegrees * Mathf.Deg2Rad);
             var now = radar != null ? radar.SimTimeSeconds : Time.timeAsDouble;
+            var missileSeeker =
+                EsmWaveformClassification.IsMissileSeeker(
+                    threat.WaveformClass);
+            if (missileSeeker &&
+                (threat.LastMainlobeSeenTime < 0.0 ||
+                 now - threat.LastMainlobeSeenTime >
+                    MissileSeekerMainlobeMaximumAgeSeconds))
+            {
+                return false;
+            }
+
             for (var i = 0; i < missileTrackCount; i++)
             {
                 var track = missileTrackScratch[i];
-                if (!track.IsWarning || !track.Incoming || track.IsFriendly)
+                if (!track.IsWarning || track.IsFriendly ||
+                    (missileSeeker
+                        ? !track.IsLikelyTargetingOwnship
+                        : !track.Incoming))
                 {
                     continue;
                 }

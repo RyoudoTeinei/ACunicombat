@@ -205,6 +205,8 @@ public static class AC6FullPartCatalogBuilder
 		"WP_R_1630",
 		"WP_L_1720",
 		"WP_R_1720",
+		"WP_L_1910",
+		"WP_R_1910",
 		"WP_L_4250",
 		"WP_R_4250",
 		"WP_L_4290",
@@ -503,6 +505,17 @@ public static class AC6FullPartCatalogBuilder
 		{
 			newStats.massKg = 4310f;
 		}
+		else if (string.Equals(item.key, "WP_L_1910", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(item.key, "WP_R_1910", StringComparison.OrdinalIgnoreCase))
+		{
+			newStats.massKg = 5800f;
+			newStats.idlePowerDrawMw = 0.45f;
+			newStats.peakPowerDrawMw = 7.8f;
+			newStats.idleHeatMw = 0.18f;
+			newStats.activeHeatMw = 4.6f;
+			newStats.heatGenerationMw = 4.6f;
+			newStats.heatCapacityMj = 18f;
+		}
 		IReadOnlyList<MechMountPointDefinition> newMountPoints;
 		if (!isFrame)
 		{
@@ -713,7 +726,7 @@ public static class AC6FullPartCatalogBuilder
 					role = MechArmThrusterRole.Lateral,
 					localPositionM = new Vector3(0.82f, 0.08f, 0f),
 					localThrustDirection = Vector3.left,
-					maximumThrustKn = 40f * scale,
+					maximumThrustKn = 132f * scale,
 					gimbalLimitDeg = 8f,
 					maximumPowerKw = 420f * scale,
 					maximumHeatKw = 180f * scale
@@ -753,8 +766,8 @@ public static class AC6FullPartCatalogBuilder
 			? 280f * scale
 			: sourceKey != null && sourceKey.EndsWith("2010", StringComparison.OrdinalIgnoreCase)
 				? 330f * scale
-				: 305f * scale;
-		float downwardThrust = 450f * scale;
+				: 375f * scale;
+		float downwardThrust = 573f * scale;
 		return new MechCorePerformance
 		{
 			momentumWheelTurnRateDegPerSecond = 24f / Mathf.Sqrt(Mathf.Max(0.5f, scale)),
@@ -785,12 +798,12 @@ public static class AC6FullPartCatalogBuilder
 			maximumSupportedMassKg = 65000f * scale,
 			primaryThrusterNozzles = new[]
 			{
-				new MechLegThrusterNozzle { nozzleId = "leg-primary-front", localPositionM = new Vector3(0.42f, -0.72f, 0.3f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale },
-				new MechLegThrusterNozzle { nozzleId = "leg-primary-rear", localPositionM = new Vector3(0.42f, -0.78f, -0.24f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale }
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-front", localPositionM = new Vector3(0.42f, -0.72f, 0.3f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18.82427f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale },
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-rear", localPositionM = new Vector3(0.42f, -0.78f, -0.24f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18.82427f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale }
 			},
 			lateralThrusterNozzles = new[]
 			{
-				new MechLegThrusterNozzle { nozzleId = "leg-lateral", localPositionM = new Vector3(0.48f, -0.35f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 8f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 20f * scale }
+				new MechLegThrusterNozzle { nozzleId = "leg-lateral", localPositionM = new Vector3(0.48f, -0.35f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 67.9102f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 20f * scale }
 			},
 			rcsThrusterNozzles = new[]
 			{
@@ -895,6 +908,11 @@ public static class AC6FullPartCatalogBuilder
 
 	private static string DisplayName(string key)
 	{
+		if (string.Equals(key, "WP_L_1910", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(key, "WP_R_1910", StringComparison.OrdinalIgnoreCase))
+		{
+			return "DF-GA-08 HU-BEN";
+		}
 		if (!key.StartsWith("WP_", StringComparison.OrdinalIgnoreCase))
 		{
 			if (!key.StartsWith("BS_A_", StringComparison.OrdinalIgnoreCase))

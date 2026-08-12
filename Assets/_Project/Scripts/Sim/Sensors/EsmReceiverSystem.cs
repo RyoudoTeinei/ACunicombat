@@ -163,6 +163,7 @@ namespace ACunicombat.Sensors
                         // 余量 ≥18 dB 才能可靠识别波形（相关器按此门控波形库分类）。
                         WaveformConfidence = math.saturate(marginDb / 18f),
                         EmissionType = emission.EmissionType,
+                        IsMainlobe = mainlobe,
                         ReceivedPowerDb = receivedDb,
                     });
                 }

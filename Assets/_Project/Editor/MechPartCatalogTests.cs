@@ -80,6 +80,8 @@ namespace ACunicombat.Editor.Tests
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_1630"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_1720"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_1720"), (IResolveConstraint)(object)Is.True);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_1910"), (IResolveConstraint)(object)Is.True);
+			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_1910"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_L_5110"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_R_5110"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_4250"), (IResolveConstraint)(object)Is.True);
@@ -88,6 +90,24 @@ namespace ACunicombat.Editor.Tests
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_4290"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_L_4290"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_R_4290"), (IResolveConstraint)(object)Is.True);
+		}
+
+		[Test]
+		public void RotaryMachineGunProfile_IsConfiguredAndMirroredAcrossHands()
+		{
+			MechWeaponPerformance left = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_L_1910");
+			MechWeaponPerformance right = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_R_1910");
+
+			Assert.That(left.IsConfigured, Is.True);
+			Assert.That(left.role, Is.EqualTo(MechWeaponRole.AutomaticCannon));
+			Assert.That(left.weaponType, Is.EqualTo("20 mm 转轮机枪"));
+			Assert.That(left.roundsPerMinute, Is.EqualTo(2400f));
+			Assert.That(left.magazineCapacity, Is.EqualTo(240));
+			Assert.That(left.spinUpSeconds, Is.EqualTo(0.55f));
+			Assert.That(left.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.Gau8A));
+			Assert.That(right.directHitDamage, Is.EqualTo(left.directHitDamage));
+			Assert.That(right.muzzleVelocityMetersPerSecond, Is.EqualTo(left.muzzleVelocityMetersPerSecond));
+			Assert.That(right.maximumDispersionMilliradians, Is.EqualTo(left.maximumDispersionMilliradians));
 		}
 
 		[Test]
@@ -213,6 +233,23 @@ namespace ACunicombat.Editor.Tests
 		}
 
 		[Test]
+		public void FrameMassBreakdown_FallsBackToDurabilityRatioAndPreservesTotalMass()
+		{
+			var stats = new MechPartStats
+			{
+				massKg = 6900f,
+				armorPoints = 850f,
+				structurePoints = 680f
+			};
+
+			stats.PopulateMassBreakdownFromDurability();
+
+			Assert.That(stats.armorMassKg, Is.EqualTo(3833.3333f).Within(0.01f));
+			Assert.That(stats.structureMassKg, Is.EqualTo(3066.6667f).Within(0.01f));
+			Assert.That(stats.armorMassKg + stats.structureMassKg, Is.EqualTo(stats.massKg).Within(0.001f));
+		}
+
+		[Test]
 		public void ArmPerformance_UsesSingleSideNozzleTemplateAndDeepClonesIt()
 		{
 			var source = new MechArmPerformance
@@ -225,7 +262,7 @@ namespace ACunicombat.Editor.Tests
 					{
 						nozzleId = "lateral",
 						role = MechArmThrusterRole.Lateral,
-						maximumThrustKn = 40f
+						maximumThrustKn = 132f
 					},
 					new MechArmThrusterNozzle
 					{
@@ -245,7 +282,7 @@ namespace ACunicombat.Editor.Tests
 			MechArmPerformance clone = source.Clone();
 
 			Assert.That(source.InstalledNozzleCount, Is.EqualTo(6));
-			Assert.That(source.LateralThrustContributionKn, Is.EqualTo(40f));
+			Assert.That(source.LateralThrustContributionKn, Is.EqualTo(132f));
 			Assert.That(source.RcsThrustContributionKn, Is.EqualTo(300f));
 			Assert.That(clone.thrusterNozzles, Is.Not.SameAs(source.thrusterNozzles));
 			Assert.That(clone.thrusterNozzles[0], Is.Not.SameAs(source.thrusterNozzles[0]));
@@ -262,7 +299,7 @@ namespace ACunicombat.Editor.Tests
 			{
 				thrusterNozzles = new[]
 				{
-					new MechArmThrusterNozzle { role = MechArmThrusterRole.Lateral, maximumThrustKn = 40f },
+					new MechArmThrusterNozzle { role = MechArmThrusterRole.Lateral, maximumThrustKn = 132f },
 					new MechArmThrusterNozzle { role = MechArmThrusterRole.Rcs, maximumThrustKn = 75f },
 					new MechArmThrusterNozzle { role = MechArmThrusterRole.Rcs, maximumThrustKn = 75f }
 				}
@@ -270,9 +307,9 @@ namespace ACunicombat.Editor.Tests
 			stats.RecalculateDerived();
 
 			Assert.That(stats.totalMassKg, Is.EqualTo(56380f));
-			Assert.That(stats.lateralThrustKn, Is.EqualTo(340f));
+			Assert.That(stats.lateralThrustKn, Is.EqualTo(432f));
 			Assert.That(stats.rcsThrustKn, Is.EqualTo(900f));
-			Assert.That(stats.lateralAccelerationMps2, Is.EqualTo(340000f / 56380f).Within(0.001f));
+			Assert.That(stats.lateralAccelerationMps2, Is.EqualTo(432000f / 56380f).Within(0.001f));
 			Assert.That(stats.rcsTurnRateDegreesPerSecond, Is.EqualTo(180f).Within(0.2f));
 		}
 
@@ -300,12 +337,12 @@ namespace ACunicombat.Editor.Tests
 				maximumSupportedMassKg = 65000f,
 				primaryThrusterNozzles = new[]
 				{
-					new MechLegThrusterNozzle { maximumThrustKn = 375f, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f },
-					new MechLegThrusterNozzle { maximumThrustKn = 375f, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f }
+					new MechLegThrusterNozzle { maximumThrustKn = 375f, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18.82427f, lateralGimbalLimitDeg = 0.5f },
+					new MechLegThrusterNozzle { maximumThrustKn = 375f, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18.82427f, lateralGimbalLimitDeg = 0.5f }
 				},
 				lateralThrusterNozzles = new[]
 				{
-					new MechLegThrusterNozzle { maximumThrustKn = 8f }
+					new MechLegThrusterNozzle { maximumThrustKn = 67.9102f }
 				},
 				rcsThrusterNozzles = new[]
 				{
@@ -316,8 +353,8 @@ namespace ACunicombat.Editor.Tests
 
 			Assert.That(legs.UpwardThrustContributionKn, Is.EqualTo(1500f).Within(0.01f));
 			Assert.That(legs.MainThrustContributionKn, Is.EqualTo(1500f * Mathf.Sin(10f * Mathf.Deg2Rad)).Within(0.01f));
-			Assert.That(legs.ReverseThrustContributionKn, Is.EqualTo(1500f * Mathf.Sin(18f * Mathf.Deg2Rad)).Within(0.01f));
-			Assert.That(legs.LateralThrustContributionKn, Is.EqualTo(1500f * Mathf.Sin(0.5f * Mathf.Deg2Rad) + 8f).Within(0.01f));
+			Assert.That(legs.ReverseThrustContributionKn, Is.EqualTo(484f).Within(0.01f));
+			Assert.That(legs.LateralThrustContributionKn, Is.EqualTo(81f).Within(0.01f));
 			Assert.That(legs.RcsThrustContributionKn, Is.EqualTo(240f).Within(0.01f));
 			Assert.That(legs.InstalledNozzleCount, Is.EqualTo(10));
 		}
@@ -357,13 +394,13 @@ namespace ACunicombat.Editor.Tests
 			{
 				forwardExhaustNozzles = new[]
 				{
-					new MechCoreThrusterNozzle { nozzleId = "forward-left", maximumThrustKn = 150f, maximumPowerKw = 500f },
-					new MechCoreThrusterNozzle { nozzleId = "forward-right", maximumThrustKn = 155f, maximumPowerKw = 550f }
+					new MechCoreThrusterNozzle { nozzleId = "forward-left", maximumThrustKn = 187.5f, maximumPowerKw = 500f },
+					new MechCoreThrusterNozzle { nozzleId = "forward-right", maximumThrustKn = 187.5f, maximumPowerKw = 550f }
 				},
 				upwardExhaustNozzles = new[]
 				{
-					new MechCoreThrusterNozzle { nozzleId = "up-left", maximumThrustKn = 225f },
-					new MechCoreThrusterNozzle { nozzleId = "up-right", maximumThrustKn = 225f }
+					new MechCoreThrusterNozzle { nozzleId = "up-left", maximumThrustKn = 286.5f },
+					new MechCoreThrusterNozzle { nozzleId = "up-right", maximumThrustKn = 286.5f }
 				}
 			};
 
@@ -371,8 +408,8 @@ namespace ACunicombat.Editor.Tests
 
 			Assert.That(source.ForwardExhaustNozzleCount, Is.EqualTo(2));
 			Assert.That(source.UpwardExhaustNozzleCount, Is.EqualTo(2));
-			Assert.That(source.ReverseThrustContributionKn, Is.EqualTo(305f));
-			Assert.That(source.DownwardThrustContributionKn, Is.EqualTo(450f));
+			Assert.That(source.ReverseThrustContributionKn, Is.EqualTo(375f));
+			Assert.That(source.DownwardThrustContributionKn, Is.EqualTo(573f));
 			Assert.That(source.ReversePowerKw, Is.EqualTo(1050f));
 			Assert.That(clone.forwardExhaustNozzles, Is.Not.SameAs(source.forwardExhaustNozzles));
 			Assert.That(clone.forwardExhaustNozzles[0], Is.Not.SameAs(source.forwardExhaustNozzles[0]));
@@ -387,17 +424,17 @@ namespace ACunicombat.Editor.Tests
 			{
 				forwardExhaustNozzles = new[]
 				{
-					new MechCoreThrusterNozzle { maximumThrustKn = 305f }
+					new MechCoreThrusterNozzle { maximumThrustKn = 375f }
 				},
 				upwardExhaustNozzles = new[]
 				{
-					new MechCoreThrusterNozzle { maximumThrustKn = 450f }
+					new MechCoreThrusterNozzle { maximumThrustKn = 573f }
 				}
 			});
 			stats.RecalculateDerived();
 
-			Assert.That(stats.reverseAccelerationMps2, Is.EqualTo(6.1f).Within(0.001f));
-			Assert.That(stats.downwardAccelerationMps2, Is.EqualTo(9f).Within(0.001f));
+			Assert.That(stats.reverseAccelerationMps2, Is.EqualTo(7.5f).Within(0.001f));
+			Assert.That(stats.downwardAccelerationMps2, Is.EqualTo(11.46f).Within(0.001f));
 		}
 
 		[Test]

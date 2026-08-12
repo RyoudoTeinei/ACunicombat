@@ -104,5 +104,14 @@ namespace ACunicombat.Sensing.Contracts
         /// <summary>接收功率变化率（dB/s）；持续上升的导引头辐射源=正在接近。</summary>
         public float PowerTrendDbPerSecond;
         public int ContactCount;
+        /// <summary>最近一次确认接收机位于辐射主瓣内的时间；负值表示从未确认。</summary>
+        public double LastMainlobeSeenTime;
+        /// <summary>当前连续主瓣照射累计时长（秒）。</summary>
+        public float ContinuousMainlobeIlluminationSeconds;
+        /// <summary>只使用主瓣样本计算的接收功率。</summary>
+        public float MainlobeReceivedPowerDb;
+        /// <summary>只使用主瓣样本计算的功率变化率（dB/s）。</summary>
+        public float MainlobePowerTrendDbPerSecond;
+        public int MainlobeContactCount;
     }
 }

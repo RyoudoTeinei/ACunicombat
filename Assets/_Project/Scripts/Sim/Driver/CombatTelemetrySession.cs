@@ -508,6 +508,7 @@ namespace ACunicombat.Simulation.Driver
             Number("waveformId", contact.WaveformId);
             Number("waveformConfidence", contact.WaveformConfidence);
             String("emissionType", contact.EmissionType.ToString());
+            Boolean("isMainlobe", contact.IsMainlobe);
             Number("receivedPowerDb", contact.ReceivedPowerDb);
             End();
         }
@@ -549,6 +550,15 @@ namespace ACunicombat.Simulation.Driver
             Number("receivedPowerDb", threat.ReceivedPowerDb);
             Number("powerTrendDbPerSecond", threat.PowerTrendDbPerSecond);
             Number("contactCount", threat.ContactCount);
+            Number("lastMainlobeSeenTime", threat.LastMainlobeSeenTime);
+            Number(
+                "continuousMainlobeIlluminationSeconds",
+                threat.ContinuousMainlobeIlluminationSeconds);
+            Number("mainlobeReceivedPowerDb", threat.MainlobeReceivedPowerDb);
+            Number(
+                "mainlobePowerTrendDbPerSecond",
+                threat.MainlobePowerTrendDbPerSecond);
+            Number("mainlobeContactCount", threat.MainlobeContactCount);
             End();
         }
 
@@ -646,6 +656,16 @@ namespace ACunicombat.Simulation.Driver
             Number(
                 "intentFriendlyMissileScore",
                 track.IntentFriendlyMissileScore);
+            Number("seekerOwnshipEvidence", track.SeekerOwnshipEvidence);
+            Number(
+                "lastSeekerMainlobeTime",
+                track.LastSeekerMainlobeTime);
+            Number(
+                "seekerMainlobeContinuousSeconds",
+                track.SeekerMainlobeContinuousSeconds);
+            Number(
+                "seekerMainlobePowerTrendDbPerSecond",
+                track.SeekerMainlobePowerTrendDbPerSecond);
             Number("suspectedTargetTrackId", track.SuspectedTargetTrackId.Packed);
             Number("timeToCpaSeconds", track.TimeToClosestApproachSeconds);
             Number("closestApproachDistanceMeters", track.ClosestApproachDistanceMeters);

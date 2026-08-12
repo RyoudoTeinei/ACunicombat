@@ -810,8 +810,45 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(output[0].Incoming, Is.True);
             Assert.That(output[0].Confirmed, Is.True);
             Assert.That(
+                output[0].SeekerOwnshipEvidence,
+                Is.GreaterThanOrEqualTo(0.65f));
+            Assert.That(
                 output[0].TimeToClosestApproachSeconds,
                 Is.GreaterThan(30f));
+        }
+
+        [Test]
+        public void SidelobeSeeker_DoesNotCreateGuidedIncoming()
+        {
+            var track = IncomingRadarTrack();
+            track.Position = new double3(0.0, 0.0, 12_000.0);
+            track.Velocity = new double3(8.0, 0.0, -200.0);
+            var output = new MissileTrackSnapshot[1];
+
+            MissileTrackFusion.Fuse(
+                MissileTrackFusionConfig.Default,
+                new[] { track },
+                1,
+                new[]
+                {
+                    Threat(
+                        EsmWaveformClass.MissileSeeker,
+                        0.9f,
+                        mainlobe: false),
+                },
+                1,
+                new ElectroOpticalObservation[0],
+                0,
+                double3.zero,
+                double3.zero,
+                10.0,
+                output);
+
+            Assert.That(
+                output[0].SourceMask & MissileTrackSourceMask.Rwr,
+                Is.EqualTo(MissileTrackSourceMask.Rwr));
+            Assert.That(output[0].SeekerOwnshipEvidence, Is.Zero);
+            Assert.That(output[0].Incoming, Is.False);
         }
 
         [Test]
@@ -1375,8 +1412,12 @@ namespace ACunicombat.Tests.EditMode
 
         private static ThreatSnapshot Threat(
             EsmWaveformClass waveformClass,
-            float identificationConfidence)
+            float identificationConfidence,
+            bool mainlobe = true)
         {
+            var missileSeeker =
+                EsmWaveformClassification.IsMissileSeeker(
+                    waveformClass);
             return new ThreatSnapshot
             {
                 ThreatId =
@@ -1386,6 +1427,16 @@ namespace ACunicombat.Tests.EditMode
                 IdentificationConfidence =
                     identificationConfidence,
                 LastSeenTime = 10.0,
+                LastMainlobeSeenTime = missileSeeker && mainlobe
+                    ? 10.0
+                    : -1.0,
+                ContinuousMainlobeIlluminationSeconds =
+                    missileSeeker && mainlobe ? 0.15f : 0f,
+                MainlobeReceivedPowerDb = -10f,
+                MainlobePowerTrendDbPerSecond =
+                    missileSeeker && mainlobe ? 2f : 0f,
+                MainlobeContactCount =
+                    missileSeeker && mainlobe ? 4 : 0,
             };
         }
     }

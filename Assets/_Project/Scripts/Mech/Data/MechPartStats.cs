@@ -10,6 +10,14 @@ namespace ACunicombat.Mechs
 		[Min(0f)]
 		public float massKg;
 
+		[Tooltip("部件总质量中由装甲构成的质量。装甲质量与结构质量之和应等于总质量。")]
+		[Min(0f)]
+		public float armorMassKg;
+
+		[Tooltip("部件总质量中由承力结构构成的质量。装甲质量与结构质量之和应等于总质量。")]
+		[Min(0f)]
+		public float structureMassKg;
+
 		[Min(0f)]
 		public float armorPoints;
 
@@ -78,11 +86,42 @@ namespace ACunicombat.Mechs
 
 		public float hardpointCapacityKg;
 
+		public void ResolveMassBreakdown(out float resolvedArmorMassKg, out float resolvedStructureMassKg)
+		{
+			float totalMass = Mathf.Max(0f, massKg);
+			float recordedMass = Mathf.Max(0f, armorMassKg) + Mathf.Max(0f, structureMassKg);
+			if (recordedMass > 0.001f)
+			{
+				float normalization = totalMass / recordedMass;
+				resolvedArmorMassKg = Mathf.Max(0f, armorMassKg) * normalization;
+				resolvedStructureMassKg = Mathf.Max(0f, structureMassKg) * normalization;
+				return;
+			}
+
+			float durabilityTotal = Mathf.Max(0f, armorPoints) + Mathf.Max(0f, structurePoints);
+			if (durabilityTotal > 0.001f)
+			{
+				resolvedArmorMassKg = totalMass * Mathf.Max(0f, armorPoints) / durabilityTotal;
+				resolvedStructureMassKg = totalMass - resolvedArmorMassKg;
+				return;
+			}
+
+			resolvedArmorMassKg = 0f;
+			resolvedStructureMassKg = totalMass;
+		}
+
+		public void PopulateMassBreakdownFromDurability()
+		{
+			ResolveMassBreakdown(out armorMassKg, out structureMassKg);
+		}
+
 		public void Add(MechPartStats other)
 		{
 			if (other != null)
 			{
 				massKg += other.massKg;
+				armorMassKg += other.armorMassKg;
+				structureMassKg += other.structureMassKg;
 				armorPoints += other.armorPoints;
 				structurePoints += other.structurePoints;
 				powerOutputMw += other.powerOutputMw;
@@ -121,6 +160,8 @@ namespace ACunicombat.Mechs
 			if (other != null)
 			{
 				massKg = other.massKg;
+				armorMassKg = other.armorMassKg;
+				structureMassKg = other.structureMassKg;
 				armorPoints = other.armorPoints;
 				structurePoints = other.structurePoints;
 				powerOutputMw = other.powerOutputMw;

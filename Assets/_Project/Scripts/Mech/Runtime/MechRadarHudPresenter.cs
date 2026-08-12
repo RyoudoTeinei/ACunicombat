@@ -87,6 +87,24 @@ namespace ACunicombat.Mechs
 		[Min(0.1f)]
 		private float missileHitConfirmationDurationSeconds = 1.05f;
 
+		[SerializeField]
+		[Min(0.1f)]
+		private float targetDestroyedConfirmationDurationSeconds = 1.35f;
+
+		[SerializeField]
+		private AudioClip missileHitConfirmationClip;
+
+		[SerializeField]
+		private AudioClip targetDestroyedConfirmationClip;
+
+		[SerializeField]
+		[Range(0f, 1f)]
+		private float missileHitConfirmationVolume = 0.65f;
+
+		[SerializeField]
+		[Range(0f, 1f)]
+		private float targetDestroyedConfirmationVolume = 0.55f;
+
 		[Header("Track readout")]
 		[SerializeField]
 		[Min(0.1f)]
@@ -177,6 +195,8 @@ namespace ACunicombat.Mechs
 
 		private Color hitConfirmationColor;
 
+		private AudioSource combatFeedbackAudioSource;
+
 		private float pitchLadderRollDegrees;
 
 		private static readonly Color HudGreen = new Color(0.3f, 1f, 0.5f, 1f);
@@ -249,12 +269,29 @@ namespace ACunicombat.Mechs
 			{
 				sttLockLoopClip = Resources.Load<AudioClip>("Audio/Radar/radar_stt_lock_loop");
 			}
+			if (missileHitConfirmationClip == null)
+			{
+				missileHitConfirmationClip = Resources.Load<AudioClip>(
+					"Audio/UI/CombatFeedback/bonus");
+			}
+			if (targetDestroyedConfirmationClip == null)
+			{
+				targetDestroyedConfirmationClip = Resources.Load<AudioClip>(
+					"Audio/UI/CombatFeedback/enemy_destroyed");
+			}
 			operationScanLoopClip?.LoadAudioData();
 			sttLockLoopClip?.LoadAudioData();
+			missileHitConfirmationClip?.LoadAudioData();
+			targetDestroyedConfirmationClip?.LoadAudioData();
 			radarOperatorAudioSource = base.gameObject.AddComponent<AudioSource>();
 			radarOperatorAudioSource.playOnAwake = false;
 			radarOperatorAudioSource.loop = true;
 			radarOperatorAudioSource.spatialBlend = 0f;
+			combatFeedbackAudioSource = base.gameObject.AddComponent<AudioSource>();
+			combatFeedbackAudioSource.playOnAwake = false;
+			combatFeedbackAudioSource.loop = false;
+			combatFeedbackAudioSource.spatialBlend = 0f;
+			combatFeedbackAudioSource.priority = 24;
 		}
 
 		private void OnEnable()
@@ -266,6 +303,7 @@ namespace ACunicombat.Mechs
 		{
 			CombatTestTarget.DamageApplied -= HandleDamageApplied;
 			radarOperatorAudioSource?.Stop();
+			combatFeedbackAudioSource?.Stop();
 			radar?.SetTrackOperationMode(enabled: false);
 		}
 
@@ -438,16 +476,47 @@ namespace ACunicombat.Mechs
 				return;
 			}
 
+			bool targetDestroyed = !target.IsAlive;
+			bool missileHit = weaponKind == TestWeaponKind.Missile;
+			if (missileHit)
+			{
+				PlayCombatFeedback(
+					missileHitConfirmationClip,
+					missileHitConfirmationVolume);
+			}
+			if (targetDestroyed)
+			{
+				PlayCombatFeedback(
+					targetDestroyedConfirmationClip,
+					targetDestroyedConfirmationVolume);
+			}
+
 			hitConfirmationStartedAt = Time.unscaledTime;
-			float confirmationDuration = weaponKind == TestWeaponKind.Missile
-				? missileHitConfirmationDurationSeconds
-				: hitConfirmationDurationSeconds;
+			float confirmationDuration = targetDestroyed
+				? targetDestroyedConfirmationDurationSeconds
+				: missileHit
+					? missileHitConfirmationDurationSeconds
+					: hitConfirmationDurationSeconds;
 			hitConfirmationUntil =
 				hitConfirmationStartedAt + Mathf.Max(0.1f, confirmationDuration);
-			hitConfirmationText = weaponKind == TestWeaponKind.Missile
-				? "导弹命中"
-				: "命中";
-			hitConfirmationColor = HudBrightGreen;
+			hitConfirmationText = targetDestroyed
+				? "目标击毁"
+				: missileHit
+					? "导弹命中"
+					: "命中";
+			hitConfirmationColor = targetDestroyed
+				? new Color(1f, 0.78f, 0.28f, 1f)
+				: HudBrightGreen;
+		}
+
+		private void PlayCombatFeedback(AudioClip clip, float volume)
+		{
+			if (combatFeedbackAudioSource != null && clip != null)
+			{
+				combatFeedbackAudioSource.PlayOneShot(
+					clip,
+					Mathf.Clamp01(volume));
+			}
 		}
 
 		private bool IsDamageSourceThisMech(Transform damageSource)
@@ -738,12 +807,12 @@ namespace ACunicombat.Mechs
 				}
 				else if (ShouldDisplayIncomingMissile(in track))
 				{
-					bool ownshipThreat = ShouldEmphasizeOwnshipThreat(in track);
-					bool interceptor = IsInferredInterceptor(in track);
-					Color color = ownshipThreat
+					bool confirmedOwnshipThreat =
+						track.IsLikelyTargetingOwnship;
+					Color color = confirmedOwnshipThreat
 						? HudRed
 						: HudAmber;
-					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), color, ownshipThreat, !ownshipThreat && !interceptor);
+					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), color, confirmedOwnshipThreat, dashed: false);
 				}
 			}
 		}
@@ -1345,36 +1414,31 @@ namespace ACunicombat.Mechs
 					continue;
 				}
 				Vector3 position = ToVector3(track.PredictPosition(radar.SimTimeSeconds));
-				Vector3 relative = position - base.transform.position;
-				bool incoming = track.Incoming;
-				bool ownshipThreat = ShouldEmphasizeOwnshipThreat(in track);
+				bool confirmedOwnshipThreat =
+					track.IsLikelyTargetingOwnship;
 				bool inferredInterceptor = IsInferredInterceptor(in track);
 				bool interceptorAssigned = HasFriendlyInterceptorAssigned(track.TrackId);
 				bool interceptorSolutionAvailable =
 					weaponSystem != null &&
 					weaponSystem.HasInterceptorLaunchSolution &&
 					weaponSystem.InterceptorTrackId.Equals(track.TrackId);
-				float markerRadius = ownshipThreat ? radius + 2f : radius;
-				Color markerColor = ownshipThreat
+				float markerRadius =
+					confirmedOwnshipThreat ? radius + 2f : radius;
+				Color markerColor = confirmedOwnshipThreat
 					? HudRed
-					: incoming
-						? HudAmber
-						: new Color(HudAmber.r, HudAmber.g, HudAmber.b, 0.72f);
+					: HudAmber;
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
 				if (screen.z <= 0f || screen.x < markerRadius || screen.x > (float)Screen.width - markerRadius || screen.y < markerRadius || screen.y > (float)Screen.height - markerRadius)
 				{
 					continue;
 				}
 				Vector2 markerCenter = new Vector2(screen.x, (float)Screen.height - screen.y);
-				if (ownshipThreat)
-				{
-					DrawDiamond(
-						markerCenter,
-						markerRadius,
-						HudRed,
-						dashed: false,
-						2.2f);
-				}
+				DrawDiamond(
+					markerCenter,
+					markerRadius,
+					markerColor,
+					dashed: false,
+					confirmedOwnshipThreat ? 2.2f : 1.6f);
 				bool shaoWeiTrackSelected = weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack && weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId);
 				bool handPointDefenseTrackSelected = weaponSystem != null && weaponSystem.HasPointDefenseTrack && weaponSystem.PointDefenseTrackId.Equals(track.TrackId);
 				if (interceptorAssigned)
@@ -1393,10 +1457,10 @@ namespace ACunicombat.Mechs
 					float lockExtent = markerRadius + 13f;
 					DrawCornerFrame(new Rect(markerCenter.x - lockExtent, markerCenter.y - lockExtent, lockExtent * 2f, lockExtent * 2f), pointDefenseColor, 8f, 1.8f, dashed: false);
 				}
-				string missileLabel = track.IsLikelyAirToAir
+				string missileLabel = confirmedOwnshipThreat
 					? "导弹来袭"
 					: inferredInterceptor
-						? "导弹"
+						? "拦截弹"
 						: string.Empty;
 				if (interceptorAssigned)
 				{
@@ -1498,34 +1562,6 @@ namespace ACunicombat.Mechs
 			}
 
 			return false;
-		}
-
-		private static bool ShouldEmphasizeOwnshipThreat(
-			in MissileTrackSnapshot track)
-		{
-			if (track.IsLikelyInterceptor)
-			{
-				return false;
-			}
-
-			if (track.IsLikelyTargetingOwnship)
-			{
-				return true;
-			}
-
-			if (!track.Incoming ||
-				!track.IsWeaponsQuality)
-			{
-				return false;
-			}
-
-			var timeToCpa = track.TimeToClosestApproachSeconds;
-			var emergencyCpaGate = Mathf.Max(
-				250f,
-				track.CpaUncertaintyMeters * 2f);
-			return timeToCpa >= 0f &&
-				timeToCpa <= 6f &&
-				track.ClosestApproachDistanceMeters <= emergencyCpaGate;
 		}
 
 		private bool IsFreshMissileEvidence(in MissileTrackSnapshot track)

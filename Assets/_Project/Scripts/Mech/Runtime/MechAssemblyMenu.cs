@@ -250,6 +250,8 @@ namespace ACunicombat.Mechs
 
 		private MechHangarPreviewRenderer previewRenderer;
 
+		private MechHangarAudioController hangarAudio;
+
 		private bool previewDirty = true;
 
 		private CursorLockMode previousCursorLockMode;
@@ -267,6 +269,11 @@ namespace ACunicombat.Mechs
 			if (previewRenderer == null)
 			{
 				previewRenderer = base.gameObject.AddComponent<MechHangarPreviewRenderer>();
+			}
+			hangarAudio = GetComponent<MechHangarAudioController>();
+			if (hangarAudio == null)
+			{
+				hangarAudio = base.gameObject.AddComponent<MechHangarAudioController>();
 			}
 		}
 
@@ -400,10 +407,12 @@ namespace ACunicombat.Mechs
 			Time.timeScale = 0f;
 			Cursor.lockState = CursorLockMode.None;
 			Cursor.visible = true;
+			hangarAudio?.SetHangarActive(true);
 		}
 
 		private void RestoreGameplayState(bool restoreStalePause)
 		{
+			hangarAudio?.SetHangarActive(false);
 			if (ownsMenuPause)
 			{
 				Time.timeScale = previousTimeScale > Mathf.Epsilon ? previousTimeScale : 1f;
@@ -1117,6 +1126,7 @@ namespace ACunicombat.Mechs
 
 			DrawPartMetricGroup(view, ref y, "结构");
 			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 5000f, "0", " kg", higherIsBetter: false);
+			DrawFrameMassBreakdown(view, ref y, stats, equippedStats, 5000f);
 			DrawPartComparisonMetric(view, ref y, "装甲耐久", stats.armorPoints, equippedStats?.armorPoints, 1000f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "结构耐久", stats.structurePoints, equippedStats?.structurePoints, 1000f, "0", string.Empty, higherIsBetter: true);
 
@@ -1261,6 +1271,7 @@ namespace ACunicombat.Mechs
 
 			DrawPartMetricGroup(view, ref y, "结构");
 			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 14000f, "0", " kg", higherIsBetter: false);
+			DrawFrameMassBreakdown(view, ref y, stats, equippedStats, 14000f);
 			DrawPartComparisonMetric(view, ref y, "装甲耐久", stats.armorPoints, equippedStats?.armorPoints, 1800f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "结构耐久", stats.structurePoints, equippedStats?.structurePoints, 1600f, "0", string.Empty, higherIsBetter: true);
 
@@ -1315,7 +1326,7 @@ namespace ACunicombat.Mechs
 			MechPartStats equippedEffectiveStats = equippedPart == null
 				? null
 				: BuildCoreDisplayStats(equippedPart.Stats, equippedCore);
-			DrawGeneralPartStats(view, ref y, effectiveStats, equippedEffectiveStats);
+			DrawGeneralPartStats(view, ref y, effectiveStats, equippedEffectiveStats, showMassBreakdown: true);
 
 			DrawPartMetricGroup(view, ref y, "姿态控制");
 			DrawPartComparisonMetric(view, ref y, "动量轮转向速度", core.momentumWheelTurnRateDegPerSecond, hasEquippedCore ? equippedCore.momentumWheelTurnRateDegPerSecond : null, 60f, "0.0", " °/s", higherIsBetter: true);
@@ -1350,7 +1361,7 @@ namespace ACunicombat.Mechs
 			MechPartStats equippedEffectiveStats = equippedPart == null
 				? null
 				: BuildLegDisplayStats(equippedPart.Stats, equippedLegs);
-			DrawGeneralPartStats(view, ref y, effectiveStats, equippedEffectiveStats);
+			DrawGeneralPartStats(view, ref y, effectiveStats, equippedEffectiveStats, showMassBreakdown: true);
 
 			DrawPartMetricGroup(view, ref y, "腿部喷口");
 			DrawPartComparisonMetric(view, ref y, "主喷口数量", legs.PrimaryNozzleCount, hasEquippedLegs ? equippedLegs.PrimaryNozzleCount : null, 12f, "0", " 个", higherIsBetter: true);
@@ -1379,10 +1390,19 @@ namespace ACunicombat.Mechs
 			return display;
 		}
 
-		private void DrawGeneralPartStats(Rect view, ref float y, MechPartStats stats, MechPartStats equippedStats)
+		private void DrawGeneralPartStats(
+			Rect view,
+			ref float y,
+			MechPartStats stats,
+			MechPartStats equippedStats,
+			bool showMassBreakdown = false)
 		{
 			DrawPartMetricGroup(view, ref y, "结构");
 			DrawPartComparisonMetric(view, ref y, "质量", stats.massKg, equippedStats?.massKg, 16000f, "0", " kg", higherIsBetter: false);
+			if (showMassBreakdown)
+			{
+				DrawFrameMassBreakdown(view, ref y, stats, equippedStats, 16000f);
+			}
 			DrawPartComparisonMetric(view, ref y, "装甲", stats.armorPoints, equippedStats?.armorPoints, 3000f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "结构强度", stats.structurePoints, equippedStats?.structurePoints, 2600f, "0", string.Empty, higherIsBetter: true);
 			DrawPartMetricGroup(view, ref y, "能源与热量");
@@ -1417,6 +1437,35 @@ namespace ACunicombat.Mechs
 			DrawPartComparisonMetric(view, ref y, "雷达截面积", stats.radarCrossSection, equippedStats?.radarCrossSection, 100f, "0.0", string.Empty, higherIsBetter: false);
 			DrawPartComparisonMetric(view, ref y, "热特征", stats.thermalSignature, equippedStats?.thermalSignature, 100f, "0.0", string.Empty, higherIsBetter: false);
 			DrawPartComparisonMetric(view, ref y, "电磁特征", stats.electromagneticSignature, equippedStats?.electromagneticSignature, 100f, "0.0", string.Empty, higherIsBetter: false);
+		}
+
+		private void DrawFrameMassBreakdown(
+			Rect view,
+			ref float y,
+			MechPartStats stats,
+			MechPartStats equippedStats,
+			float referenceMaximumKg)
+		{
+			stats.ResolveMassBreakdown(out float armorMassKg, out float structureMassKg);
+			float? equippedArmorMassKg = null;
+			float? equippedStructureMassKg = null;
+			if (equippedStats != null)
+			{
+				equippedStats.ResolveMassBreakdown(out float armorMass, out float structureMass);
+				equippedArmorMassKg = armorMass;
+				equippedStructureMassKg = structureMass;
+			}
+
+			const float childIndent = 34f;
+			float branchX = view.x + 14f;
+			float firstChildCenterY = y + PartMetricRowHeight * 0.5f;
+			float secondChildCenterY = firstChildCenterY + PartMetricRowStride;
+			GUI.DrawTexture(new Rect(branchX, y - 2f, 2f, secondChildCenterY - y + 2f), frameTexture);
+			GUI.DrawTexture(new Rect(branchX, firstChildCenterY, childIndent - 10f, 2f), frameTexture);
+			GUI.DrawTexture(new Rect(branchX, secondChildCenterY, childIndent - 10f, 2f), frameTexture);
+
+			DrawPartComparisonMetric(view, ref y, "装甲质量", armorMassKg, equippedArmorMassKg, referenceMaximumKg, "0", " kg", higherIsBetter: false, hierarchyIndent: childIndent);
+			DrawPartComparisonMetric(view, ref y, "结构质量", structureMassKg, equippedStructureMassKg, referenceMaximumKg, "0", " kg", higherIsBetter: false, hierarchyIndent: childIndent);
 		}
 
 		private void DrawAggregateStats(Rect rect)
@@ -1683,20 +1732,23 @@ namespace ACunicombat.Mechs
 			y += PartMetricRowStride;
 		}
 
-		private void DrawPartMetric(Rect area, ref float y, string label, float value, float displayMaximum, string valueText, float? equippedValue = null, string equippedValueText = null, bool higherIsBetter = true, float displayMinimum = 0f)
+		private void DrawPartMetric(Rect area, ref float y, string label, float value, float displayMaximum, string valueText, float? equippedValue = null, string equippedValueText = null, bool higherIsBetter = true, float displayMinimum = 0f, float hierarchyIndent = 0f)
 		{
 			Rect row = new Rect(area.x, y, area.width - 4f, PartMetricRowHeight);
-			GUI.DrawTexture(row, ((Mathf.FloorToInt(y / PartMetricRowStride) & 1) == 0) ? rowTexture : alternateRowTexture);
+			Rect backgroundRow = new Rect(row.x + hierarchyIndent, row.y, row.width - hierarchyIndent, row.height);
+			GUI.DrawTexture(backgroundRow, ((Mathf.FloorToInt(y / PartMetricRowStride) & 1) == 0) ? rowTexture : alternateRowTexture);
 			if (selectingPart && equippedValue.HasValue)
 			{
 				GetComparisonRowRects(row, out var labelRect, out var track, out var equippedRect, out var arrowRect, out var candidateRect);
+				labelRect.x += hierarchyIndent;
+				labelRect.width = Mathf.Max(24f, labelRect.width - hierarchyIndent);
 				float baseline = equippedValue.Value;
 				float delta = value - baseline;
 				bool changed = HasMeaningfulDifference(value, baseline);
 				bool better = (higherIsBetter ? (delta > 0f) : (delta < 0f));
 				if (changed)
 				{
-					DrawColorSwatch(new Rect(row.x, row.y, 3f, row.height), better ? ComparisonImprovementColor : ComparisonRegressionColor);
+					DrawColorSwatch(new Rect(backgroundRow.x, row.y, 3f, row.height), better ? ComparisonImprovementColor : ComparisonRegressionColor);
 				}
 				GUI.Label(labelRect, label, labelStyle);
 				DrawComparisonTrack(track, value, baseline, displayMinimum, displayMaximum, changed, better);
@@ -1711,7 +1763,7 @@ namespace ACunicombat.Mechs
 				float valueWidth = Mathf.Clamp(row.width * 0.19f, 110f, 210f);
 				float availableTrackWidth = Mathf.Max(72f, row.width - labelWidth - valueWidth - 24f);
 				Rect track2 = new Rect(row.x + labelWidth, row.y + row.height * 0.5f - PartMetricTrackHeight * 0.5f, availableTrackWidth * 0.7f, PartMetricTrackHeight);
-				GUI.Label(new Rect(row.x + 12f, row.y, labelWidth - 16f, row.height), label, labelStyle);
+				GUI.Label(new Rect(row.x + 12f + hierarchyIndent, row.y, Mathf.Max(24f, labelWidth - 16f - hierarchyIndent), row.height), label, labelStyle);
 				GUI.DrawTexture(track2, sliderTrackTexture);
 				Rect fill = track2;
 				fill.width *= Mathf.Clamp01(Mathf.InverseLerp(displayMinimum, displayMaximum, value));
@@ -1726,9 +1778,9 @@ namespace ACunicombat.Mechs
 			y += PartMetricRowStride;
 		}
 
-		private void DrawPartComparisonMetric(Rect area, ref float y, string label, float value, float? equippedValue, float displayMaximum, string format, string suffix, bool higherIsBetter, float displayMinimum = 0f)
+		private void DrawPartComparisonMetric(Rect area, ref float y, string label, float value, float? equippedValue, float displayMaximum, string format, string suffix, bool higherIsBetter, float displayMinimum = 0f, float hierarchyIndent = 0f)
 		{
-			DrawPartMetric(area, ref y, label, value, displayMaximum, value.ToString(format) + suffix, equippedValue, equippedValue.HasValue ? (equippedValue.Value.ToString(format) + suffix) : null, higherIsBetter, displayMinimum);
+			DrawPartMetric(area, ref y, label, value, displayMaximum, value.ToString(format) + suffix, equippedValue, equippedValue.HasValue ? (equippedValue.Value.ToString(format) + suffix) : null, higherIsBetter, displayMinimum, hierarchyIndent);
 		}
 
 		private void DrawComparisonColumnHeader(Rect area, ref float y)

@@ -8,6 +8,7 @@ namespace ACunicombat.Mechs
         Flak38 = 0,
         Legacy2A42 = 1,
         Flak43 = 2,
+        Gau8A = 3,
     }
 
     public enum CannonAudioProfile : byte
@@ -203,6 +204,12 @@ namespace ACunicombat.Mechs
             bool ownship,
             AutomaticCannonAudioProfile profile)
         {
+            if (profile == AutomaticCannonAudioProfile.Gau8A)
+            {
+                PlayGau8Shot(muzzlePosition);
+                return;
+            }
+
             var now = Time.unscaledTime;
             var useFarFlak =
                 profile != AutomaticCannonAudioProfile.Legacy2A42 &&

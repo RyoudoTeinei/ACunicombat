@@ -216,6 +216,24 @@ $groups = @(
     New-Group "auto_turn_noise" "Assets/tanks/weapon/cannons/cannon_reloading/autoloader" "cannon_autoloader_turn_noise" "-" 3 "Weapons\Reload" "cannon_autoloader_turn_noise" "_" 3 2 3 "Weapons\Reload\cannon_autoloader_turn_noise.ogg.meta"
 
     New-Group "con_scan_track" "Assets/gui" "con_scan_track" "-" 3 "RWR" "con_scan_track" "-" 3 2 8 "RWR\con_scan_track-001.wav.meta"
+    New-Group -Name "combat_bonus" `
+        -SourceDirectory "Assets/gui" `
+        -SourcePrefix "bonus" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "UI\CombatFeedback" `
+        -DestinationPrefix "bonus" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Radar\radar_operation_scan_loop.wav.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
+    New-Group -Name "enemy_destroyed" `
+        -SourceDirectory "Assets/gui" `
+        -SourcePrefix "enemy_destroyed" -SourceSeparator "" -SourceDigits 0 `
+        -DestinationDirectory "UI\CombatFeedback" `
+        -DestinationPrefix "enemy_destroyed" `
+        -DestinationSeparator "" -DestinationDigits 0 `
+        -First 1 -Last 1 `
+        -MetaTemplate "Radar\radar_operation_scan_loop.wav.meta" `
+        -SourceNumbered $false -DestinationNumbered $false
 )
 
 function Format-Index([int]$Index, [int]$Digits) {
@@ -252,8 +270,8 @@ foreach ($group in $groups) {
         $expectedCount += $group.Last - $group.First + 1
     }
 }
-if ($expectedCount -ne 326) {
-    throw "Variant manifest expected 326 files but describes $expectedCount."
+if ($expectedCount -ne 328) {
+    throw "Variant manifest expected 328 files but describes $expectedCount."
 }
 
 $completed = 0

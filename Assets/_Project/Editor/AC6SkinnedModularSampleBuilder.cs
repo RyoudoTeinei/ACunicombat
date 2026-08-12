@@ -2357,8 +2357,8 @@ public static class AC6SkinnedModularSampleBuilder
 			return null;
 		}
 
-		float reverseThrust = (code == "3010" ? 280f : code == "2010" ? 330f : 305f) * scale;
-		float downwardThrust = 450f * scale;
+		float reverseThrust = (code == "3010" ? 280f : code == "2010" ? 330f : 375f) * scale;
+		float downwardThrust = 573f * scale;
 		return new MechCorePerformance
 		{
 			momentumWheelTurnRateDegPerSecond = 24f / Mathf.Sqrt(Mathf.Max(0.5f, scale)),
@@ -2394,7 +2394,7 @@ public static class AC6SkinnedModularSampleBuilder
 			weaponPointingErrorMrad = 0.18f * Mathf.Max(0.8f, scale),
 			thrusterNozzles = new[]
 			{
-				new MechArmThrusterNozzle { nozzleId = "arm-lateral", role = MechArmThrusterRole.Lateral, localPositionM = new Vector3(0.82f, 0.08f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 40f * scale, gimbalLimitDeg = 8f, maximumPowerKw = 420f * scale, maximumHeatKw = 180f * scale },
+				new MechArmThrusterNozzle { nozzleId = "arm-lateral", role = MechArmThrusterRole.Lateral, localPositionM = new Vector3(0.82f, 0.08f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 132f * scale, gimbalLimitDeg = 8f, maximumPowerKw = 420f * scale, maximumHeatKw = 180f * scale },
 				new MechArmThrusterNozzle { nozzleId = "arm-rcs-forward", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, 0.32f, 0.28f), localThrustDirection = Vector3.forward, maximumThrustKn = 75f * scale, maximumPowerKw = 260f * scale, maximumHeatKw = 120f * scale },
 				new MechArmThrusterNozzle { nozzleId = "arm-rcs-rear", role = MechArmThrusterRole.Rcs, localPositionM = new Vector3(0.78f, -0.18f, -0.24f), localThrustDirection = Vector3.back, maximumThrustKn = 75f * scale, maximumPowerKw = 260f * scale, maximumHeatKw = 120f * scale }
 			}
@@ -2413,12 +2413,12 @@ public static class AC6SkinnedModularSampleBuilder
 			maximumSupportedMassKg = 65000f * scale,
 			primaryThrusterNozzles = new[]
 			{
-				new MechLegThrusterNozzle { nozzleId = "leg-primary-front", localPositionM = new Vector3(0.42f, -0.72f, 0.3f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale },
-				new MechLegThrusterNozzle { nozzleId = "leg-primary-rear", localPositionM = new Vector3(0.42f, -0.78f, -0.24f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale }
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-front", localPositionM = new Vector3(0.42f, -0.72f, 0.3f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18.82427f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale },
+				new MechLegThrusterNozzle { nozzleId = "leg-primary-rear", localPositionM = new Vector3(0.42f, -0.78f, -0.24f), localThrustDirection = Vector3.up, maximumThrustKn = 375f * scale, mainGimbalLimitDeg = 10f, reverseGimbalLimitDeg = 18.82427f, lateralGimbalLimitDeg = 0.5f, maximumPowerKw = 250f * scale, maximumHeatKw = 100f * scale }
 			},
 			lateralThrusterNozzles = new[]
 			{
-				new MechLegThrusterNozzle { nozzleId = "leg-lateral", localPositionM = new Vector3(0.48f, -0.35f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 8f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 20f * scale }
+				new MechLegThrusterNozzle { nozzleId = "leg-lateral", localPositionM = new Vector3(0.48f, -0.35f, 0f), localThrustDirection = Vector3.left, maximumThrustKn = 67.9102f * scale, maximumPowerKw = 60f * scale, maximumHeatKw = 20f * scale }
 			},
 			rcsThrusterNozzles = new[]
 			{
