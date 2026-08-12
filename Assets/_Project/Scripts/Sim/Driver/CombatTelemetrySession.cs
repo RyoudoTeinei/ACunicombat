@@ -49,6 +49,9 @@ namespace ACunicombat.Simulation.Driver
             public double KinematicUpdateTime;
             public MissileTargetIntent Intent;
             public float IntentConfidence;
+            public MissileMissionRole MissionRole;
+            public float MissionRoleConfidence;
+            public MissileMissionRoleEvidence MissionRoleEvidence;
             public MissileTrackQuality Quality;
             public TrackAffiliation Affiliation;
             public bool Incoming;
@@ -593,6 +596,9 @@ namespace ACunicombat.Simulation.Driver
                 KinematicUpdateTime = track.KinematicUpdateTime,
                 Intent = track.TargetIntent,
                 IntentConfidence = track.TargetIntentConfidence,
+                MissionRole = track.MissionRole,
+                MissionRoleConfidence = track.MissionRoleConfidence,
+                MissionRoleEvidence = track.MissionRoleEvidence,
                 Quality = track.Quality,
                 Affiliation = track.Affiliation,
                 Incoming = track.Incoming,
@@ -601,6 +607,12 @@ namespace ACunicombat.Simulation.Driver
             if (missileStates.TryGetValue(key, out var previous) &&
                 previous.Intent == current.Intent &&
                 Math.Abs(previous.IntentConfidence - current.IntentConfidence) < 0.001f &&
+                previous.MissionRole == current.MissionRole &&
+                Math.Abs(
+                    previous.MissionRoleConfidence -
+                    current.MissionRoleConfidence) < 0.001f &&
+                previous.MissionRoleEvidence ==
+                    current.MissionRoleEvidence &&
                 previous.Quality == current.Quality &&
                 previous.Affiliation == current.Affiliation &&
                 previous.Incoming == current.Incoming &&
@@ -625,6 +637,9 @@ namespace ACunicombat.Simulation.Driver
             Boolean("incoming", track.Incoming);
             String("missionRole", track.MissionRole.ToString());
             Number("missionRoleConfidence", track.MissionRoleConfidence);
+            String(
+                "missionRoleEvidence",
+                track.MissionRoleEvidence.ToString());
             String("targetIntent", track.TargetIntent.ToString());
             Number("targetIntentConfidence", track.TargetIntentConfidence);
             Number("intentOwnshipScore", track.IntentOwnshipScore);

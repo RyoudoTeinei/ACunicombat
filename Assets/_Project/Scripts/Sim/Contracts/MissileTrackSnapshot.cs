@@ -29,6 +29,14 @@ namespace ACunicombat.Sensing.Contracts
         FriendlyMissile = 2,
     }
 
+    public enum MissileMissionRoleEvidence : byte
+    {
+        None = 0,
+        KinematicIntent = 1,
+        EsmWaveform = 2,
+        AuthenticatedDataLink = 3,
+    }
+
     /// <summary>
     /// Fire-control-safe missile track. It contains only fused estimates and
     /// sensor evidence; no scene object or simulation entity identity escapes.
@@ -47,6 +55,7 @@ namespace ACunicombat.Sensing.Contracts
         public float IdentityConfidence;
         public MissileMissionRole MissionRole;
         public float MissionRoleConfidence;
+        public MissileMissionRoleEvidence MissionRoleEvidence;
         public MissileTargetIntent TargetIntent;
         public float TargetIntentConfidence;
         public float IntentOwnshipScore;
@@ -76,6 +85,8 @@ namespace ACunicombat.Sensing.Contracts
         public bool HasAuthenticatedMissionRole =>
             IsFriendly &&
             (SourceMask & MissileTrackSourceMask.DataLink) != 0 &&
+            MissionRoleEvidence ==
+                MissileMissionRoleEvidence.AuthenticatedDataLink &&
             MissionRole != MissileMissionRole.Unknown &&
             MissionRoleConfidence >= 0.5f;
 
@@ -86,8 +97,8 @@ namespace ACunicombat.Sensing.Contracts
 
         public bool IsLikelyInterceptor =>
             !IsFriendly &&
-            TargetIntent == MissileTargetIntent.FriendlyMissile &&
-            TargetIntentConfidence >= 0.9f;
+            MissionRole == MissileMissionRole.Interceptor &&
+            MissionRoleConfidence >= 0.65f;
 
         public double3 PredictPosition(double time)
         {

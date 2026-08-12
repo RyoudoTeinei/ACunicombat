@@ -491,7 +491,8 @@ namespace ACunicombat.Mechs
         private bool IsCloseMissile(in ThreatSnapshot threat)
         {
             if (threat.Level != EsmThreatLevel.MissileActive ||
-                (threat.WaveformClass != EsmWaveformClass.MissileSeeker &&
+                (!EsmWaveformClassification.IsMissileSeeker(
+                     threat.WaveformClass) &&
                  threat.WaveformClass != EsmWaveformClass.InfraredPlume) ||
                 !HasCorrelatedIncomingMissile(in threat))
             {
@@ -517,7 +518,8 @@ namespace ACunicombat.Mechs
 
         private bool HasCorrelatedIncomingMissile(in ThreatSnapshot threat)
         {
-            if (threat.WaveformClass != EsmWaveformClass.MissileSeeker &&
+            if (!EsmWaveformClassification.IsMissileSeeker(
+                    threat.WaveformClass) &&
                 threat.WaveformClass != EsmWaveformClass.InfraredPlume)
             {
                 return false;
@@ -572,6 +574,8 @@ namespace ACunicombat.Mechs
             var classPriority = threat.WaveformClass switch
             {
                 EsmWaveformClass.MissileSeeker => 40f,
+                EsmWaveformClass.AirToAirMissileSeeker => 42f,
+                EsmWaveformClass.InterceptorMissileSeeker => 38f,
                 EsmWaveformClass.InfraredPlume => 35f,
                 EsmWaveformClass.FireControlRadar => 30f,
                 EsmWaveformClass.DataLinkUplink => 20f,
@@ -597,6 +601,8 @@ namespace ACunicombat.Mechs
                 EsmWaveformClass.SearchRadar => $"SR{threat.WaveformId:D2}",
                 EsmWaveformClass.FireControlRadar => $"FCR{threat.WaveformId:D2}",
                 EsmWaveformClass.MissileSeeker => "MSL",
+                EsmWaveformClass.AirToAirMissileSeeker => "AAM",
+                EsmWaveformClass.InterceptorMissileSeeker => "INT",
                 EsmWaveformClass.DataLinkUplink => $"DL{threat.WaveformId:D2}",
                 EsmWaveformClass.InfraredPlume => "IR",
                 _ => $"U{threat.WaveformId:D2}",

@@ -718,6 +718,7 @@ namespace ACunicombat.Mechs
 					velocity,
 					seekerMaximumRange,
 					seekerHalfAngleRadians * 2f * Mathf.Rad2Deg,
+					interceptorMissile,
 					out var handle))
 			{
 				Debug.LogWarning(

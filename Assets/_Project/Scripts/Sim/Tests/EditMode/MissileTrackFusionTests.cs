@@ -881,6 +881,114 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void InterceptorSeekerWaveform_AssignsRoleToUniqueRadarTrack()
+        {
+            var output = new MissileTrackSnapshot[1];
+
+            var count = MissileTrackFusion.Fuse(
+                MissileTrackFusionConfig.Default,
+                new[] { IncomingRadarTrack() },
+                1,
+                new[]
+                {
+                    Threat(
+                        EsmWaveformClass.InterceptorMissileSeeker,
+                        0.9f),
+                },
+                1,
+                new ElectroOpticalObservation[0],
+                0,
+                double3.zero,
+                double3.zero,
+                10.0,
+                output);
+
+            Assert.That(count, Is.EqualTo(1));
+            Assert.That(
+                output[0].MissionRole,
+                Is.EqualTo(MissileMissionRole.Interceptor));
+            Assert.That(
+                output[0].MissionRoleConfidence,
+                Is.GreaterThanOrEqualTo(0.65f));
+            Assert.That(output[0].IsLikelyInterceptor, Is.True);
+        }
+
+        [Test]
+        public void SeekerWaveform_ClassifiesOnlyUniqueNearestRadarTrack()
+        {
+            var nearest = IncomingRadarTrack();
+            nearest.TrackId = new TrackId(new Handle(1, 1));
+            var separated = IncomingRadarTrack();
+            separated.TrackId = new TrackId(new Handle(2, 1));
+            separated.Position = new double3(1_000.0, 0.0, 5_000.0);
+            var output = new MissileTrackSnapshot[2];
+
+            var count = MissileTrackFusion.Fuse(
+                MissileTrackFusionConfig.Default,
+                new[] { nearest, separated },
+                2,
+                new[]
+                {
+                    Threat(
+                        EsmWaveformClass.InterceptorMissileSeeker,
+                        0.9f),
+                },
+                1,
+                new ElectroOpticalObservation[0],
+                0,
+                double3.zero,
+                double3.zero,
+                10.0,
+                output);
+
+            Assert.That(count, Is.EqualTo(2));
+            Assert.That(
+                output[0].MissionRole,
+                Is.EqualTo(MissileMissionRole.Interceptor));
+            Assert.That(
+                output[1].MissionRole,
+                Is.EqualTo(MissileMissionRole.Unknown));
+        }
+
+        [Test]
+        public void SeekerWaveform_RemainsUnknownWhenBearingsAreAmbiguous()
+        {
+            var left = IncomingRadarTrack();
+            left.TrackId = new TrackId(new Handle(1, 1));
+            left.Position = new double3(-500.0, 0.0, 5_000.0);
+            var right = IncomingRadarTrack();
+            right.TrackId = new TrackId(new Handle(2, 1));
+            right.Position = new double3(500.0, 0.0, 5_000.0);
+            var output = new MissileTrackSnapshot[2];
+
+            var count = MissileTrackFusion.Fuse(
+                MissileTrackFusionConfig.Default,
+                new[] { left, right },
+                2,
+                new[]
+                {
+                    Threat(
+                        EsmWaveformClass.InterceptorMissileSeeker,
+                        0.9f),
+                },
+                1,
+                new ElectroOpticalObservation[0],
+                0,
+                double3.zero,
+                double3.zero,
+                10.0,
+                output);
+
+            Assert.That(count, Is.EqualTo(2));
+            Assert.That(
+                output[0].MissionRole,
+                Is.EqualTo(MissileMissionRole.Unknown));
+            Assert.That(
+                output[1].MissionRole,
+                Is.EqualTo(MissileMissionRole.Unknown));
+        }
+
+        [Test]
         public void MawCorrelatedUncertainCpa_IsMarkedIncomingAtLongRange()
         {
             var track = IncomingRadarTrack();

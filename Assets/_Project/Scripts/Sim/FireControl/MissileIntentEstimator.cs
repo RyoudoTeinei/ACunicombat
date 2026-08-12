@@ -553,6 +553,11 @@ namespace ACunicombat.FireControl
             ref MissileTrackSnapshot track,
             MissileIntentEstimatorState.Entry entry)
         {
+            var sensorMissionRole = track.MissionRole;
+            var sensorMissionRoleConfidence =
+                track.MissionRoleConfidence;
+            var sensorMissionRoleEvidence =
+                track.MissionRoleEvidence;
             track.TargetIntent = entry.Intent;
             track.TargetIntentConfidence = entry.Confidence;
             track.IntentOwnshipScore = entry.OwnshipScore;
@@ -570,6 +575,21 @@ namespace ACunicombat.FireControl
                 MissileTargetIntent.Unknown
                     ? 0f
                     : entry.Confidence;
+            track.MissionRoleEvidence = entry.Intent ==
+                MissileTargetIntent.Unknown
+                    ? MissileMissionRoleEvidence.None
+                    : MissileMissionRoleEvidence.KinematicIntent;
+            if (sensorMissionRole !=
+                    MissileMissionRole.Unknown &&
+                sensorMissionRoleEvidence ==
+                    MissileMissionRoleEvidence.EsmWaveform)
+            {
+                track.MissionRole = sensorMissionRole;
+                track.MissionRoleConfidence =
+                    sensorMissionRoleConfidence;
+                track.MissionRoleEvidence =
+                    sensorMissionRoleEvidence;
+            }
         }
     }
 }

@@ -8,7 +8,10 @@ namespace ACunicombat.FireControl
     public struct MissileTrackFusionConfig
     {
         public float ThreatAssociationRadians;
+        public float ThreatRoleAssociationSeparationRadians;
+        public float ThreatRoleMinimumConfidence;
         public double ThreatMaximumAgeSeconds;
+        public double ThreatRoleHoldSeconds;
         public double ElectroOpticalMaximumAgeSeconds;
         public double LaserRangeMaximumAgeSeconds;
         public float LaserRangeAssociationGateMeters;
@@ -36,7 +39,11 @@ namespace ACunicombat.FireControl
             new MissileTrackFusionConfig
             {
                 ThreatAssociationRadians = math.radians(20f),
+                ThreatRoleAssociationSeparationRadians =
+                    math.radians(4f),
+                ThreatRoleMinimumConfidence = 0.45f,
                 ThreatMaximumAgeSeconds = 1.5,
+                ThreatRoleHoldSeconds = 1.2,
                 ElectroOpticalMaximumAgeSeconds = 0.2,
                 LaserRangeMaximumAgeSeconds = 0.12,
                 LaserRangeAssociationGateMeters = 400f,
@@ -82,6 +89,9 @@ namespace ACunicombat.FireControl
             public double3 PreviousRawAcceleration;
             public bool HasVelocitySample;
             public bool HasAccelerationSample;
+            public MissileMissionRole SensorMissionRole;
+            public float SensorMissionRoleConfidence;
+            public double SensorMissionRoleUntil;
         }
 
         internal readonly Dictionary<TrackId, Entry> Entries =
@@ -639,6 +649,9 @@ namespace ACunicombat.FireControl
                     track.IdentityConfidence,
                     math.saturate(missionRoleConfidence))
                 : 0f;
+            track.MissionRoleEvidence = knownMissionRole
+                ? MissileMissionRoleEvidence.AuthenticatedDataLink
+                : MissileMissionRoleEvidence.None;
             track.SourceMask |= MissileTrackSourceMask.DataLink;
         }
 
@@ -781,16 +794,24 @@ namespace ACunicombat.FireControl
                     track.Confidence * 0.55f +
                     track.Classification * 0.45f);
                 var lastEvidenceTime = track.LastUpdateTime;
+                var sensorMissionRole = MissileMissionRole.Unknown;
+                var sensorMissionRoleConfidence = 0f;
 
                 AssociateThreats(
                     in config,
+                    i,
+                    radarTracks,
+                    radarTrackCount,
+                    ownshipPosition,
                     relativePosition,
                     threats,
                     threatCount,
                     now,
                     ref sourceMask,
                     ref confidence,
-                    ref lastEvidenceTime);
+                    ref lastEvidenceTime,
+                    ref sensorMissionRole,
+                    ref sensorMissionRoleConfidence);
                 var opticalConfirmed =
                     AssociateElectroOpticalObservation(
                         in config,
@@ -949,6 +970,48 @@ namespace ACunicombat.FireControl
                         sourceMask |= entry.CorroboratingSources;
                     }
 
+                    if (sensorMissionRole !=
+                            MissileMissionRole.Unknown &&
+                        sensorMissionRoleConfidence >=
+                            config.ThreatRoleMinimumConfidence)
+                    {
+                        var sameRole =
+                            entry.SensorMissionRole ==
+                            sensorMissionRole;
+                        var roleExpired =
+                            now > entry.SensorMissionRoleUntil;
+                        if (sameRole || roleExpired ||
+                            sensorMissionRoleConfidence >=
+                            entry.SensorMissionRoleConfidence + 0.15f)
+                        {
+                            entry.SensorMissionRole =
+                                sensorMissionRole;
+                            entry.SensorMissionRoleConfidence = sameRole
+                                ? math.max(
+                                    entry.SensorMissionRoleConfidence,
+                                    sensorMissionRoleConfidence)
+                                : sensorMissionRoleConfidence;
+                            entry.SensorMissionRoleUntil =
+                                now + math.max(
+                                    0.0,
+                                    config.ThreatRoleHoldSeconds);
+                        }
+                    }
+
+                    if (now <= entry.SensorMissionRoleUntil)
+                    {
+                        sensorMissionRole =
+                            entry.SensorMissionRole;
+                        sensorMissionRoleConfidence =
+                            entry.SensorMissionRoleConfidence;
+                    }
+                    else
+                    {
+                        entry.SensorMissionRole =
+                            MissileMissionRole.Unknown;
+                        entry.SensorMissionRoleConfidence = 0f;
+                    }
+
                     var confirmationEntry =
                         radarFireControlUsable &&
                         corroborationHeld &&
@@ -1042,6 +1105,14 @@ namespace ACunicombat.FireControl
                             cpaUncertainty *
                             (laserConfirmed ? 0.8f : 1f),
                         Confidence = confidence,
+                        MissionRole = sensorMissionRole,
+                        MissionRoleConfidence =
+                            sensorMissionRoleConfidence,
+                        MissionRoleEvidence =
+                            sensorMissionRole ==
+                                MissileMissionRole.Unknown
+                                ? MissileMissionRoleEvidence.None
+                                : MissileMissionRoleEvidence.EsmWaveform,
                         SourceMask = sourceMask,
                         Quality = quality,
                         Confirmed = confirmed,
@@ -1253,12 +1324,16 @@ namespace ACunicombat.FireControl
                 merged.MissionRole = existing.MissionRole;
                 merged.MissionRoleConfidence =
                     existing.MissionRoleConfidence;
+                merged.MissionRoleEvidence =
+                    existing.MissionRoleEvidence;
             }
             else
             {
                 merged.MissionRole = candidate.MissionRole;
                 merged.MissionRoleConfidence =
                     candidate.MissionRoleConfidence;
+                merged.MissionRoleEvidence =
+                    candidate.MissionRoleEvidence;
             }
             merged.PositionUncertaintyMeters =
                 math.min(
@@ -1285,13 +1360,19 @@ namespace ACunicombat.FireControl
 
         private static void AssociateThreats(
             in MissileTrackFusionConfig config,
+            int radarTrackIndex,
+            TrackSnapshot[] radarTracks,
+            int radarTrackCount,
+            double3 ownshipPosition,
             double3 relativePosition,
             ThreatSnapshot[] threats,
             int threatCount,
             double now,
             ref MissileTrackSourceMask sourceMask,
             ref float confidence,
-            ref double lastUpdate)
+            ref double lastUpdate,
+            ref MissileMissionRole missionRole,
+            ref float missionRoleConfidence)
         {
             if (threats == null ||
                 math.lengthsq(relativePosition) <= 0.01)
@@ -1322,24 +1403,50 @@ namespace ACunicombat.FireControl
                     continue;
                 }
 
-                switch (threat.WaveformClass)
+                if (EsmWaveformClassification.IsMissileSeeker(
+                        threat.WaveformClass))
                 {
-                    case EsmWaveformClass.MissileSeeker:
-                        rwrConfidence = math.max(
-                            rwrConfidence,
-                            threat.IdentificationConfidence);
-                        rwrUpdate = math.max(
-                            rwrUpdate,
-                            threat.LastSeenTime);
-                        break;
-                    case EsmWaveformClass.InfraredPlume:
-                        mawConfidence = math.max(
-                            mawConfidence,
-                            threat.IdentificationConfidence);
-                        mawUpdate = math.max(
-                            mawUpdate,
-                            threat.LastSeenTime);
-                        break;
+                    rwrConfidence = math.max(
+                        rwrConfidence,
+                        threat.IdentificationConfidence);
+                    rwrUpdate = math.max(
+                        rwrUpdate,
+                        threat.LastSeenTime);
+                    if (EsmWaveformClassification
+                            .TryGetMissileMissionRole(
+                                threat.WaveformClass,
+                                out var observedRole) &&
+                        TryAssociateThreatRoleToRadarTrack(
+                            in config,
+                            radarTrackIndex,
+                            radarTracks,
+                            radarTrackCount,
+                            ownshipPosition,
+                            in threat,
+                            now,
+                            out var angularConfidence))
+                    {
+                        var observedConfidence =
+                            threat.IdentificationConfidence *
+                            angularConfidence;
+                        if (observedConfidence >
+                            missionRoleConfidence)
+                        {
+                            missionRole = observedRole;
+                            missionRoleConfidence =
+                                observedConfidence;
+                        }
+                    }
+                }
+                else if (threat.WaveformClass ==
+                         EsmWaveformClass.InfraredPlume)
+                {
+                    mawConfidence = math.max(
+                        mawConfidence,
+                        threat.IdentificationConfidence);
+                    mawUpdate = math.max(
+                        mawUpdate,
+                        threat.LastSeenTime);
                 }
             }
 
@@ -1359,6 +1466,88 @@ namespace ACunicombat.FireControl
                     mawConfidence * 0.06f);
                 lastUpdate = math.max(lastUpdate, mawUpdate);
             }
+        }
+
+        private static bool TryAssociateThreatRoleToRadarTrack(
+            in MissileTrackFusionConfig config,
+            int expectedTrackIndex,
+            TrackSnapshot[] radarTracks,
+            int radarTrackCount,
+            double3 ownshipPosition,
+            in ThreatSnapshot threat,
+            double now,
+            out float confidence)
+        {
+            confidence = 0f;
+            if (radarTracks == null ||
+                expectedTrackIndex < 0 ||
+                expectedTrackIndex >= radarTrackCount)
+            {
+                return false;
+            }
+
+            var threatDirection = math.normalizesafe(
+                threat.DirectionWorld,
+                new float3(0f, 0f, 1f));
+            var bestAngle = float.PositiveInfinity;
+            var secondBestAngle = float.PositiveInfinity;
+            var bestIndex = -1;
+            var count = math.min(radarTrackCount, radarTracks.Length);
+            for (var i = 0; i < count; i++)
+            {
+                var candidate = radarTracks[i];
+                if (candidate.Lifecycle == TrackLifecycle.Dropped ||
+                    (candidate.ObjectClass != TrackObjectClass.Missile &&
+                     candidate.ObjectClass != TrackObjectClass.Unknown) ||
+                    now - candidate.LastUpdateTime >
+                        config.ThreatMaximumAgeSeconds)
+                {
+                    continue;
+                }
+
+                var relativePosition =
+                    candidate.PredictPosition(now) -
+                    ownshipPosition;
+                if (math.lengthsq(relativePosition) <= 0.01)
+                {
+                    continue;
+                }
+
+                var candidateDirection = math.normalizesafe(
+                    (float3)relativePosition,
+                    new float3(0f, 0f, 1f));
+                var angle = math.acos(math.clamp(
+                    math.dot(candidateDirection, threatDirection),
+                    -1f,
+                    1f));
+                if (angle < bestAngle)
+                {
+                    secondBestAngle = bestAngle;
+                    bestAngle = angle;
+                    bestIndex = i;
+                }
+                else if (angle < secondBestAngle)
+                {
+                    secondBestAngle = angle;
+                }
+            }
+
+            var gate = math.max(
+                math.radians(0.1f),
+                config.ThreatAssociationRadians);
+            if (bestIndex != expectedTrackIndex ||
+                bestAngle > gate ||
+                (math.isfinite(secondBestAngle) &&
+                 secondBestAngle - bestAngle <
+                    config.ThreatRoleAssociationSeparationRadians))
+            {
+                return false;
+            }
+
+            var angularQuality = math.saturate(
+                1f - bestAngle / gate);
+            confidence = math.lerp(0.7f, 1f, angularQuality);
+            return true;
         }
 
         private static bool AssociateElectroOpticalObservation(

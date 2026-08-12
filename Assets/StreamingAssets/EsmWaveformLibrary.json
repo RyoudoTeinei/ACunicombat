@@ -1,8 +1,9 @@
 {
   "entries": [
     { "band": 1, "waveformId": 1, "className": "FireControlRadar", "name": "机载火控雷达" },
-    { "band": 1, "waveformId": 2, "className": "MissileSeeker", "name": "主动雷达导引头" },
+    { "band": 1, "waveformId": 2, "className": "AirToAirMissileSeeker", "name": "空空导弹主动雷达导引头" },
     { "band": 1, "waveformId": 3, "className": "SearchRadar", "name": "搜索雷达（测试辐射源）" },
+    { "band": 1, "waveformId": 4, "className": "InterceptorMissileSeeker", "name": "拦截导弹主动雷达导引头" },
     { "band": 2, "waveformId": 10, "className": "DataLinkUplink", "name": "制导上行链路" },
     { "band": 0, "waveformId": 65520, "className": "InfraredPlume", "name": "红外羽焰（MAW 通道）" }
   ]

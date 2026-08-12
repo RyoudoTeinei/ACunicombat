@@ -14,6 +14,7 @@ namespace ACunicombat.Sensors
         public double MaxRangeMeters;
         public ushort FrequencyBand;
         public ushort WaveformId;
+        public EmissionType EmissionType;
         public float MainlobePowerDb;
         public float SidelobeLevelDb;
         public float ClutterPowerDb;

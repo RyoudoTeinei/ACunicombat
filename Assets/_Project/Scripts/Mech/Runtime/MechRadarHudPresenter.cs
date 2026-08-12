@@ -260,15 +260,11 @@ namespace ACunicombat.Mechs
 		private void OnEnable()
 		{
 			CombatTestTarget.DamageApplied += HandleDamageApplied;
-			MechTestProjectile.InterceptorEngagementResolved +=
-				HandleInterceptorEngagementResolved;
 		}
 
 		private void OnDisable()
 		{
 			CombatTestTarget.DamageApplied -= HandleDamageApplied;
-			MechTestProjectile.InterceptorEngagementResolved -=
-				HandleInterceptorEngagementResolved;
 			radarOperatorAudioSource?.Stop();
 			radar?.SetTrackOperationMode(enabled: false);
 		}
@@ -452,34 +448,6 @@ namespace ACunicombat.Mechs
 				? "导弹命中"
 				: "命中";
 			hitConfirmationColor = HudBrightGreen;
-		}
-
-		private void HandleInterceptorEngagementResolved(
-			InterceptorEngagementReport report)
-		{
-			if (report.Owner == null || !IsDamageSourceThisMech(report.Owner))
-			{
-				return;
-			}
-
-			hitConfirmationStartedAt = Time.unscaledTime;
-			hitConfirmationUntil =
-				hitConfirmationStartedAt + 1.4f;
-			switch (report.Outcome)
-			{
-			case InterceptorEngagementOutcome.Destroyed:
-				hitConfirmationText = "拦截成功";
-				hitConfirmationColor = HudBrightGreen;
-				break;
-			case InterceptorEngagementOutcome.Damaged:
-				hitConfirmationText = "拦截命中";
-				hitConfirmationColor = HudAmber;
-				break;
-			default:
-				hitConfirmationText = "拦截失败";
-				hitConfirmationColor = HudAmber;
-				break;
-			}
 		}
 
 		private bool IsDamageSourceThisMech(Transform damageSource)
@@ -1498,13 +1466,11 @@ namespace ACunicombat.Mechs
 			return ShouldDisplayIncomingMissile(in track);
 		}
 
-		private static bool IsInferredInterceptor(
-			in MissileTrackSnapshot track)
-		{
-			return !track.IsFriendly &&
-				track.TargetIntent == MissileTargetIntent.FriendlyMissile &&
-				track.TargetIntentConfidence >= 0.75f;
-		}
+        private static bool IsInferredInterceptor(
+            in MissileTrackSnapshot track)
+        {
+            return track.IsLikelyInterceptor;
+        }
 
 		private bool HasFriendlyInterceptorAssigned(TrackId trackId)
 		{

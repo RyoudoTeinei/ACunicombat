@@ -585,6 +585,7 @@ namespace ACunicombat.Mechs
             Vector3 velocity,
             float maximumRangeMeters,
             float beamWidthDegrees,
+            bool interceptorMissile,
             out MissileSeekerHandle handle)
         {
             EnsureInitialized();
@@ -614,6 +615,12 @@ namespace ACunicombat.Mechs
                     new Handle(index, generation));
                 var entity = driver.RegisterEntity(
                     BuildState(position, velocity));
+                var rangeResolutionMeters = interceptorMissile
+                    ? 1.2f
+                    : 3f;
+                var velocityResolutionMps = interceptorMissile
+                    ? 0.35f
+                    : 0.75f;
                 driver.RegisterAuxiliaryRadarSensor(
                     new RadarSensorProfile
                     {
@@ -626,14 +633,18 @@ namespace ACunicombat.Mechs
                         DwellConfig = new RadarDwellConfig
                         {
                             ConstantsDb = 215f,
-                            IntegrationGainDb = 8f,
+                            IntegrationGainDb = interceptorMissile
+                                ? 10f
+                                : 8f,
                             NoisePowerDb = 0f,
                             DetectThresholdLowDb = 3f,
                             DetectThresholdHighDb = 10f,
-                            RangeResolutionMeters = 3f,
+                            RangeResolutionMeters =
+                                rangeResolutionMeters,
                             BeamWidthRadians =
                                 beamWidthDegrees * Mathf.Deg2Rad,
-                            VelocityResolutionMps = 0.75f,
+                            VelocityResolutionMps =
+                                velocityResolutionMps,
                         },
                         Capability =
                             SensorCapability.Range |
@@ -642,16 +653,27 @@ namespace ACunicombat.Mechs
                         MaxRangeMeters =
                             Mathf.Max(100f, maximumRangeMeters),
                         FrequencyBand = 1,
-                        WaveformId = 2,
-                        MainlobePowerDb = 56f,
-                        SidelobeLevelDb = -32f,
+                        WaveformId = interceptorMissile
+                            ? (ushort)4
+                            : (ushort)2,
+                        EmissionType = EmissionType.Seeker,
+                        MainlobePowerDb = interceptorMissile
+                            ? 52f
+                            : 56f,
+                        SidelobeLevelDb = interceptorMissile
+                            ? -36f
+                            : -32f,
                         ClutterPowerDb = -45f,
+                        MeasurementPrecisionScale =
+                            interceptorMissile ? 0.65f : 1f,
                         Resolutions =
                             new ResolutionMerge.Resolutions
                             {
-                                RangeMeters = 3f,
+                                RangeMeters =
+                                    rangeResolutionMeters,
                                 AngleRadians = 0.5f * Mathf.Deg2Rad,
-                                VelocityMps = 0.75f,
+                                VelocityMps =
+                                    velocityResolutionMps,
                             },
                     });
 
@@ -660,7 +682,8 @@ namespace ACunicombat.Mechs
                 driver.RegisterRadarTarget(new RadarTargetProfile
                 {
                     EntityId = entity,
-                    RadarCrossSectionSquareMeters = 0.04f,
+                    RadarCrossSectionSquareMeters =
+                        interceptorMissile ? 0.02f : 0.04f,
                     ObjectClass = TrackObjectClass.Missile,
                     ClassificationSignature = 0.9f,
                 });
@@ -668,8 +691,9 @@ namespace ACunicombat.Mechs
                     new ElectroOpticalTargetProfile
                     {
                         EntityId = entity,
-                        SignatureDb = 30f,
-                        ReferenceDiameterMeters = 0.5f,
+                        SignatureDb = interceptorMissile ? 27f : 30f,
+                        ReferenceDiameterMeters =
+                            interceptorMissile ? 0.32f : 0.5f,
                         ObjectClass =
                             TrackObjectClass.Missile,
                         ClassificationSignature = 0.9f,
@@ -2006,8 +2030,8 @@ namespace ACunicombat.Mechs
                  i++)
             {
                 var threat = threatScratch[i];
-                if ((threat.WaveformClass !=
-                         EsmWaveformClass.MissileSeeker &&
+                if ((!EsmWaveformClassification.IsMissileSeeker(
+                         threat.WaveformClass) &&
                      threat.WaveformClass !=
                          EsmWaveformClass.InfraredPlume) ||
                     now - threat.LastSeenTime >
@@ -2564,8 +2588,15 @@ namespace ACunicombat.Mechs
         private void RegisterWaveformLibrary()
         {
             driver.RegisterEsmWaveformClass(1, 1, EsmWaveformClass.FireControlRadar);
-            driver.RegisterEsmWaveformClass(1, 2, EsmWaveformClass.MissileSeeker);
+            driver.RegisterEsmWaveformClass(
+                1,
+                2,
+                EsmWaveformClass.AirToAirMissileSeeker);
             driver.RegisterEsmWaveformClass(1, 3, EsmWaveformClass.SearchRadar);
+            driver.RegisterEsmWaveformClass(
+                1,
+                4,
+                EsmWaveformClass.InterceptorMissileSeeker);
             driver.RegisterEsmWaveformClass(2, 10, EsmWaveformClass.DataLinkUplink);
             driver.RegisterEsmWaveformClass(
                 MawSensorSystem.InfraredBand,

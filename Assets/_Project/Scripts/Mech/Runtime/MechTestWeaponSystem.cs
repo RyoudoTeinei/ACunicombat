@@ -436,6 +436,8 @@ namespace ACunicombat.Mechs
 
 		private float interceptorLockUntil;
 
+		private bool interceptorTargetManuallyDesignated;
+
 		private MechMissileLaunchAudio missileLaunchAudio;
 
 		private MechHandWeaponAudio handWeaponAudio;
@@ -2293,7 +2295,11 @@ namespace ACunicombat.Mechs
 			}
 			UpdateInterceptorTarget();
 			MissileTrackSnapshot incomingTrack = interceptorTarget;
-			if (!incomingTrack.TrackId.IsValid || !incomingTrack.IsWeaponsQuality || incomingTrack.IsFriendly || !incomingTrack.Incoming)
+			if (!incomingTrack.TrackId.IsValid ||
+				!incomingTrack.IsWeaponsQuality ||
+				incomingTrack.IsFriendly ||
+				(!interceptorTargetManuallyDesignated &&
+				 !incomingTrack.Incoming))
 			{
 				Debug.LogWarning("[MechTestWeaponSystem] Interceptor launch inhibited: no sensor-confirmed incoming missile track.", this);
 				return false;
@@ -2330,6 +2336,7 @@ namespace ACunicombat.Mechs
 			interceptorTarget = default(MissileTrackSnapshot);
 			interceptorSolution = default(InterceptorEngagementSolution);
 			interceptorLockUntil = 0f;
+			interceptorTargetManuallyDesignated = false;
 			return true;
 		}
 
@@ -2401,23 +2408,85 @@ namespace ACunicombat.Mechs
 			{
 				interceptorTarget = default(MissileTrackSnapshot);
 				interceptorSolution = default(InterceptorEngagementSolution);
+				interceptorTargetManuallyDesignated = false;
 			}
-			else if (TryFindBestIncomingMissile(out candidate, out candidateSolution))
+			else if (TryGetDesignatedInterceptorTarget(
+				out candidate,
+				out candidateSolution))
 			{
 				interceptorTarget = candidate;
 				interceptorSolution = candidateSolution;
 				interceptorLockUntil = Time.unscaledTime + interceptorLockHoldSeconds;
+				interceptorTargetManuallyDesignated = true;
 			}
-			else if (!interceptorTarget.TrackId.IsValid || radarController == null || !radarController.TryGetMissileTrack(interceptorTarget.TrackId, out retainedTrack) || !retainedTrack.IsWeaponsQuality || retainedTrack.IsFriendly || !retainedTrack.Incoming || !TryPeekInterceptorMuzzle(out retainedMuzzle) || !TrySolveInterceptorEngagement(in retainedTrack, retainedMuzzle, out retainedSolution) || Time.unscaledTime >= interceptorLockUntil)
-			{
-				interceptorTarget = default(MissileTrackSnapshot);
-				interceptorSolution = default(InterceptorEngagementSolution);
-			}
-			else
+			else if (!interceptorTargetManuallyDesignated &&
+				interceptorTarget.TrackId.IsValid &&
+				Time.unscaledTime < interceptorLockUntil &&
+				radarController != null &&
+				radarController.TryGetMissileTrack(
+					interceptorTarget.TrackId,
+					out retainedTrack) &&
+				IsAutomaticInterceptorTargetEligible(in retainedTrack) &&
+				TryPeekInterceptorMuzzle(out retainedMuzzle) &&
+				TrySolveInterceptorEngagement(
+					in retainedTrack,
+					retainedMuzzle,
+					out retainedSolution))
 			{
 				interceptorTarget = retainedTrack;
 				interceptorSolution = retainedSolution;
 			}
+			else if (TryFindBestIncomingMissile(
+				out candidate,
+				out candidateSolution))
+			{
+				interceptorTarget = candidate;
+				interceptorSolution = candidateSolution;
+				interceptorLockUntil =
+					Time.unscaledTime + interceptorLockHoldSeconds;
+				interceptorTargetManuallyDesignated = false;
+			}
+			else
+			{
+				interceptorTarget = default(MissileTrackSnapshot);
+				interceptorSolution = default(InterceptorEngagementSolution);
+				interceptorTargetManuallyDesignated = false;
+			}
+		}
+
+		private bool TryGetDesignatedInterceptorTarget(
+			out MissileTrackSnapshot target,
+			out InterceptorEngagementSolution solution)
+		{
+			target = default(MissileTrackSnapshot);
+			solution = default(InterceptorEngagementSolution);
+			if (radarController == null ||
+				!radarController.CandidateTrackId.IsValid ||
+				radarController.DesignationProgress < 1f ||
+				!radarController.TryGetMissileTrack(
+					radarController.CandidateTrackId,
+					out target) ||
+				!target.IsWeaponsQuality ||
+				target.IsFriendly ||
+				!TryPeekInterceptorMuzzle(out var muzzle))
+			{
+				return false;
+			}
+
+			return TrySolveInterceptorEngagement(
+				in target,
+				muzzle,
+				out solution);
+		}
+
+		private static bool IsAutomaticInterceptorTargetEligible(
+			in MissileTrackSnapshot candidate)
+		{
+			return candidate.TrackId.IsValid &&
+				candidate.IsWeaponsQuality &&
+				!candidate.IsFriendly &&
+				candidate.Incoming &&
+				!candidate.IsLikelyInterceptor;
 		}
 
 		private bool TryFindBestIncomingMissile(out MissileTrackSnapshot best, out InterceptorEngagementSolution bestSolution)
@@ -2433,7 +2502,7 @@ namespace ACunicombat.Mechs
 			for (int i = 0; i < trackCount; i++)
 			{
 				MissileTrackSnapshot candidate = interceptorTrackScratch[i];
-				if (candidate.TrackId.IsValid && candidate.IsWeaponsQuality && !candidate.IsFriendly && candidate.Incoming && MissileEngagementMath.IntersectsProtectedCpaWindow(candidate.TimeToClosestApproachSeconds, candidate.ClosestApproachDistanceMeters, candidate.CpaUncertaintyMeters, interceptorPredictionHorizonSeconds, interceptorProtectedRadiusMeters) && TrySolveInterceptorEngagement(in candidate, muzzle, out var solution))
+				if (IsAutomaticInterceptorTargetEligible(in candidate) && MissileEngagementMath.IntersectsProtectedCpaWindow(candidate.TimeToClosestApproachSeconds, candidate.ClosestApproachDistanceMeters, candidate.CpaUncertaintyMeters, interceptorPredictionHorizonSeconds, interceptorProtectedRadiusMeters) && TrySolveInterceptorEngagement(in candidate, muzzle, out var solution))
 				{
 					float score = solution.FlightTimeSeconds + candidate.ClosestApproachDistanceMeters / Mathf.Max(interceptorProtectedRadiusMeters, 1f) + candidate.PositionUncertaintyMeters / 1000f - candidate.Confidence * 0.5f - Mathf.Clamp(solution.ThreatTimeMarginSeconds, 0f, 10f) * 0.05f;
 					if (score < bestScore)

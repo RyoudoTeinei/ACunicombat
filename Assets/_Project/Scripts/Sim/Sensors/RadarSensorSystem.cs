@@ -156,7 +156,7 @@ namespace ACunicombat.Sensors
                 MaxRangeMeters = profile.MaxRangeMeters,
                 FrequencyBand = profile.FrequencyBand,
                 WaveformId = profile.WaveformId,
-                EmissionType = EmissionType.RadarDwell,
+                EmissionType = profile.EmissionType,
                 MainlobePowerDb = profile.MainlobePowerDb,
                 SidelobeLevelDb = profile.SidelobeLevelDb,
             });

@@ -34,6 +34,36 @@ namespace ACunicombat.Sensing.Contracts
         InfraredPlume = 5,
         /// <summary>主动激光测距脉冲。</summary>
         LaserRangefinder = 6,
+        /// <summary>远程空空导弹主动雷达导引头。</summary>
+        AirToAirMissileSeeker = 7,
+        /// <summary>近程高速拦截弹主动雷达导引头。</summary>
+        InterceptorMissileSeeker = 8,
+    }
+
+    public static class EsmWaveformClassification
+    {
+        public static bool IsMissileSeeker(EsmWaveformClass waveformClass) =>
+            waveformClass == EsmWaveformClass.MissileSeeker ||
+            waveformClass == EsmWaveformClass.AirToAirMissileSeeker ||
+            waveformClass == EsmWaveformClass.InterceptorMissileSeeker;
+
+        public static bool TryGetMissileMissionRole(
+            EsmWaveformClass waveformClass,
+            out MissileMissionRole missionRole)
+        {
+            switch (waveformClass)
+            {
+                case EsmWaveformClass.AirToAirMissileSeeker:
+                    missionRole = MissileMissionRole.AirToAir;
+                    return true;
+                case EsmWaveformClass.InterceptorMissileSeeker:
+                    missionRole = MissileMissionRole.Interceptor;
+                    return true;
+                default:
+                    missionRole = MissileMissionRole.Unknown;
+                    return false;
+            }
+        }
     }
 
     public readonly struct EsmThreatId : IEquatable<EsmThreatId>

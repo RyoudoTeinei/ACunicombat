@@ -430,6 +430,36 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(tracks[0].MissionRoleConfidence, Is.EqualTo(1f));
         }
 
+        [Test]
+        public void EsmIdentifiedRole_IsNotOverwrittenByWeakIntent()
+        {
+            var track = HostileMissile(
+                5,
+                new double3(0.0, 0.0, 5_000.0),
+                new double3(0.0, 0.0, -800.0));
+            track.MissionRole = MissileMissionRole.Interceptor;
+            track.MissionRoleConfidence = 0.8f;
+            track.MissionRoleEvidence =
+                MissileMissionRoleEvidence.EsmWaveform;
+            var tracks = new[] { track };
+
+            MissileIntentEstimator.Evaluate(
+                MissileIntentEstimatorConfig.Default,
+                new MissileIntentEstimatorState(),
+                tracks,
+                tracks.Length,
+                double3.zero,
+                double3.zero,
+                10.0);
+
+            Assert.That(
+                tracks[0].MissionRole,
+                Is.EqualTo(MissileMissionRole.Interceptor));
+            Assert.That(
+                tracks[0].MissionRoleConfidence,
+                Is.EqualTo(0.8f).Within(0.0001f));
+        }
+
         private static void EvaluateSamples(
             MissileIntentEstimatorState state,
             MissileTrackSnapshot[] tracks,

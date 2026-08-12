@@ -134,8 +134,8 @@ namespace ACunicombat.Tracking
                 var slot = slots[i];
                 var unseen = simTime - slot.LastSeen;
                 var missileThreat =
-                    slot.WaveformClass ==
-                        EsmWaveformClass.MissileSeeker ||
+                    EsmWaveformClassification.IsMissileSeeker(
+                        slot.WaveformClass) ||
                     slot.WaveformClass ==
                         EsmWaveformClass.InfraredPlume;
                 var transientThreat =
@@ -236,7 +236,8 @@ namespace ACunicombat.Tracking
                 return unseen > 2.5 ? EsmThreatLevel.None : EsmThreatLevel.Spiked;
             }
 
-            if (slot.WaveformClass == EsmWaveformClass.MissileSeeker ||
+            if (EsmWaveformClassification.IsMissileSeeker(
+                    slot.WaveformClass) ||
                 slot.WaveformClass == EsmWaveformClass.InfraredPlume)
             {
                 return EsmThreatLevel.MissileActive;
