@@ -1366,15 +1366,17 @@ namespace ACunicombat.Mechs
 					continue;
 				}
 				Vector2 markerCenter = new Vector2(screen.x, (float)Screen.height - screen.y);
-				DrawDiamond(markerCenter, markerRadius, markerColor, !ownshipThreat && !inferredInterceptor, ownshipThreat ? 2.2f : 1.2f);
+				if (ownshipThreat)
+				{
+					DrawDiamond(
+						markerCenter,
+						markerRadius,
+						HudRed,
+						dashed: false,
+						2.2f);
+				}
 				bool shaoWeiTrackSelected = weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack && weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId);
 				bool handPointDefenseTrackSelected = weaponSystem != null && weaponSystem.HasPointDefenseTrack && weaponSystem.PointDefenseTrackId.Equals(track.TrackId);
-				if (shaoWeiTrackSelected || handPointDefenseTrackSelected)
-				{
-					Color pointDefenseColor = (shaoWeiTrackSelected && weaponSystem.ShaoWeiPointDefenseWithhold == MechTestWeaponSystem.PointDefenseWithholdReason.None) ? HudBrightGreen : HudAmber;
-					float lockExtent = markerRadius + 13f;
-					DrawCornerFrame(new Rect(markerCenter.x - lockExtent, markerCenter.y - lockExtent, lockExtent * 2f, lockExtent * 2f), pointDefenseColor, 8f, 1.8f, dashed: false);
-				}
 				if (interceptorAssigned)
 				{
 					float assignedExtent = markerRadius + 9f;
@@ -1384,6 +1386,12 @@ namespace ACunicombat.Mechs
 				{
 					float lockExtent2 = markerRadius + 8f;
 					DrawCornerFrame(new Rect(markerCenter.x - lockExtent2, markerCenter.y - lockExtent2, lockExtent2 * 2f, lockExtent2 * 2f), HudAmber, 7f, 1.6f, dashed: false);
+				}
+				else if (shaoWeiTrackSelected || handPointDefenseTrackSelected)
+				{
+					Color pointDefenseColor = (shaoWeiTrackSelected && weaponSystem.ShaoWeiPointDefenseWithhold == MechTestWeaponSystem.PointDefenseWithholdReason.None) ? HudBrightGreen : HudAmber;
+					float lockExtent = markerRadius + 13f;
+					DrawCornerFrame(new Rect(markerCenter.x - lockExtent, markerCenter.y - lockExtent, lockExtent * 2f, lockExtent * 2f), pointDefenseColor, 8f, 1.8f, dashed: false);
 				}
 				string missileLabel = track.IsLikelyAirToAir
 					? "导弹来袭"
