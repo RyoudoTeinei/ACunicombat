@@ -60,6 +60,10 @@ Shader "ACunicombat/AC6/Parts Approx"
         [HideInInspector] _OcclusionStrength("Legacy Mask Occlusion", Range(0, 1)) = 0
         [HideInInspector] _MaskMetallicInfluence("Legacy Mask Metallic Influence", Range(0, 1)) = 0
         [HideInInspector] _MaskSmoothnessInfluence("Legacy Mask Smoothness Influence", Range(0, 1)) = 0
+        // 屏幕空间法线方差的采样核大小与粗糙度加宽上限。0.25 对应"整个像素"的
+        // 高斯重建核（2 sigma），是物理上的合理上限。
+        _SpecularAAVariance("Specular AA Screen Space Variance", Range(0, 0.25)) = 0.12
+        _SpecularAAThreshold("Specular AA Max Roughness Widening", Range(0, 1)) = 0.25
         _Cutoff("Alpha Cutoff", Range(0, 1)) = 0.5
     }
 
@@ -166,6 +170,8 @@ Shader "ACunicombat/AC6/Parts Approx"
             half _OcclusionStrength;
             half _MaskMetallicInfluence;
             half _MaskSmoothnessInfluence;
+            half _SpecularAAVariance;
+            half _SpecularAAThreshold;
             half _Cutoff;
             CBUFFER_END
 
@@ -309,6 +315,35 @@ Shader "ACunicombat/AC6/Parts Approx"
                 return lerp(lerp(a, b, blend.x), lerp(c, d, blend.x), blend.y);
             }
 
+            // AC6 的法线贴图不能交给 Unity 的 SampleNormal 解码，实测原因如下：
+            //
+            // 1) 通道打包不同。这张图是 R=X、G=Y 的两通道切线法线（B 几乎全黑，均值 0.044、
+            //    最大仅 89；A 是一张独立的边缘/空腔遮罩，均值 0.263）。而 SampleNormal 在桌面
+            //    端走 UnpackNormalmapRGorAG，按 DXT5nm 约定取 x = A*R、y = G——等于把那张遮罩
+            //    乘进了 X 分量。A 为 0 的大片区域直接得到 x = -1、z = 0。
+            //
+            // 2) 色彩空间不对。这些 DDS 由 IHVImageFormatImporter 以 sRGB 创建
+            //    （运行时实测 graphicsFormat = RGBA_BC7_SRGB），采样器会做 sRGB->线性，
+            //    把编码值 0.5 压到 0.229。该导入器不暴露 sRGBTexture，改不了，只能在这里撤回。
+            //
+            // 两者叠加后 74.7% 的像素法线躺倒在切平面内（z=0），光照与几何完全脱钩，
+            // 画面呈现出类似负片/浮雕的观感。撤销这两点后全图平均法线为 (0.003, -0.004, 0.947)、
+            // 退化率 0.7%，即一张正常的切线法线图。
+            half3 SampleAc6NormalTS(float2 uv)
+            {
+                #ifdef _NORMALMAP
+                    half4 packed = SAMPLE_TEXTURE2D(_BumpMap, sampler_BumpMap, uv);
+                    half2 encoded = LinearToSRGB(packed.rg);
+                    half3 normalTS;
+                    normalTS.xy = encoded * 2.0h - 1.0h;
+                    normalTS.z = sqrt(saturate(1.0h - dot(normalTS.xy, normalTS.xy)));
+                    normalTS.xy *= _BumpScale;
+                    return normalTS;
+                #else
+                    return half3(0.0h, 0.0h, 1.0h);
+                #endif
+            }
+
             half BuildWeatheringMask(float2 uv, half3 sourceAlbedo, half3 materialMask)
             {
                 half amount = saturate(_WeatheringAmount);
@@ -406,7 +441,7 @@ Shader "ACunicombat/AC6/Parts Approx"
                 surfaceData.metallic = surfaceMetallic;
                 surfaceData.smoothness = surfaceSmoothness;
                 surfaceData.occlusion = 1.0h;
-                surfaceData.normalTS = SampleNormal(input.uv, TEXTURE2D_ARGS(_BumpMap, sampler_BumpMap), _BumpScale);
+                surfaceData.normalTS = SampleAc6NormalTS(input.uv);
                 #if defined(_EMISSION)
                     half3 emissionSample = SAMPLE_TEXTURE2D(_EmissionMap, sampler_EmissionMap, input.uv).rgb;
                     surfaceData.emission = (emissionSample + 0.04h) * _EmissionColor.rgb * _EmissionStrength;
@@ -418,6 +453,23 @@ Shader "ACunicombat/AC6/Parts Approx"
                 surfaceData.clearCoatSmoothness = 0;
 
                 InputData inputData = BuildInputData(input, surfaceData.normalTS);
+
+                // 镜面走样抑制。法线贴图是 2048²，而一个部件在机库/战斗中通常只占几百像素，
+                // 每个屏幕像素要覆盖 6x6 个以上 texel。硬件 mip 会把这一片法线取平均，但着色
+                // 只拿到平均方向、拿不到"这一片有多杂乱"，粗糙度照旧很低（Zone4 smoothness
+                // 0.62），于是高光尺度小于一个像素，机体一转就在细节上乱闪。
+                // 实测（0.5° 旋转，逐像素差分）：开法线 11.07% 像素明显跳变，关法线只有
+                // 2.46%——78% 的抖动来自这里，不是 zone mask、也不是 mip 跳变。
+                // 解法是按屏幕空间法线方差把粗糙度加宽，让高光尺度回到像素以上。用的是 URP
+                // core 自带的 Tokuyoshi 2021 投影空间 NDF 滤波，不是自己捏的近似。
+                // 注意必须传 inputData.normalWS（已含法线贴图）而不是几何法线，我们要滤的
+                // 正是法线贴图带来的方差。
+                surfaceData.smoothness = ProjectedSpaceGeometricNormalFiltering(
+                    surfaceData.smoothness,
+                    inputData.normalWS,
+                    _SpecularAAVariance,
+                    _SpecularAAThreshold);
+
                 half4 color = UniversalFragmentPBR(inputData, surfaceData);
                 color.rgb = MixFog(color.rgb, inputData.fogCoord);
                 color.a = 1.0h;
@@ -601,6 +653,8 @@ Shader "ACunicombat/AC6/Parts Approx"
             half _OcclusionStrength;
             half _MaskMetallicInfluence;
             half _MaskSmoothnessInfluence;
+            half _SpecularAAVariance;
+            half _SpecularAAThreshold;
             half _Cutoff;
             CBUFFER_END
 
