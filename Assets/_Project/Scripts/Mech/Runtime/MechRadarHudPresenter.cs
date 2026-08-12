@@ -1385,34 +1385,29 @@ namespace ACunicombat.Mechs
 					float lockExtent2 = markerRadius + 8f;
 					DrawCornerFrame(new Rect(markerCenter.x - lockExtent2, markerCenter.y - lockExtent2, lockExtent2 * 2f, lockExtent2 * 2f), HudAmber, 7f, 1.6f, dashed: false);
 				}
-				float distanceKilometers = relative.magnitude / 1000f;
-				string missileLabel = ownshipThreat
-					? "空空弹来袭"
+				string missileLabel = track.IsLikelyAirToAir
+					? "导弹来袭"
 					: inferredInterceptor
-						? "疑似拦截弹"
-						: "未判明导弹";
-				string distanceText = ((distanceKilometers < 10f) ? $"{missileLabel} {distanceKilometers:0.00} km" : $"{missileLabel} {distanceKilometers:0.0} km");
+						? "导弹"
+						: string.Empty;
 				if (interceptorAssigned)
 				{
-					distanceText += "  拦截中";
+					missileLabel = string.IsNullOrEmpty(missileLabel)
+						? "拦截中"
+						: missileLabel + "  拦截中";
 				}
-				else if (interceptorSolutionAvailable)
+				if (!string.IsNullOrEmpty(missileLabel))
 				{
-					distanceText += "  可拦截";
+					Vector2 labelCenter = new Vector2(screen.x, (float)Screen.height - screen.y + markerRadius + 12f);
+					smallStyle.alignment = TextAnchor.UpperCenter;
+					smallStyle.normal.textColor = markerColor;
+					float measuredLabelWidth = smallStyle.CalcSize(new GUIContent(missileLabel)).x + 12f;
+					float labelWidth = Mathf.Min(
+						Mathf.Max(72f, measuredLabelWidth),
+						Mathf.Max(1f, Screen.width - 8f));
+					Rect position2 = ClampToScreen(new Rect(labelCenter.x - labelWidth * 0.5f, labelCenter.y, labelWidth, 24f), 4f);
+					GUI.Label(position2, missileLabel, smallStyle);
 				}
-				if (shaoWeiTrackSelected)
-				{
-					distanceText += $"  CIWS {weaponSystem.ShaoWeiPointDefenseHitProbability * 100f:0.#}%";
-				}
-				Vector2 labelCenter = new Vector2(screen.x, (float)Screen.height - screen.y + markerRadius + 12f);
-				smallStyle.alignment = TextAnchor.UpperCenter;
-				smallStyle.normal.textColor = markerColor;
-				float measuredLabelWidth = smallStyle.CalcSize(new GUIContent(distanceText)).x + 12f;
-				float labelWidth = Mathf.Min(
-					Mathf.Max(shaoWeiTrackSelected ? 180f : 100f, measuredLabelWidth),
-					Mathf.Max(1f, Screen.width - 8f));
-				Rect position2 = ClampToScreen(new Rect(labelCenter.x - labelWidth * 0.5f, labelCenter.y, labelWidth, 24f), 4f);
-				GUI.Label(position2, distanceText, smallStyle);
 			}
 		}
 
@@ -1500,6 +1495,11 @@ namespace ACunicombat.Mechs
 		private static bool ShouldEmphasizeOwnshipThreat(
 			in MissileTrackSnapshot track)
 		{
+			if (track.IsLikelyInterceptor)
+			{
+				return false;
+			}
+
 			if (track.IsLikelyTargetingOwnship)
 			{
 				return true;

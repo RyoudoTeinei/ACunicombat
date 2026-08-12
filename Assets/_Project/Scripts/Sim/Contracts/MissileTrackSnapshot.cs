@@ -100,6 +100,11 @@ namespace ACunicombat.Sensing.Contracts
             MissionRole == MissileMissionRole.Interceptor &&
             MissionRoleConfidence >= 0.65f;
 
+        public bool IsLikelyAirToAir =>
+            !IsFriendly &&
+            MissionRole == MissileMissionRole.AirToAir &&
+            MissionRoleConfidence >= 0.65f;
+
         public double3 PredictPosition(double time)
         {
             var age = math.max(0.0, time - LastUpdateTime);

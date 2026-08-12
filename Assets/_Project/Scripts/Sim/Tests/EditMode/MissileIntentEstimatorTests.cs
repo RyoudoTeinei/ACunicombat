@@ -33,6 +33,7 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(
                 tracks[0].MissionRole,
                 Is.EqualTo(MissileMissionRole.AirToAir));
+            Assert.That(tracks[0].IsLikelyAirToAir, Is.True);
         }
 
         [Test]
