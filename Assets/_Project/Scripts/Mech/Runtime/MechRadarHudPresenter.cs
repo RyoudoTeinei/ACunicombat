@@ -1201,7 +1201,8 @@ namespace ACunicombat.Mechs
 					smallStyle.alignment = TextAnchor.MiddleCenter;
 					GUI.Label(ClampToScreen(new Rect(center.x - 105f, center.y - size * 0.5f - 25f, 210f, 22f), 8f), $"{relative.magnitude / 1000f:0.00} km  " + $"{displayedClosing:+0;-0;0} m/s", smallStyle);
 					GUI.Label(ClampToScreen(new Rect(center.x - 100f, center.y + size * 0.5f + 4f, 200f, 22f), 8f), TrackLabel(track.TrackId) + "  " + lifecycle + "  " + classification, smallStyle);
-					if (isStt && track.ObjectClass == TrackObjectClass.AirVehicle)
+					if (track.ObjectClass == TrackObjectClass.AirVehicle &&
+						track.Lifecycle != TrackLifecycle.Dropped)
 					{
 						DrawTargetDamageAssessment(center, size, in track);
 					}

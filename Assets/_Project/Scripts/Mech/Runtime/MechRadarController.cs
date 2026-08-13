@@ -327,7 +327,7 @@ namespace ACunicombat.Mechs
         private readonly HashSet<TrackId> fireControlTargetReservations = new HashSet<TrackId>();
         private readonly Dictionary<TrackId, DamageAssessmentState> damageAssessments =
             new Dictionary<TrackId, DamageAssessmentState>();
-        private TrackId damageAssessmentTrackId;
+        private readonly List<TrackId> staleAssessmentIds = new List<TrackId>();
 
         private float RuntimeRadarRangeMeters =>
             radarPerformance.MaximumRangeMeters > 0f
@@ -1166,7 +1166,6 @@ namespace ACunicombat.Mechs
         {
             assessment = default;
             if (!trackId.IsValid ||
-                !trackId.Equals(sttTrackId) ||
                 !damageAssessments.TryGetValue(trackId, out var state))
             {
                 return false;
@@ -1752,22 +1751,61 @@ namespace ACunicombat.Mechs
 
         private void LateUpdate()
         {
-            if (!initialized || !HasStt ||
-                !TryGetTrack(sttTrackId, out var track) ||
-                track.ObjectClass != TrackObjectClass.AirVehicle)
+            if (!initialized)
             {
-                damageAssessmentTrackId = default;
                 damageAssessments.Clear();
                 return;
             }
 
-            if (!damageAssessmentTrackId.Equals(track.TrackId))
+            // 2026-08 决策：损伤评估不再局限于 STT——任何被 TWS 复访（或 STT 锁定）的
+            // 空中目标航迹都可评估；传感器距离衰减已关闭，评估质量不再随距离下降。
+            var count = CopyTracks(trackScratch);
+            for (var i = 0; i < count; i++)
             {
-                damageAssessmentTrackId = track.TrackId;
-                damageAssessments.Clear();
+                var track = trackScratch[i];
+                if (track.ObjectClass == TrackObjectClass.AirVehicle &&
+                    track.Lifecycle != TrackLifecycle.Dropped)
+                {
+                    UpdateTargetDamageAssessment(in track);
+                }
             }
 
-            UpdateTargetDamageAssessment(in track);
+            PruneStaleDamageAssessments(count);
+        }
+
+        private void PruneStaleDamageAssessments(int trackCount)
+        {
+            if (damageAssessments.Count == 0)
+            {
+                return;
+            }
+
+            staleAssessmentIds.Clear();
+            foreach (var pair in damageAssessments)
+            {
+                var eligible = false;
+                for (var t = 0; t < trackCount; t++)
+                {
+                    var track = trackScratch[t];
+                    if (track.TrackId.Equals(pair.Key) &&
+                        track.ObjectClass == TrackObjectClass.AirVehicle &&
+                        track.Lifecycle != TrackLifecycle.Dropped)
+                    {
+                        eligible = true;
+                        break;
+                    }
+                }
+
+                if (!eligible)
+                {
+                    staleAssessmentIds.Add(pair.Key);
+                }
+            }
+
+            for (var i = 0; i < staleAssessmentIds.Count; i++)
+            {
+                damageAssessments.Remove(staleAssessmentIds[i]);
+            }
         }
 
         private void UpdateTargetDamageAssessment(in TrackSnapshot track)
@@ -1789,15 +1827,9 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var targetPosition = target.AimPoint != null
-                ? target.AimPoint.position
-                : target.transform.position;
-            var rangeMeters = Vector3.Distance(transform.position, targetPosition);
             var sensorQuality = CalculateDamageAssessmentSensorQuality(
                 in track,
-                target,
-                targetPosition,
-                rangeMeters);
+                target);
             state.ObservationSequence++;
             var variation = MechTargetDamageAssessmentMath.DeterministicHealthVariation(
                 track.TrackId.Packed,
@@ -1887,27 +1919,21 @@ namespace ACunicombat.Mechs
 
         private float CalculateDamageAssessmentSensorQuality(
             in TrackSnapshot track,
-            CombatTestTarget target,
-            Vector3 targetPosition,
-            float rangeMeters)
+            CombatTestTarget target)
         {
+            // 2026-08 决策：距离衰减关闭。传感器质量不再随目标距离下降，
+            // 只要航迹被 TWS/STT 维持即可评估；指向与平台能力修正仍然生效。
             var opticalQuality = 0f;
             if ((track.SourceMask & TrackSourceMask.ElectroOptical) != 0 &&
                 headPerformance != null &&
                 headPerformance.HasData)
             {
-                var thermal01 = Mathf.Clamp01(target.ThermalSignature / 8f);
-                var referenceRangeMeters = Mathf.Lerp(
-                    Mathf.Max(0.1f, headPerformance.referenceColdRangeKm),
-                    Mathf.Max(0.1f, headPerformance.referenceHotRangeKm),
-                    thermal01) * 1000f;
-                var rangeQuality = SmoothFalloff(
-                    rangeMeters / Mathf.Max(100f, referenceRangeMeters),
-                    0.45f,
-                    1.05f);
                 var sensorForward = aimingCamera != null
                     ? aimingCamera.transform.forward
                     : transform.forward;
+                var targetPosition = target.AimPoint != null
+                    ? target.AimPoint.position
+                    : target.transform.position;
                 var lineOfSight = targetPosition - transform.position;
                 var offBoresight = lineOfSight.sqrMagnitude > 0.01f
                     ? Vector3.Angle(sensorForward, lineOfSight)
@@ -1925,21 +1951,14 @@ namespace ACunicombat.Mechs
                     headPerformance.trackingCapability * 0.3f +
                     headPerformance.pointingCapability * 0.2f;
                 opticalQuality = Mathf.Clamp01(capability / 100f) *
-                                 rangeQuality *
                                  pointingQuality;
             }
 
             var electromagneticQuality = 0f;
             if ((track.SourceMask & TrackSourceMask.Radar) != 0)
             {
-                var stableRange = Mathf.Max(100f, radarPerformance.StableTrackRangeMeters);
-                var rangeQuality = SmoothFalloff(
-                    rangeMeters / stableRange,
-                    0.55f,
-                    1.15f);
                 electromagneticQuality = Mathf.Clamp01(
-                    radarPerformance.LockMaintenanceRating / 100f) *
-                    rangeQuality;
+                    radarPerformance.LockMaintenanceRating / 100f);
             }
 
             if ((track.SourceMask & TrackSourceMask.Esm) != 0)
