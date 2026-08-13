@@ -7,14 +7,14 @@ namespace ACunicombat.Mechs
     /// <summary>
     /// 第三人称镜头：初始在机体后方看向机体前方；水平鼠标 = Yaw（同时是机体转向来源，
     /// 由 MotionController 持有同一 Yaw 值）；垂直鼠标 = Pitch（仅镜头/瞄准，不给机体）；
-    /// 无 Roll。镜头前方、机体逻辑前方、推进前方、瞄准前方共用 Yaw 保持一致。
+    /// Roll 由中键拖动旋转运动控制器的参考平面；镜头、机体、推进与瞄准共用该姿态基准。
     /// </summary>
     public sealed class MechThirdPersonCamera : MonoBehaviour
     {
         [SerializeField] private Transform followTarget;
         [SerializeField] private MechFlightMotionController motion;
-        [SerializeField] private float distance = 20f;
-        [SerializeField] private float focusHeight = 7.5f;
+        [SerializeField] private float distance = 27.741516f;
+        [SerializeField] private float focusHeight = 10.403069f;
         [SerializeField, Min(0.01f)] private float followResponse = 8f;
         [Header("High-speed framing")]
         [SerializeField, Min(0.01f)] private float maxHorizontalLagRatio = 0.26f;
@@ -24,21 +24,21 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0f)] private float maxSpeedFovIncrease = 7f;
         [SerializeField, Min(1f)] private float fullSpeedFovAt = 350f;
         [Header("Combat composition")]
-        [SerializeField, Min(0f)] private float baseCameraHeightOffset = 3.6f;
-        [SerializeField, Min(0f)] private float baseDistanceOffset = 3f;
-        [SerializeField, Min(0f)] private float sttCruiseShoulderOffset = 3f;
-        [SerializeField, Min(0f)] private float sttOcclusionPullback = 2.5f;
+        [SerializeField, Min(0f)] private float baseCameraHeightOffset = 4.993473f;
+        [SerializeField, Min(0f)] private float baseDistanceOffset = 4.161227f;
+        [SerializeField, Min(0f)] private float sttCruiseShoulderOffset = 4.161227f;
+        [SerializeField, Min(0f)] private float sttOcclusionPullback = 3.467689f;
         [SerializeField, Min(0.01f)] private float compositionResponse = 5f;
         [SerializeField, Min(0f)] private float shoulderReleaseSeconds = 1.5f;
         [SerializeField, Range(0f, 0.2f)] private float occlusionViewportPadding = 0.025f;
         [Header("Occlusion escape")]
-        // 旧实现只给固定 3 m 横移。20 m 机距下机体宽 14 m 张角约 38.7 度，要把远处目标从剪影
+        // 旧实现只给固定横移。当前约 27.7 m 机距下，机体张角仍接近缩放前的构图；要把远处目标从剪影
         // 中心推到边缘需要约 20*tan(19 度) = 6.9 m，固定 3 m 不到需要量的一半，必然推不出去。
-        [SerializeField, Min(0f)] private float occlusionLateralLimit = 8.5f;
+        [SerializeField, Min(0f)] private float occlusionLateralLimit = 11.790144f;
         // 纵向上限刻意小于横向：抬降镜头对"机体压在画面下方"的基础构图破坏更明显。
-        [SerializeField, Min(0f)] private float occlusionVerticalLimit = 5f;
+        [SerializeField, Min(0f)] private float occlusionVerticalLimit = 6.935379f;
         [SerializeField, Range(0f, 0.1f)] private float occlusionEscapeMargin = 0.022f;
-        [SerializeField, Min(0f)] private float occlusionEscapeSwitchMargin = 1.2f;
+        [SerializeField, Min(0f)] private float occlusionEscapeSwitchMargin = 1.664491f;
         [SerializeField, Min(0f)] private float occlusionEscapeSwitchCooldown = 0.8f;
         [SerializeField, Min(0f)] private float occlusionHoldSeconds = 0.6f;
         [SerializeField, Min(0.02f)] private float rendererBoundsRefreshSeconds = 0.12f;
@@ -538,7 +538,7 @@ namespace ACunicombat.Mechs
 
         /// <summary>
         /// 闭环选路：把目标推出剪影所需的视口位移换算成相机位移，在左/右/上/下四个方向里
-        /// 取代价最小的一个。相机只平移不转向，而机体在 20 m、目标在数公里外，视差使得
+        /// 取代价最小的一个。相机只平移不转向，而机体在当前跟随距离、目标在数公里外，视差使得
         /// 横移主要移动机体、几乎不移动目标——这正是位移能分离两者的原因。
         /// </summary>
         private void UpdateEscapeDecision(

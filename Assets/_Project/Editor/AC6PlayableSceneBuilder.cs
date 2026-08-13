@@ -567,7 +567,10 @@ public static class AC6PlayableSceneBuilder
         camGo.tag = "MainCamera";
         cam.Configure(mech.transform, motion);
         cam.ConfigureViewDistance(0.5f, 100000f);
-        cam.ConfigureFraming(20f, 7.5f, 8f);
+        cam.ConfigureFraming(
+            20f * MechAssembler.ImportedToWorldScale,
+            7.5f * MechAssembler.ImportedToWorldScale,
+            8f);
         cam.ConfigureHighSpeedFraming(8f, 0.26f, 0.18f, 0.45f);
         EditorUtility.SetDirty(cam);
 

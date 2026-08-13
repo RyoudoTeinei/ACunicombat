@@ -185,6 +185,11 @@ namespace ACunicombat.Mechs
             resetAt = -1f;
         }
 
+        public void RefreshGeometry()
+        {
+            CacheComponents();
+        }
+
         public void ConfigureSignatures(
             float newRadarCrossSectionSquareMeters,
             float newThermalSignature,

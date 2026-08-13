@@ -19,6 +19,11 @@ namespace ACunicombat.Mechs
     [DisallowMultipleComponent]
     public sealed class MechAssembler : MonoBehaviour
     {
+        public const float CanonicalFrameHeightMeters = 15f;
+        public const float ImportedReferenceFrameHeightUnits = 10.814117f;
+        public const float ImportedToWorldScale =
+            CanonicalFrameHeightMeters / ImportedReferenceFrameHeightUnits;
+
         [Header("Loadout")]
         [SerializeField] private MechLoadoutDefinition loadout;
         [SerializeField] private MechValidationOptions validationOptions = new MechValidationOptions();
@@ -63,6 +68,7 @@ namespace ACunicombat.Mechs
 
         private void Awake()
         {
+            ApplyWorldScaleToExistingAssembly();
             var resolvedLoadout = MechLoadoutSelectionStore.ResolvePlayerLoadout(gameObject, loadout);
             var selectionChanged = resolvedLoadout != loadout;
             loadout = resolvedLoadout;
@@ -153,6 +159,7 @@ namespace ACunicombat.Mechs
             if (combatTarget != null)
             {
                 combatTarget.ConfigureProtection(stats.armorPoints, stats.structurePoints);
+                combatTarget.RefreshGeometry();
             }
             LogValidation(validation);
         }
@@ -183,6 +190,7 @@ namespace ACunicombat.Mechs
                     DestroyChildren(explicitAssemblyRoot);
                 }
 
+                ApplyWorldScale(explicitAssemblyRoot);
                 return explicitAssemblyRoot;
             }
 
@@ -195,12 +203,30 @@ namespace ACunicombat.Mechs
 
             if (existing != null)
             {
+                ApplyWorldScale(existing);
                 return existing;
             }
 
             var root = new GameObject(generatedRootName);
             root.transform.SetParent(transform, false);
+            ApplyWorldScale(root.transform);
             return root.transform;
+        }
+
+        private void ApplyWorldScaleToExistingAssembly()
+        {
+            var root = explicitAssemblyRoot != null
+                ? explicitAssemblyRoot
+                : transform.Find(generatedRootName);
+            if (root != null)
+            {
+                ApplyWorldScale(root);
+            }
+        }
+
+        private static void ApplyWorldScale(Transform root)
+        {
+            root.localScale = Vector3.one * ImportedToWorldScale;
         }
 
         private void RegisterSlotOverrides(Dictionary<MechPartSlot, List<Transform>> mountRegistry)

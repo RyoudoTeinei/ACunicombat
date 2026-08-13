@@ -1382,11 +1382,11 @@ public static class AC6SkinnedModularSampleBuilder
 			Bounds bounds = CombinedBounds(mech);
 			float magnitude = bounds.size.magnitude;
 			report.Log.AppendLine($"[{key}] t={sampleTimes[i6]:0.###} bounds center={Format(bounds.center)} size={Format(bounds.size)}");
-			ok &= Check(!float.IsNaN(magnitude) && magnitude > 2f && magnitude < 30f, key, $"invalid combined bounds at t={sampleTimes[i6]:0.###}: {magnitude}", report);
+			ok &= Check(!float.IsNaN(magnitude) && magnitude > 2f && magnitude < 30f * MechAssembler.ImportedToWorldScale, key, $"invalid combined bounds at t={sampleTimes[i6]:0.###}: {magnitude}", report);
 			for (int r2 = 0; r2 < frameRecords.Count; r2++)
 			{
 				float distance = Vector3.Distance(CombinedBounds(frameRecords[r2].instance).center, bounds.center);
-				ok &= Check(distance < 12f, key, $"{frameRecords[r2].slot} drifted {distance:0.###}m from assembly center", report);
+				ok &= Check(distance < 12f * MechAssembler.ImportedToWorldScale, key, $"{frameRecords[r2].slot} drifted {distance:0.###}m from assembly center", report);
 			}
 			Bounds frameBounds = CombinedBounds(frameRecords[0].instance);
 			for (int r3 = 1; r3 < frameRecords.Count; r3++)
@@ -1398,7 +1398,7 @@ public static class AC6SkinnedModularSampleBuilder
 				Bounds equipmentBounds = CombinedBounds(equipmentRecords[r4].instance);
 				float distance2 = Mathf.Sqrt(frameBounds.SqrDistance(equipmentBounds.center));
 				report.Log.AppendLine($"[{key}] t={sampleTimes[i6]:0.###} {equipmentRecords[r4].slot} center={Format(equipmentBounds.center)} distToFrame={distance2:0.###}m");
-				ok &= Check(distance2 < 4f, key, $"{equipmentRecords[r4].slot} floats {distance2:0.###}m away from the frame bounds", report);
+				ok &= Check(distance2 < 4f * MechAssembler.ImportedToWorldScale, key, $"{equipmentRecords[r4].slot} floats {distance2:0.###}m away from the frame bounds", report);
 			}
 			foreach (KeyValuePair<MechAssemblyRecord, Matrix4x4> pair in installBaselines)
 			{

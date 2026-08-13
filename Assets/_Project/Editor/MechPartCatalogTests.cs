@@ -23,6 +23,38 @@ namespace ACunicombat.Editor.Tests
 		}
 
 		[Test]
+		public void CanonicalAssemblyScale_MapsReferenceFrameToFifteenMeters()
+		{
+			Assert.That(
+				MechAssembler.ImportedReferenceFrameHeightUnits *
+				MechAssembler.ImportedToWorldScale,
+				Is.EqualTo(MechAssembler.CanonicalFrameHeightMeters).Within(0.0001f));
+		}
+
+		[Test]
+		public void Assemble_AppliesCanonicalWorldScaleToGeneratedRoot()
+		{
+			var owner = new GameObject("Assembly Scale Test");
+			try
+			{
+				var assembler = owner.AddComponent<MechAssembler>();
+				assembler.Assemble();
+				var root = owner.transform.Find("_AssembledMech");
+
+				Assert.That(root, Is.Not.Null);
+				Assert.That(
+					root.localScale.x,
+					Is.EqualTo(MechAssembler.ImportedToWorldScale).Within(0.000001f));
+				Assert.That(root.localScale.y, Is.EqualTo(root.localScale.x));
+				Assert.That(root.localScale.z, Is.EqualTo(root.localScale.x));
+			}
+			finally
+			{
+				Object.DestroyImmediate(owner);
+			}
+		}
+
+		[Test]
 		public void GetEntries_FiltersBySlotAndPutsTestedWeaponsFirst()
 		{
 			catalog.EditorConfigure(new List<MechPartCatalogEntry>
