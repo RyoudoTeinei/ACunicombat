@@ -301,9 +301,9 @@ namespace ACunicombat.Mechs
 			{
 				base.gameObject.AddComponent<MechSystemsRadialMenu>();
 			}
-			if (!aiControlled && GetComponent<MechEngineeringStatusPanel>() == null)
+			if (!aiControlled && GetComponent<MechEngineeringStatusPresenter>() == null)
 			{
-				base.gameObject.AddComponent<MechEngineeringStatusPanel>();
+				base.gameObject.AddComponent<MechEngineeringStatusPresenter>();
 			}
 			if (!aiControlled && motion != null)
 			{
@@ -318,8 +318,8 @@ namespace ACunicombat.Mechs
 			showFlightInstruments = false;
 			showDebugOverlay = false;
 			thermalVision = null;
-			MechEngineeringStatusPanel engineeringStatus =
-				GetComponent<MechEngineeringStatusPanel>();
+			MechEngineeringStatusPresenter engineeringStatus =
+				GetComponent<MechEngineeringStatusPresenter>();
 			if (engineeringStatus != null)
 			{
 				engineeringStatus.enabled = false;
