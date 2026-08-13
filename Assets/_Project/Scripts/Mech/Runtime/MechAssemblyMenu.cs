@@ -1708,17 +1708,15 @@ namespace ACunicombat.Mechs
 			if (selectingPart && equippedValue != null)
 			{
 				GetComparisonRowRects(row, out var labelRect, out var track, out var equippedRect, out var arrowRect, out var candidateRect);
+				// Categorical rows have no meaningful ratio bar. Reuse that otherwise empty
+				// space for the equipped text so names such as "20 mm 转轮机枪" stay on one line.
+				equippedRect.xMin = track.x;
 				bool changed = !string.Equals(value, equippedValue, StringComparison.Ordinal);
 				if (changed)
 				{
 					DrawColorSwatch(new Rect(row.x, row.y, 3f, row.height), ComparisonImprovementColor);
 				}
 				GUI.Label(labelRect, label, labelStyle);
-				GUI.DrawTexture(track, sliderTrackTexture);
-				if (changed)
-				{
-					DrawColorSwatch(new Rect(track.x, track.y, track.width, track.height), new Color(ComparisonImprovementColor.r, ComparisonImprovementColor.g, ComparisonImprovementColor.b, 0.72f));
-				}
 				GUI.Label(equippedRect, equippedValue, comparisonBaselineStyle);
 				DrawComparisonFlowArrow(equippedRect, candidateRect);
 				DrawComparisonArrow(arrowRect, string.Empty, changed, better: true);
@@ -2314,6 +2312,7 @@ namespace ACunicombat.Mechs
 				idStyle = NewStyle(Scaled(13), mutedText, TextAnchor.MiddleLeft);
 				placeholderStyle = NewStyle(Scaled(13), new Color(0.35f, 0.46f, 0.535f), TextAnchor.MiddleLeft);
 				valueStyle = NewStyle(Scaled(16), text, TextAnchor.MiddleRight);
+				valueStyle.wordWrap = false;
 				testedStyle = NewStyle(Scaled(12), new Color(0.57f, 0.835f, 0.78f), TextAnchor.MiddleCenter);
 				untestedStyle = NewStyle(Scaled(12), new Color(0.925f, 0.675f, 0.33f), TextAnchor.MiddleCenter);
 				warningStyle = NewStyle(Scaled(13), new Color(0.95f, 0.575f, 0.3f), TextAnchor.UpperLeft);
@@ -2326,10 +2325,13 @@ namespace ACunicombat.Mechs
 				darkCenteredStyle = NewStyle(Scaled(13), new Color(0.075f, 0.135f, 0.175f), TextAnchor.MiddleCenter);
 				comparisonPositiveStyle = NewStyle(Scaled(16), ComparisonImprovementColor, TextAnchor.MiddleRight);
 				comparisonPositiveStyle.fontStyle = FontStyle.Bold;
+				comparisonPositiveStyle.wordWrap = false;
 				comparisonNegativeStyle = NewStyle(Scaled(16), ComparisonRegressionColor, TextAnchor.MiddleRight);
 				comparisonNegativeStyle.fontStyle = FontStyle.Bold;
+				comparisonNegativeStyle.wordWrap = false;
 				comparisonBaselineStyle = NewStyle(Scaled(16), text, TextAnchor.MiddleRight);
 				comparisonBaselineStyle.fontStyle = FontStyle.Bold;
+				comparisonBaselineStyle.wordWrap = false;
 				comparisonArrowStyle = NewStyle(Scaled(15), ComparisonBaselineColor, TextAnchor.MiddleCenter);
 				aggregateLabelStyle = NewStyle(Scaled(16), secondaryText, TextAnchor.MiddleLeft);
 				aggregateLabelStyle.fontStyle = FontStyle.Bold;
