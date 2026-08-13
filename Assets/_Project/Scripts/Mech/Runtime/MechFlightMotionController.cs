@@ -352,7 +352,7 @@ namespace ACunicombat.Mechs
 
         public uint ReferenceFrameVersion => referenceFrameVersion;
 
-        /// <summary>完整三维逻辑朝向，无滚转；模型轴修正只应用到可见根节点。</summary>
+        /// <summary>完整三维逻辑朝向；滚转包含在动态导航参考平面中，模型轴修正只应用到可见根节点。</summary>
         public Quaternion LogicalRotation =>
             referenceRotation *
             Quaternion.AngleAxis(yawDegrees, Vector3.up) *
@@ -616,6 +616,29 @@ namespace ACunicombat.Mechs
             yawTurnInput = Mathf.Clamp(normalizedInput, -1f, 1f);
         }
 
+        /// <summary>
+        /// 绕当前机体前向滚转导航参考平面。滚转会同步改变机体、镜头与推进坐标系，
+        /// 但不触发参考平面重置事件，避免拖动期间清空当前俯仰和瞄准输入。
+        /// </summary>
+        public void RollReferencePlane(float deltaDegrees)
+        {
+            if (!float.IsFinite(deltaDegrees) || Mathf.Abs(deltaDegrees) <= 0.0001f)
+            {
+                return;
+            }
+
+            var forward = LogicalRotation * Vector3.forward;
+            if (forward.sqrMagnitude <= 0.0001f)
+            {
+                return;
+            }
+
+            referenceRotation = Quaternion.Normalize(
+                Quaternion.AngleAxis(deltaDegrees, forward.normalized) *
+                referenceRotation);
+            ApplyVisualRotation();
+        }
+
         public void TriggerAssaultBoost()
         {
             SetAssaultBoostActive(true);
@@ -859,7 +882,7 @@ namespace ACunicombat.Mechs
             }
 
             // Cursor displacement commands bounded yaw and pitch rates in the active reference
-            // frame. Roll remains zero relative to that frame.
+            // frame. Player roll input rotates that reference frame separately.
             var maximumTurnRateDegrees = ResolveMaximumYawRateDegrees();
             var desiredYawRateDegrees = yawTurnInput * maximumTurnRateDegrees;
             var currentYawRateDegrees = desiredYawRateDegrees;

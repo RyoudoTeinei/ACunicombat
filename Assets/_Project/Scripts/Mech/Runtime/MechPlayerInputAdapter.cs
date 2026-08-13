@@ -35,8 +35,10 @@ namespace ACunicombat.Mechs
         public bool SecondaryFireEdge;
         /// <summary>R + right mouse requests a right-hand rifle reload.</summary>
         public bool SecondaryReloadEdge;
-        /// <summary>Middle mouse requests a navigation reference-plane reset.</summary>
+        /// <summary>Middle mouse click requests a navigation reference-plane reset.</summary>
         public bool ReferencePlaneResetEdge;
+        /// <summary>Middle mouse horizontal drag rolls the navigation reference plane (degrees).</summary>
+        public float ReferencePlaneRollDeltaDegrees;
         /// <summary>Q commands the anatomical left shoulder weapon.</summary>
         public bool LeftShoulderFireHeld;
         public bool LeftShoulderFireEdge;
@@ -81,8 +83,16 @@ namespace ACunicombat.Mechs
         [SerializeField] private float doubleTapWindowSeconds = 0.3f;
         [Tooltip("长按 Space 判定为上昇開始ブースト的时长（秒）。")]
         [SerializeField] private float riseHoldBoostSeconds = 0.25f;
+        [Header("中键姿态控制")]
+        [Tooltip("中键水平拖动超过该像素数后才判定为滚转；未超过则在松开时执行参考平面回正。")]
+        [SerializeField, Min(0f)] private float middleDragThresholdPixels = 4f;
+        [Tooltip("中键水平拖动每像素对应的滚转角度。")]
+        [SerializeField, Min(0f)] private float rollDegreesPerMousePixel = 0.18f;
         private float lastSpaceDownTime = -10f;
         private float spaceHeldSince = -1f;
+        private bool middleGestureActive;
+        private bool middleGestureDragged;
+        private float middleGestureHorizontalPixels;
         private bool externalControl;
         private MechPlayerInputFrame externalFrame;
 
@@ -110,6 +120,7 @@ namespace ACunicombat.Mechs
             if (MechAssemblyMenu.IsAnyMenuVisible ||
                 MechSystemsRadialMenu.IsAnyMenuVisible)
             {
+                ResetMiddleGesture();
                 Current = default;
                 return Current;
             }
@@ -185,11 +196,64 @@ namespace ACunicombat.Mechs
                 frame.SecondaryFireEdge =
                     mouse.rightButton.wasPressedThisFrame &&
                     !reloadModifierHeld;
-                frame.ReferencePlaneResetEdge = mouse.middleButton.wasPressedThisFrame;
+                SampleMiddleMouseGesture(mouse, ref frame);
+            }
+            else
+            {
+                ResetMiddleGesture();
             }
 
             Current = frame;
             return frame;
+        }
+
+        private void SampleMiddleMouseGesture(
+            Mouse mouse,
+            ref MechPlayerInputFrame frame)
+        {
+            if (mouse.middleButton.wasPressedThisFrame)
+            {
+                middleGestureActive = true;
+                middleGestureDragged = false;
+                middleGestureHorizontalPixels = 0f;
+            }
+
+            if (middleGestureActive && mouse.middleButton.isPressed)
+            {
+                var horizontalDelta = frame.MouseDelta.x;
+                middleGestureHorizontalPixels += horizontalDelta;
+                frame.MouseDelta.x = 0f;
+
+                if (!middleGestureDragged &&
+                    Mathf.Abs(middleGestureHorizontalPixels) >=
+                    Mathf.Max(0f, middleDragThresholdPixels))
+                {
+                    middleGestureDragged = true;
+                    frame.ReferencePlaneRollDeltaDegrees =
+                        -middleGestureHorizontalPixels *
+                        Mathf.Max(0f, rollDegreesPerMousePixel);
+                }
+                else if (middleGestureDragged)
+                {
+                    frame.ReferencePlaneRollDeltaDegrees =
+                        -horizontalDelta * Mathf.Max(0f, rollDegreesPerMousePixel);
+                }
+            }
+
+            if (!middleGestureActive || !mouse.middleButton.wasReleasedThisFrame)
+            {
+                return;
+            }
+
+            frame.ReferencePlaneResetEdge = !middleGestureDragged;
+            ResetMiddleGesture();
+        }
+
+        private void ResetMiddleGesture()
+        {
+            middleGestureActive = false;
+            middleGestureDragged = false;
+            middleGestureHorizontalPixels = 0f;
         }
 
         /// <summary>把输入快照折算成行为图 PadBits（映射表见类注释与设计文档）。</summary>

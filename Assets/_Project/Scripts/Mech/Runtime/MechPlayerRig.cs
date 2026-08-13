@@ -301,6 +301,10 @@ namespace ACunicombat.Mechs
 			{
 				base.gameObject.AddComponent<MechSystemsRadialMenu>();
 			}
+			if (!aiControlled && GetComponent<MechEngineeringStatusPresenter>() == null)
+			{
+				base.gameObject.AddComponent<MechEngineeringStatusPresenter>();
+			}
 			if (!aiControlled && motion != null)
 			{
 				motion.SetVectorThrustEnabled(true);
@@ -314,6 +318,12 @@ namespace ACunicombat.Mechs
 			showFlightInstruments = false;
 			showDebugOverlay = false;
 			thermalVision = null;
+			MechEngineeringStatusPresenter engineeringStatus =
+				GetComponent<MechEngineeringStatusPresenter>();
+			if (engineeringStatus != null)
+			{
+				engineeringStatus.enabled = false;
+			}
 		}
 
 		public void ConfigureActionPlayback(MechActionRegistry registry, IEnumerable<string> maskedUpperBodyBoneNames)
@@ -503,15 +513,20 @@ namespace ACunicombat.Mechs
 			if (cam != null)
 			{
 				cam.UpdateLook(in lastFrame);
+				motion.RollReferencePlane(lastFrame.ReferencePlaneRollDeltaDegrees);
 				if (lastFrame.ReferencePlaneResetEdge)
 				{
 					ResetNavigationReference();
 				}
 				motion.SetAimPitch(cam.PitchDegrees);
 			}
-			else if (lastFrame.ReferencePlaneResetEdge)
+			else
 			{
-				motion.ResetReferencePlaneToRotation(motion.LogicalRotation);
+				motion.RollReferencePlane(lastFrame.ReferencePlaneRollDeltaDegrees);
+				if (lastFrame.ReferencePlaneResetEdge)
+				{
+					motion.ResetReferencePlaneToRotation(motion.LogicalRotation);
+				}
 			}
 			if (lastFrame.AssaultBoostEdge && motion.ToggleAssaultBoost())
 			{
