@@ -526,9 +526,74 @@ public static class AC6FullPartCatalogBuilder
 		{
 			newMountPoints = BuildFrameMountPoints(slot);
 		}
-		mechPartDefinition.EditorConfigure(id, newDisplayName, slot, (MechPartCategory)newCategory, model, newStats, newMountPoints, tags, null, isFrame ? MechVisualRigMode.SynchronizedSkinned : MechVisualRigMode.MountedPrefab, clip, AncestorDriver(slot), AncestorBones(slot), isBooster, null, null, shouldPlayDefaultEquipmentActionOnAssemble: false, Vector3.zero, isBooster ? new Vector3(180f, 0f, 0f) : (MechSlotRules.IsWeaponSlot(slot) ? new Vector3(0f, 180f, 0f) : Vector3.zero), Vector3.one, previewModel, newHeadSensorPerformance: BuildHeadSensorPerformance(slot), newArmPerformance: BuildArmPerformance(slot, 1f), newCorePerformance: BuildCorePerformance(slot, 1f, item.key), newLegPerformance: BuildLegPerformance(slot, 1f), newBoosterPerformance: BuildBoosterPerformance(slot, item.key), newWeaponPerformance: AC6TestWeaponProfileFactory.Create(id));
+		IReadOnlyList<MechEquipmentAnimationDefinition> equipmentAnimations = null;
+		string defaultEquipmentActionId = null;
+		if (TryLoadNativeHuBen(item.key, out GameObject nativeModel, out List<MechEquipmentAnimationDefinition> nativeActions))
+		{
+			model = nativeModel;
+			previewModel = nativeModel;
+			equipmentAnimations = nativeActions;
+			defaultEquipmentActionId = "a000_800000";
+		}
+		mechPartDefinition.EditorConfigure(id, newDisplayName, slot, (MechPartCategory)newCategory, model, newStats, newMountPoints, tags, null, isFrame ? MechVisualRigMode.SynchronizedSkinned : MechVisualRigMode.MountedPrefab, clip, AncestorDriver(slot), AncestorBones(slot), isBooster, equipmentAnimations, defaultEquipmentActionId, shouldPlayDefaultEquipmentActionOnAssemble: false, Vector3.zero, isBooster ? new Vector3(180f, 0f, 0f) : (MechSlotRules.IsWeaponSlot(slot) ? new Vector3(0f, 180f, 0f) : Vector3.zero), Vector3.one, previewModel, newHeadSensorPerformance: BuildHeadSensorPerformance(slot), newArmPerformance: BuildArmPerformance(slot, 1f, item.key), newCorePerformance: BuildCorePerformance(slot, 1f, item.key), newLegPerformance: BuildLegPerformance(slot, 1f), newBoosterPerformance: BuildBoosterPerformance(slot, item.key), newWeaponPerformance: AC6TestWeaponProfileFactory.Create(id));
 		EditorUtility.SetDirty(mechPartDefinition);
 		return mechPartDefinition;
+	}
+
+	private static bool TryLoadNativeHuBen(
+		string key,
+		out GameObject model,
+		out List<MechEquipmentAnimationDefinition> actions)
+	{
+		model = null;
+		actions = null;
+		if (!string.Equals(key, "WP_L_1910", StringComparison.OrdinalIgnoreCase) &&
+			!string.Equals(key, "WP_R_1910", StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+
+		string path = "Assets/_Project/LocalSamples/AC6SkinnedModular/Raw/NativeEquipment/" +
+			key.ToUpperInvariant() + "_NATIVE.glb";
+		if (!File.Exists(path))
+		{
+			return false;
+		}
+
+		AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+		model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+		if (model == null)
+		{
+			return false;
+		}
+
+		var seenActionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		actions = new List<MechEquipmentAnimationDefinition>();
+		foreach (AnimationClip candidate in AssetDatabase.LoadAllAssetsAtPath(path)
+			.OfType<AnimationClip>()
+			.Where(candidate => candidate != null && candidate.length > 0.001f)
+			.OrderBy(candidate => candidate.name, StringComparer.OrdinalIgnoreCase))
+		{
+			var match = System.Text.RegularExpressions.Regex.Match(
+				candidate.name,
+				"a\\d{3}_\\d+",
+				System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+				System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+			if (!match.Success)
+			{
+				continue;
+			}
+
+			string actionId = match.Value.ToLowerInvariant();
+			if (seenActionIds.Add(actionId))
+			{
+				actions.Add(new MechEquipmentAnimationDefinition(
+					actionId,
+					candidate,
+					string.Equals(actionId, "a000_800201", StringComparison.OrdinalIgnoreCase)));
+			}
+		}
+		return actions.Count > 0;
 	}
 
 	private static MechPartDefinition ClonePartToResources(MechPartDefinition source)
@@ -703,7 +768,7 @@ public static class AC6FullPartCatalogBuilder
 		};
 	}
 
-	private static MechArmPerformance BuildArmPerformance(MechPartSlot slot, float scale)
+	private static MechArmPerformance BuildArmPerformance(MechPartSlot slot, float scale, string partKey)
 	{
 		if (slot != MechPartSlot.Arms)
 		{
@@ -717,7 +782,9 @@ public static class AC6FullPartCatalogBuilder
 			recoilRecoveryRateNsPerSecond = 85000f * scale,
 			aimTraverseRateDegPerSecond = 105f / Mathf.Sqrt(Mathf.Max(0.5f, scale)),
 			aimAngularAccelerationDegPerSecondSquared = 420f / Mathf.Max(0.5f, scale),
-			weaponPointingErrorMrad = 0.18f * Mathf.Max(0.8f, scale),
+			weaponPointingErrorMrad = string.Equals(partKey, "AM_M_1010", StringComparison.OrdinalIgnoreCase)
+				? 0.27f
+				: 0.18f * Mathf.Max(0.8f, scale),
 			thrusterNozzles = new[]
 			{
 				new MechArmThrusterNozzle

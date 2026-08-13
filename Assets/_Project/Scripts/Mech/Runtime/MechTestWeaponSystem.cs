@@ -39,6 +39,8 @@ namespace ACunicombat.Mechs
 
 			public float LastSpinRequestTime = float.NegativeInfinity;
 
+			public MechEquipmentAnimationPlayer AnimationPlayer;
+
 			public float RecoilDispersionMilliradians;
 
 			public float LastDispersionUpdateTime;
@@ -217,6 +219,16 @@ namespace ACunicombat.Mechs
 
 		private const string ShaoWeiAimPivotSuffix = "LookAt_01";
 
+		private const string HuBenPartKey = "1910";
+
+		private const string HuBenSpinUpActionId = "a000_800200";
+
+		private const string HuBenSustainedFireActionId = "a000_800201";
+
+		private const string HuBenSpinDownActionId = "a000_800202";
+
+		private const string HuBenRestActionId = "a000_800000";
+
 		private const float MuzzleFlashTimeScale = 0.4f;
 
 		private const float MuzzleFlashMaximumVisibleSeconds = 0.18f;
@@ -306,9 +318,9 @@ namespace ACunicombat.Mechs
 		[Range(1f, 20f)]
 		private float pointDefenseLockDegrees = 6f;
 
-		[SerializeField]
-		[Min(100f)]
-		private float pointDefenseMaximumRangeMeters = 6000f;
+		private const float HandPointDefenseEngagementRangeMeters = 2000f;
+
+		private const float HandPointDefenseTcpaLimitSeconds = 3.5f;
 
 		[SerializeField]
 		[Min(0.1f)]
@@ -332,6 +344,9 @@ namespace ACunicombat.Mechs
 
 		[SerializeField]
 		private bool handPointDefensePriorityEnabled = true;
+
+		[SerializeField]
+		private bool handPointDefenseTcpaLimitEnabled;
 
 		[SerializeField]
 		[Min(1f)]
@@ -567,6 +582,9 @@ namespace ACunicombat.Mechs
 		public bool HandPointDefensePriorityEnabled =>
 			handPointDefensePriorityEnabled;
 
+		public bool HandPointDefenseTcpaLimitEnabled =>
+			handPointDefenseTcpaLimitEnabled;
+
 		public void SetHandPointDefensePriorityEnabled(bool enabled)
 		{
 			handPointDefensePriorityEnabled = enabled;
@@ -575,6 +593,15 @@ namespace ACunicombat.Mechs
 				return;
 			}
 
+			pointDefenseTarget = default;
+			pointDefenseHitProbability = 0f;
+			pointDefenseWithholdReason = PointDefenseWithholdReason.None;
+			radarController?.CuePointDefenseTrack(default);
+		}
+
+		public void SetHandPointDefenseTcpaLimitEnabled(bool enabled)
+		{
+			handPointDefenseTcpaLimitEnabled = enabled;
 			pointDefenseTarget = default;
 			pointDefenseHitProbability = 0f;
 			pointDefenseWithholdReason = PointDefenseWithholdReason.None;
@@ -1188,6 +1215,8 @@ namespace ACunicombat.Mechs
 			}
 			UpdateHandWeaponInput(MechPartSlot.LeftHandWeapon, frame.PrimaryFireHeld, frame.PrimaryFireEdge);
 			UpdateHandWeaponInput(MechPartSlot.RightHandWeapon, frame.SecondaryFireHeld, frame.SecondaryFireEdge);
+			UpdateHuBenAnimation(MechPartSlot.LeftHandWeapon, frame.PrimaryFireHeld);
+			UpdateHuBenAnimation(MechPartSlot.RightHandWeapon, frame.SecondaryFireHeld);
 			bool rifleTriggerHeld = IsAutomaticTriggerActive(MechPartSlot.LeftHandWeapon, frame.PrimaryFireHeld) ||
 				IsAutomaticTriggerActive(MechPartSlot.RightHandWeapon, frame.SecondaryFireHeld);
 			handWeaponAudio?.SetRifleTriggerHeld(rifleTriggerHeld);
@@ -1324,6 +1353,10 @@ namespace ACunicombat.Mechs
 				else
 				{
 					muzzlesBySlot[record.slot] = ((candidates.Length != 0) ? candidates : new Transform[1] { record.instance.transform });
+				}
+				if (record.slot == MechPartSlot.LeftHandWeapon || record.slot == MechPartSlot.RightHandWeapon)
+				{
+					BindHandEquipmentAnimation(record.slot, record.part?.PartId, record.instance);
 				}
 				if (!isShaoWei)
 				{
@@ -1549,6 +1582,108 @@ namespace ACunicombat.Mechs
 			HandWeaponState state = GetHandState(slot);
 			return fireHeld && state.Role == MechWeaponRole.AutomaticCannon &&
 				!IsReloading(state) && state.RoundsRemaining > 0;
+		}
+
+		private void BindHandEquipmentAnimation(MechPartSlot slot, string partId, GameObject instance)
+		{
+			HandWeaponState state = GetHandState(slot);
+			bool isHuBen = !string.IsNullOrWhiteSpace(partId) &&
+				partId.IndexOf(HuBenPartKey, StringComparison.OrdinalIgnoreCase) >= 0;
+			MechEquipmentAnimationPlayer player = isHuBen && instance != null
+				? instance.GetComponent<MechEquipmentAnimationPlayer>()
+				: null;
+			if (state.AnimationPlayer == player)
+			{
+				return;
+			}
+			ResetHuBenAnimation(state);
+			state.AnimationPlayer = player;
+		}
+
+		private void UpdateHuBenAnimation(MechPartSlot slot, bool triggerHeld)
+		{
+			HandWeaponState state = GetHandState(slot);
+			MechEquipmentAnimationPlayer player = state.AnimationPlayer;
+			bool isHuBen = IsHuBen(state.PartId);
+			if (!isHuBen)
+			{
+				handWeaponAudio?.SetGau8RotorState(
+					slot,
+					shouldSpin: false,
+					base.transform.position);
+				return;
+			}
+
+			float spinUpSeconds = Mathf.Max(0f, state.Performance?.spinUpSeconds ?? 0f);
+			float spinHoldSeconds = Mathf.Max(0.25f, spinUpSeconds * 0.75f);
+			bool recentlyCommanded = Time.time - state.LastSpinRequestTime <= spinHoldSeconds;
+			bool canOperate = !IsReloading(state) && state.RoundsRemaining > 0;
+			bool shouldSpin = canOperate && (triggerHeld || recentlyCommanded);
+			EnsureHandWeaponAudio().SetGau8RotorState(
+				slot,
+				shouldSpin,
+				player != null ? player.transform.position : base.transform.position);
+			if (player == null)
+			{
+				return;
+			}
+			if (shouldSpin)
+			{
+				if (string.Equals(player.ActiveActionId, HuBenSpinUpActionId, StringComparison.OrdinalIgnoreCase))
+				{
+					if (!player.IsPlaying)
+					{
+						TryPlayHuBenAction(player, HuBenSustainedFireActionId);
+					}
+					return;
+				}
+				if (!string.Equals(player.ActiveActionId, HuBenSustainedFireActionId, StringComparison.OrdinalIgnoreCase))
+				{
+					TryPlayHuBenAction(player, HuBenSpinUpActionId);
+				}
+				else if (!player.IsPlaying)
+				{
+					TryPlayHuBenAction(player, HuBenSustainedFireActionId);
+				}
+				return;
+			}
+
+			if (string.Equals(player.ActiveActionId, HuBenSpinUpActionId, StringComparison.OrdinalIgnoreCase) ||
+				string.Equals(player.ActiveActionId, HuBenSustainedFireActionId, StringComparison.OrdinalIgnoreCase))
+			{
+				TryPlayHuBenAction(player, HuBenSpinDownActionId);
+			}
+			else if (string.Equals(player.ActiveActionId, HuBenSpinDownActionId, StringComparison.OrdinalIgnoreCase) &&
+				!player.IsPlaying)
+			{
+				ResetHuBenAnimation(state);
+			}
+		}
+
+		private static bool IsHuBen(string partId)
+		{
+			return !string.IsNullOrWhiteSpace(partId) &&
+				partId.IndexOf(HuBenPartKey, StringComparison.OrdinalIgnoreCase) >= 0;
+		}
+
+		private static bool TryPlayHuBenAction(MechEquipmentAnimationPlayer player, string actionId)
+		{
+			return player != null && player.HasAction(actionId) &&
+				player.PlayActionPreservingPose(actionId);
+		}
+
+		private static void ResetHuBenAnimation(HandWeaponState state)
+		{
+			MechEquipmentAnimationPlayer player = state.AnimationPlayer;
+			if (player == null)
+			{
+				return;
+			}
+			player.StopPlayback();
+			if (player.HasAction(HuBenRestActionId))
+			{
+				player.SampleActionAtTime(HuBenRestActionId, 0f);
+			}
 		}
 
 		private bool IsHandFireHeld(MechPartSlot slot)
@@ -2829,13 +2964,13 @@ namespace ACunicombat.Mechs
 
 			Ray aimRay = GetAimRay();
 			MissileTrackSnapshot retainedTrack;
-			if (TryFindBestPointDefenseTarget(aimRay, pointDefenseLockDegrees, pointDefenseMaximumRangeMeters, out var candidate))
+			if (TryFindBestPointDefenseTarget(aimRay, pointDefenseLockDegrees, HandPointDefenseEngagementRangeMeters, out var candidate))
 			{
 				pointDefenseTarget = candidate;
 				pointDefenseLockUntil = Time.unscaledTime + pointDefenseLockHoldSeconds;
 				radarController.CuePointDefenseTrack(candidate.TrackId);
 			}
-			else if (!pointDefenseTarget.TrackId.IsValid || radarController == null || !radarController.TryGetMissileTrack(pointDefenseTarget.TrackId, out retainedTrack) || !retainedTrack.IsWeaponsQuality || retainedTrack.IsFriendly || !retainedTrack.Incoming || Time.unscaledTime >= pointDefenseLockUntil)
+			else if (!pointDefenseTarget.TrackId.IsValid || radarController == null || !radarController.TryGetMissileTrack(pointDefenseTarget.TrackId, out retainedTrack) || !retainedTrack.IsWeaponsQuality || retainedTrack.IsFriendly || !retainedTrack.Incoming || !IsHandPointDefenseTrackWithinEngagementGate(in retainedTrack, aimRay.origin) || Time.unscaledTime >= pointDefenseLockUntil)
 			{
 				pointDefenseTarget = default(MissileTrackSnapshot);
 				radarController?.CuePointDefenseTrack(default(TrackId));
@@ -3387,6 +3522,10 @@ namespace ACunicombat.Mechs
 				{
 					continue;
 				}
+				if (handPointDefenseTcpaLimitEnabled && candidate.TimeToClosestApproachSeconds > HandPointDefenseTcpaLimitSeconds)
+				{
+					continue;
+				}
 				double3 predictedPosition = candidate.PredictPosition(radarController.SimTimeSeconds);
 				Vector3 toCandidate = new Vector3((float)predictedPosition.x, (float)predictedPosition.y, (float)predictedPosition.z) - aimRay.origin;
 				float distanceSquared = toCandidate.sqrMagnitude;
@@ -3430,7 +3569,8 @@ namespace ACunicombat.Mechs
 			Vector3 shooterVelocity = ((flightMotion != null) ? flightMotion.Velocity : Vector3.zero);
 			Vector3 relativePosition = targetPosition - shooterPosition;
 			Vector3 relativeVelocity = targetVelocity - shooterVelocity;
-			if (relativePosition.sqrMagnitude > pointDefenseMaximumRangeMeters * pointDefenseMaximumRangeMeters)
+			if (relativePosition.sqrMagnitude > HandPointDefenseEngagementRangeMeters * HandPointDefenseEngagementRangeMeters ||
+				(handPointDefenseTcpaLimitEnabled && pointDefenseTarget.TimeToClosestApproachSeconds > HandPointDefenseTcpaLimitSeconds))
 			{
 				return false;
 			}
@@ -3448,6 +3588,21 @@ namespace ACunicombat.Mechs
 			}
 			aimPoint = shooterPosition + ToVector3(relativeInterceptPoint);
 			return true;
+		}
+
+		private bool IsHandPointDefenseTrackWithinEngagementGate(
+			in MissileTrackSnapshot track,
+			Vector3 origin)
+		{
+			Vector3 position = ToVector3(track.PredictPosition(radarController.SimTimeSeconds));
+			if ((position - origin).sqrMagnitude >
+				HandPointDefenseEngagementRangeMeters * HandPointDefenseEngagementRangeMeters)
+			{
+				return false;
+			}
+
+			return !handPointDefenseTcpaLimitEnabled ||
+				track.TimeToClosestApproachSeconds <= HandPointDefenseTcpaLimitSeconds;
 		}
 
 		private float EstimateHandPointDefenseHitProbability(in MissileTrackSnapshot track, float interceptRange, float projectileSpeed, float dispersionMilliradians)

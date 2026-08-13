@@ -340,6 +340,10 @@ namespace ACunicombat.Mechs
                     weapons.SetHandPointDefensePriorityEnabled(
                         !weapons.HandPointDefensePriorityEnabled);
                     break;
+                case SystemCategory.FireControl when index == 1 && weapons != null:
+                    weapons.SetHandPointDefenseTcpaLimitEnabled(
+                        !weapons.HandPointDefenseTcpaLimitEnabled);
+                    break;
                 case SystemCategory.Devices when index == 0 && radar != null:
                     radar.CycleDataLinkPolicy();
                     break;
@@ -351,7 +355,7 @@ namespace ACunicombat.Mechs
             SystemCategory.Radar => 2,
             SystemCategory.ElectroOptical => 1,
             SystemCategory.Propulsion => 1,
-            SystemCategory.FireControl => 1,
+            SystemCategory.FireControl => 2,
             SystemCategory.Devices => 1,
             _ => 0,
         };
@@ -364,6 +368,7 @@ namespace ACunicombat.Mechs
                 (SystemCategory.ElectroOptical, 0) => "缩放跟踪 STT 目标",
                 (SystemCategory.Propulsion, 0) => "矢量推力",
                 (SystemCategory.FireControl, 0) => "手部武器拦截优先",
+                (SystemCategory.FireControl, 1) => "点防御 TCPA 门槛",
                 (SystemCategory.Devices, 0) => "数据链策略",
                 _ => "未定义控制",
             };
@@ -375,7 +380,8 @@ namespace ACunicombat.Mechs
                 (SystemCategory.Radar, 1) => "关闭 Tab 雷达操作界面后继续维持已有 STT",
                 (SystemCategory.ElectroOptical, 0) => "按住 CapsLock 缩放时自动把视线保持在 STT 目标上",
                 (SystemCategory.Propulsion, 0) => "允许主推进器在机械偏转范围内参与侧向与升降控制",
-                (SystemCategory.FireControl, 0) => "开启时导弹与机体重合会优先拦截；关闭时优先攻击机体航迹",
+                (SystemCategory.FireControl, 0) => "开启时手部武器会在来袭导弹进入 2000 m 后优先拦截",
+                (SystemCategory.FireControl, 1) => "开启后仅在来袭导弹 TCPA 不超过 3.5 秒时接管手部武器",
                 (SystemCategory.Devices, 0) => "切换自动、态势优先、防空优先与无线电静默模式",
                 _ => string.Empty,
             };
@@ -403,6 +409,9 @@ namespace ACunicombat.Mechs
                     return true;
                 case SystemCategory.FireControl when index == 0 && weapons != null:
                     state = weapons.HandPointDefensePriorityEnabled;
+                    return true;
+                case SystemCategory.FireControl when index == 1 && weapons != null:
+                    state = weapons.HandPointDefenseTcpaLimitEnabled;
                     return true;
                 case SystemCategory.Devices when index == 0 && radar != null:
                     state = radar.DataLinkTransmitEnabled;

@@ -135,6 +135,9 @@ namespace ACunicombat.Mechs
         private float lastRifleShotTime = float.NegativeInfinity;
         private bool gau8BurstActive;
         private float lastGau8ShotTime = float.NegativeInfinity;
+        private bool gau8LeftRotorRequested;
+        private bool gau8RightRotorRequested;
+        private bool gau8RotorActive;
         private MechAudioVariantSet rifleFirstCloseVariants;
         private MechAudioVariantSet rifleShotVariants;
         private MechAudioVariantSet rifleLowVariants;
@@ -197,6 +200,53 @@ namespace ACunicombat.Mechs
         public void SetRifleTriggerHeld(bool held)
         {
             rifleTriggerHeld = held;
+        }
+
+        public void SetGau8RotorState(
+            MechPartSlot slot,
+            bool shouldSpin,
+            Vector3 weaponPosition)
+        {
+            var wasActive = gau8LeftRotorRequested || gau8RightRotorRequested;
+            switch (slot)
+            {
+                case MechPartSlot.LeftHandWeapon:
+                    gau8LeftRotorRequested = shouldSpin;
+                    break;
+                case MechPartSlot.RightHandWeapon:
+                    gau8RightRotorRequested = shouldSpin;
+                    break;
+                default:
+                    return;
+            }
+
+            if (shouldSpin)
+            {
+                MoveGau8Sources(weaponPosition);
+            }
+
+            var isActive = gau8LeftRotorRequested || gau8RightRotorRequested;
+            if (wasActive == isActive)
+            {
+                gau8RotorActive = isActive;
+                return;
+            }
+
+            gau8RotorActive = isActive;
+            if (gau8RotorActive)
+            {
+                PlayOneShot(
+                    gau8TransientSource,
+                    gau8RotorStartVariants.Next(),
+                    gau8RotorStartVolume);
+            }
+            else
+            {
+                PlayOneShot(
+                    gau8TransientSource,
+                    gau8RotorStopVariants.Next(),
+                    gau8RotorStopVolume);
+            }
         }
 
         public void PlayRifleShot(
@@ -383,11 +433,6 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            gau8TransientSource.Stop();
-            PlayOneShot(
-                gau8TransientSource,
-                gau8RotorStartVariants.Next(),
-                gau8RotorStartVolume);
             PlayOneShot(
                 gau8TransientSource,
                 gau8FirstSnarlVariants.Next(),
@@ -467,10 +512,6 @@ namespace ACunicombat.Mechs
                 gau8TransientSource,
                 gau8LastSnarlVariants.Next(),
                 gau8LastSnarlVolume);
-            PlayOneShot(
-                gau8TransientSource,
-                gau8RotorStopVariants.Next(),
-                gau8RotorStopVolume);
         }
 
         private void UpdateGau8Loops(float deltaTime)
@@ -485,7 +526,7 @@ namespace ACunicombat.Mechs
                 deltaTime);
             UpdateLoopingSource(
                 gau8RotorLoopSource,
-                gau8BurstActive ? gau8RotorLoopVolume : 0f,
+                gau8RotorActive ? gau8RotorLoopVolume : 0f,
                 deltaTime);
         }
 
@@ -620,6 +661,9 @@ namespace ACunicombat.Mechs
             rifleTriggerHeld = false;
             rifleBurstOwnship = false;
             gau8BurstActive = false;
+            gau8LeftRotorRequested = false;
+            gau8RightRotorRequested = false;
+            gau8RotorActive = false;
         }
 
         private void LoadVariantSets()

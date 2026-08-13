@@ -72,6 +72,8 @@ $specs = @(
     [pscustomobject]@{ Key = 'WP_L_4290'; Binder = 'wp_l_4290.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4290'; Flver = 'WP_L_4290.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_4290'; Binder = 'wp_r_4290.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4290'; Flver = 'WP_R_4290.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_4410'; Binder = 'wp_r_4410.partsbnd.dcx'; TextureBinder = 'wp_4410.tpf.dcx'; RawDir = $null; Flver = 'WP_R_4410.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_L_1910'; Binder = 'wp_l_1910.partsbnd.dcx'; TextureBinder = 'wp_1910.tpf.dcx'; RawDir = $null; Flver = 'WP_L_1910.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_R_1910'; Binder = 'wp_r_1910.partsbnd.dcx'; TextureBinder = 'wp_1910.tpf.dcx'; RawDir = $null; Flver = 'WP_R_1910.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_L_5110'; Binder = 'wp_l_5110.partsbnd.dcx'; TextureBinder = 'wp_5110.tpf.dcx'; RawDir = $null; Flver = 'WP_L_5110.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_5110'; Binder = 'wp_r_5110.partsbnd.dcx'; TextureBinder = 'wp_5110.tpf.dcx'; RawDir = $null; Flver = 'WP_R_5110.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'BS_A_1010'; Binder = 'bs_a_1010.partsbnd.dcx'; TextureBinder = $null; RawDir = 'parts\bs_a_1010'; Flver = 'BS_A_1010.flver'; Kind = 'Booster' },
