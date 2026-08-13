@@ -25,27 +25,9 @@ namespace ACunicombat.Mechs
         private Light rearBankLight;
         private Texture2D staticPreviewImage;
         private Bounds contentBounds;
-        // 轨道视角分成"目标"和"当前"两套。鼠标只写目标值，当前值每帧向目标做指数阻尼。
-        // 直接把 Event.delta 累加到相机角度会抖：每帧的鼠标位移量本身是不均匀的
-        // （12px、30px、8px、25px…），乘上灵敏度就是每帧转 5 度、13 度、3 度、11 度，
-        // 转速忽快忽慢，加上没有运动模糊，看起来就是"整个在抖、每帧是一张朝向不同的图"。
         private float orbitYaw = -18f;
         private float orbitPitch = 7f;
         private float zoom = DefaultZoom;
-        private float orbitYawTarget = -18f;
-        private float orbitPitchTarget = 7f;
-        private float zoomTarget = DefaultZoom;
-        private int lastSmoothedFrame = -1;
-
-        [Header("轨道视角手感")]
-        [Tooltip("水平灵敏度：度 / 鼠标像素")]
-        [SerializeField] private float orbitYawSensitivity = 0.45f;
-        [Tooltip("垂直灵敏度：度 / 鼠标像素")]
-        [SerializeField] private float orbitPitchSensitivity = 0.35f;
-        [Tooltip("滚轮缩放灵敏度")]
-        [SerializeField] private float zoomSensitivity = 0.08f;
-        [Tooltip("跟随目标角度的时间常数（秒）。越小越跟手，越大越顺滑。0 = 关闭平滑。")]
-        [SerializeField] private float orbitSmoothingTime = 0.07f;
         private bool hasRenderableContent;
         private MechAppearanceSettings appearance = new MechAppearanceSettings();
 
@@ -139,7 +121,6 @@ namespace ACunicombat.Mechs
             {
                 HandleOrbitInput(rect);
             }
-            SmoothOrbitTowardsTarget();
             ApplyCameraPose();
             if (hasRenderableContent)
             {
@@ -468,10 +449,9 @@ namespace ACunicombat.Mechs
         private void FrameContent()
         {
             hasRenderableContent = TryCalculateBounds(contentRoot, out contentBounds);
-            // 目标值必须一起重置，否则换部件后视角会从默认角度又滑回上一个部件的角度。
-            orbitYaw = orbitYawTarget = -18f;
-            orbitPitch = orbitPitchTarget = 7f;
-            zoom = zoomTarget = DefaultZoom;
+            orbitYaw = -18f;
+            orbitPitch = 7f;
+            zoom = DefaultZoom;
             UpdateHangarLighting();
             ApplyCameraPose();
         }
@@ -559,49 +539,18 @@ namespace ACunicombat.Mechs
 
             if (currentEvent.type == EventType.MouseDrag && currentEvent.button == 0)
             {
-                orbitYawTarget += currentEvent.delta.x * orbitYawSensitivity;
-                orbitPitchTarget = Mathf.Clamp(
-                    orbitPitchTarget + currentEvent.delta.y * orbitPitchSensitivity, -55f, 55f);
+                orbitYaw += currentEvent.delta.x * 0.45f;
+                orbitPitch = Mathf.Clamp(orbitPitch + currentEvent.delta.y * 0.35f, -55f, 55f);
                 currentEvent.Use();
             }
             else if (currentEvent.type == EventType.ScrollWheel)
             {
-                zoomTarget = Mathf.Clamp(
-                    zoomTarget * (1f + currentEvent.delta.y * zoomSensitivity),
+                zoom = Mathf.Clamp(
+                    zoom * (1f + currentEvent.delta.y * 0.08f),
                     MinimumZoom,
                     MaximumZoom);
                 currentEvent.Use();
             }
-        }
-
-        /// <summary>
-        /// 把当前视角向目标视角推进。必须每帧只跑一次：OnGUI 一帧会被调用多次
-        /// （Layout、Repaint、以及每个输入事件各一次），逐次做阻尼会让实际转速随当帧
-        /// 事件数量变化，本身就成了新的抖动来源。
-        /// </summary>
-        private void SmoothOrbitTowardsTarget()
-        {
-            if (lastSmoothedFrame == Time.frameCount)
-            {
-                return;
-            }
-
-            lastSmoothedFrame = Time.frameCount;
-
-            if (orbitSmoothingTime <= 0f)
-            {
-                orbitYaw = orbitYawTarget;
-                orbitPitch = orbitPitchTarget;
-                zoom = zoomTarget;
-                return;
-            }
-
-            // 指数趋近，写成 1 - exp(-dt / tau) 的形式以保证与帧率无关。
-            // unscaledDeltaTime：机库里暂停或改 timeScale 时视角操作仍应正常。
-            var t = 1f - Mathf.Exp(-Time.unscaledDeltaTime / orbitSmoothingTime);
-            orbitYaw = Mathf.Lerp(orbitYaw, orbitYawTarget, t);
-            orbitPitch = Mathf.Lerp(orbitPitch, orbitPitchTarget, t);
-            zoom = Mathf.Lerp(zoom, zoomTarget, t);
         }
 
         private void EnsureTarget(int width, int height)
@@ -618,10 +567,7 @@ namespace ACunicombat.Mechs
             {
                 name = "MechHangarPreview",
                 hideFlags = HideFlags.HideAndDontSave,
-                // 之前是 1，等于 previewCamera.allowMSAA 完全没生效（URP 渲染到自定义 RT 时
-                // 用的是 RT 描述符的采样数，不是管线资产上的）。部件边缘和细密的分模线在
-                // 转动时会逐帧重新走样，这也是"每帧像换了一张图"观感的一部分。
-                antiAliasing = 4,
+                antiAliasing = 1,
                 useMipMap = false,
                 autoGenerateMips = false
             };

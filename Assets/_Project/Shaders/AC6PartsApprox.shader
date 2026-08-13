@@ -60,10 +60,6 @@ Shader "ACunicombat/AC6/Parts Approx"
         [HideInInspector] _OcclusionStrength("Legacy Mask Occlusion", Range(0, 1)) = 0
         [HideInInspector] _MaskMetallicInfluence("Legacy Mask Metallic Influence", Range(0, 1)) = 0
         [HideInInspector] _MaskSmoothnessInfluence("Legacy Mask Smoothness Influence", Range(0, 1)) = 0
-        // 屏幕空间法线方差的采样核大小与粗糙度加宽上限。0.25 对应"整个像素"的
-        // 高斯重建核（2 sigma），是物理上的合理上限。
-        _SpecularAAVariance("Specular AA Screen Space Variance", Range(0, 0.25)) = 0.12
-        _SpecularAAThreshold("Specular AA Max Roughness Widening", Range(0, 1)) = 0.25
         _Cutoff("Alpha Cutoff", Range(0, 1)) = 0.5
     }
 
@@ -170,8 +166,6 @@ Shader "ACunicombat/AC6/Parts Approx"
             half _OcclusionStrength;
             half _MaskMetallicInfluence;
             half _MaskSmoothnessInfluence;
-            half _SpecularAAVariance;
-            half _SpecularAAThreshold;
             half _Cutoff;
             CBUFFER_END
 
@@ -454,22 +448,6 @@ Shader "ACunicombat/AC6/Parts Approx"
 
                 InputData inputData = BuildInputData(input, surfaceData.normalTS);
 
-                // 镜面走样抑制。法线贴图是 2048²，而一个部件在机库/战斗中通常只占几百像素，
-                // 每个屏幕像素要覆盖 6x6 个以上 texel。硬件 mip 会把这一片法线取平均，但着色
-                // 只拿到平均方向、拿不到"这一片有多杂乱"，粗糙度照旧很低（Zone4 smoothness
-                // 0.62），于是高光尺度小于一个像素，机体一转就在细节上乱闪。
-                // 实测（0.5° 旋转，逐像素差分）：开法线 11.07% 像素明显跳变，关法线只有
-                // 2.46%——78% 的抖动来自这里，不是 zone mask、也不是 mip 跳变。
-                // 解法是按屏幕空间法线方差把粗糙度加宽，让高光尺度回到像素以上。用的是 URP
-                // core 自带的 Tokuyoshi 2021 投影空间 NDF 滤波，不是自己捏的近似。
-                // 注意必须传 inputData.normalWS（已含法线贴图）而不是几何法线，我们要滤的
-                // 正是法线贴图带来的方差。
-                surfaceData.smoothness = ProjectedSpaceGeometricNormalFiltering(
-                    surfaceData.smoothness,
-                    inputData.normalWS,
-                    _SpecularAAVariance,
-                    _SpecularAAThreshold);
-
                 half4 color = UniversalFragmentPBR(inputData, surfaceData);
                 color.rgb = MixFog(color.rgb, inputData.fogCoord);
                 color.a = 1.0h;
@@ -653,8 +631,6 @@ Shader "ACunicombat/AC6/Parts Approx"
             half _OcclusionStrength;
             half _MaskMetallicInfluence;
             half _MaskSmoothnessInfluence;
-            half _SpecularAAVariance;
-            half _SpecularAAThreshold;
             half _Cutoff;
             CBUFFER_END
 
