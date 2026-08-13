@@ -230,6 +230,12 @@ namespace ACunicombat.Mechs
         /// <summary>当前主推进器实际输出相对额定主推力的比例，仅用于遥测与热模型。</summary>
         public float MainEngineOutput => mainEngineOutput;
 
+        /// <summary>
+        /// 最近一帧推进系统的实际电功率消耗（MW）。由 Tick 内的推进功率解算写入，
+        /// 供工程状态 HUD 等遥测消费；不参与物理。
+        /// </summary>
+        public float CurrentPropulsionPowerMw { get; private set; }
+
         public float TechnicalSafetySpeed => technicalSafetySpeed;
 
         public float CurrentManeuverEnergy
@@ -974,8 +980,10 @@ namespace ACunicombat.Mechs
             // 没有独立节流杆。W/S 直接请求对应纵向喷口组的额定输出；松键即停火，
             // 已获得的速度继续按惯性保留。
             var forwardCommand = Mathf.Clamp(frame.MoveLocal.y, -1f, 1f);
+            var propulsionPowerMw = ResolveMovementEnergyDrainRate(in frame, forwardCommand);
+            CurrentPropulsionPowerMw = propulsionPowerMw;
             var movementEnergyScale = ConsumeMovementEnergy(
-                ResolveMovementEnergyDrainRate(in frame, forwardCommand),
+                propulsionPowerMw,
                 deltaTime);
             ResolveThrusterForces(
                 out var mainThrustNewtons,
