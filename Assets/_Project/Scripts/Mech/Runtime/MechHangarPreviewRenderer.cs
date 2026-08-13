@@ -121,7 +121,6 @@ namespace ACunicombat.Mechs
             {
                 HandleOrbitInput(rect);
             }
-            ApplyCameraPose();
             if (hasRenderableContent)
             {
                 GUI.DrawTexture(rect, targetTexture, ScaleMode.StretchToFill, false);
@@ -144,6 +143,18 @@ namespace ACunicombat.Mechs
                     normal = { textColor = new Color(0.56f, 0.68f, 0.71f) }
                 };
                 GUI.Label(rect, "该部件没有可显示的外部模型", style);
+            }
+        }
+
+        private void LateUpdate()
+        {
+            // IMGUI receives drag events after the normal camera update phase. Applying the pose
+            // inside Draw made the enabled preview camera render either the old or new pose
+            // depending on event timing. Commit it once here so the next camera render always
+            // observes one complete input state.
+            if (previewStage != null && previewStage.activeInHierarchy)
+            {
+                ApplyCameraPose();
             }
         }
 
