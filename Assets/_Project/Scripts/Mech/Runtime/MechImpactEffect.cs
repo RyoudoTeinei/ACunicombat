@@ -30,6 +30,7 @@ namespace ACunicombat.Mechs
         private static Material debrisMaterial;
         private static Material emberMaterial;
         private static Material emberTrailMaterial;
+        private static Material detonationHaloMaterial;
 
         private Light impactLight;
         private float lightPeakIntensity;
@@ -117,6 +118,10 @@ namespace ACunicombat.Mechs
             const float emberLifetime = 2.9f + 0.26f;
 
             thermal.Track(BuildFlash(scale * 1.05f, distanceReadable: true));
+            // 起爆瞬间的辉光层。单靠核心闪光做不出"闪一下"的冲击感：核心只有几米，
+            // 在屏幕上占不了多少面积；真正制造冲击的是这一层大而极短、低 alpha 的
+            // 光晕，它的作用是把 Bloom 一次性冲开，让整个画面亮一下再立刻收回。
+            thermal.Track(BuildDetonationHalo(scale));
             if (!gpuVfxSpawned)
             {
                 // GPU flipbook blending is the primary path. The classic particle version
@@ -308,7 +313,9 @@ namespace ACunicombat.Mechs
             }
 
             var main = system.main;
-            var flashSeconds = distanceReadable ? 0.085f : FlashSeconds;
+            // 爆炸闪光要读作"一下"，不是"一团"。0.085 s 在 60fps 下约 5 帧，配合原先
+            // 由小长大的尺寸曲线会摊成一个小火团；缩到 0.055 s 并让尺寸首帧即满。
+            var flashSeconds = distanceReadable ? 0.055f : FlashSeconds;
             main.duration = flashSeconds;
             main.loop = false;
             main.startLifetime = new ParticleSystem.MinMaxCurve(flashSeconds * 0.65f, flashSeconds);
@@ -328,13 +335,17 @@ namespace ACunicombat.Mechs
             sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(
                 1f,
                 new AnimationCurve(
-                    new Keyframe(0f, 0.35f),
-                    new Keyframe(0.25f, 1f),
-                    new Keyframe(1f, 1.25f)));
+                    // 首帧即满：闪光是一次瞬时释放，没有"长大"的过程。之后略微外扩，
+                    // 读作光球边缘被推开，而不是又生成了一团东西。
+                    new Keyframe(0f, 1f),
+                    new Keyframe(0.35f, 1.16f),
+                    new Keyframe(1f, 1.3f)));
 
             var colorOverLifetime = system.colorOverLifetime;
             colorOverLifetime.enabled = true;
-            colorOverLifetime.color = MechEffectResources.CreateBlackbodyCoolingGradient();
+            // 不用 CreateBlackbodyCoolingGradient：它的 alpha 保持到 0.4 才开始下降，
+            // 那是火球冷却的节奏。闪光要的是"满 → 立刻塌"。
+            colorOverLifetime.color = CreateFlashDecayGradient();
 
             // HDR 峰值明确推过战斗 Volume 的 Bloom 阈值 1.1，闪光才会泛开并喂到镜头光晕。
             flashMaterial ??= MechEffectResources.CreateAdditiveParticleMaterial(
@@ -568,6 +579,85 @@ namespace ACunicombat.Mechs
             renderer.receiveShadows = false;
 
             system.Play();
+        }
+
+        /// <summary>
+        /// 起爆辉光：一层远大于核心闪光、寿命极短、低 alpha 的加色光晕。
+        /// 它不表现任何实体，唯一职责是在起爆那一两帧把 Bloom 冲开，制造"闪一下"的
+        /// 冲击感——核心闪光只有几米宽，单独看只是个亮点，撑不起这个瞬间。
+        /// 因为是纯光学现象，它不参与 <see cref="MechEffectThermalAppearance"/> 之外的
+        /// 任何物理表达，也刻意不做冷却降色温：它在冷却发生之前就已经消失了。
+        /// </summary>
+        private ParticleSystemRenderer BuildDetonationHalo(float scale)
+        {
+            var system = CreateChildSystem("DetonationHalo", out var renderer);
+
+            var main = system.main;
+            const float haloSeconds = 0.09f;
+            main.duration = haloSeconds;
+            main.loop = false;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(haloSeconds * 0.8f, haloSeconds);
+            main.startSpeed = 0f;
+            // 远大于核心闪光（那层是 scale*1.6~2.4），才能占到足够的屏幕面积。
+            main.startSize = new ParticleSystem.MinMaxCurve(scale * 5.2f, scale * 7.4f);
+            main.startColor = Color.white;
+            main.startRotation = new ParticleSystem.MinMaxCurve(-Mathf.PI, Mathf.PI);
+
+            var emission = system.emission;
+            emission.rateOverTime = 0f;
+            emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 1) });
+
+            var shape = system.shape;
+            shape.enabled = false;
+
+            var sizeOverLifetime = system.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(
+                1f,
+                new AnimationCurve(
+                    new Keyframe(0f, 0.82f),
+                    new Keyframe(0.3f, 1.12f),
+                    new Keyframe(1f, 1.34f)));
+
+            var colorOverLifetime = system.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            colorOverLifetime.color = CreateFlashDecayGradient();
+
+            // alpha 压低：这层要的是"整片亮一下"，不是画一个可辨认的白盘。真正的
+            // 亮度靠 HDR 值推过 Bloom 阈值来获得，而不是靠不透明度。
+            detonationHaloMaterial ??= MechEffectResources.CreateAdditiveParticleMaterial(
+                "AC6 Detonation Halo (Runtime)",
+                new Color(3.4f, 2.9f, 2.3f, 0.5f));
+            MechEffectResources.ConfigureUnlitRenderer(renderer, detonationHaloMaterial);
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+
+            system.Play();
+            return renderer;
+        }
+
+        /// <summary>
+        /// 闪光专用衰减：满值起步、几乎立刻塌掉。
+        /// 与 <c>CreateBlackbodyCoolingGradient</c> 的区别在节奏——后者的 alpha 保持到
+        /// 生命的 40% 才开始下降，那是火团冷却的时间尺度；闪光要的是一次瞬时释放。
+        /// </summary>
+        private static Gradient CreateFlashDecayGradient()
+        {
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(new Color(1f, 0.99f, 0.97f), 0f),
+                    new GradientColorKey(new Color(1f, 0.94f, 0.8f), 0.4f),
+                    new GradientColorKey(new Color(1f, 0.78f, 0.48f), 1f),
+                },
+                new[]
+                {
+                    new GradientAlphaKey(1f, 0f),
+                    new GradientAlphaKey(0.62f, 0.18f),
+                    new GradientAlphaKey(0.14f, 0.55f),
+                    new GradientAlphaKey(0f, 1f),
+                });
+            return gradient;
         }
 
         /// <summary>
