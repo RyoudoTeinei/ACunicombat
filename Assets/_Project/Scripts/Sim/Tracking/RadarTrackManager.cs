@@ -1050,10 +1050,10 @@ namespace ACunicombat.Tracking
                     continue;
                 }
 
-                // A missile-only burst must never evict the platform track that fire control
-                // and STT depend on. A fresh platform return may, however, reclaim a slot from
-                // a missile when the processor is completely saturated.
-                if (incomingClass == TrackObjectClass.Missile &&
+                // Non-platform returns must never evict the platform track that fire control
+                // and STT depend on. A fresh platform return may, however, reclaim one of
+                // their slots when the processor is completely saturated.
+                if (incomingClass != TrackObjectClass.AirVehicle &&
                     slot.ObjectClass == TrackObjectClass.AirVehicle)
                 {
                     continue;

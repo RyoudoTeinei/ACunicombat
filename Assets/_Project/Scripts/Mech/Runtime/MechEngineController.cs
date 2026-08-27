@@ -24,9 +24,11 @@ namespace ACunicombat.Mechs
     {
         private const string AudioRoot = "Audio/Engine/";
         private const float SilentLoopVolume = 0.0001f;
+        private const float MaximumStartupDurationSeconds = 5.5f;
 
         [Header("Startup")]
-        [SerializeField, Range(0f, 7.5f)] private float startupDurationSeconds = 7.5f;
+        [SerializeField, Range(0f, MaximumStartupDurationSeconds)]
+        private float startupDurationSeconds = MaximumStartupDurationSeconds;
         [SerializeField, Min(0.01f)] private float startupFadeSeconds = 1.4f;
 
         [Header("Mix")]
@@ -81,7 +83,10 @@ namespace ACunicombat.Mechs
 
         private void Awake()
         {
-            startupDurationSeconds = Mathf.Clamp(startupDurationSeconds, 0f, 7.5f);
+            startupDurationSeconds = Mathf.Clamp(
+                startupDurationSeconds,
+                0f,
+                MaximumStartupDurationSeconds);
             fallbackStartupDurationSeconds = startupDurationSeconds;
             runtimeState = GetComponent<MechRuntimeState>();
             startupFadeSeconds = Mathf.Min(startupFadeSeconds, 1.4f);
@@ -98,21 +103,21 @@ namespace ACunicombat.Mechs
             return module switch
             {
                 MechStartupHudModule.FlightReference =>
-                    LampWarmupAlpha(0.45f, 1.25f, 0.3f, true),
+                    LampWarmupAlpha(0.33f, 0.92f, 0.3f, true),
                 MechStartupHudModule.TacticalDisplay =>
-                    LampWarmupAlpha(1.2f, 2.05f, 1.1f, true),
+                    LampWarmupAlpha(0.88f, 1.5f, 1.1f, true),
                 MechStartupHudModule.RadarScan =>
-                    LampWarmupAlpha(2.65f, 3.35f, 2.3f, false),
+                    LampWarmupAlpha(1.94f, 2.46f, 2.3f, false),
                 MechStartupHudModule.ThreatWarning =>
-                    LampWarmupAlpha(2.55f, 3.4f, 3.7f, true),
+                    LampWarmupAlpha(1.87f, 2.49f, 3.7f, true),
                 MechStartupHudModule.RadarStatus =>
-                    LampWarmupAlpha(1.75f, 2.55f, 4.6f, true),
+                    LampWarmupAlpha(1.28f, 1.87f, 4.6f, true),
                 MechStartupHudModule.Weapons =>
-                    LampWarmupAlpha(3.55f, 4.45f, 5.2f, true),
+                    LampWarmupAlpha(2.6f, 3.26f, 5.2f, true),
                 MechStartupHudModule.VitalStatus =>
-                    LampWarmupAlpha(4.15f, 5f, 6.4f, false),
+                    LampWarmupAlpha(3.04f, 3.67f, 6.4f, false),
                 MechStartupHudModule.TrackData =>
-                    LampWarmupAlpha(5.15f, 6.05f, 7.8f, true),
+                    LampWarmupAlpha(3.78f, 4.44f, 7.8f, true),
                 _ => 1f,
             };
         }
@@ -244,7 +249,10 @@ namespace ACunicombat.Mechs
                 : 0f;
             var generatorPerformance = generator?.GeneratorPerformance;
             startupDurationSeconds = generatorPerformance != null && generatorPerformance.HasData
-                ? Mathf.Clamp(generatorPerformance.startupTimeS, 0f, 30f)
+                ? Mathf.Clamp(
+                    generatorPerformance.startupTimeS,
+                    0f,
+                    MaximumStartupDurationSeconds)
                 : fallbackStartupDurationSeconds;
             if (preserveProgress && startupActive)
             {

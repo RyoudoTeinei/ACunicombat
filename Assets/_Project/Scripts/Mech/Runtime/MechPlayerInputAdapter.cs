@@ -23,8 +23,8 @@ namespace ACunicombat.Mechs
         public bool QuickBoostEdge;
         /// <summary>X 按住（水平反推制动并保持当前高度）。</summary>
         public bool BrakeHeld;
-        /// <summary>按住 F 时冻结当前水平推力参考；机体仍可随鼠标转向。</summary>
-        public bool InertialThrustLockHeld;
+        /// <summary>按住 F 时启用仅影响相机的自由视角。</summary>
+        public bool FreeLookHeld;
         /// <summary>Primary fire is the left mouse button and commands the anatomical left hand.</summary>
         public bool PrimaryFireHeld;
         public bool PrimaryFireEdge;
@@ -47,8 +47,12 @@ namespace ACunicombat.Mechs
         public bool RightShoulderFireEdge;
         /// <summary>Digit 2 toggles runtime thrust-force visualization.</summary>
         public bool ThrustVisualizationToggleEdge;
+        /// <summary>Digit 3 toggles all hostile combat AI controllers.</summary>
+        public bool EnemyAiToggleEdge;
         /// <summary>Backquote (`~) cycles thermal vision: off → white hot → black hot.</summary>
         public bool ThermalVisionCycleEdge;
+        /// <summary>G releases one combined flare/chaff burst.</summary>
+        public bool CountermeasureReleaseEdge;
     }
 
     /// <summary>
@@ -117,7 +121,8 @@ namespace ACunicombat.Mechs
         /// <summary>每帧调用（由 MechPlayerRig 驱动，保证与运动层同帧序）。</summary>
         public MechPlayerInputFrame Sample()
         {
-            if (MechAssemblyMenu.IsAnyMenuVisible ||
+            if (MechSolarSystemMap.IsAnyMapVisible ||
+                MechAssemblyMenu.IsAnyMenuVisible ||
                 MechSystemsRadialMenu.IsAnyMenuVisible)
             {
                 ResetMiddleGesture();
@@ -162,13 +167,15 @@ namespace ACunicombat.Mechs
             frame.QuickBoostEdge = keyboard.leftShiftKey.wasPressedThisFrame;
             frame.DescendHeld = keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed;
             frame.BrakeHeld = keyboard.xKey.isPressed;
-            frame.InertialThrustLockHeld = keyboard.fKey.isPressed;
+            frame.FreeLookHeld = keyboard.fKey.isPressed;
             frame.LeftShoulderFireHeld = keyboard.qKey.isPressed;
             frame.LeftShoulderFireEdge = keyboard.qKey.wasPressedThisFrame;
             frame.RightShoulderFireHeld = keyboard.eKey.isPressed;
             frame.RightShoulderFireEdge = keyboard.eKey.wasPressedThisFrame;
             frame.ThrustVisualizationToggleEdge = keyboard.digit2Key.wasPressedThisFrame;
+            frame.EnemyAiToggleEdge = keyboard.digit3Key.wasPressedThisFrame;
             frame.ThermalVisionCycleEdge = keyboard.backquoteKey.wasPressedThisFrame;
+            frame.CountermeasureReleaseEdge = keyboard.gKey.wasPressedThisFrame;
 
             var reloadModifierHeld = keyboard.rKey.isPressed;
             var reloadModifierEdge = keyboard.rKey.wasPressedThisFrame;

@@ -152,6 +152,18 @@ namespace ACunicombat.Tests.EditMode
                     TrackObjectClass.AirVehicle,
                     0.1f),
                 Is.False);
+            Assert.That(
+                MissileEngagementMath.IsCompatibleSeekerTarget(
+                    false,
+                    TrackObjectClass.Decoy,
+                    0.9f),
+                Is.True);
+            Assert.That(
+                MissileEngagementMath.IsCompatibleSeekerTarget(
+                    true,
+                    TrackObjectClass.Decoy,
+                    0.9f),
+                Is.False);
         }
 
         [Test]
@@ -401,6 +413,34 @@ namespace ACunicombat.Tests.EditMode
                 1000f);
 
             Assert.That(reachable, Is.False);
+        }
+
+        [Test]
+        public void MissileClosestApproachCrossing_FindsMissedPassInsideTick()
+        {
+            var crossed = MissileEngagementMath.TryGetClosestApproachCrossing(
+                new float3(10f, 5f, 0f),
+                new float3(-20f, 0f, 0f),
+                1f,
+                out var time,
+                out var distance);
+
+            Assert.That(crossed, Is.True);
+            Assert.That(time, Is.EqualTo(0.5f).Within(1e-5f));
+            Assert.That(distance, Is.EqualTo(5f).Within(1e-5f));
+        }
+
+        [Test]
+        public void MissileClosestApproachCrossing_RejectsStillClosingTarget()
+        {
+            var crossed = MissileEngagementMath.TryGetClosestApproachCrossing(
+                new float3(100f, 0f, 0f),
+                new float3(-10f, 0f, 0f),
+                1f,
+                out _,
+                out _);
+
+            Assert.That(crossed, Is.False);
         }
     }
 }

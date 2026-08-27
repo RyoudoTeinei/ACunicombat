@@ -47,6 +47,11 @@ public sealed class MechAssemblerEditor : Editor
             }
         }
 
+        if (GUILayout.Button("编辑推进器喷口 / Edit Thruster Nozzles"))
+        {
+            MechThrusterNozzleEditor.OpenFor(assembler.gameObject);
+        }
+
         if (assembler.GetComponent<MechDebugGizmos>() != null)
         {
             EditorGUILayout.HelpBox(

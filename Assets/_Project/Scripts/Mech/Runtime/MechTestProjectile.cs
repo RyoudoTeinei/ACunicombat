@@ -64,6 +64,8 @@ namespace ACunicombat.Mechs
 
 		private const float SeekerLockMemorySeconds = 0.35f;
 
+		private const float MinimumSeekerActivationDelaySeconds = 0.5f;
+
 		private const float InterceptorSeekerLockMemorySeconds = 0.65f;
 
 		private const float InterceptorFuseMeasurementMaximumAgeSeconds = 0.12f;
@@ -171,6 +173,24 @@ namespace ACunicombat.Mechs
 
 		private float mainMassFlowKgPerSecond;
 
+		private MissilePropulsionMode propulsionMode;
+
+		private float secondStagePropellantMassRemainingKg;
+
+		private float secondStageThrustNewtons;
+
+		private float secondStageMassFlowKgPerSecond;
+
+		private float secondStageIgnitionDelaySeconds;
+
+		private float secondStageMinimumThrottle;
+
+		private float firstStageBurnoutTime = -1f;
+
+		private bool secondStageIgnited;
+
+		private float lastGuidanceRangeMeters = float.PositiveInfinity;
+
 		private float rcsPropellantMassRemainingKg;
 
 		private float rcsThrustNewtons;
@@ -186,6 +206,8 @@ namespace ACunicombat.Mechs
 		private float currentAngularRateRadians;
 
 		private float seekerActivationDelay;
+
+		private bool seekerActivated;
 
 		private float seekerMaximumRange;
 
@@ -354,6 +376,16 @@ namespace ACunicombat.Mechs
 
 		private float noGuidanceSeconds;
 
+		private bool hasObservedClosingApproach;
+
+		private bool missedTargetDetonationPending;
+
+		private float missedTargetDetonationTime;
+
+		private Vector3 missedTargetDetonationPoint;
+
+		private string missedTargetDetonationReason;
+
 		public static IReadOnlyList<MechTestProjectile> Registry => registry;
 
 		public MissileFlightPhase MissilePhase => missilePhase;
@@ -374,7 +406,7 @@ namespace ACunicombat.Mechs
 
 		public bool SeekerLocked => seekerLocked;
 
-		public float CurrentMassKg => dryMassKg + mainPropellantMassRemainingKg + rcsPropellantMassRemainingKg;
+		public float CurrentMassKg => dryMassKg + mainPropellantMassRemainingKg + secondStagePropellantMassRemainingKg + rcsPropellantMassRemainingKg;
 
 		public float MainPropellantMassRemainingKg => mainPropellantMassRemainingKg;
 
@@ -491,6 +523,11 @@ namespace ACunicombat.Mechs
 			engagementAssessmentRemaining = 0f;
 			engagementFailureEvidenceSeconds = 0f;
 			noGuidanceSeconds = 0f;
+			hasObservedClosingApproach = false;
+			missedTargetDetonationPending = false;
+			missedTargetDetonationTime = float.PositiveInfinity;
+			missedTargetDetonationPoint = default(Vector3);
+			missedTargetDetonationReason = string.Empty;
 			interceptionHealth = (IsMissile ? 80f : 0f);
 			interceptionResolved = false;
 			velocity = initialVelocity;
@@ -635,6 +672,15 @@ namespace ACunicombat.Mechs
 			mainPropellantMassRemainingKg = profile.MainPropellantMassKg;
 			mainEngineThrustNewtons = profile.MainEngineThrustNewtons;
 			mainMassFlowKgPerSecond = profile.MainMassFlowKgPerSecond;
+			propulsionMode = profile.PropulsionMode;
+			secondStagePropellantMassRemainingKg = profile.SecondStagePropellantMassKg;
+			secondStageThrustNewtons = profile.SecondStageThrustNewtons;
+			secondStageMassFlowKgPerSecond = profile.SecondStageMassFlowKgPerSecond;
+			secondStageIgnitionDelaySeconds = profile.SecondStageIgnitionDelaySeconds;
+			secondStageMinimumThrottle = profile.SecondStageMinimumThrottle;
+			firstStageBurnoutTime = -1f;
+			secondStageIgnited = false;
+			lastGuidanceRangeMeters = float.PositiveInfinity;
 			rcsPropellantMassRemainingKg = profile.RcsPropellantMassKg;
 			rcsThrustNewtons = profile.RcsThrustNewtons;
 			rcsMassFlowKgPerSecond = profile.RcsMassFlowKgPerSecond;
@@ -643,6 +689,7 @@ namespace ACunicombat.Mechs
 			maximumAngularRateRadians = profile.MaximumAngularRateDegreesPerSecond * (MathF.PI / 180f);
 			currentAngularRateRadians = 0f;
 			seekerActivationDelay = profile.SeekerActivationDelaySeconds;
+			seekerActivated = false;
 			seekerMaximumRange = profile.SeekerRangeMeters;
 			seekerHalfAngleRadians = profile.SeekerSearchHalfAngleDegrees * (MathF.PI / 180f);
 			seekerGimbalRadians = profile.SeekerGimbalDegrees * (MathF.PI / 180f);
@@ -945,6 +992,24 @@ namespace ACunicombat.Mechs
 				UnityEngine.Object.Destroy(base.gameObject);
 				return;
 			}
+			if (weaponKind == TestWeaponKind.Missile &&
+				missedTargetDetonationPending &&
+				MissileEngagementMath.ProximityOccursBeforeImpact(
+					missedTargetDetonationTime,
+					sweepTime))
+			{
+				RecordProjectileTelemetry(
+					"missile_self_destruct",
+					"missed",
+					missedTargetDetonationReason);
+				DetonateWarhead(
+					missedTargetDetonationPoint,
+					interceptorMissile
+						? missedTargetDetonationTime
+						: 0f);
+				UnityEngine.Object.Destroy(base.gameObject);
+				return;
+			}
 			if (cannonFuseArmedAtTickStart && TryFindCannonProximityPass(dt, out var cannonFuseTime, out var cannonDetonationPoint, out var cannonMissDistance) && cannonFuseTime <= sweepTime)
 			{
 				Debug.Log("[CannonFuze] proximity burst " + $"CPA={cannonFuseTime:0.000}s " + $"miss={cannonMissDistance:0.0}m " + $"trigger={proximityFuseRadius:0.0}m.", this);
@@ -1052,7 +1117,24 @@ namespace ACunicombat.Mechs
 			}
 			terminalFuseEstimateMemoryRemaining = Mathf.Max(0f, terminalFuseEstimateMemoryRemaining - deltaTime);
 			prelaunchSteeringRemaining = Mathf.Max(0f, prelaunchSteeringRemaining - deltaTime);
-			bool motorActive = mainPropellantMassRemainingKg > 0.0001f && mainEngineThrustNewtons > 0f && mainMassFlowKgPerSecond > 0f;
+			bool firstStageActive = mainPropellantMassRemainingKg > 0.0001f && mainEngineThrustNewtons > 0f && mainMassFlowKgPerSecond > 0f;
+			if (!firstStageActive && firstStageBurnoutTime < 0f)
+			{
+				firstStageBurnoutTime = missileFlightTime;
+			}
+			if (!firstStageActive &&
+				!secondStageIgnited &&
+				propulsionMode != MissilePropulsionMode.SinglePulseSolid &&
+				secondStagePropellantMassRemainingKg > 0.0001f &&
+				missileFlightTime >= firstStageBurnoutTime + secondStageIgnitionDelaySeconds)
+			{
+				secondStageIgnited = true;
+			}
+			bool secondStageActive = secondStageIgnited &&
+				secondStagePropellantMassRemainingKg > 0.0001f &&
+				secondStageThrustNewtons > 0f &&
+				secondStageMassFlowKgPerSecond > 0f;
+			bool motorActive = firstStageActive || secondStageActive;
 			SetMotorVisual(motorActive);
 			if (irSourceRegistered && motorActive != irMotorStateRegistered)
 			{
@@ -1063,11 +1145,28 @@ namespace ACunicombat.Mechs
 			float currentSpeed = velocity.magnitude;
 			if (motorActive)
 			{
-				float consumedPropellant = Mathf.Min(mainPropellantMassRemainingKg, mainMassFlowKgPerSecond * deltaTime);
+				float throttle = firstStageActive ? 1f : ResolveSecondStageThrottle();
+				float availablePropellant = firstStageActive
+					? mainPropellantMassRemainingKg
+					: secondStagePropellantMassRemainingKg;
+				float massFlow = firstStageActive
+					? mainMassFlowKgPerSecond
+					: secondStageMassFlowKgPerSecond;
+				float thrust = firstStageActive
+					? mainEngineThrustNewtons
+					: secondStageThrustNewtons;
+				float consumedPropellant = Mathf.Min(availablePropellant, massFlow * throttle * deltaTime);
 				float effectiveMass = Mathf.Max(dryMassKg, CurrentMassKg - consumedPropellant * 0.5f);
 				Vector3 thrustDirection = ((base.transform.forward.sqrMagnitude > 0.001f) ? base.transform.forward.normalized : ((currentSpeed > 0.01f) ? (velocity / currentSpeed) : Vector3.forward));
-				velocity += thrustDirection * (mainEngineThrustNewtons / effectiveMass) * deltaTime;
-				mainPropellantMassRemainingKg -= consumedPropellant;
+				velocity += thrustDirection * (thrust * throttle / effectiveMass) * deltaTime;
+				if (firstStageActive)
+				{
+					mainPropellantMassRemainingKg -= consumedPropellant;
+				}
+				else
+				{
+					secondStagePropellantMassRemainingKg -= consumedPropellant;
+				}
 			}
 			if (engagementState == MissileEngagementState.Spent)
 			{
@@ -1077,7 +1176,14 @@ namespace ACunicombat.Mechs
 			}
 			bool hasGuidance = false;
 			bool refreshesTerminalEstimate = false;
-			bool seekerActive = missileFlightTime >= seekerActivationDelay;
+			if (!seekerActivated &&
+				missileFlightTime >= MinimumSeekerActivationDelaySeconds &&
+				(missileFlightTime >= seekerActivationDelay ||
+				 IsGuidanceTrackInsideSeekerAcquisitionEnvelope()))
+			{
+				seekerActivated = true;
+			}
+			bool seekerActive = seekerActivated;
 			if (seekerActive)
 			{
 				UpdateSeeker(deltaTime);
@@ -1123,6 +1229,7 @@ namespace ACunicombat.Mechs
 			}
 			else if (hasGuidance)
 			{
+				lastGuidanceRangeMeters = Vector3.Distance(base.transform.position, targetPosition);
 				if (refreshesTerminalEstimate)
 				{
 					terminalFuseEstimatedPosition = seekerLocked
@@ -1148,11 +1255,109 @@ namespace ACunicombat.Mechs
 					desiredAttitudeForward = toTarget.normalized;
 				}
 				ApplyGuidance(targetPosition, targetVelocity, desiredAttitudeForward, terminalGuidance, deltaTime);
+				EvaluateClosestApproachDetonation(
+					targetPosition,
+					targetVelocity,
+					deltaTime);
 			}
 			else if (velocity.sqrMagnitude > 0.001f)
 			{
 				desiredAttitudeForward = velocity.normalized;
 			}
+		}
+
+		private float ResolveSecondStageThrottle()
+		{
+			if (propulsionMode != MissilePropulsionMode.VariableFlowDuctedRocket)
+			{
+				return 1f;
+			}
+
+			float minimum = Mathf.Clamp(secondStageMinimumThrottle, 0.05f, 1f);
+			if (float.IsInfinity(lastGuidanceRangeMeters))
+			{
+				return minimum;
+			}
+
+			// Preserve propellant during midcourse, then command full thrust for the terminal run.
+			float terminalDemand = 1f - Mathf.InverseLerp(6_000f, 35_000f, lastGuidanceRangeMeters);
+			return Mathf.Lerp(minimum, 1f, terminalDemand);
+		}
+
+		private void EvaluateClosestApproachDetonation(
+			Vector3 targetPosition,
+			Vector3 targetVelocity,
+			float deltaTime)
+		{
+			if (missedTargetDetonationPending ||
+				engagementState != MissileEngagementState.Active ||
+				missileFlightTime < proximityFuseArmTime ||
+				distanceTravelled < proximityFuseSafeDistance)
+			{
+				return;
+			}
+
+			Vector3 relativePosition = targetPosition - base.transform.position;
+			float range = relativePosition.magnitude;
+			if (range <= 0.01f)
+			{
+				return;
+			}
+
+			Vector3 relativeVelocity = targetVelocity - velocity;
+			float rangeRateNumerator = Vector3.Dot(
+				relativePosition,
+				relativeVelocity);
+			if (rangeRateNumerator < -MinimumOpeningSpeedMetersPerSecond * range)
+			{
+				hasObservedClosingApproach = true;
+			}
+
+			if (!hasObservedClosingApproach)
+			{
+				return;
+			}
+
+			if (MissileEngagementMath.TryGetClosestApproachCrossing(
+					ToFloat3(relativePosition),
+					ToFloat3(relativeVelocity),
+					deltaTime,
+					out var closestApproachTime,
+					out _))
+			{
+				QueueMissedTargetDetonation(
+					closestApproachTime,
+					base.transform.position +
+						velocity * closestApproachTime,
+					"closest_approach_passed");
+				return;
+			}
+
+			if (rangeRateNumerator > MinimumOpeningSpeedMetersPerSecond * range)
+			{
+				QueueMissedTargetDetonation(
+					0f,
+					base.transform.position,
+					"target_opening_after_pass");
+			}
+		}
+
+		private void QueueMissedTargetDetonation(
+			float detonationTime,
+			Vector3 detonationPoint,
+			string reason)
+		{
+			float clampedTime = Mathf.Max(0f, detonationTime);
+			if (missedTargetDetonationPending &&
+				clampedTime >= missedTargetDetonationTime)
+			{
+				return;
+			}
+
+			missedTargetDetonationPending = true;
+			missedTargetDetonationTime = clampedTime;
+			missedTargetDetonationPoint = detonationPoint;
+			missedTargetDetonationReason = reason ?? string.Empty;
 		}
 
 		private void UpdateEngagementViability(bool hasGuidance, Vector3 targetPosition, Vector3 targetVelocity, float deltaTime)
@@ -1167,7 +1372,7 @@ namespace ACunicombat.Mechs
 				noGuidanceSeconds += deltaTime;
 				if (noGuidanceSeconds >= 2f)
 				{
-					MarkEngagementSpent();
+					MarkEngagementSpent("guidance_lost");
 				}
 				return;
 			}
@@ -1201,21 +1406,24 @@ namespace ACunicombat.Mechs
 			engagementFailureEvidenceSeconds += 0.2f;
 			if (engagementFailureEvidenceSeconds >= 0.75f)
 			{
-				MarkEngagementSpent();
+				MarkEngagementSpent("intercept_unreachable");
 			}
 		}
 
-		private void MarkEngagementSpent()
+		private void MarkEngagementSpent(string reason)
 		{
 			if (engagementState == MissileEngagementState.Active)
 			{
+				QueueMissedTargetDetonation(
+					0f,
+					base.transform.position,
+					reason);
 				engagementState = MissileEngagementState.Spent;
 				missilePhase = MissileFlightPhase.Ballistic;
 				seekerLocked = false;
 				seekerLockMemoryRemaining = 0f;
 				hasCachedGuidanceTrack = false;
 				guidanceMemoryRemaining = 0f;
-				targetTrackId = default(TrackId);
 				terminalFuseEstimateMemoryRemaining = 0f;
 				rcsAccelerationWorld = Vector3.zero;
 				rcsAttitudeTorqueLocal = Vector3.zero;
@@ -1315,15 +1523,24 @@ namespace ACunicombat.Mechs
 		private float EstimateGuidanceSpeed(float targetRange, bool terminal)
 		{
 			float speed = Mathf.Max(velocity.magnitude, 1f);
-			if (mainPropellantMassRemainingKg <= 0.0001f || mainEngineThrustNewtons <= 0f || mainMassFlowKgPerSecond <= 0f)
+			float propellant = mainPropellantMassRemainingKg;
+			float thrust = mainEngineThrustNewtons;
+			float massFlow = mainMassFlowKgPerSecond;
+			if (propellant <= 0.0001f && secondStagePropellantMassRemainingKg > 0.0001f)
+			{
+				propellant = secondStagePropellantMassRemainingKg;
+				thrust = secondStageThrustNewtons;
+				massFlow = secondStageMassFlowKgPerSecond;
+			}
+			if (propellant <= 0.0001f || thrust <= 0f || massFlow <= 0f)
 			{
 				return speed;
 			}
-			float burnRemaining = mainPropellantMassRemainingKg / mainMassFlowKgPerSecond;
+			float burnRemaining = propellant / massFlow;
 			float projectionLimit = ((!interceptorMissile) ? (terminal ? 0.75f : 2.5f) : (terminal ? 0.35f : 0.8f));
 			float rangeTime = targetRange / Mathf.Max(speed, 100f);
 			float projectionTime = Mathf.Min(burnRemaining, projectionLimit, rangeTime);
-			float axialAcceleration = mainEngineThrustNewtons / Mathf.Max(CurrentMassKg, 0.001f);
+			float axialAcceleration = thrust / Mathf.Max(CurrentMassKg, 0.001f);
 			return speed + axialAcceleration * Mathf.Max(0f, projectionTime) * 0.7f;
 		}
 
@@ -1342,20 +1559,27 @@ namespace ACunicombat.Mechs
 			{
 				return 0f;
 			}
-			float burnoutMass = Mathf.Max(dryMassKg + mainPropellantMassRemainingKg, 0.001f);
+			float burnoutMass = Mathf.Max(dryMassKg + mainPropellantMassRemainingKg + secondStagePropellantMassRemainingKg, 0.001f);
 			float currentMass = burnoutMass + rcsPropellantMassRemainingKg;
 			return rcsThrustNewtons / rcsMassFlowKgPerSecond * Mathf.Log(currentMass / burnoutMass);
 		}
 
 		private float EstimateMainEngineDeltaVRemaining()
 		{
-			if (mainPropellantMassRemainingKg <= 0f || mainEngineThrustNewtons <= 0f || mainMassFlowKgPerSecond <= 0f)
+			float deltaV = 0f;
+			float inertMass = Mathf.Max(dryMassKg + rcsPropellantMassRemainingKg, 0.001f);
+			if (mainPropellantMassRemainingKg > 0f && mainEngineThrustNewtons > 0f && mainMassFlowKgPerSecond > 0f)
 			{
-				return 0f;
+				float burnoutMass = inertMass + secondStagePropellantMassRemainingKg;
+				float currentMass = burnoutMass + mainPropellantMassRemainingKg;
+				deltaV += mainEngineThrustNewtons / mainMassFlowKgPerSecond * Mathf.Log(currentMass / burnoutMass);
 			}
-			float burnoutMass = Mathf.Max(dryMassKg + rcsPropellantMassRemainingKg, 0.001f);
-			float currentMass = burnoutMass + mainPropellantMassRemainingKg;
-			return mainEngineThrustNewtons / mainMassFlowKgPerSecond * Mathf.Log(currentMass / burnoutMass);
+			if (secondStagePropellantMassRemainingKg > 0f && secondStageThrustNewtons > 0f && secondStageMassFlowKgPerSecond > 0f)
+			{
+				float currentMass = inertMass + secondStagePropellantMassRemainingKg;
+				deltaV += secondStageThrustNewtons / secondStageMassFlowKgPerSecond * Mathf.Log(currentMass / inertMass);
+			}
+			return deltaV;
 		}
 
 		private void ConsumeRcsPropellant(float throttle, float deltaTime)
@@ -1486,6 +1710,51 @@ namespace ACunicombat.Mechs
 			return false;
 		}
 
+		private bool IsGuidanceTrackInsideSeekerAcquisitionEnvelope()
+		{
+			if (!hasCachedGuidanceTrack ||
+				guidanceMemoryRemaining <= 0f ||
+				radarController == null ||
+				seekerMaximumRange <= 0f)
+			{
+				return false;
+			}
+
+			Vector3 predictedPosition =
+				radarController.PredictTrackPosition(in cachedGuidanceTrack);
+			float range = Vector3.Distance(
+				base.transform.position,
+				predictedPosition);
+			double propagationSeconds = math.max(
+				0.0,
+				radarController.SimTimeSeconds -
+				cachedGuidanceTrack.LastPredictTime);
+			double largestSigma = 0.0;
+			for (var axis = 0; axis < 3; axis++)
+			{
+				double positionVariance =
+					cachedGuidanceTrack.GetCovariance(axis, axis);
+				double crossVariance =
+					cachedGuidanceTrack.GetCovariance(axis, axis + 3);
+				double velocityVariance =
+					cachedGuidanceTrack.GetCovariance(axis + 3, axis + 3);
+				double propagatedVariance = math.max(
+					0.0,
+					positionVariance +
+					2.0 * propagationSeconds * crossVariance +
+					propagationSeconds * propagationSeconds * velocityVariance);
+				largestSigma = math.max(
+					largestSigma,
+					math.sqrt(propagatedVariance));
+			}
+
+			double acquisitionRange =
+				FireSolutionSolver.CalculateReliableSeekerAcquisitionRange(
+					seekerMaximumRange,
+					largestSigma * 3.0);
+			return range <= acquisitionRange;
+		}
+
 		private bool TryUpdateDatalinkTrack(float deltaTime, out TrackSnapshot track)
 		{
 			track = default(TrackSnapshot);
@@ -1592,6 +1861,10 @@ namespace ACunicombat.Mechs
 				DetonateInterceptorWarhead(detonationPoint, predictionSeconds);
 				return;
 			}
+			MechTestWeaponSystem.SpawnMissileExplosion(
+				detonationPoint,
+				(velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward,
+				interceptorMissile: false);
 			int colliderCount = Physics.OverlapSphereNonAlloc(detonationPoint, warheadLethalRadius, OverlapScratch, -5, QueryTriggerInteraction.Collide);
 			bool damagedAnyTarget = false;
 			CombatTestTarget ownship = CombatTestTarget.Ownship;
@@ -1630,10 +1903,6 @@ namespace ACunicombat.Mechs
 				ownshipDamaged |= damagedCandidate && candidate == ownship;
 			}
 			PlayOwnshipFlakAirburst(detonationPoint, ownship, ownshipDamaged);
-			if (!damagedAnyTarget)
-			{
-				MechTestWeaponSystem.SpawnImpact(detonationPoint, (velocity.sqrMagnitude > 0.001f) ? (-velocity.normalized) : (-base.transform.forward), weaponKind, effectLibrary, impactFfxId);
-			}
 		}
 
 		private void PlayOwnshipFlakAirburst(Vector3 detonationPoint, CombatTestTarget ownship, bool fragmentsReached)
@@ -1848,6 +2117,10 @@ namespace ACunicombat.Mechs
 
 		private void DetonateInterceptorWarhead(Vector3 detonationPoint, float predictionSeconds)
 		{
+			MechTestWeaponSystem.SpawnMissileExplosion(
+				detonationPoint,
+				(velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward,
+				interceptorMissile: true);
 			bool damagedAnyMissile = false;
 			bool destroyedAnyMissile = false;
 			DamagedProjectileScratch.Clear();
@@ -1884,7 +2157,6 @@ namespace ACunicombat.Mechs
 			if (!damagedAnyMissile)
 			{
 				Debug.LogWarning("[Interceptor] Warhead detonated without a missile " + $"inside lethal radius {warheadLethalRadius:0.0}m; " + $"eligible={eligibleMissileCount}, nearest=" + $"{nearestPhysicalMissDistance:0.0}m.");
-				MechTestWeaponSystem.SpawnImpact(detonationPoint, (velocity.sqrMagnitude > 0.001f) ? (-velocity.normalized) : (-base.transform.forward), TestWeaponKind.Missile, effectLibrary, impactFfxId);
 			}
 			ReportInterceptorOutcome(
 				destroyedAnyMissile
@@ -1969,6 +2241,13 @@ namespace ACunicombat.Mechs
 
 		private void HandleDirectImpact(RaycastHit hit)
 		{
+			if (weaponKind == TestWeaponKind.Missile)
+			{
+				MechTestWeaponSystem.SpawnMissileExplosion(
+					hit.point,
+					(velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward,
+					interceptorMissile);
+			}
 			MechTestProjectile hitProjectile = hit.collider.GetComponentInParent<MechTestProjectile>();
 			if (hitProjectile != null && hitProjectile.ApplyPointDefenseDamage(GetPointDefenseDamage(), hit.point, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, weaponKind, effectLibrary, impactFfxId))
 			{

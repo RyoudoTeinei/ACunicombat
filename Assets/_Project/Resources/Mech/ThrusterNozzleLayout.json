@@ -1,0 +1,512 @@
+{
+    "formatVersion": 2,
+    "packageKind": "thruster-nozzle-configuration",
+    "nozzles": [
+        {
+            "id": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_31[7]",
+            "sourceId": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_31[7]",
+            "displayName": "Core / BD_M_1010_dmy_31",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 0.5346489548683167,
+                "y": -0.9542170763015747,
+                "z": -0.622765064239502
+            },
+            "localEulerOffset": {
+                "x": 359.9710388183594,
+                "y": 0.09545145928859711,
+                "z": 323.7857971191406
+            },
+            "radiusScale": 1.1399999856948853,
+            "lengthScale": 1.3300000429153443,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 260.0,
+            "vectoringEnabled": true,
+            "maximumVectorAngleDegrees": 18.0
+        },
+        {
+            "id": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_32[8]_copy_b623bca5",
+            "sourceId": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_32[8]",
+            "displayName": "Core / BD_M_1010_dmy_32 / 副本",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.620002031326294,
+                "y": 0.2906310558319092,
+                "z": -0.632645845413208
+            },
+            "localEulerOffset": {
+                "x": 291.4996032714844,
+                "y": 331.17340087890627,
+                "z": 39.245323181152347
+            },
+            "radiusScale": 1.2000000476837159,
+            "lengthScale": 1.2000000476837159,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 350.0,
+            "vectoringEnabled": true,
+            "maximumVectorAngleDegrees": 8.0
+        },
+        {
+            "id": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_32[8]_copy_b623bca5_copy_a0edc4f9",
+            "sourceId": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_32[8]",
+            "displayName": "Core / BD_M_1010_dmy_32 / 副本 / 副本",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -1.0059372186660767,
+                "y": -0.2854916453361511,
+                "z": -1.8917570114135743
+            },
+            "localEulerOffset": {
+                "x": 324.9434814453125,
+                "y": 213.13783264160157,
+                "z": 85.31901550292969
+            },
+            "radiusScale": 1.2000000476837159,
+            "lengthScale": 1.399999976158142,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 340.0,
+            "vectoringEnabled": true,
+            "maximumVectorAngleDegrees": 8.0
+        },
+        {
+            "id": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_32[8]",
+            "sourceId": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_32[8]",
+            "displayName": "Core / BD_M_1010_dmy_32",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.000008769333362579346,
+                "y": 0.000021032989025115967,
+                "z": 0.13677754998207093
+            },
+            "localEulerOffset": {
+                "x": 0.0021685452666133644,
+                "y": -0.0008243317133747041,
+                "z": 19.46778678894043
+            },
+            "radiusScale": 1.1699999570846558,
+            "lengthScale": 1.2000000476837159,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 320.0,
+            "vectoringEnabled": true,
+            "maximumVectorAngleDegrees": 18.0
+        },
+        {
+            "id": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_33[9]",
+            "sourceId": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_33[9]",
+            "displayName": "Core / BD_M_1010_dmy_33",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.6144942045211792,
+                "y": -0.9551844596862793,
+                "z": -0.5836212635040283
+            },
+            "localEulerOffset": {
+                "x": -0.005435798317193985,
+                "y": 0.0014371952274814249,
+                "z": 36.26447677612305
+            },
+            "radiusScale": 1.1399999856948853,
+            "lengthScale": 1.3300000429153443,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 260.0,
+            "vectoringEnabled": true,
+            "maximumVectorAngleDegrees": 18.0
+        },
+        {
+            "id": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_34[10]_copy_b623bca5",
+            "sourceId": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_34[10]",
+            "displayName": "Core / BD_M_1010_dmy_34 / 副本",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 0.6228315234184265,
+                "y": 0.28881877660751345,
+                "z": -0.6296579241752625
+            },
+            "localEulerOffset": {
+                "x": 291.56890869140627,
+                "y": 28.883211135864259,
+                "z": 320.61688232421877
+            },
+            "radiusScale": 1.2000000476837159,
+            "lengthScale": 1.2000000476837159,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 350.0,
+            "vectoringEnabled": true,
+            "maximumVectorAngleDegrees": 8.0
+        },
+        {
+            "id": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_34[10]_copy_b623bca5_copy_a0edc4f9",
+            "sourceId": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_34[10]",
+            "displayName": "Core / BD_M_1010_dmy_34 / 副本 / 副本",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 1.0095568895339966,
+                "y": -0.2870306372642517,
+                "z": -1.8886516094207764
+            },
+            "localEulerOffset": {
+                "x": 324.9556884765625,
+                "y": 146.73101806640626,
+                "z": 274.7847595214844
+            },
+            "radiusScale": 1.2000000476837159,
+            "lengthScale": 1.399999976158142,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 340.0,
+            "vectoringEnabled": true,
+            "maximumVectorAngleDegrees": 8.0
+        },
+        {
+            "id": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_34[10]",
+            "sourceId": "Core:AC6_SKIN_BD_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/BD_M_1010_dmy_34[10]",
+            "displayName": "Core / BD_M_1010_dmy_34",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 0.0014838017523288727,
+                "y": -0.0014362558722496033,
+                "z": 0.1388062983751297
+            },
+            "localEulerOffset": {
+                "x": 0.038424164056777957,
+                "y": 359.9292297363281,
+                "z": 340.4544372558594
+            },
+            "radiusScale": 1.1699999570846558,
+            "lengthScale": 1.2000000476837159,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 320.0,
+            "vectoringEnabled": true,
+            "maximumVectorAngleDegrees": 18.0
+        },
+        {
+            "id": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/L_Coxa[0]/L_ThighLink[0]/L_Thigh[0]/L_Calf[0]/LG_M_1010_dmy_32[5]_copy_6cb73f9c",
+            "sourceId": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/L_Coxa[0]/L_ThighLink[0]/L_Thigh[0]/L_Calf[0]/LG_M_1010_dmy_32[5]",
+            "displayName": "Legs / LG_M_1010_dmy_32 / 副本",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -1.189389944076538,
+                "y": -0.051027774810791019,
+                "z": -0.41568493843078616
+            },
+            "localEulerOffset": {
+                "x": 358.9774475097656,
+                "y": 316.53802490234377,
+                "z": 358.34405517578127
+            },
+            "radiusScale": 1.2899999618530274,
+            "lengthScale": 1.3700000047683716,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 210.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/L_Coxa[0]/L_ThighLink[0]/L_Thigh[0]/L_Calf[0]/LG_M_1010_dmy_32[5]",
+            "sourceId": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/L_Coxa[0]/L_ThighLink[0]/L_Thigh[0]/L_Calf[0]/LG_M_1010_dmy_32[5]",
+            "displayName": "Legs / LG_M_1010_dmy_32",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.02720547839999199,
+                "y": -0.02081924118101597,
+                "z": 0.000052422285079956055
+            },
+            "localEulerOffset": {
+                "x": -0.00012730654270853847,
+                "y": -0.00009935974958352745,
+                "z": 338.8957214355469
+            },
+            "radiusScale": 1.2899999618530274,
+            "lengthScale": 1.3700000047683716,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 210.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/L_Coxa[0]/L_ThighLink[0]/L_Thigh[0]/L_Calf[0]/LG_M_1010_dmy_830[12]",
+            "sourceId": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/L_Coxa[0]/L_ThighLink[0]/L_Thigh[0]/L_Calf[0]/LG_M_1010_dmy_830[12]",
+            "displayName": "Legs / LG_M_1010_dmy_830",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 0.0891205370426178,
+                "y": -1.8745416402816773,
+                "z": 0.5458589792251587
+            },
+            "localEulerOffset": {
+                "x": 79.93604278564453,
+                "y": 226.82289123535157,
+                "z": 311.77105712890627
+            },
+            "radiusScale": 2.940000057220459,
+            "lengthScale": 2.890000104904175,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 300.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/L_Coxa[0]/L_ThighLink[0]/L_Thigh[0]/L_Calf[0]/LG_M_1010_dmy_32[5]_copy_6cb73f9c_mirrored",
+            "sourceId": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/R_Coxa[1]/R_ThighLink[0]/R_Thigh[0]/R_Calf[1]/LG_M_1010_dmy_34[5]",
+            "displayName": "Legs / LG_M_1010_dmy_32 / 副本 / 右腿镜像",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 1.1916487216949463,
+                "y": -0.062391042709350589,
+                "z": -0.4308827221393585
+            },
+            "localEulerOffset": {
+                "x": 358.94146728515627,
+                "y": 43.50553512573242,
+                "z": 1.8118425607681275
+            },
+            "radiusScale": 1.2899999618530274,
+            "lengthScale": 1.3700000047683716,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 210.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/R_Coxa[1]/R_ThighLink[0]/R_Thigh[0]/R_Calf[1]/LG_M_1010_dmy_34[5]",
+            "sourceId": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/R_Coxa[1]/R_ThighLink[0]/R_Thigh[0]/R_Calf[1]/LG_M_1010_dmy_34[5]",
+            "displayName": "Legs / LG_M_1010_dmy_34",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 0.029732083901762964,
+                "y": -0.035568587481975558,
+                "z": -0.014164019376039505
+            },
+            "localEulerOffset": {
+                "x": 0.08096995949745178,
+                "y": 0.04658402502536774,
+                "z": 21.24217414855957
+            },
+            "radiusScale": 1.2899999618530274,
+            "lengthScale": 1.3700000047683716,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 210.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/R_Coxa[1]/R_ThighLink[0]/R_Thigh[0]/R_Calf[1]/LG_M_1010_dmy_831[12]",
+            "sourceId": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/R_Coxa[1]/R_ThighLink[0]/R_Thigh[0]/R_Calf[1]/LG_M_1010_dmy_831[12]",
+            "displayName": "Legs / LG_M_1010_dmy_831",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.050732631236314777,
+                "y": -3.055015802383423,
+                "z": 0.5426291227340698
+            },
+            "localEulerOffset": {
+                "x": 79.80496978759766,
+                "y": 132.627197265625,
+                "z": 47.72247314453125
+            },
+            "radiusScale": 2.940000057220459,
+            "lengthScale": 2.890000104904175,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 300.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/LG_M_1010_dmy_201[2]",
+            "sourceId": "Legs:AC6_SKIN_LG_M_1010:Master[0]/Root[2]/Pelvis[0]/Pelvis_Rot_XYZ[0]/LG_M_1010_dmy_201[2]",
+            "displayName": "Legs / LG_M_1010_dmy_201",
+            "enabled": false,
+            "localPositionOffset": {
+                "x": 0.00004513069143285975,
+                "y": 0.06216009333729744,
+                "z": 0.9721401333808899
+            },
+            "localEulerOffset": {
+                "x": 53.76557540893555,
+                "y": 0.30112069845199587,
+                "z": 0.20990769565105439
+            },
+            "radiusScale": 1.0,
+            "lengthScale": 1.0,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 300.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/L_ClavicleLink[0]/Offset_L_Clavicle[1]/L_Clavicle[0]/L_ArmJoint[0]/L_ClavicleEX_A[0]/AM_M_1010_dmy_7[0]_copy_afca6015",
+            "sourceId": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/L_ClavicleLink[0]/Offset_L_Clavicle[1]/L_Clavicle[0]/L_ArmJoint[0]/L_ClavicleEX_A[0]/AM_M_1010_dmy_7[0]",
+            "displayName": "Arms / AM_M_1010_dmy_7 / 副本",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 0.06473152339458466,
+                "y": 0.024077191948890687,
+                "z": -0.188211128115654
+            },
+            "localEulerOffset": {
+                "x": 335.1815490722656,
+                "y": 269.1041259765625,
+                "z": 6.4148759841918949
+            },
+            "radiusScale": 1.149999976158142,
+            "lengthScale": 1.909999966621399,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 320.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/L_ClavicleLink[0]/Offset_L_Clavicle[1]/L_Clavicle[0]/L_ArmJoint[0]/L_ClavicleEX_A[0]/AM_M_1010_dmy_7[0]",
+            "sourceId": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/L_ClavicleLink[0]/Offset_L_Clavicle[1]/L_Clavicle[0]/L_ArmJoint[0]/L_ClavicleEX_A[0]/AM_M_1010_dmy_7[0]",
+            "displayName": "Arms / AM_M_1010_dmy_7",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 0.08205597847700119,
+                "y": -0.2686074376106262,
+                "z": 0.3082737922668457
+            },
+            "localEulerOffset": {
+                "x": 7.7275710105896,
+                "y": 288.9773254394531,
+                "z": 8.377646446228028
+            },
+            "radiusScale": 1.090000033378601,
+            "lengthScale": 1.440000057220459,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 310.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/L_ClavicleLink[0]/Offset_L_Clavicle[1]/L_Clavicle[0]/L_ArmJoint[0]/L_ClavicleEX_A[0]/AM_M_1010_dmy_70[2]",
+            "sourceId": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/L_ClavicleLink[0]/Offset_L_Clavicle[1]/L_Clavicle[0]/L_ArmJoint[0]/L_ClavicleEX_A[0]/AM_M_1010_dmy_70[2]",
+            "displayName": "Arms / AM_M_1010_dmy_70",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": 0.02274930104613304,
+                "y": 0.0388345867395401,
+                "z": 0.22437173128128053
+            },
+            "localEulerOffset": {
+                "x": 354.56048583984377,
+                "y": 14.123046875,
+                "z": 322.98480224609377
+            },
+            "radiusScale": 1.0299999713897706,
+            "lengthScale": 1.5399999618530274,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 310.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/L_ClavicleLink[0]/Offset_L_Clavicle[1]/L_Clavicle[0]/L_ArmJoint[0]/Root_L_UpperArm[2]/L_UpperArm[0]/L_ForeArm[0]/AM_M_1010_dmy_25[4]",
+            "sourceId": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/L_ClavicleLink[0]/Offset_L_Clavicle[1]/L_Clavicle[0]/L_ArmJoint[0]/Root_L_UpperArm[2]/L_UpperArm[0]/L_ForeArm[0]/AM_M_1010_dmy_25[4]",
+            "displayName": "Arms / AM_M_1010_dmy_25",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.00021639659826178104,
+                "y": -0.00010513036977499723,
+                "z": -0.002648584544658661
+            },
+            "localEulerOffset": {
+                "x": 0.0040345885790884499,
+                "y": -0.0005885279388166964,
+                "z": 24.90300941467285
+            },
+            "radiusScale": 1.1299999952316285,
+            "lengthScale": 1.3799999952316285,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 240.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/R_ClavicleLink[1]/Offset_R_Clavicle[0]/R_Clavicle[0]/R_ArmJoint[0]/R_ClavicleEX_A[0]/AM_M_1010_dmy_8[0]_copy_afca6015",
+            "sourceId": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/R_ClavicleLink[1]/Offset_R_Clavicle[0]/R_Clavicle[0]/R_ArmJoint[0]/R_ClavicleEX_A[0]/AM_M_1010_dmy_8[0]",
+            "displayName": "Arms / AM_M_1010_dmy_8 / 副本",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.0353199765086174,
+                "y": 0.017477571964263917,
+                "z": -0.18783505260944367
+            },
+            "localEulerOffset": {
+                "x": 335.29351806640627,
+                "y": 90.88719940185547,
+                "z": 353.5877990722656
+            },
+            "radiusScale": 1.149999976158142,
+            "lengthScale": 1.909999966621399,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 320.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/R_ClavicleLink[1]/Offset_R_Clavicle[0]/R_Clavicle[0]/R_ArmJoint[0]/R_ClavicleEX_A[0]/AM_M_1010_dmy_8[0]",
+            "sourceId": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/R_ClavicleLink[1]/Offset_R_Clavicle[0]/R_Clavicle[0]/R_ArmJoint[0]/R_ClavicleEX_A[0]/AM_M_1010_dmy_8[0]",
+            "displayName": "Arms / AM_M_1010_dmy_8",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.053282156586647037,
+                "y": -0.27517884969711306,
+                "z": 0.30864453315734866
+            },
+            "localEulerOffset": {
+                "x": 7.833715438842773,
+                "y": 71.01024627685547,
+                "z": 351.58624267578127
+            },
+            "radiusScale": 1.090000033378601,
+            "lengthScale": 1.440000057220459,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 310.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/R_ClavicleLink[1]/Offset_R_Clavicle[0]/R_Clavicle[0]/R_ArmJoint[0]/R_ClavicleEX_A[0]/AM_M_1010_dmy_71[1]",
+            "sourceId": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/R_ClavicleLink[1]/Offset_R_Clavicle[0]/R_Clavicle[0]/R_ArmJoint[0]/R_ClavicleEX_A[0]/AM_M_1010_dmy_71[1]",
+            "displayName": "Arms / AM_M_1010_dmy_71",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.020054280757904054,
+                "y": 0.032512471079826358,
+                "z": 0.2289065271615982
+            },
+            "localEulerOffset": {
+                "x": 354.65167236328127,
+                "y": 345.9397277832031,
+                "z": 37.02898406982422
+            },
+            "radiusScale": 1.0299999713897706,
+            "lengthScale": 1.5399999618530274,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 310.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        },
+        {
+            "id": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/R_ClavicleLink[1]/Offset_R_Clavicle[0]/R_Clavicle[0]/R_ArmJoint[0]/Root_R_UpperArm[2]/R_UpperArm[0]/R_ForeArm[0]/AM_M_1010_dmy_25_MIRRORED[4]",
+            "sourceId": "Arms:AC6_SKIN_AM_M_1010:Master[0]/Root[2]/Root_Rot_XYZ[1]/BD_Root[0]/Spine[0]/Offset_SpineLink[0]/SpineLink[0]/Offset_Spine1[0]/Spine1[0]/Offset_ClavicleLink[1]/R_ClavicleLink[1]/Offset_R_Clavicle[0]/R_Clavicle[0]/R_ArmJoint[0]/Root_R_UpperArm[2]/R_UpperArm[0]/R_ForeArm[0]/AM_M_1010_dmy_25_MIRRORED[4]",
+            "displayName": "Arms / AM_M_1010_dmy_25_MIRRORED",
+            "enabled": true,
+            "localPositionOffset": {
+                "x": -0.0029028342105448248,
+                "y": -0.006938624195754528,
+                "z": 0.0002188030630350113
+            },
+            "localEulerOffset": {
+                "x": 0.03836820647120476,
+                "y": 359.9676513671875,
+                "z": 334.9660339355469
+            },
+            "radiusScale": 1.1299999952316285,
+            "lengthScale": 1.3799999952316285,
+            "hasPhysicalSettings": true,
+            "ratedThrustKn": 240.0,
+            "vectoringEnabled": false,
+            "maximumVectorAngleDegrees": 0.0
+        }
+    ]
+}

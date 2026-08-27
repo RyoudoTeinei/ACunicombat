@@ -98,6 +98,40 @@ namespace ACunicombat.Mechs
             return result;
         }
 
+        public static MechAudioVariantSet LoadNumbered(
+            string resourceRoot,
+            string numberedResourcePrefix,
+            int firstIndex,
+            int count)
+        {
+            var safeFirstIndex = Mathf.Max(0, firstIndex);
+            var safeCount = Mathf.Max(0, count);
+            var cacheKey =
+                resourceRoot + "|" + numberedResourcePrefix + "|" +
+                safeFirstIndex + "|" + safeCount;
+            if (SharedSets.TryGetValue(cacheKey, out var cached))
+            {
+                return cached;
+            }
+
+            var loaded = new List<AudioClip>(safeCount);
+            for (var offset = 0; offset < safeCount; offset++)
+            {
+                var clip = Resources.Load<AudioClip>(
+                    resourceRoot +
+                    numberedResourcePrefix +
+                    (safeFirstIndex + offset).ToString("000"));
+                if (clip != null)
+                {
+                    loaded.Add(clip);
+                }
+            }
+
+            var result = new MechAudioVariantSet(loaded.ToArray());
+            SharedSets[cacheKey] = result;
+            return result;
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetSharedSets()
         {

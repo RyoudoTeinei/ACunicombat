@@ -3,14 +3,29 @@ using UnityEngine;
 
 namespace ACunicombat.Mechs
 {
+    public enum MissilePropulsionMode : byte
+    {
+        SinglePulseSolid = 0,
+        DualPulseSolid = 1,
+        VariableFlowDuctedRocket = 2,
+    }
+
     [Serializable]
     public struct MissileFlightProfile
     {
         [Header("Mass and main propulsion")]
+        public MissilePropulsionMode PropulsionMode;
         [Min(0.1f)] public float DryMassKg;
         [Min(0f)] public float MainPropellantMassKg;
         [Min(0f)] public float MainEngineThrustNewtons;
         [Min(0.001f)] public float MainMassFlowKgPerSecond;
+
+        [Header("Second pulse or sustain stage")]
+        [Min(0f)] public float SecondStagePropellantMassKg;
+        [Min(0f)] public float SecondStageThrustNewtons;
+        [Min(0.001f)] public float SecondStageMassFlowKgPerSecond;
+        [Min(0f)] public float SecondStageIgnitionDelaySeconds;
+        [Range(0.05f, 1f)] public float SecondStageMinimumThrottle;
 
         [Header("Reaction control system")]
         [Min(0f)] public float RcsPropellantMassKg;
@@ -38,12 +53,24 @@ namespace ACunicombat.Mechs
         public float InitialMassKg =>
             DryMassKg +
             MainPropellantMassKg +
+            SecondStagePropellantMassKg +
             RcsPropellantMassKg;
 
         public float MainBurnDurationSeconds =>
             MainMassFlowKgPerSecond > 0f
                 ? MainPropellantMassKg / MainMassFlowKgPerSecond
                 : 0f;
+
+        public float SecondStageBurnDurationSeconds =>
+            SecondStageMassFlowKgPerSecond > 0f
+                ? SecondStagePropellantMassKg / SecondStageMassFlowKgPerSecond
+                : 0f;
+
+        public bool HasSecondStage =>
+            PropulsionMode != MissilePropulsionMode.SinglePulseSolid &&
+            SecondStagePropellantMassKg > 0f &&
+            SecondStageThrustNewtons > 0f &&
+            SecondStageMassFlowKgPerSecond > 0f;
 
         public bool IsConfigured =>
             DryMassKg > 0f &&
@@ -64,6 +91,20 @@ namespace ACunicombat.Mechs
                 Mathf.Max(0f, profile.MainEngineThrustNewtons);
             profile.MainMassFlowKgPerSecond =
                 Mathf.Max(0.001f, profile.MainMassFlowKgPerSecond);
+            profile.SecondStagePropellantMassKg =
+                Mathf.Max(0f, profile.SecondStagePropellantMassKg);
+            profile.SecondStageThrustNewtons =
+                Mathf.Max(0f, profile.SecondStageThrustNewtons);
+            profile.SecondStageMassFlowKgPerSecond =
+                Mathf.Max(0.001f, profile.SecondStageMassFlowKgPerSecond);
+            profile.SecondStageIgnitionDelaySeconds =
+                Mathf.Max(0f, profile.SecondStageIgnitionDelaySeconds);
+            profile.SecondStageMinimumThrottle = Mathf.Clamp(
+                profile.SecondStageMinimumThrottle > 0f
+                    ? profile.SecondStageMinimumThrottle
+                    : 0.4f,
+                0.05f,
+                1f);
             profile.RcsPropellantMassKg =
                 Mathf.Max(0f, profile.RcsPropellantMassKg);
             profile.RcsThrustNewtons =
@@ -109,6 +150,7 @@ namespace ACunicombat.Mechs
         public static MissileFlightProfile AirToAirDefault =>
             new MissileFlightProfile
             {
+                PropulsionMode = MissilePropulsionMode.SinglePulseSolid,
                 DryMassKg = 120f,
                 MainPropellantMassKg = 90f,
                 MainEngineThrustNewtons = 58_000f,
@@ -135,6 +177,7 @@ namespace ACunicombat.Mechs
         public static MissileFlightProfile InterceptorDefault =>
             new MissileFlightProfile
             {
+                PropulsionMode = MissilePropulsionMode.SinglePulseSolid,
                 DryMassKg = 48f,
                 MainPropellantMassKg = 32f,
                 MainEngineThrustNewtons = 48_000f,

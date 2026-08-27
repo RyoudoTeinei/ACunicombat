@@ -47,19 +47,23 @@ namespace ACunicombat.Mechs
         [Range(0f, 80f)] [SerializeField] private float legBrakeDeflectionDegrees = 48f;
         [Tooltip("某组喷口偏转损失垂直分量时，另一组可调用的额外补偿推力比例。")]
         [Range(0f, 1f)] [SerializeField] private float liftCompensationReserve = 0.35f;
-        [Tooltip("开启后，背部主推和 AB 可在俯仰方向偏转；关闭后严格沿机体 +Z 纵轴。")]
+        [Tooltip("开启后，背部两台主推进器可在俯仰和偏航方向同步矢量偏转；关闭后严格沿机体 +Z 纵轴。")]
         [SerializeField] private bool vectorThrustEnabled = true;
         [Tooltip("主推矢量喷口相对机体纵轴允许的最大俯仰偏角。")]
         [Range(0f, 89f)] [SerializeField] private float maximumVectorPitchDegrees = 35f;
+        [Tooltip("主推矢量喷口相对机体纵轴允许的最大左右偏角。")]
+        [Range(0f, 60f)] [SerializeField] private float maximumVectorYawDegrees = 20f;
+        [Tooltip("主推矢量机构每秒允许改变的最大角度。")]
+        [Min(1f)] [SerializeField] private float mainVectorSlewRateDegreesPerSecond = 90f;
         [Tooltip("仅用于防止 Unity 数值和碰撞失稳的极高技术安全上限，不属于玩法速度上限。")]
         [SerializeField] private float technicalSafetySpeed = 2000f;
-        [Header("惯性推力锁定")]
-        [Tooltip("允许按住输入锁定键冻结水平推力参考；松开后恢复机体朝向参考。")]
-        [SerializeField] private bool inertialThrustLockEnabled = true;
-
         [Header("喷口分配与损坏补偿")]
         [Tooltip("单侧喷口损坏后，飞控允许健侧喷口继续贡献的比例。0 表示严格对称降额；1 表示完全补偿且不模拟姿态扰动。")]
         [Range(0f, 1f)] [SerializeField] private float damagedSideCompensationEfficiency = 0.65f;
+        [Tooltip("除背部主推进器外，每个实体喷口的默认额定推力。喷口方向完全取自绑定节点的 -forward。")]
+        [Min(0f)] [SerializeField] private float auxiliaryNozzleThrustKn = 300f;
+        [Tooltip("三轴平移喷口分配器的迭代次数。喷口数量较少时 12 次足以稳定收敛。")]
+        [Range(4, 32)] [SerializeField] private int translationAllocatorIterations = 12;
 
         [Header("Quick Boost")]
         [Tooltip("QB 窗口内持续施加的固定推力。默认值对 50 吨机体产生约 320 m/s²。")]
@@ -177,8 +181,6 @@ namespace ACunicombat.Mechs
         private MechPartDefinition appliedEnergyBooster;
         private bool braking;
         private float mainEngineOutput;
-        private bool inertialThrustLockActive;
-        private Vector3 inertialThrustLockForward = Vector3.forward;
         private bool trajectorySyncCommandActive;
         private Vector3 trajectorySyncAccelerationCommand;
         private Vector3 currentTrajectorySyncForceNewtons;
@@ -200,6 +202,14 @@ namespace ACunicombat.Mechs
         private float quickBoostForceNewtons;
         private readonly RaycastHit[] groundHits = new RaycastHit[32];
         private readonly List<MechThrusterChannelState> thrusterChannels = new();
+        private readonly List<MechMainThrusterPlume.AuxiliaryNozzleBinding>
+            physicalAuxiliaryNozzles = new();
+        private MechMainThrusterPlume thrusterPlume;
+        private Vector3 currentTranslationInput;
+        private Vector3[] translationNozzleDirections = Array.Empty<Vector3>();
+        private float[] translationNozzleCapacities = Array.Empty<float>();
+        private float[] translationNozzleOutputs = Array.Empty<float>();
+        private Vector3 currentMainVectorDirectionLocal = Vector3.forward;
 
         public float YawDegrees => yawDegrees;
 
@@ -294,7 +304,14 @@ namespace ACunicombat.Mechs
 
         public IReadOnlyList<MechThrusterChannelState> ThrusterChannels => thrusterChannels;
 
+        public bool TranslationInputActive => currentTranslationInput.sqrMagnitude > 0.0001f;
+
         public bool VectorThrustEnabled => vectorThrustEnabled;
+
+        public Vector3 CurrentMainVectorForceDirectionWorld =>
+            LogicalRotation * (currentMainVectorDirectionLocal.sqrMagnitude > 0.0001f
+                ? currentMainVectorDirectionLocal.normalized
+                : Vector3.forward);
 
         /// <summary>当前帧的持续推进加速度，不含重力与短时 QB。</summary>
         public Vector3 CurrentControlAcceleration => currentControlAcceleration;
@@ -307,10 +324,6 @@ namespace ACunicombat.Mechs
         public float CurrentQuickBoostRecoveryRemaining => quickBoostRecoveryRemaining;
 
         public float AirCoastingDragAcceleration => airCoastingDragAcceleration;
-
-        public bool InertialThrustLockActive => inertialThrustLockActive;
-
-        public Vector3 InertialThrustLockForward => inertialThrustLockForward;
 
         public float Altitude
         {
@@ -411,12 +424,9 @@ namespace ACunicombat.Mechs
             var logicalForward = LogicalRotation * Vector3.forward;
             var coreHalfWidth = Mathf.Max(0.6f, coreBounds.extents.x * 0.65f);
             var coreHalfDepth = Mathf.Max(0.45f, coreBounds.extents.z * 0.7f);
-            var shoulderCenter = coreBounds.center + Vector3.up * (coreBounds.extents.y * 0.25f);
-            var legCenter = legBounds.center - Vector3.up * (legBounds.extents.y * 0.55f);
             var legHalfWidth = Mathf.Max(0.35f, legBounds.extents.x * 0.28f);
             shoulderRcsLeverArmMeters = coreHalfWidth;
             legRcsLeverArmMeters = legHalfWidth;
-
             ResolveMainNozzleAnchors(
                 coreBounds,
                 logicalRight,
@@ -428,47 +438,20 @@ namespace ACunicombat.Mechs
                 out var leftMainFallback,
                 out var rightMainFallback);
 
-            AddThrusterChannel(
-                "main.left", MechThrusterRole.Main, MechThrusterSide.Left,
-                leftMainAnchor, leftMainFallback, leftMainAnchor == null, previousHealth);
-            AddThrusterChannel(
-                "main.right", MechThrusterRole.Main, MechThrusterSide.Right,
-                rightMainAnchor, rightMainFallback, rightMainAnchor == null, previousHealth);
+            if (leftMainAnchor != null)
+            {
+                AddThrusterChannel(
+                    "main.left", MechThrusterRole.Main, MechThrusterSide.Left,
+                    leftMainAnchor, leftMainFallback, false, previousHealth);
+            }
+            if (rightMainAnchor != null)
+            {
+                AddThrusterChannel(
+                    "main.right", MechThrusterRole.Main, MechThrusterSide.Right,
+                    rightMainAnchor, rightMainFallback, false, previousHealth);
+            }
 
-            var reverseCenter = coreBounds.center + logicalForward * coreHalfDepth;
-            AddProvisionalPair(
-                "reverse", MechThrusterRole.Reverse,
-                reverseCenter, logicalRight, coreHalfWidth * 0.55f, previousHealth);
-
-            AddThrusterChannel(
-                "strafe.positive", MechThrusterRole.StrafePositive, MechThrusterSide.Left,
-                null,
-                transform.InverseTransformPoint(coreBounds.center - logicalRight * coreHalfWidth),
-                true,
-                previousHealth);
-            AddThrusterChannel(
-                "strafe.negative", MechThrusterRole.StrafeNegative, MechThrusterSide.Right,
-                null,
-                transform.InverseTransformPoint(coreBounds.center + logicalRight * coreHalfWidth),
-                true,
-                previousHealth);
-
-            AddProvisionalPair(
-                "shoulder", MechThrusterRole.ShoulderLift,
-                shoulderCenter, logicalRight, coreHalfWidth, previousHealth);
-            AddProvisionalPair(
-                "leg", MechThrusterRole.LegLift,
-                legCenter, logicalRight, legHalfWidth, previousHealth);
-            AddProvisionalPair(
-                "descent", MechThrusterRole.Descent,
-                shoulderCenter + Vector3.up * (coreBounds.extents.y * 0.2f),
-                logicalRight, coreHalfWidth * 0.7f, previousHealth);
-            AddProvisionalPair(
-                "rcs.shoulder", MechThrusterRole.ShoulderRcs,
-                shoulderCenter, logicalRight, coreHalfWidth, previousHealth);
-            AddProvisionalPair(
-                "rcs.leg", MechThrusterRole.LegRcs,
-                legCenter, logicalRight, legHalfWidth, previousHealth);
+            AddPhysicalAuxiliaryThrusterChannels(previousHealth);
         }
 
         public bool SetThrusterHealth(string channelId, float health)
@@ -855,6 +838,10 @@ namespace ACunicombat.Mechs
 
         public void Tick(in MechPlayerInputFrame frame, float deltaTime)
         {
+            currentTranslationInput = new Vector3(
+                Mathf.Clamp(frame.MoveLocal.x, -1f, 1f),
+                (frame.RiseHeld ? 1f : 0f) - (frame.DescendHeld ? 1f : 0f),
+                Mathf.Clamp(frame.MoveLocal.y, -1f, 1f));
             EnsureThrusterLayout();
             RefreshLoadoutEnergyConfiguration();
             EnsureManeuverEnergyInitialized();
@@ -934,7 +921,6 @@ namespace ACunicombat.Mechs
             currentShoulderRcsTorqueNewtonMeters = 0f;
             currentLegRcsTorqueNewtonMeters = 0f;
             currentMomentumWheelTorqueNewtonMeters = 0f;
-
             if (frame.BrakeHeld && !braking)
             {
                 brakingPlaneAnchor = transform.position;
@@ -957,22 +943,6 @@ namespace ACunicombat.Mechs
 
             var grounded = isGrounded;
             var attitudeBasis = LogicalRotation;
-            var right = attitudeBasis * Vector3.right;
-            var bodyForward = attitudeBasis * Vector3.forward;
-            var mainThrustDirection = ResolveMainThrustDirection(attitudeBasis, grounded);
-            UpdateInertialThrustLock(in frame, bodyForward);
-            var controlForward = inertialThrustLockActive
-                ? inertialThrustLockForward
-                : bodyForward;
-            var controlRight = inertialThrustLockActive
-                ? Vector3.Cross(ReferenceUp, controlForward).normalized
-                : right;
-            if (controlRight.sqrMagnitude <= 0.0001f)
-            {
-                controlRight = right;
-            }
-            // 没有独立节流杆。W/S 直接请求对应纵向喷口组的额定输出；松键即停火，
-            // 已获得的速度继续按惯性保留。
             var forwardCommand = Mathf.Clamp(frame.MoveLocal.y, -1f, 1f);
             var movementEnergyScale = ConsumeMovementEnergy(
                 ResolveMovementEnergyDrainRate(in frame, forwardCommand),
@@ -992,146 +962,101 @@ namespace ACunicombat.Mechs
             mainThrustNewtons *= movementEnergyScale;
             lateralThrustNewtons *= movementEnergyScale;
             reverseThrustNewtons *= movementEnergyScale;
+            upwardThrustNewtons *= movementEnergyScale;
+            downwardThrustNewtons *= movementEnergyScale;
 
-            // 每一组喷口独立贡献力。斜向输入会同时点燃主推和侧推，不再把合力归一化。
-            var propulsionForce = Vector3.zero;
-            if (!braking && inertialThrustLockActive)
-            {
-                var lockedRequest = controlRight * (frame.MoveLocal.x * lateralThrustNewtons);
-                lockedRequest += controlForward * (forwardCommand >= 0f
+            // Unity local axes are authoritative for translation:
+            // X = left/right, Y = down/up, Z = backward/forward.
+            var localRequestedForce = new Vector3(
+                frame.MoveLocal.x * lateralThrustNewtons,
+                currentTranslationInput.y >= 0f
+                    ? currentTranslationInput.y * upwardThrustNewtons
+                    : currentTranslationInput.y * downwardThrustNewtons,
+                forwardCommand >= 0f
                     ? forwardCommand * mainThrustNewtons
                     : forwardCommand * reverseThrustNewtons);
-                propulsionForce += AllocateDirectionPreservingForce(
-                    lockedRequest,
-                    attitudeBasis,
-                    mainThrustNewtons,
-                    lateralThrustNewtons,
-                    reverseThrustNewtons,
-                    upwardThrustNewtons,
-                    downwardThrustNewtons);
-            }
-            else if (!braking && Mathf.Abs(frame.MoveLocal.x) > Mathf.Epsilon)
+            if (AssaultBoostActive && !braking)
             {
-                var strafeRole = frame.MoveLocal.x > 0f
-                    ? MechThrusterRole.StrafePositive
-                    : MechThrusterRole.StrafeNegative;
-                propulsionForce += AllocateThrusterForce(
-                    strafeRole,
-                    right * (frame.MoveLocal.x * lateralThrustNewtons),
-                    lateralThrustNewtons,
-                    false);
+                localRequestedForce.z += assaultBoostThrustKn * 1000f;
             }
 
-            if (!braking && !inertialThrustLockActive && forwardCommand >= 0f)
-            {
-                var mainRequest = forwardCommand * mainThrustNewtons;
-                if (AssaultBoostActive)
-                {
-                    mainRequest += assaultBoostThrustKn * 1000f;
-                }
-
-                propulsionForce += AllocateThrusterForce(
-                    MechThrusterRole.Main,
-                    mainThrustDirection * mainRequest,
-                    mainThrustNewtons + (AssaultBoostActive ? assaultBoostThrustKn * 1000f : 0f),
-                    true);
-            }
-            else if (!braking && !inertialThrustLockActive)
-            {
-                propulsionForce += AllocateThrusterForce(
-                    MechThrusterRole.Reverse,
-                    -bodyForward * (-forwardCommand * reverseThrustNewtons),
-                    reverseThrustNewtons,
-                    true);
-            }
-
-            var quickBoostApplying = quickBoostStep > 0f;
-            ResolveLiftThrusterForces(
-                in frame,
-                attitudeBasis,
-                mainThrustDirection,
-                controlRight,
-                controlForward,
-                grounded,
-                quickBoostApplying,
-                upwardThrustNewtons,
-                downwardThrustNewtons,
-                out var requestedShoulderLiftForce,
-                out var requestedLegLiftForce,
-                out var requestedDescentForce);
-            requestedShoulderLiftForce *= movementEnergyScale;
-            requestedLegLiftForce *= movementEnergyScale;
-            requestedDescentForce *= movementEnergyScale;
-            var shoulderCapacity = upwardThrustNewtons
-                                   * Mathf.Clamp01(shoulderLiftFraction)
-                                   * (1f + liftCompensationReserve);
-            var legCapacity = upwardThrustNewtons
-                              * (1f - Mathf.Clamp01(shoulderLiftFraction))
-                              * (1f + liftCompensationReserve);
-            currentShoulderLiftForceNewtons = AllocateThrusterForce(
-                MechThrusterRole.ShoulderLift,
-                requestedShoulderLiftForce,
-                shoulderCapacity,
-                true);
-            currentLegLiftForceNewtons = AllocateThrusterForce(
-                MechThrusterRole.LegLift,
-                requestedLegLiftForce,
-                legCapacity,
-                true);
-            currentDescentForceNewtons = AllocateThrusterForce(
-                MechThrusterRole.Descent,
-                requestedDescentForce,
-                downwardThrustNewtons,
-                true);
-            propulsionForce += currentShoulderLiftForceNewtons
-                               + currentLegLiftForceNewtons
-                               + currentDescentForceNewtons;
-
-            var hasPropulsionCommand = propulsionForce.sqrMagnitude > 0.0001f;
-            if (!braking && hasPropulsionCommand)
-            {
-                var propulsionAcceleration = propulsionForce / currentMassKg;
-                currentControlForceNewtons = propulsionForce;
-                currentControlAcceleration = propulsionAcceleration;
-                velocity += propulsionAcceleration * deltaTime;
-            }
-
+            var requestedTranslationForce = !braking
+                ? attitudeBasis * localRequestedForce
+                : Vector3.zero;
+            var requestedSyncForce = Vector3.zero;
             if (!braking && trajectorySyncCommandActive &&
                 trajectorySyncAccelerationCommand.sqrMagnitude > 0.0001f)
             {
-                var requestedSyncForce =
-                    trajectorySyncAccelerationCommand * currentMassKg;
-                currentTrajectorySyncForceNewtons = AllocateAvailableDirectionalForce(
-                    requestedSyncForce,
-                    attitudeBasis,
-                    mainThrustNewtons,
-                    lateralThrustNewtons,
-                    reverseThrustNewtons,
-                    upwardThrustNewtons,
-                    downwardThrustNewtons);
-                if (currentTrajectorySyncForceNewtons.sqrMagnitude > 0.0001f)
+                requestedSyncForce = trajectorySyncAccelerationCommand * currentMassKg;
+                requestedTranslationForce += requestedSyncForce;
+            }
+
+            var quickBoostApplying = quickBoostStep > 0f;
+            var requestedQuickBoostForce = Vector3.zero;
+            if (!braking && quickBoostApplying &&
+                quickBoostDirection.sqrMagnitude > 0.0001f && deltaTime > Mathf.Epsilon)
+            {
+                // Scale the force by its active fraction this frame so the integrated impulse
+                // remains identical when the final QB frame is shorter than deltaTime.
+                requestedQuickBoostForce = quickBoostDirection.normalized
+                                           * quickBoostForceNewtons
+                                           * Mathf.Clamp01(quickBoostStep / deltaTime);
+                requestedTranslationForce += requestedQuickBoostForce;
+            }
+
+            if (braking)
+            {
+                var planarVelocity = Vector3.ProjectOnPlane(velocity, ReferenceUp);
+                if (planarVelocity.sqrMagnitude > 0.0001f)
                 {
-                    velocity += currentTrajectorySyncForceNewtons
-                                / currentMassKg * deltaTime;
-                    currentControlForceNewtons += currentTrajectorySyncForceNewtons;
-                    currentControlAcceleration = currentControlForceNewtons / currentMassKg;
-                    currentShoulderLiftForceNewtons =
-                        SumThrusterForce(MechThrusterRole.ShoulderLift);
-                    currentLegLiftForceNewtons =
-                        SumThrusterForce(MechThrusterRole.LegLift);
-                    currentDescentForceNewtons =
-                        SumThrusterForce(MechThrusterRole.Descent);
-                    hasPropulsionCommand = true;
+                    var brakingDirection = -planarVelocity.normalized;
+                    var brakingCapacity = ResolveDirectionalForceCapacity(
+                        brakingDirection,
+                        attitudeBasis,
+                        mainThrustNewtons,
+                        lateralThrustNewtons,
+                        reverseThrustNewtons,
+                        upwardThrustNewtons,
+                        downwardThrustNewtons);
+                    requestedTranslationForce = brakingDirection
+                                                * brakingCapacity
+                                                * activeBrakingThrustMultiplier;
                 }
             }
 
-            if (quickBoostApplying && quickBoostDirection.sqrMagnitude > 0.0001f)
+            var propulsionForce = AllocateTranslationForce(
+                requestedTranslationForce,
+                mainThrustNewtons + (AssaultBoostActive
+                    ? assaultBoostThrustKn * 1000f
+                    : 0f),
+                deltaTime);
+            var hasPropulsionCommand = propulsionForce.sqrMagnitude > 0.0001f;
+            currentControlForceNewtons = propulsionForce;
+            currentControlAcceleration = propulsionForce / currentMassKg;
+
+            var requestRealization = requestedTranslationForce.sqrMagnitude > Mathf.Epsilon
+                ? Mathf.Clamp01(Vector3.Dot(
+                    propulsionForce,
+                    requestedTranslationForce) / requestedTranslationForce.sqrMagnitude)
+                : 0f;
+            currentTrajectorySyncForceNewtons = requestedSyncForce * requestRealization;
+            currentQuickBoostForceNewtons = requestedQuickBoostForce * requestRealization;
+
+            var verticalForce = Vector3.Project(
+                propulsionForce,
+                attitudeBasis * Vector3.up);
+            if (Vector3.Dot(verticalForce, attitudeBasis * Vector3.up) >= 0f)
             {
-                currentQuickBoostForceNewtons = AllocateDirectionalReserveForce(
-                    quickBoostDirection * quickBoostForceNewtons,
-                    attitudeBasis);
-                velocity += currentQuickBoostForceNewtons
-                            / currentMassKg * quickBoostStep;
+                currentLegLiftForceNewtons = verticalForce;
+            }
+            else
+            {
+                currentDescentForceNewtons = verticalForce;
+            }
+
+            if (!braking)
+            {
+                velocity += currentControlAcceleration * deltaTime;
             }
 
             if (!braking && !grounded)
@@ -1144,38 +1069,20 @@ namespace ACunicombat.Mechs
                 var planarVelocity = Vector3.ProjectOnPlane(
                     velocity,
                     ReferenceUp);
-                var brakingDirection = planarVelocity.sqrMagnitude > 0.0001f
-                    ? -planarVelocity.normalized
-                    : Vector3.zero;
-                var brakingForceCapacity = ResolveDirectionalForceCapacity(
-                    brakingDirection,
-                    attitudeBasis,
-                    mainThrustNewtons,
-                    lateralThrustNewtons,
-                    reverseThrustNewtons,
-                    upwardThrustNewtons,
-                    downwardThrustNewtons);
-                var horizontalBrakingForce = AllocateDirectionalReserveForce(
-                    brakingDirection * brakingForceCapacity * activeBrakingThrustMultiplier,
-                    attitudeBasis);
-                var allocatedLiftForce = currentShoulderLiftForceNewtons
-                                         + currentLegLiftForceNewtons;
-                var totalBrakingForce = horizontalBrakingForce + allocatedLiftForce;
-                var brakingAcceleration = Mathf.Max(
-                    0f,
-                    Vector3.Dot(totalBrakingForce, brakingDirection) / currentMassKg);
-                planarVelocity = Vector3.MoveTowards(
-                    planarVelocity,
-                    Vector3.zero,
-                    brakingAcceleration * deltaTime);
+                var previousPlanarVelocity = planarVelocity;
+                planarVelocity += Vector3.ProjectOnPlane(
+                    currentControlAcceleration,
+                    ReferenceUp) * deltaTime;
+                if (Vector3.Dot(previousPlanarVelocity, planarVelocity) <= 0f)
+                {
+                    planarVelocity = Vector3.zero;
+                }
                 if (planarVelocity.magnitude <= groundStopSpeed)
                 {
                     planarVelocity = Vector3.zero;
                 }
 
                 velocity = planarVelocity;
-                currentControlForceNewtons = totalBrakingForce;
-                currentControlAcceleration = currentControlForceNewtons / currentMassKg;
             }
 
             mainEngineOutput = Mathf.Clamp01(
@@ -1474,7 +1381,9 @@ namespace ACunicombat.Mechs
             }
 
             var controlCenter = FixedControlCenterWorld;
+            var torqueSign = Mathf.Sign(appliedTorque);
             var usableLeverArmSum = 0f;
+            var eligibleChannelCount = 0;
             for (var i = 0; i < thrusterChannels.Count; i++)
             {
                 var channel = thrusterChannels[i];
@@ -1485,7 +1394,19 @@ namespace ACunicombat.Mechs
 
                 var radial = channel.ResolveWorldOrigin(transform) - controlCenter;
                 radial = Vector3.ProjectOnPlane(radial, ReferenceUp);
+                if (radial.sqrMagnitude <= Mathf.Epsilon)
+                {
+                    continue;
+                }
+
+                var forceDirection = Vector3.Cross(ReferenceUp, radial).normalized * torqueSign;
+                if (!CanThrusterChannelProvideForce(channel, forceDirection))
+                {
+                    continue;
+                }
+
                 usableLeverArmSum += radial.magnitude;
+                eligibleChannelCount++;
             }
 
             if (usableLeverArmSum <= Mathf.Epsilon)
@@ -1494,7 +1415,9 @@ namespace ACunicombat.Mechs
             }
 
             var forceMagnitude = Mathf.Abs(appliedTorque) / usableLeverArmSum;
-            var torqueSign = Mathf.Sign(appliedTorque);
+            var ratedForcePerChannel = eligibleChannelCount > 0
+                ? Mathf.Max(0f, ratedGroupForceNewtons) / eligibleChannelCount
+                : 0f;
             var realizedTorque = 0f;
             for (var i = 0; i < thrusterChannels.Count; i++)
             {
@@ -1513,8 +1436,15 @@ namespace ACunicombat.Mechs
 
                 // F = up x r guarantees a positive yaw torque in the active reference frame.
                 var forceDirection = Vector3.Cross(ReferenceUp, radial).normalized * torqueSign;
+                if (!CanThrusterChannelProvideForce(channel, forceDirection))
+                {
+                    continue;
+                }
+
                 var force = forceDirection * forceMagnitude;
-                channel.AddForce(force);
+                channel.AddForce(
+                    force,
+                    ratedForcePerChannel * channel.Health);
                 realizedTorque += Vector3.Dot(
                     Vector3.Cross(radial, force),
                     ReferenceUp);
@@ -1541,7 +1471,10 @@ namespace ACunicombat.Mechs
             var rightCount = 0;
             for (var i = 0; i < thrusterChannels.Count; i++)
             {
-                if (thrusterChannels[i].Role != role)
+                if (thrusterChannels[i].Role != role ||
+                    !CanThrusterChannelProvideForce(
+                        thrusterChannels[i],
+                        requestedForce))
                 {
                     continue;
                 }
@@ -1553,7 +1486,7 @@ namespace ACunicombat.Mechs
 
             if (channelCount == 0)
             {
-                return requestedForce;
+                return Vector3.zero;
             }
 
             var leftCapacity = 0f;
@@ -1562,7 +1495,8 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < thrusterChannels.Count; i++)
             {
                 var channel = thrusterChannels[i];
-                if (channel.Role != role)
+                if (channel.Role != role ||
+                    !CanThrusterChannelProvideForce(channel, requestedForce))
                 {
                     continue;
                 }
@@ -1610,7 +1544,9 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < thrusterChannels.Count; i++)
             {
                 var channel = thrusterChannels[i];
-                if (channel.Role != role || !channel.Operational)
+                if (channel.Role != role ||
+                    !channel.Operational ||
+                    !CanThrusterChannelProvideForce(channel, requestedForce))
                 {
                     continue;
                 }
@@ -1651,10 +1587,325 @@ namespace ACunicombat.Mechs
                 var channelAllowedCapacity = channelCapacity
                                              * (allowedSideCapacity / rawSideCapacity);
                 channel.AddForce(
-                    direction * (appliedMagnitude * channelAllowedCapacity / effectiveCapacity));
+                    direction * (appliedMagnitude * channelAllowedCapacity / effectiveCapacity),
+                    channelAllowedCapacity);
             }
 
             return direction * appliedMagnitude;
+        }
+
+        private Vector3 AllocateTranslationForce(
+            Vector3 requestedForce,
+            float ratedMainForceNewtons,
+            float deltaTime)
+        {
+            var channelCount = thrusterChannels.Count;
+            EnsureTranslationAllocatorBuffers(channelCount);
+            var mainForceDirection = ResolveMainVectorForceDirection(
+                requestedForce,
+                deltaTime);
+
+            var operationalMainCount = 0;
+            for (var i = 0; i < channelCount; i++)
+            {
+                var channel = thrusterChannels[i];
+                if (channel.Operational &&
+                    channel.Anchor != null &&
+                    channel.Id.StartsWith("main.", StringComparison.Ordinal))
+                {
+                    operationalMainCount++;
+                }
+            }
+
+            var mainCapacityPerNozzle = operationalMainCount > 0
+                ? Mathf.Max(0f, ratedMainForceNewtons) / operationalMainCount
+                : 0f;
+            thrusterPlume ??= GetComponent<MechMainThrusterPlume>();
+            for (var i = 0; i < channelCount; i++)
+            {
+                var channel = thrusterChannels[i];
+                var anchor = channel.Anchor;
+                var capacity = 0f;
+                var direction = Vector3.zero;
+                if (channel.Operational && anchor != null)
+                {
+                    var isMain = channel.Id.StartsWith(
+                        "main.",
+                        StringComparison.Ordinal);
+                    if (isMain)
+                    {
+                        capacity = mainCapacityPerNozzle * channel.Health;
+                        direction = mainForceDirection;
+                    }
+                    else if (thrusterPlume != null &&
+                             thrusterPlume.TryResolveAuxiliaryNozzleAllocation(
+                                 anchor,
+                                 requestedForce,
+                                 out var resolvedDirection,
+                                 out var ratedThrustKn))
+                    {
+                        capacity = ratedThrustKn * 1000f * channel.Health;
+                        direction = resolvedDirection;
+                    }
+                    else
+                    {
+                        capacity = Mathf.Max(0f, auxiliaryNozzleThrustKn)
+                                   * 1000f
+                                   * channel.Health;
+                        direction = -anchor.forward.normalized;
+                    }
+                }
+
+                translationNozzleDirections[i] = direction;
+                translationNozzleCapacities[i] = capacity;
+                translationNozzleOutputs[i] = 0f;
+            }
+
+            var achievedForce = AllocatePairedMainThrusters(requestedForce);
+            if (requestedForce.sqrMagnitude > Mathf.Epsilon)
+            {
+                var iterationCount = Mathf.Clamp(translationAllocatorIterations, 4, 32);
+                for (var iteration = 0; iteration < iterationCount; iteration++)
+                {
+                    var reverseOrder = (iteration & 1) != 0;
+                    for (var step = 0; step < channelCount; step++)
+                    {
+                        var index = reverseOrder ? channelCount - 1 - step : step;
+                        if (thrusterChannels[index].Id.StartsWith(
+                                "main.",
+                                StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        var capacity = translationNozzleCapacities[index];
+                        var direction = translationNozzleDirections[index];
+                        if (capacity <= Mathf.Epsilon ||
+                            direction.sqrMagnitude <= Mathf.Epsilon)
+                        {
+                            continue;
+                        }
+
+                        var previousOutput = translationNozzleOutputs[index];
+                        var forceWithoutNozzle = achievedForce - direction * previousOutput;
+                        var optimalOutput = Mathf.Clamp(
+                            Vector3.Dot(requestedForce - forceWithoutNozzle, direction),
+                            0f,
+                            capacity);
+                        translationNozzleOutputs[index] = optimalOutput;
+                        achievedForce = forceWithoutNozzle + direction * optimalOutput;
+                    }
+                }
+            }
+
+            ApplyTranslationSymmetryConstraints(requestedForce);
+
+            achievedForce = Vector3.zero;
+            for (var i = 0; i < channelCount; i++)
+            {
+                var channelForce = translationNozzleDirections[i]
+                                   * translationNozzleOutputs[i];
+                thrusterChannels[i].SetForce(
+                    channelForce,
+                    translationNozzleCapacities[i]);
+                achievedForce += channelForce;
+            }
+
+            return achievedForce;
+        }
+
+        private Vector3 ResolveMainVectorForceDirection(
+            Vector3 requestedForce,
+            float deltaTime)
+        {
+            var desiredLocalDirection = Vector3.forward;
+            var localRequest = Quaternion.Inverse(LogicalRotation) * requestedForce;
+            if (vectorThrustEnabled && localRequest.z > 0.001f)
+            {
+                var horizontalLength = Mathf.Sqrt(
+                    localRequest.x * localRequest.x +
+                    localRequest.z * localRequest.z);
+                var requestedYaw = Mathf.Atan2(
+                    localRequest.x,
+                    Mathf.Max(0.001f, localRequest.z)) * Mathf.Rad2Deg;
+                var requestedPitch = Mathf.Atan2(
+                    localRequest.y,
+                    Mathf.Max(0.001f, horizontalLength)) * Mathf.Rad2Deg;
+                var clampedYaw = Mathf.Clamp(
+                    requestedYaw,
+                    -maximumVectorYawDegrees,
+                    maximumVectorYawDegrees);
+                var clampedPitch = Mathf.Clamp(
+                    requestedPitch,
+                    -maximumVectorPitchDegrees,
+                    maximumVectorPitchDegrees);
+                desiredLocalDirection =
+                    Quaternion.Euler(-clampedPitch, clampedYaw, 0f) * Vector3.forward;
+            }
+
+            var maximumStepRadians = Mathf.Max(
+                                         1f,
+                                         mainVectorSlewRateDegreesPerSecond)
+                                     * Mathf.Deg2Rad
+                                     * Mathf.Max(0f, deltaTime);
+            currentMainVectorDirectionLocal = Vector3.RotateTowards(
+                currentMainVectorDirectionLocal.sqrMagnitude > 0.0001f
+                    ? currentMainVectorDirectionLocal.normalized
+                    : Vector3.forward,
+                desiredLocalDirection.normalized,
+                maximumStepRadians,
+                0f).normalized;
+            return LogicalRotation * currentMainVectorDirectionLocal;
+        }
+
+        private Vector3 AllocatePairedMainThrusters(Vector3 requestedForce)
+        {
+            var logicalForward = LogicalRotation * Vector3.forward;
+            var requestedForwardForce = Mathf.Max(
+                0f,
+                Vector3.Dot(requestedForce, logicalForward));
+            var availableForwardForce = 0f;
+            for (var i = 0; i < thrusterChannels.Count; i++)
+            {
+                if (!thrusterChannels[i].Id.StartsWith(
+                        "main.",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                availableForwardForce += Mathf.Max(
+                    0f,
+                    Vector3.Dot(
+                        translationNozzleDirections[i] * translationNozzleCapacities[i],
+                        logicalForward));
+            }
+
+            var throttle = availableForwardForce > Mathf.Epsilon
+                ? Mathf.Clamp01(requestedForwardForce / availableForwardForce)
+                : 0f;
+            var achievedForce = Vector3.zero;
+            for (var i = 0; i < thrusterChannels.Count; i++)
+            {
+                if (!thrusterChannels[i].Id.StartsWith(
+                        "main.",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                translationNozzleOutputs[i] = translationNozzleCapacities[i] * throttle;
+                achievedForce += translationNozzleDirections[i]
+                                 * translationNozzleOutputs[i];
+            }
+
+            return achievedForce;
+        }
+
+        private void ApplyTranslationSymmetryConstraints(Vector3 requestedForce)
+        {
+            if (requestedForce.sqrMagnitude <= Mathf.Epsilon)
+            {
+                return;
+            }
+
+            var localRequest = Quaternion.Inverse(LogicalRotation) * requestedForce;
+            if (Mathf.Abs(localRequest.x) > Mathf.Max(100f, requestedForce.magnitude * 0.01f))
+            {
+                return;
+            }
+
+            var plume = GetComponent<MechMainThrusterPlume>();
+            if (plume == null)
+            {
+                return;
+            }
+
+            const string prefix = "physical.translation.";
+            for (var i = 0; i < thrusterChannels.Count; i++)
+            {
+                var id = thrusterChannels[i].Id;
+                if (!id.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var layoutId = id[prefix.Length..];
+                if (!plume.TryGetMirroredNozzleId(layoutId, out var mirroredLayoutId))
+                {
+                    continue;
+                }
+
+                var mirroredId = prefix + mirroredLayoutId;
+                if (string.CompareOrdinal(id, mirroredId) < 0)
+                {
+                    ApplyMirroredOutputPair(id, mirroredId);
+                }
+            }
+        }
+
+        private void ApplyMirroredOutputPair(string leftId, string rightId)
+        {
+            var leftIndex = FindThrusterChannelIndex(leftId);
+            var rightIndex = FindThrusterChannelIndex(rightId);
+            if (leftIndex < 0 || rightIndex < 0)
+            {
+                return;
+            }
+
+            var leftCapacity = translationNozzleCapacities[leftIndex];
+            var rightCapacity = translationNozzleCapacities[rightIndex];
+            if (leftCapacity <= Mathf.Epsilon || rightCapacity <= Mathf.Epsilon)
+            {
+                return;
+            }
+
+            var averageThrottle = 0.5f *
+                                  (translationNozzleOutputs[leftIndex] / leftCapacity +
+                                   translationNozzleOutputs[rightIndex] / rightCapacity);
+            translationNozzleOutputs[leftIndex] = averageThrottle * leftCapacity;
+            translationNozzleOutputs[rightIndex] = averageThrottle * rightCapacity;
+        }
+
+        private int FindThrusterChannelIndex(string id)
+        {
+            for (var i = 0; i < thrusterChannels.Count; i++)
+            {
+                if (string.Equals(thrusterChannels[i].Id, id, StringComparison.Ordinal))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private void EnsureTranslationAllocatorBuffers(int requiredCount)
+        {
+            if (translationNozzleDirections.Length >= requiredCount)
+            {
+                return;
+            }
+
+            translationNozzleDirections = new Vector3[requiredCount];
+            translationNozzleCapacities = new float[requiredCount];
+            translationNozzleOutputs = new float[requiredCount];
+        }
+
+        private bool CanThrusterChannelProvideForce(
+            MechThrusterChannelState channel,
+            Vector3 requestedForce)
+        {
+            if (!channel.Id.StartsWith("physical.", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            thrusterPlume ??= GetComponent<MechMainThrusterPlume>();
+            return thrusterPlume != null &&
+                   thrusterPlume.CanAuxiliaryNozzleProvideForce(
+                       channel.Anchor,
+                       requestedForce);
         }
 
         private float ResolveThrusterForceCapacity(
@@ -1685,7 +1936,7 @@ namespace ACunicombat.Mechs
 
             if (channelCount == 0)
             {
-                return ratedMagnitude;
+                return 0f;
             }
 
             var leftCapacity = 0f;
@@ -1934,31 +2185,6 @@ namespace ACunicombat.Mechs
                 yawBasis);
         }
 
-        private void UpdateInertialThrustLock(
-            in MechPlayerInputFrame frame,
-            Vector3 bodyForward)
-        {
-            // AB 保持原本的机体主推语义；结束后若 F 仍按住，会从当时机头重新捕获。
-            var requested = inertialThrustLockEnabled
-                            && frame.InertialThrustLockHeld
-                            && !AssaultBoostActive;
-            if (!requested)
-            {
-                inertialThrustLockActive = false;
-                return;
-            }
-
-            if (inertialThrustLockActive)
-            {
-                return;
-            }
-
-            inertialThrustLockForward = bodyForward.sqrMagnitude > 0.0001f
-                ? bodyForward.normalized
-                : LogicalRotation * Vector3.forward;
-            inertialThrustLockActive = true;
-        }
-
         private Vector3 SumThrusterForce(MechThrusterRole role)
         {
             var force = Vector3.zero;
@@ -1973,30 +2199,38 @@ namespace ACunicombat.Mechs
             return force;
         }
 
-        private void AddProvisionalPair(
-            string idPrefix,
-            MechThrusterRole role,
-            Vector3 worldCenter,
-            Vector3 worldRight,
-            float halfWidth,
+        private void AddPhysicalAuxiliaryThrusterChannels(
             IReadOnlyDictionary<string, float> previousHealth)
         {
-            AddThrusterChannel(
-                idPrefix + ".left",
-                role,
-                MechThrusterSide.Left,
-                null,
-                transform.InverseTransformPoint(worldCenter - worldRight * halfWidth),
-                true,
-                previousHealth);
-            AddThrusterChannel(
-                idPrefix + ".right",
-                role,
-                MechThrusterSide.Right,
-                null,
-                transform.InverseTransformPoint(worldCenter + worldRight * halfWidth),
-                true,
-                previousHealth);
+            var plume = GetComponent<MechMainThrusterPlume>();
+            if (plume == null)
+            {
+                return;
+            }
+
+            plume.CollectAuxiliaryNozzleBindings(physicalAuxiliaryNozzles);
+            for (var nozzleIndex = 0;
+                 nozzleIndex < physicalAuxiliaryNozzles.Count;
+                 nozzleIndex++)
+            {
+                var nozzle = physicalAuxiliaryNozzles[nozzleIndex];
+                var localPosition = transform.InverseTransformPoint(nozzle.Anchor.position);
+                var side = Mathf.Abs(localPosition.x) <= 0.01f
+                    ? MechThrusterSide.Center
+                    : localPosition.x < 0f
+                        ? MechThrusterSide.Left
+                        : MechThrusterSide.Right;
+
+                var id = $"physical.translation.{nozzle.Id}";
+                AddThrusterChannel(
+                    id,
+                    MechThrusterRole.Translation,
+                    side,
+                    nozzle.Anchor,
+                    localPosition,
+                    false,
+                    previousHealth);
+            }
         }
 
         private void AddThrusterChannel(
@@ -2042,39 +2276,31 @@ namespace ACunicombat.Mechs
             leftAnchor = null;
             rightAnchor = null;
 
-            var parts = GetComponentsInChildren<MechAssembledPart>(true);
+            var candidates = GetComponentsInChildren<Transform>(true);
             var leftProjection = float.PositiveInfinity;
             var rightProjection = float.NegativeInfinity;
-            for (var i = 0; i < parts.Length; i++)
+            for (var i = 0; i < candidates.Length; i++)
             {
-                if (parts[i].Slot != MechPartSlot.Booster)
+                var candidate = candidates[i];
+                if (!candidate.name.EndsWith("_dmy_31", StringComparison.OrdinalIgnoreCase) ||
+                    !IsUnderBoosterVisual(candidate))
                 {
                     continue;
                 }
 
-                var candidates = parts[i].GetComponentsInChildren<Transform>(true);
-                for (var j = 0; j < candidates.Length; j++)
+                var projection = Vector3.Dot(
+                    candidate.position - coreBounds.center,
+                    logicalRight);
+                if (projection < leftProjection)
                 {
-                    var candidate = candidates[j];
-                    if (!candidate.name.EndsWith("_dmy_31", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
+                    leftProjection = projection;
+                    leftAnchor = candidate;
+                }
 
-                    var projection = Vector3.Dot(
-                        candidate.position - coreBounds.center,
-                        logicalRight);
-                    if (projection < leftProjection)
-                    {
-                        leftProjection = projection;
-                        leftAnchor = candidate;
-                    }
-
-                    if (projection > rightProjection)
-                    {
-                        rightProjection = projection;
-                        rightAnchor = candidate;
-                    }
+                if (projection > rightProjection)
+                {
+                    rightProjection = projection;
+                    rightAnchor = candidate;
                 }
             }
 
@@ -2089,6 +2315,25 @@ namespace ACunicombat.Mechs
                     leftAnchor = null;
                 }
             }
+        }
+
+        private static bool IsUnderBoosterVisual(Transform candidate)
+        {
+            for (var current = candidate; current != null; current = current.parent)
+            {
+                var assembledPart = current.GetComponent<MechAssembledPart>();
+                if (assembledPart != null)
+                {
+                    return assembledPart.Slot == MechPartSlot.Booster;
+                }
+
+                if (current.name.StartsWith("Booster_", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool TryGetPartBounds(MechPartSlot slot, out Bounds bounds)

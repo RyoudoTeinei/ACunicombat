@@ -112,8 +112,16 @@ namespace ACunicombat.Editor.Tests
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_1630"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_1720"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_1720"), (IResolveConstraint)(object)Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_1810"), Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_1810"), Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_1820"), Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_1820"), Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_1830"), Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_1830"), Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_1910"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_1910"), (IResolveConstraint)(object)Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_2020"), Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_2020"), Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_L_5110"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_R_5110"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_4250"), (IResolveConstraint)(object)Is.True);
@@ -122,6 +130,46 @@ namespace ACunicombat.Editor.Tests
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_4290"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_L_4290"), (IResolveConstraint)(object)Is.True);
 			Assert.That<bool>(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_NATIVE_WP_R_4290"), (IResolveConstraint)(object)Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_4300"), Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_4300"), Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_L_4301"), Is.True);
+			Assert.That(AC6FullPartCatalogBuilder.IsTestedWeapon("AC6_FULL_WP_R_4301"), Is.True);
+		}
+
+		[Test]
+		public void SmallArmsProfiles_HaveDistinctBallisticsTriggersAndAudio()
+		{
+			MechWeaponPerformance heavy = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_R_1810");
+			MechWeaponPerformance light = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_L_1820");
+			MechWeaponPerformance machineGun = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_L_1830");
+			MechWeaponPerformance pistol = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_L_2020");
+
+			Assert.That(heavy.tapBurstShotCount, Is.EqualTo(3));
+			Assert.That(heavy.heldBurstShotCount, Is.Zero);
+			Assert.That(heavy.roundsPerMinute, Is.EqualTo(960f));
+			Assert.That(heavy.baseDispersionMilliradians, Is.EqualTo(0.24f));
+			Assert.That(heavy.maximumDispersionMilliradians, Is.EqualTo(2.74f));
+			Assert.That(heavy.lowRecoilShotCount, Is.EqualTo(3));
+			Assert.That(heavy.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.Mg81));
+			Assert.That(light.muzzleVelocityMetersPerSecond, Is.EqualTo(790f));
+			Assert.That(light.roundsPerMinute, Is.EqualTo(1420f));
+			Assert.That(light.baseDispersionMilliradians, Is.EqualTo(0.37f));
+			Assert.That(light.maximumDispersionMilliradians, Is.EqualTo(2.95f));
+			Assert.That(light.directHitDamage, Is.LessThan(heavy.directHitDamage));
+			Assert.That(light.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.VickersK));
+			Assert.That(machineGun.roundsPerMinute, Is.EqualTo(700f));
+			Assert.That(machineGun.baseDispersionMilliradians, Is.EqualTo(0.49f));
+			Assert.That(machineGun.maximumDispersionMilliradians, Is.EqualTo(3.82f));
+			Assert.That(machineGun.directHitDamage, Is.GreaterThan(light.directHitDamage));
+			Assert.That(machineGun.maximumDispersionMilliradians, Is.GreaterThan(light.maximumDispersionMilliradians));
+			Assert.That(machineGun.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.Shkas));
+			Assert.That(pistol.tapBurstShotCount, Is.EqualTo(3));
+			Assert.That(pistol.heldBurstShotCount, Is.EqualTo(3));
+			Assert.That(pistol.heldBurstPauseSeconds, Is.EqualTo(0.28f));
+			Assert.That(pistol.baseDispersionMilliradians, Is.EqualTo(0.17f));
+			Assert.That(pistol.maximumDispersionMilliradians, Is.EqualTo(1.72f));
+			Assert.That(pistol.maximumDispersionMilliradians, Is.LessThan(heavy.maximumDispersionMilliradians));
+			Assert.That(pistol.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.Mg17));
 		}
 
 		[Test]
@@ -566,6 +614,10 @@ namespace ACunicombat.Editor.Tests
 			Assert.That(ResolveTestWeaponRole("AC6_FULL_WP_R_4250"), Is.EqualTo(MechWeaponRole.InterceptorMissile));
 			Assert.That(ResolveTestWeaponRole("AC6_FULL_WP_L_4290"), Is.EqualTo(MechWeaponRole.AirToAirMissile));
 			Assert.That(ResolveTestWeaponRole("AC6_FULL_WP_R_4290"), Is.EqualTo(MechWeaponRole.AirToAirMissile));
+			Assert.That(ResolveTestWeaponRole("AC6_FULL_WP_L_4300"), Is.EqualTo(MechWeaponRole.InterceptorMissile));
+			Assert.That(ResolveTestWeaponRole("AC6_FULL_WP_R_4300"), Is.EqualTo(MechWeaponRole.InterceptorMissile));
+			Assert.That(ResolveTestWeaponRole("AC6_FULL_WP_L_4301"), Is.EqualTo(MechWeaponRole.AirToAirMissile));
+			Assert.That(ResolveTestWeaponRole("AC6_FULL_WP_R_4301"), Is.EqualTo(MechWeaponRole.AirToAirMissile));
 			Assert.That(ResolveTestWeaponRole("AC6_NATIVE_WP_L_5110"), Is.EqualTo(MechWeaponRole.PointDefenseCannon));
 			Assert.That(ResolveTestWeaponRole("AC6_NATIVE_WP_R_5110"), Is.EqualTo(MechWeaponRole.PointDefenseCannon));
 			Assert.That(ResolveTestWeaponRole("AC6_FULL_WP_R_9999"), Is.EqualTo(MechWeaponRole.None));
@@ -702,8 +754,11 @@ namespace ACunicombat.Editor.Tests
 				Assert.That<int>(right.MagazineCount, (IResolveConstraint)(object)Is.EqualTo((object)4));
 				Assert.That<float>(right.ReloadTimeSeconds, (IResolveConstraint)(object)Is.EqualTo((object)4f));
 				Assert.That<float>(right.PointDefenseMaximumRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)6000f));
-				Assert.That<float>(right.PointDefenseFieldOfFireDegrees, (IResolveConstraint)(object)Is.EqualTo((object)200f));
-				Assert.That<float>(right.PointDefenseTraverseRateDegreesPerSecond, (IResolveConstraint)(object)Is.EqualTo((object)180f));
+				Assert.That<float>(right.PointDefenseOutboardYawDegrees, (IResolveConstraint)(object)Is.EqualTo((object)110f));
+				Assert.That<float>(right.PointDefenseInboardYawDegrees, (IResolveConstraint)(object)Is.EqualTo((object)45f));
+				Assert.That<float>(right.PointDefenseElevationDegrees, (IResolveConstraint)(object)Is.EqualTo((object)80f));
+				Assert.That<float>(right.PointDefenseDepressionDegrees, (IResolveConstraint)(object)Is.EqualTo((object)25f));
+				Assert.That<float>(right.PointDefenseTraverseRateDegreesPerSecond, (IResolveConstraint)(object)Is.EqualTo((object)120f));
 				Assert.That<float>(right.PointDefenseMaximumLeadSeconds, (IResolveConstraint)(object)Is.EqualTo((object)4f));
 				Assert.That<float>(right.PointDefenseLockHoldSeconds, (IResolveConstraint)(object)Is.EqualTo((object)0.3f));
 				Assert.That<float>(right.PointDefenseMinimumHitProbability, (IResolveConstraint)(object)Is.EqualTo((object)0.02f));
@@ -724,11 +779,61 @@ namespace ACunicombat.Editor.Tests
 				Assert.That<bool>(TryGetTestWeaponPerformance(mechTestWeaponSystem, "AC6_NATIVE_WP_L_5110", out var left), (IResolveConstraint)(object)Is.True);
 				Assert.That<bool>(left.IsPointDefense, (IResolveConstraint)(object)Is.True);
 				Assert.That<int>(left.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)right.TotalAmmunition));
+				Assert.That<float>(left.PointDefenseOutboardYawDegrees, (IResolveConstraint)(object)Is.EqualTo((object)right.PointDefenseOutboardYawDegrees));
+				Assert.That<float>(left.PointDefenseInboardYawDegrees, (IResolveConstraint)(object)Is.EqualTo((object)right.PointDefenseInboardYawDegrees));
 			}
 			finally
 			{
 				Object.DestroyImmediate(gameObject);
 			}
+		}
+
+		[Test]
+		public void LongRangeMissileProfiles_ExposePropulsionAndVisualAssignments()
+		{
+			MechWeaponPerformance baseline = AC6TestWeaponProfileFactory.Create("AC6_NATIVE_WP_R_4290");
+			MechWeaponPerformance dualPulse = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_R_4302");
+			MechWeaponPerformance ducted = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_R_4340");
+
+			Assert.That(baseline.missileDisplayName, Is.EqualTo("AAM-4290"));
+			Assert.That(baseline.missileVisualResourcePath, Is.EqualTo("Projectiles/aam4290_white_blackband"));
+			Assert.That(dualPulse.IsConfigured, Is.True);
+			Assert.That(dualPulse.effectiveRangeMeters, Is.EqualTo(65_000f));
+			Assert.That(dualPulse.maximumRangeMeters, Is.EqualTo(90_000f));
+			Assert.That(dualPulse.missileVisualResourcePath, Is.EqualTo("Projectiles/r77_gridfin"));
+			Assert.That(dualPulse.missileFlightProfile.PropulsionMode, Is.EqualTo(MissilePropulsionMode.DualPulseSolid));
+			Assert.That(dualPulse.missileFlightProfile.SecondStageBurnDurationSeconds, Is.EqualTo(6f));
+			Assert.That(dualPulse.missileFlightProfile.SecondStageIgnitionDelaySeconds, Is.EqualTo(6f));
+
+			Assert.That(ducted.IsConfigured, Is.True);
+			Assert.That(ducted.effectiveRangeMeters, Is.EqualTo(100_000f));
+			Assert.That(ducted.maximumRangeMeters, Is.EqualTo(140_000f));
+			Assert.That(ducted.missileVisualResourcePath, Is.EqualTo("Projectiles/kh38mt_meteor_proxy"));
+			Assert.That(ducted.missileFlightProfile.PropulsionMode, Is.EqualTo(MissilePropulsionMode.VariableFlowDuctedRocket));
+			Assert.That(ducted.missileFlightProfile.SecondStageBurnDurationSeconds, Is.EqualTo(30f));
+			Assert.That(ducted.missileFlightProfile.SecondStageMinimumThrottle, Is.EqualTo(0.42f));
+		}
+
+		[Test]
+		public void CompactMissileLaunchers_ExposeDedicatedRolesAndVisuals()
+		{
+			MechWeaponPerformance interceptor = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_L_4300");
+			MechWeaponPerformance dogfight = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_L_4301");
+
+			Assert.That(interceptor.IsConfigured, Is.True);
+			Assert.That(interceptor.role, Is.EqualTo(MechWeaponRole.InterceptorMissile));
+			Assert.That(interceptor.missileDisplayName, Is.EqualTo("CIM-4300"));
+			Assert.That(interceptor.missileVisualResourcePath, Is.EqualTo("Projectiles/wp4300_interceptor_hellfire"));
+			Assert.That(interceptor.missileVisualLengthMeters, Is.EqualTo(1.65f));
+			Assert.That(interceptor.missileFlightProfile.MaximumAngularRateDegreesPerSecond, Is.EqualTo(720f));
+
+			Assert.That(dogfight.IsConfigured, Is.True);
+			Assert.That(dogfight.role, Is.EqualTo(MechWeaponRole.AirToAirMissile));
+			Assert.That(dogfight.missileDisplayName, Is.EqualTo("AAM-4301C"));
+			Assert.That(dogfight.missileVisualResourcePath, Is.EqualTo("Projectiles/wp4301_dogfight_aim7"));
+			Assert.That(dogfight.missileVisualLengthMeters, Is.EqualTo(2.35f));
+			Assert.That(dogfight.effectiveRangeMeters, Is.EqualTo(16_000f));
+			Assert.That(dogfight.missileFlightProfile.MaximumAngularRateDegreesPerSecond, Is.EqualTo(480f));
 		}
 
 		[Test]

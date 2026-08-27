@@ -113,6 +113,11 @@ namespace ACunicombat.FireControl
                 return false;
             }
 
+            if (objectClass == TrackObjectClass.Decoy)
+            {
+                return !interceptorMissile;
+            }
+
             var expectedClass = interceptorMissile
                 ? TrackObjectClass.Missile
                 : TrackObjectClass.AirVehicle;
@@ -323,6 +328,47 @@ namespace ACunicombat.FireControl
             timeToClosestApproach = (float)result.Time;
             closestDistance = (float)result.Distance;
             return closestDistance <= fuseRadius;
+        }
+
+        public static bool TryGetClosestApproachCrossing(
+            float3 relativePosition,
+            float3 relativeVelocity,
+            float stepSeconds,
+            out float timeToClosestApproach,
+            out float closestDistance)
+        {
+            timeToClosestApproach = float.PositiveInfinity;
+            closestDistance = float.PositiveInfinity;
+            var step = math.max(0f, stepSeconds);
+            var speedSquared = math.lengthsq(relativeVelocity);
+            if (step <= 0f ||
+                speedSquared <= 1e-6f ||
+                !math.all(math.isfinite(relativePosition)) ||
+                !math.all(math.isfinite(relativeVelocity)))
+            {
+                return false;
+            }
+
+            var startRangeRateNumerator = math.dot(
+                relativePosition,
+                relativeVelocity);
+            var endRangeRateNumerator = math.dot(
+                relativePosition + relativeVelocity * step,
+                relativeVelocity);
+            if (startRangeRateNumerator > 0f ||
+                endRangeRateNumerator < 0f)
+            {
+                return false;
+            }
+
+            timeToClosestApproach = math.clamp(
+                -startRangeRateNumerator / speedSquared,
+                0f,
+                step);
+            closestDistance = math.length(
+                relativePosition +
+                relativeVelocity * timeToClosestApproach);
+            return math.isfinite(closestDistance);
         }
 
         public static bool ProximityOccursBeforeImpact(

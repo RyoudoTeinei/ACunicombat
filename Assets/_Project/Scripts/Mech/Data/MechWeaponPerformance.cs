@@ -14,6 +14,7 @@ namespace ACunicombat.Mechs
 
         [Header("Projectile")]
         [Min(0f)] public float directHitDamage;
+        [Min(0f)] public float projectileCaliberMillimeters;
         [Min(0f)] public float muzzleVelocityMetersPerSecond;
         [Min(0f)] public float projectileLifetimeSeconds;
         [Min(0f)] public float maximumRangeMeters;
@@ -37,20 +38,36 @@ namespace ACunicombat.Mechs
         [Min(0)] public int magazineCount;
         [Min(0f)] public float reloadSeconds;
 
+        [Header("Trigger behavior")]
+        [Min(1)] public int tapBurstShotCount = 1;
+        [Min(0)] public int heldBurstShotCount;
+        [Min(0f)] public float heldBurstPauseSeconds;
+
         [Header("Fuze and warhead")]
         public bool targetProximityFuse;
         public string proximityFuseMode;
         [Min(0f)] public float proximityFuseRadiusMeters;
         [Min(0f)] public float proximityFuseArmSeconds;
         [Min(0f)] public float proximityFuseSafeDistanceMeters;
+        [Min(0f)] public float warheadMassKg;
         [Min(0f)] public float warheadLethalRadiusMeters;
 
         [Header("Guided missile")]
         public MissileFlightProfile missileFlightProfile;
+        public bool verticalColdLaunch;
+
+        [Header("Guided missile presentation")]
+        public string missileDisplayName;
+        public string missileVisualResourcePath;
+        [Min(0.1f)] public float missileVisualLengthMeters;
+        public Vector3 missileVisualSourceForward;
 
         [Header("Point defense")]
         public bool automaticPointDefense;
-        [Range(0f, 179f)] public float maximumOffBoresightDegrees;
+        [Range(0f, 179f)] public float outboardYawLimitDegrees;
+        [Range(0f, 179f)] public float inboardYawLimitDegrees;
+        [Range(0f, 89f)] public float elevationLimitDegrees;
+        [Range(0f, 89f)] public float depressionLimitDegrees;
         [Min(0f)] public float traverseRateDegreesPerSecond;
         [Min(0f)] public float traverseAccelerationDegreesPerSecondSquared;
         [Min(0f)] public float traverseDecelerationDegreesPerSecondSquared;

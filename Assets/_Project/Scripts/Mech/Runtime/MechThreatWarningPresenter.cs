@@ -276,7 +276,7 @@ namespace ACunicombat.Mechs
 
         private void OnGUI()
         {
-            if (MechAssemblyMenu.IsAnyMenuVisible)
+            if (MechSolarSystemMap.IsAnyMapVisible || MechAssemblyMenu.IsAnyMenuVisible)
             {
                 return;
             }
@@ -292,13 +292,14 @@ namespace ACunicombat.Mechs
             }
 
             var previousGuiColor = GUI.color;
+            var previousGuiMatrix = MechHudLayout.BeginScaledGui();
             var startupTint = previousGuiColor;
             startupTint.a *= startupAlpha;
             GUI.color = startupTint;
             EnsureAssets();
             var panel = new Rect(
                 PanelMargin,
-                Screen.height - PanelSize - PanelMargin,
+                MechHudLayout.Height - PanelSize - PanelMargin,
                 PanelSize,
                 PanelSize);
             var center = panel.center;
@@ -360,6 +361,7 @@ namespace ACunicombat.Mechs
                 GUI.Label(statusRect, status, statusStyle);
             }
             GUI.color = previousGuiColor;
+            GUI.matrix = previousGuiMatrix;
         }
 
         private void ResolveEngineController()

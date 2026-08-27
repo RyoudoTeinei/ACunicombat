@@ -138,6 +138,8 @@ namespace ACunicombat.Mechs
         private const float MissileCueMaximumAgeSeconds = 0.45f;
         private const float MissileCueBeamWidthDegrees = 20f;
         private const int MissileCueDwellsPerTick = 4;
+        private const float AirSearchCueIntervalSeconds = 0.08f;
+        private const float AirSearchCueBeamWidthDegrees = 20f;
         private const float PointDefenseRevisitIntervalSeconds = 0.04f;
         private const float PointDefenseBeamWidthDegrees = 4f;
         private const float PointDefenseCueHoldSeconds = 0.3f;
@@ -297,6 +299,9 @@ namespace ACunicombat.Mechs
         private double nextSearchDwellTime;
         private double nextSttDwellTime;
         private double nextMissileCueDwellTime;
+        private double nextAirSearchCueDwellTime;
+        private double airSearchCueUntilTime = double.NegativeInfinity;
+        private Vector3 airSearchCueDirection;
         private double nextPointDefenseDwellTime;
         private double pointDefenseCueUntilTime =
             double.NegativeInfinity;
@@ -435,6 +440,31 @@ namespace ACunicombat.Mechs
                 : double.NegativeInfinity;
         }
 
+        /// <summary>
+        /// Requests a real radar confirmation dwell around a passive ESM/RWR bearing.
+        /// The bearing contains no range and does not create or alter a track by itself.
+        /// </summary>
+        public void CueAirSearchDirection(
+            Vector3 worldDirection,
+            float holdSeconds = 0.6f)
+        {
+            if (!radarPowerEnabled || worldDirection.sqrMagnitude < 0.0001f)
+            {
+                return;
+            }
+
+            var direction = worldDirection.normalized;
+            var now = SimTimeSeconds;
+            if (airSearchCueDirection.sqrMagnitude < 0.5f ||
+                Vector3.Angle(airSearchCueDirection, direction) > 3f)
+            {
+                nextAirSearchCueDwellTime = now;
+            }
+
+            airSearchCueDirection = direction;
+            airSearchCueUntilTime = now + Mathf.Max(0.1f, holdSeconds);
+        }
+
         public readonly struct MissileSeekerHandle
         {
             internal MissileSeekerHandle(
@@ -452,6 +482,78 @@ namespace ACunicombat.Mechs
             public SensorId SensorId { get; }
             public bool IsValid =>
                 EntityId.IsValid && SensorId.IsValid;
+        }
+
+        public readonly struct RadarDecoyHandle
+        {
+            internal RadarDecoyHandle(SimEntityId entityId)
+            {
+                EntityId = entityId;
+            }
+
+            internal SimEntityId EntityId { get; }
+            public bool IsValid => EntityId.IsValid;
+        }
+
+        public bool TryRegisterRadarDecoy(
+            Vector3 position,
+            Vector3 velocity,
+            float radarCrossSectionSquareMeters,
+            out RadarDecoyHandle handle)
+        {
+            EnsureInitialized();
+            handle = default;
+            if (driver == null)
+            {
+                return false;
+            }
+
+            var entity = driver.RegisterEntity(BuildState(position, velocity));
+            driver.RegisterRadarTarget(new RadarTargetProfile
+            {
+                EntityId = entity,
+                RadarCrossSectionSquareMeters =
+                    Mathf.Max(0.0001f, radarCrossSectionSquareMeters),
+                ObjectClass = TrackObjectClass.Decoy,
+                ClassificationSignature = 0.95f,
+            });
+            handle = new RadarDecoyHandle(entity);
+            return true;
+        }
+
+        public void UpdateRadarDecoy(
+            in RadarDecoyHandle handle,
+            Vector3 position,
+            Vector3 velocity,
+            float radarCrossSectionSquareMeters)
+        {
+            if (driver == null || !handle.IsValid)
+            {
+                return;
+            }
+
+            driver.SetEntityState(
+                handle.EntityId,
+                BuildState(position, velocity));
+            driver.RegisterRadarTarget(new RadarTargetProfile
+            {
+                EntityId = handle.EntityId,
+                RadarCrossSectionSquareMeters =
+                    Mathf.Max(0.0001f, radarCrossSectionSquareMeters),
+                ObjectClass = TrackObjectClass.Decoy,
+                ClassificationSignature = 0.95f,
+            });
+        }
+
+        public void UnregisterRadarDecoy(in RadarDecoyHandle handle)
+        {
+            if (driver == null || !handle.IsValid)
+            {
+                return;
+            }
+
+            driver.UnregisterRadarTarget(handle.EntityId);
+            driver.UnregisterEntity(handle.EntityId);
         }
 
         public void Configure(Camera newAimingCamera, CombatTestTarget newTarget)
@@ -492,6 +594,8 @@ namespace ACunicombat.Mechs
                 trackOperationMode = false;
                 pointDefenseCueTrackId = default;
                 pointDefenseCueUntilTime = double.NegativeInfinity;
+                airSearchCueDirection = Vector3.zero;
+                airSearchCueUntilTime = double.NegativeInfinity;
                 BreakSingleTargetTrack(SttBreakReason.RadarPowerDisabled);
                 return;
             }
@@ -500,6 +604,7 @@ namespace ACunicombat.Mechs
             nextSearchDwellTime = now;
             nextSttDwellTime = now;
             nextMissileCueDwellTime = now;
+            nextAirSearchCueDwellTime = now;
             nextPointDefenseDwellTime = now;
         }
 
@@ -1407,7 +1512,8 @@ namespace ACunicombat.Mechs
             {
                 var index = (current + direction * step) % count;
                 if (index < 0) index += count;
-                if (IsFireControlUsable(trackScratch[index].Lifecycle) &&
+                if (trackScratch[index].ObjectClass != TrackObjectClass.Decoy &&
+                    IsFireControlUsable(trackScratch[index].Lifecycle) &&
                     !IsAuthenticatedFriendly(trackScratch[index]))
                 {
                     candidateTrackId = trackScratch[index].TrackId;
@@ -1418,6 +1524,7 @@ namespace ACunicombat.Mechs
         }
 
         public bool TryGetFireSolution(
+            Ray aimRay,
             float coneDegrees,
             double projectileSpeed,
             double maximumFlightTimeSeconds,
@@ -1458,11 +1565,10 @@ namespace ACunicombat.Mechs
 				return false;
 			}
 
-            var ray = GetAimRay();
 			var currentTrackPosition = ToVector3(track.PredictPosition(SimTimeSeconds));
-			var toCurrentTrack = currentTrackPosition - ray.origin;
+			var toCurrentTrack = currentTrackPosition - aimRay.origin;
 			return toCurrentTrack.sqrMagnitude > 0.001f
-			       && Vector3.Angle(ray.direction, toCurrentTrack) <= coneDegrees;
+			       && Vector3.Angle(aimRay.direction, toCurrentTrack) <= coneDegrees;
         }
 
         public bool TryAuthorizeMissileLaunch(
@@ -1999,6 +2105,7 @@ namespace ACunicombat.Mechs
                 nextSearchDwellTime = now + RuntimeSearchIntervalSeconds;
             }
 
+            ScheduleAirSearchCue(now);
             ScheduleMissileWarningCues(now);
             SchedulePointDefenseRevisit(now);
             ScheduleTwsRevisits(now, hasStt);
@@ -2030,6 +2137,36 @@ namespace ACunicombat.Mechs
                 Sequence = ++dwellSequence,
             });
             nextSttDwellTime = now + RuntimeSttIntervalSeconds;
+        }
+
+        private void ScheduleAirSearchCue(double now)
+        {
+            if (now > airSearchCueUntilTime ||
+                now + 1e-6 < nextAirSearchCueDwellTime ||
+                airSearchCueDirection.sqrMagnitude < 0.5f)
+            {
+                return;
+            }
+
+            nextAirSearchCueDwellTime = now + AirSearchCueIntervalSeconds;
+            var direction = airSearchCueDirection.normalized;
+            if (!IsWithinBodyRadarFrame(direction))
+            {
+                return;
+            }
+
+            driver.ScheduleRadarDwell(new Dwell
+            {
+                SensorId = sensorId,
+                DueTime = now,
+                DwellTimeSeconds = 0.012f,
+                BeamDirection = ToFloat3(direction),
+                BeamWidthRadians =
+                    AirSearchCueBeamWidthDegrees * Mathf.Deg2Rad,
+                Priority = DwellPriority.AlertConfirm,
+                Sequence = ++dwellSequence,
+            });
+            UpdateBeamAngles(direction);
         }
 
         private void ScheduleMissileWarningCues(double now)
@@ -3252,14 +3389,6 @@ namespace ACunicombat.Mechs
             var local = Quaternion.Inverse(GetBodyRadarFrameRotation()) * direction;
             azimuthDegrees = Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
             elevationDegrees = Mathf.Asin(Mathf.Clamp(local.y, -1f, 1f)) * Mathf.Rad2Deg;
-        }
-
-        private Ray GetAimRay()
-        {
-            if (aimingCamera == null) aimingCamera = Camera.main;
-            return aimingCamera != null
-                ? aimingCamera.ViewportPointToRay(new Vector3(0.5f, 0.56f, 0f))
-                : new Ray(transform.position, transform.forward);
         }
 
         private static KinematicState BuildState(Transform source, Vector3 velocity)

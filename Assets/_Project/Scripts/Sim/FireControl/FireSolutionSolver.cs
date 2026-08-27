@@ -46,6 +46,7 @@ namespace ACunicombat.FireControl
         public double MainPropellantMass;
         public double MainEngineThrust;
         public double MainMassFlow;
+        public double SeekerRange;
 
         public bool UsesVariableMass =>
             InertMass > 0.0 &&
@@ -496,15 +497,47 @@ namespace ACunicombat.FireControl
                 1f - (float)(largestSigma / 5_000.0));
             solution.Quality = math.saturate(
                 track.Confidence * freshness * uncertainty);
-            solution.SeekerActivationTime = math.max(
-                requestTime,
-                solution.InterceptTime - 2.0);
+            solution.SeekerActivationTime = kinematics.SeekerRange > 1.0
+                ? requestTime + FindSeekerActivationFlightTime(
+                    initialRelativePosition,
+                    relativeVelocity,
+                    kinematics,
+                    timeOfFlight,
+                    CalculateReliableSeekerAcquisitionRange(
+                        kinematics.SeekerRange,
+                        largestSigma * 3.0))
+                : math.max(
+                    requestTime,
+                    solution.InterceptTime - 2.0);
             solution.WeaponReleaseAuthorized =
                 solution.Quality >= 0.15f;
             solution.Failure = solution.WeaponReleaseAuthorized
                 ? FireSolutionFailure.None
                 : FireSolutionFailure.QualityBelowThreshold;
             return solution;
+        }
+
+        public static double CalculateReliableSeekerAcquisitionRange(
+            double seekerMaximumRange,
+            double threeSigmaUncertaintyMeters)
+        {
+            var maximumRange = math.max(0.0, seekerMaximumRange);
+            if (maximumRange <= 0.0)
+            {
+                return 0.0;
+            }
+
+            // Reserve part of the advertised range for signal margin. A wider
+            // handoff basket starts the search earlier, but never beyond the
+            // seeker's physical detection range.
+            var nominalRange = maximumRange * 0.85;
+            var uncertaintyLead = math.clamp(
+                threeSigmaUncertaintyMeters,
+                0.0,
+                maximumRange * 0.15);
+            return math.min(
+                maximumRange,
+                nominalRange + uncertaintyLead);
         }
 
         // Bracket the first physical crossing, then refine it without
@@ -732,6 +765,76 @@ namespace ACunicombat.FireControl
                 relativeVelocity * flightTime);
             return requiredDistance -
                    kinematics.RelativeTravelDistance(flightTime);
+        }
+
+        private static double FindSeekerActivationFlightTime(
+            double3 initialRelativePosition,
+            double3 relativeVelocity,
+            in MissileKinematicProfile kinematics,
+            double interceptFlightTime,
+            double acquisitionRange)
+        {
+            if (acquisitionRange <= 0.0 || interceptFlightTime <= 0.0)
+            {
+                return math.max(0.0, interceptFlightTime - 2.0);
+            }
+
+            if (ReachabilityGap(
+                    initialRelativePosition,
+                    relativeVelocity,
+                    kinematics,
+                    0.0) <= acquisitionRange)
+            {
+                return 0.0;
+            }
+
+            // Find the first entry into the acquisition envelope. The coarse
+            // pass is intentionally retained because a maneuvering target's
+            // relative-range curve is not guaranteed to be monotonic.
+            var low = 0.0;
+            var high = interceptFlightTime;
+            var bracketed = false;
+            const int coarseSteps = 64;
+            for (var step = 1; step <= coarseSteps; step++)
+            {
+                var candidate = interceptFlightTime * step / coarseSteps;
+                if (ReachabilityGap(
+                        initialRelativePosition,
+                        relativeVelocity,
+                        kinematics,
+                        candidate) <= acquisitionRange)
+                {
+                    high = candidate;
+                    bracketed = true;
+                    break;
+                }
+
+                low = candidate;
+            }
+
+            if (!bracketed)
+            {
+                return math.max(0.0, interceptFlightTime - 2.0);
+            }
+
+            for (var iteration = 0; iteration < 32; iteration++)
+            {
+                var middle = (low + high) * 0.5;
+                if (ReachabilityGap(
+                        initialRelativePosition,
+                        relativeVelocity,
+                        kinematics,
+                        middle) > acquisitionRange)
+                {
+                    low = middle;
+                }
+                else
+                {
+                    high = middle;
+                }
+            }
+
+            return high;
         }
 
         private static double InterceptorReachabilityGap(

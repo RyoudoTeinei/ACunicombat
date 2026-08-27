@@ -205,12 +205,28 @@ public static class AC6FullPartCatalogBuilder
 		"WP_R_1630",
 		"WP_L_1720",
 		"WP_R_1720",
+		"WP_L_1810",
+		"WP_R_1810",
+		"WP_L_1820",
+		"WP_R_1820",
+		"WP_L_1830",
+		"WP_R_1830",
 		"WP_L_1910",
 		"WP_R_1910",
+		"WP_L_2020",
+		"WP_R_2020",
 		"WP_L_4250",
 		"WP_R_4250",
 		"WP_L_4290",
 		"WP_R_4290",
+		"WP_L_4300",
+		"WP_R_4300",
+		"WP_L_4301",
+		"WP_R_4301",
+		"WP_L_4302",
+		"WP_R_4302",
+		"WP_L_4340",
+		"WP_R_4340",
 		"WP_L_5110",
 		"WP_R_5110"
 	};
@@ -243,6 +259,10 @@ public static class AC6FullPartCatalogBuilder
 		["AC6_NATIVE_WP_L_4250"] = "WP_L_4250",
 		["AC6_NATIVE_WP_L_4290"] = "WP_L_4290",
 		["AC6_NATIVE_WP_R_4290"] = "WP_R_4290",
+		["AC6_NATIVE_WP_L_4300"] = "WP_L_4300",
+		["AC6_NATIVE_WP_R_4300"] = "WP_R_4300",
+		["AC6_NATIVE_WP_L_4301"] = "WP_L_4301",
+		["AC6_NATIVE_WP_R_4301"] = "WP_R_4301",
 		["AC6_NATIVE_WP_L_5110"] = "WP_L_5110",
 		["AC6_NATIVE_WP_R_5110"] = "WP_R_5110"
 	};
@@ -528,7 +548,7 @@ public static class AC6FullPartCatalogBuilder
 		}
 		IReadOnlyList<MechEquipmentAnimationDefinition> equipmentAnimations = null;
 		string defaultEquipmentActionId = null;
-		if (TryLoadNativeHuBen(item.key, out GameObject nativeModel, out List<MechEquipmentAnimationDefinition> nativeActions))
+		if (TryLoadNativeEquipment(item.key, out GameObject nativeModel, out List<MechEquipmentAnimationDefinition> nativeActions))
 		{
 			model = nativeModel;
 			previewModel = nativeModel;
@@ -540,19 +560,14 @@ public static class AC6FullPartCatalogBuilder
 		return mechPartDefinition;
 	}
 
-	private static bool TryLoadNativeHuBen(
+	private static bool TryLoadNativeEquipment(
 		string key,
 		out GameObject model,
 		out List<MechEquipmentAnimationDefinition> actions)
 	{
 		model = null;
 		actions = null;
-		if (!string.Equals(key, "WP_L_1910", StringComparison.OrdinalIgnoreCase) &&
-			!string.Equals(key, "WP_R_1910", StringComparison.OrdinalIgnoreCase))
-		{
-			return false;
-		}
-
+		// Prefer the animated native export whenever the pipeline produced one.
 		string path = "Assets/_Project/LocalSamples/AC6SkinnedModular/Raw/NativeEquipment/" +
 			key.ToUpperInvariant() + "_NATIVE.glb";
 		if (!File.Exists(path))
@@ -599,9 +614,10 @@ public static class AC6FullPartCatalogBuilder
 	private static MechPartDefinition ClonePartToResources(MechPartDefinition source)
 	{
 		MechPartDefinition mechPartDefinition = LoadOrCreate<MechPartDefinition>("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Resources/AC6Parts/" + Sanitize(source.PartId) + ".asset");
-		MechWeaponPerformance weaponPerformance = source.WeaponPerformance != null && source.WeaponPerformance.IsConfigured
-			? source.WeaponPerformance
-			: AC6TestWeaponProfileFactory.Create(source.PartId);
+		MechWeaponPerformance factoryPerformance = AC6TestWeaponProfileFactory.Create(source.PartId);
+		MechWeaponPerformance weaponPerformance = factoryPerformance != null && factoryPerformance.IsConfigured
+			? factoryPerformance
+			: source.WeaponPerformance;
 		mechPartDefinition.EditorConfigure(source.PartId, source.DisplayName, source.Slot, source.Category, source.ModelPrefab, source.Stats, source.MountPoints, source.Tags, source.MaterialOverrides, source.VisualRigMode, source.SkinnedAnimationClip, source.AncestorDriverSlot, source.AncestorDrivenBoneNames, source.InstantiateVisualAtAllMounts, source.EquipmentAnimations, source.DefaultEquipmentActionId, source.PlayDefaultEquipmentActionOnAssemble, source.LocalPosition, source.LocalEulerAngles, source.LocalScale, source.PreviewModelPrefab, source.PreviewImage, source.InternalPerformance, source.HeadSensorPerformance, source.ArmPerformance, source.CorePerformance, source.LegPerformance, source.BoosterPerformance, source.GeneratorPerformance, source.RadarPerformance, source.FireControlPerformance, weaponPerformance, source.DataLinkPerformance, source.RadiatorPerformance);
 		EditorUtility.SetDirty(mechPartDefinition);
 		return mechPartDefinition;
@@ -884,9 +900,10 @@ public static class AC6FullPartCatalogBuilder
 	{
 		return slot switch
 		{
-			MechPartSlot.Core => new MechMountPointDefinition[3]
+			MechPartSlot.Core => new MechMountPointDefinition[4]
 			{
-				Mount("Booster Nozzles", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_800", all: true, 10000f, MechMountSourceRegion.Rear),
+				Mount("Left Booster", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_150", all: false, 10000f),
+				Mount("Right Booster", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_151", all: false, 10000f),
 				Mount("Left Back", MechPartSlot.LeftBackWeapon, MechHardpointType.BackWeapon, "_dmy_13", all: false, 10000f),
 				Mount("Right Back", MechPartSlot.RightBackWeapon, MechHardpointType.BackWeapon, "_dmy_14", all: false, 10000f)
 			}, 

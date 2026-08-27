@@ -58,6 +58,7 @@ namespace ACunicombat.Mechs
         private bool ownshipLaunch;
         private bool motorStateInitialized;
         private bool motorActive;
+        private bool hasStartedMotor;
         private bool ignitionFadingOut;
         private float ignitionBaseVolume;
         private float motorLoopDelayRemaining;
@@ -162,6 +163,8 @@ namespace ACunicombat.Mechs
 
         private void StartMotorAudio()
         {
+            var isRestart = hasStartedMotor;
+            hasStartedMotor = true;
             var ignitionClip =
                 coldLaunch
                     ? coldIgnitionVariants.Next()
@@ -171,7 +174,11 @@ namespace ACunicombat.Mechs
                     ? coldIgnitionVolume
                     : hotIgnitionVolume;
             ignitionFadingOut = false;
-            var playIgnition = ignitionClip != null;
+            // Only the first ignition is structurally coupled to the firing
+            // mech. A later dual-pulse restart happens downrange and must not
+            // be replayed as non-spatial ownship audio.
+            var playIgnition = ignitionClip != null &&
+                !(ownshipLaunch && isRestart);
             if (ownshipLaunch)
             {
                 var now = Time.unscaledTime;

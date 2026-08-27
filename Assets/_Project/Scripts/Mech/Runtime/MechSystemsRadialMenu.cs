@@ -114,7 +114,7 @@ namespace ACunicombat.Mechs
 
         private void Update()
         {
-            if (MechAssemblyMenu.IsAnyMenuVisible)
+            if (MechSolarSystemMap.IsAnyMapVisible || MechAssemblyMenu.IsAnyMenuVisible)
             {
                 if (visible)
                 {

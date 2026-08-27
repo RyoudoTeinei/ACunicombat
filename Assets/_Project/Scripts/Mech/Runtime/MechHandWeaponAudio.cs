@@ -9,6 +9,10 @@ namespace ACunicombat.Mechs
         Legacy2A42 = 1,
         Flak43 = 2,
         Gau8A = 3,
+        Mg17 = 4,
+        VickersK = 5,
+        Shkas = 6,
+        Mg81 = 7,
     }
 
     public enum CannonAudioProfile : byte
@@ -93,6 +97,11 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0.01f)] private float gau8LoopFadeInSeconds = 0.05f;
         [SerializeField, Min(0.01f)] private float gau8LoopFadeOutSeconds = 0.09f;
 
+        [Header("Small arms automatic fire")]
+        [SerializeField, Range(0f, 1f)] private float smallArmsLoopVolume = 0.36f;
+        [SerializeField, Range(0f, 1f)] private float smallArmsBassVolume = 0.2f;
+        [SerializeField, Range(0f, 1f)] private float smallArmsTailVolume = 0.32f;
+
         [Header("57 mm autoloader")]
         [SerializeField] private AudioClip cannonAutoloaderTurnClip;
         [SerializeField] private AudioClip cannonAutoloaderServoClip;
@@ -124,6 +133,8 @@ namespace ACunicombat.Mechs
         private AudioSource gau8ShotLoopSource;
         private AudioSource gau8BassLoopSource;
         private AudioSource gau8RotorLoopSource;
+        private AudioSource smallArmsLoopSource;
+        private AudioSource smallArmsBassSource;
         private AudioSource reloadExternalSource;
         private AudioSource structureSource;
         private AudioSource rifleInteriorTailSource;
@@ -170,6 +181,18 @@ namespace ACunicombat.Mechs
         private MechAudioVariantSet rifleMagazineMoveVariants;
         private MechAudioVariantSet rifleMagazineInVariants;
         private MechAudioVariantSet rifleBoltVariants;
+        private AudioClip mg17LoopClip;
+        private AudioClip mg17BassClip;
+        private AudioClip mg17TailClip;
+        private AudioClip vickersKLoopClip;
+        private AudioClip vickersKBassClip;
+        private AudioClip vickersKTailClip;
+        private AudioClip shkasLoopClip;
+        private AudioClip shkasBassClip;
+        private AudioClip shkasTailClip;
+        private AudioClip mg81LoopClip;
+        private AudioClip mg81BassClip;
+        private AudioClip mg81TailClip;
 
         private void Awake()
         {
@@ -192,6 +215,10 @@ namespace ACunicombat.Mechs
                 "GAU-8 Bass Loop Audio", gau8LoopBassClip);
             gau8RotorLoopSource = CreateLoopingExternalSource(
                 "GAU-8 Rotor Loop Audio", gau8RotorLoopClip);
+            smallArmsLoopSource = CreateLoopingExternalSource(
+                "Small Arms Loop Audio", null);
+            smallArmsBassSource = CreateLoopingExternalSource(
+                "Small Arms Bass Audio", null);
             reloadExternalSource = CreateExternalSource("Weapon Reload Audio");
             structureSource = CreateStructureSource();
             rifleInteriorTailSource = CreateStructureSource();
@@ -262,7 +289,7 @@ namespace ACunicombat.Mechs
 
             var now = Time.unscaledTime;
             var useFarFlak =
-                profile != AutomaticCannonAudioProfile.Legacy2A42 &&
+                IsFlakProfile(profile) &&
                 UseFlakFarLayer(muzzlePosition, ownship);
             var profileChanged =
                 rifleBurstActive &&
@@ -292,6 +319,15 @@ namespace ACunicombat.Mechs
                     break;
                 case AutomaticCannonAudioProfile.Flak43:
                     PlayFlak43Shot(startsBurst, useFarFlak, ownship);
+                    break;
+                case AutomaticCannonAudioProfile.Mg17:
+                case AutomaticCannonAudioProfile.VickersK:
+                case AutomaticCannonAudioProfile.Shkas:
+                case AutomaticCannonAudioProfile.Mg81:
+                    if (startsBurst)
+                    {
+                        BeginSmallArmsBurst(profile);
+                    }
                     break;
                 default:
                     PlayFlak38Shot(startsBurst, useFarFlak);
@@ -462,12 +498,13 @@ namespace ACunicombat.Mechs
             UpdateRifleBurst();
             UpdateGau8Burst();
             UpdateGau8Loops(Time.unscaledDeltaTime);
+            UpdateSmallArmsLoops(Time.unscaledDeltaTime);
         }
 
         private void UpdateRifleBurst()
         {
             if (!rifleBurstActive ||
-                rifleTriggerHeld ||
+                (rifleTriggerHeld && !IsSmallArmsProfile(rifleBurstProfile)) ||
                 Time.unscaledTime - lastRifleShotTime <
                 RifleBurstQuietSeconds)
             {
@@ -485,6 +522,15 @@ namespace ACunicombat.Mechs
                     break;
                 case AutomaticCannonAudioProfile.Flak43:
                     PlayFlak43Tail();
+                    break;
+                case AutomaticCannonAudioProfile.Mg17:
+                case AutomaticCannonAudioProfile.VickersK:
+                case AutomaticCannonAudioProfile.Shkas:
+                case AutomaticCannonAudioProfile.Mg81:
+                    PlayOneShot(
+                        rifleTailSource,
+                        GetSmallArmsClips(rifleBurstProfile).tail,
+                        smallArmsTailVolume);
                     break;
                 default:
                     if (!rifleBurstUsesFarLayer)
@@ -528,6 +574,68 @@ namespace ACunicombat.Mechs
                 gau8RotorLoopSource,
                 gau8RotorActive ? gau8RotorLoopVolume : 0f,
                 deltaTime);
+        }
+
+        private void UpdateSmallArmsLoops(float deltaTime)
+        {
+            bool active = rifleBurstActive && IsSmallArmsProfile(rifleBurstProfile);
+            UpdateLoopingSource(
+                smallArmsLoopSource,
+                active ? smallArmsLoopVolume : 0f,
+                deltaTime);
+            UpdateLoopingSource(
+                smallArmsBassSource,
+                active ? smallArmsBassVolume : 0f,
+                deltaTime);
+        }
+
+        private void BeginSmallArmsBurst(AutomaticCannonAudioProfile profile)
+        {
+            var clips = GetSmallArmsClips(profile);
+            RestartLoop(smallArmsLoopSource, clips.loop);
+            RestartLoop(smallArmsBassSource, clips.bass);
+        }
+
+        private static void RestartLoop(AudioSource source, AudioClip clip)
+        {
+            if (source == null)
+            {
+                return;
+            }
+
+            source.Stop();
+            source.clip = clip;
+            source.loop = true;
+            source.volume = 0f;
+        }
+
+        private (AudioClip loop, AudioClip bass, AudioClip tail) GetSmallArmsClips(
+            AutomaticCannonAudioProfile profile)
+        {
+            return profile switch
+            {
+                AutomaticCannonAudioProfile.Mg17 =>
+                    (mg17LoopClip, mg17BassClip, mg17TailClip),
+                AutomaticCannonAudioProfile.VickersK =>
+                    (vickersKLoopClip, vickersKBassClip, vickersKTailClip),
+                AutomaticCannonAudioProfile.Shkas =>
+                    (shkasLoopClip, shkasBassClip, shkasTailClip),
+                AutomaticCannonAudioProfile.Mg81 =>
+                    (mg81LoopClip, mg81BassClip, mg81TailClip),
+                _ => (null, null, null)
+            };
+        }
+
+        private static bool IsSmallArmsProfile(AutomaticCannonAudioProfile profile)
+        {
+            return profile >= AutomaticCannonAudioProfile.Mg17 &&
+                   profile <= AutomaticCannonAudioProfile.Mg81;
+        }
+
+        private static bool IsFlakProfile(AutomaticCannonAudioProfile profile)
+        {
+            return profile == AutomaticCannonAudioProfile.Flak38 ||
+                   profile == AutomaticCannonAudioProfile.Flak43;
         }
 
         private void PlayFlak43Tail()
@@ -654,6 +762,8 @@ namespace ACunicombat.Mechs
             gau8ShotLoopSource?.Stop();
             gau8BassLoopSource?.Stop();
             gau8RotorLoopSource?.Stop();
+            smallArmsLoopSource?.Stop();
+            smallArmsBassSource?.Stop();
             reloadExternalSource?.Stop();
             structureSource?.Stop();
             rifleInteriorTailSource?.Stop();
@@ -751,6 +861,19 @@ namespace ACunicombat.Mechs
             gau8RotorStopVariants = MechAudioVariantSet.Load(
                 gau8Root, "gau8a_rotor_stop_001",
                 "gau8a_rotor_stop_", 2);
+            const string smallArmsRoot = "Audio/Weapons/SmallArms/";
+            mg17LoopClip = LoadClip(null, smallArmsRoot + "mg17_loop");
+            mg17BassClip = LoadClip(null, smallArmsRoot + "mg17_bass");
+            mg17TailClip = LoadClip(null, smallArmsRoot + "mg17_lastshot_left");
+            vickersKLoopClip = LoadClip(null, smallArmsRoot + "vickers_k_loop");
+            vickersKBassClip = LoadClip(null, smallArmsRoot + "vickers_k_bass");
+            vickersKTailClip = LoadClip(null, smallArmsRoot + "vickers_k_lastshot_left");
+            shkasLoopClip = LoadClip(null, smallArmsRoot + "shkas_loop");
+            shkasBassClip = LoadClip(null, smallArmsRoot + "shkas_bass");
+            shkasTailClip = LoadClip(null, smallArmsRoot + "shkas_last_close-001");
+            mg81LoopClip = LoadClip(null, smallArmsRoot + "mg81_loop");
+            mg81BassClip = LoadClip(null, smallArmsRoot + "mg81_bass");
+            mg81TailClip = LoadClip(null, smallArmsRoot + "mg81_lastshot_left");
             cannonAutoloaderTurnVariants = MechAudioVariantSet.Load(
                 reloadRoot, "cannon_autoloader_turn_noise",
                 "cannon_autoloader_turn_noise_", 3,
@@ -858,6 +981,8 @@ namespace ACunicombat.Mechs
             rifleLowSource.transform.position = position;
             rifleTailSource.transform.position = position;
             rifleFarSource.transform.position = position;
+            smallArmsLoopSource.transform.position = position;
+            smallArmsBassSource.transform.position = position;
         }
 
         private void MoveGau8Sources(Vector3 position)

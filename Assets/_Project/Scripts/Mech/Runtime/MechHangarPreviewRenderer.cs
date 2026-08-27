@@ -11,7 +11,7 @@ namespace ACunicombat.Mechs
         private const float DefaultZoom = 0.62f;
         private const float MinimumZoom = 0.28f;
         private const float MaximumZoom = 1.35f;
-        private static readonly Vector3 PreviewOrigin = new Vector3(50000f, 50000f, 50000f);
+        private static readonly Vector3 PreviewOrigin = new Vector3(0f, -256f, 0f);
 
         private GameObject previewStage;
         private GameObject contentRoot;
@@ -46,6 +46,32 @@ namespace ACunicombat.Mechs
             {
                 previewStage.SetActive(value);
             }
+        }
+
+        private void OnEnable()
+        {
+            RenderPipelineManager.beginCameraRendering += HandleBeginCameraRendering;
+        }
+
+        private void OnDisable()
+        {
+            RenderPipelineManager.beginCameraRendering -= HandleBeginCameraRendering;
+        }
+
+        private void HandleBeginCameraRendering(
+            ScriptableRenderContext context,
+            Camera renderingCamera)
+        {
+            if (renderingCamera == null)
+            {
+                return;
+            }
+            if (renderingCamera == previewCamera)
+            {
+                renderingCamera.cullingMask = 1 << PreviewLayer;
+                return;
+            }
+            renderingCamera.cullingMask &= ~(1 << PreviewLayer);
         }
 
         public void ShowLoadout(MechLoadoutDefinition loadout)
@@ -105,6 +131,45 @@ namespace ACunicombat.Mechs
             MechAppearanceApplicator.Apply(contentRoot, appearance);
             PrepareContent(contentRoot);
             contentRoot.SetActive(true);
+            FrameContent();
+        }
+
+        public void ShowStandaloneModel(
+            GameObject modelPrefab,
+            string displayName,
+            Vector3 localEulerAngles)
+        {
+            ClearContent();
+            if (modelPrefab == null)
+            {
+                return;
+            }
+
+            EnsureStage();
+            contentRoot = new GameObject("HangarStandalonePreview")
+            {
+                hideFlags = HideFlags.DontSave
+            };
+            contentRoot.SetActive(false);
+            contentRoot.transform.SetParent(previewStage.transform, false);
+
+            var instance = Instantiate(modelPrefab, contentRoot.transform);
+            instance.name = string.IsNullOrWhiteSpace(displayName)
+                ? modelPrefab.name + "_Preview"
+                : displayName + "_Preview";
+            instance.transform.SetLocalPositionAndRotation(
+                Vector3.zero,
+                Quaternion.Euler(localEulerAngles));
+            instance.transform.localScale = Vector3.one;
+            PrepareContent(contentRoot);
+            contentRoot.SetActive(true);
+
+            if (TryCalculateBounds(contentRoot, out var initialBounds))
+            {
+                var localCenter = contentRoot.transform.InverseTransformPoint(initialBounds.center);
+                instance.transform.localPosition -= localCenter;
+            }
+
             FrameContent();
         }
 

@@ -331,7 +331,9 @@ namespace ACunicombat.Mechs
         [SerializeField] private float maximumSynchronizationAcceleration = 32f;
         [SerializeField, Range(0.1f, 1f)] private float longitudinalBrakingSafety = 0.78f;
         [SerializeField] private float longitudinalHoldRadius = 3f;
+        [SerializeField] private float targetPositionSmoothingSeconds = 0.24f;
         [SerializeField] private float targetVelocitySmoothingSeconds = 0.35f;
+        [SerializeField] private float maximumTrackCorrectionSpeed = 180f;
         [SerializeField] private float targetTurnReanchorDegrees = 2.5f;
         [SerializeField] private float targetSpeedReanchorThreshold = 8f;
         [Header("轨道显示")]
@@ -354,6 +356,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private Color pathColor = new(0.1f, 0.95f, 0.85f, 0.9f);
 
         private TrackId synchronizedTrackId;
+        private MechTrackControlFilter targetControlFilter;
         private Vector3 desiredRelativeOffset;
         private Vector3 filteredTargetVelocity;
         private Vector3 trajectoryAnchorTargetVelocity;
@@ -417,6 +420,10 @@ namespace ACunicombat.Mechs
             synchronizedTrackId = track.TrackId;
             var targetPosition = radar.PredictTrackPosition(track);
             filteredTargetVelocity = ToVector3(track.Velocity);
+            targetControlFilter.Reset(
+                synchronizedTrackId,
+                targetPosition,
+                filteredTargetVelocity);
             parallelDirection = ResolveParallelDirection(
                 filteredTargetVelocity,
                 targetPosition - transform.position,
@@ -444,6 +451,7 @@ namespace ACunicombat.Mechs
             manualOverride = false;
             automaticLongitudinalCommand = 0f;
             pathVisualInitialized = false;
+            targetControlFilter.Reset();
             motion?.ClearTrajectorySyncCommand();
             SetPathVisible(false);
         }
@@ -475,15 +483,16 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var targetPosition = radar.PredictTrackPosition(track);
             var measuredTargetVelocity = ToVector3(track.Velocity);
-            var smoothing = 1f - Mathf.Exp(
-                -Mathf.Max(0f, deltaTime) /
-                Mathf.Max(0.02f, targetVelocitySmoothingSeconds));
-            filteredTargetVelocity = Vector3.Lerp(
-                filteredTargetVelocity,
+            var targetPosition = targetControlFilter.Update(
+                track.TrackId,
+                radar.PredictTrackPosition(track),
                 measuredTargetVelocity,
-                smoothing);
+                deltaTime,
+                targetPositionSmoothingSeconds,
+                targetVelocitySmoothingSeconds,
+                maximumTrackCorrectionSpeed);
+            filteredTargetVelocity = targetControlFilter.Velocity;
             var newDirection = ResolveParallelDirection(
                 filteredTargetVelocity,
                 targetPosition - transform.position,

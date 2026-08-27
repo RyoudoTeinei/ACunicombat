@@ -21,6 +21,10 @@ public static class AC6PlayableSceneBuilder
     private const string BuildRequestFileName = "RunAC6PlayableSceneBuild.request";
     private const string SkyboxBuildRequestFileName =
         "RunAC6DeepSpaceSkyboxBuild.request";
+    private const string PlayerEnvironmentBuildRequestFileName =
+        "RunAC6PlayerEnvironmentBuild.request";
+    private const string PlayerEnvironmentPreviewRequestFileName =
+        "CaptureAC6PlayerEnvironmentPreview.request";
     private const string GraphAssetPath =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/AC6BehaviorGraph.asset";
     private const string ShowcaseScenePath =
@@ -29,7 +33,7 @@ public static class AC6PlayableSceneBuilder
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Scenes/AC6PlayerControl.unity";
     private const string PlayerEnvironmentRootName =
         "AC6PlayerEnvironment";
-    private const int PlayerEnvironmentSchemaVersion = 2;
+    private const int PlayerEnvironmentSchemaVersion = 4;
     private static readonly string PlayerEnvironmentVersionObjectName =
         "__AC6PlayerEnvironmentVersion_" + PlayerEnvironmentSchemaVersion;
     private const string ShowcaseRegistryPath =
@@ -45,6 +49,41 @@ public static class AC6PlayableSceneBuilder
     private const string DeepSpaceSkyboxMaterialPath =
         GeneratedMaterialsRoot + "/AC6SparseDeepSpaceSkybox.mat";
     private const string DeepSpaceSkyboxShaderName = "AC6/Deep Space Skybox";
+    private const string MarsBackdropAssetPath =
+        "Assets/_Project/Environment/Mars/mars_the_red_planet_free.glb";
+    private const string MarsOrbitalAlbedoMapPath =
+        "Assets/_Project/LocalGameAssets/Environment/Mars/MarsOrbitalAlbedo16k.jpg";
+    private const string MarsOrbitalNormalMapPath =
+        "Assets/_Project/LocalGameAssets/Environment/Mars/MarsOrbitalNormal16k.png";
+    private const string MarsSpaceEngineLayersRoot =
+        "Assets/_Project/LocalGameAssets/Environment/Mars/SpaceEngineLayers";
+    private static readonly string[] MarsCubeFaceNames =
+        { "PosX", "NegX", "PosY", "NegY", "PosZ", "NegZ" };
+    private static readonly string[] MarsCubeFileNames =
+        { "pos_x", "neg_x", "pos_y", "neg_y", "pos_z", "neg_z" };
+    private static readonly string[] MarsSurfaceCubePaths = MarsCubeFileNames
+        .Select(name => $"{MarsSpaceEngineLayersRoot}/SurfaceCube32k/{name}.jpg")
+        .ToArray();
+    private static readonly string[] MarsDustCloudCubePaths = MarsCubeFileNames
+        .Select(name => $"{MarsSpaceEngineLayersRoot}/CloudsDustCube2k/{name}.png")
+        .ToArray();
+    private static readonly string[] MarsWaterIceCloudCubePaths = MarsCubeFileNames
+        .Select(name => $"{MarsSpaceEngineLayersRoot}/CloudsWaterIceCube2k/{name}.png")
+        .ToArray();
+    private const string MarsOrbitalMaterialPath =
+        GeneratedMaterialsRoot + "/MarsOrbital.mat";
+    private const string MarsOrbitalCloudMaterialPath =
+        GeneratedMaterialsRoot + "/MarsOrbitalClouds.mat";
+    private const string MarsOrbitalAtmosphereMaterialPath =
+        GeneratedMaterialsRoot + "/MarsOrbitalAtmosphere.mat";
+    private const string MarsOrbitalMeshPath =
+        GeneratedMaterialsRoot + "/MarsOrbitalSphere.asset";
+    private const string MarsOrbitalShaderName =
+        "ACunicombat/Environment/Orbital Planet";
+    private const string MarsOrbitalCloudShaderName =
+        "ACunicombat/Environment/Orbital Clouds";
+    private const string MarsOrbitalAtmosphereShaderName =
+        "ACunicombat/Environment/Orbital Atmosphere";
     // Both panorama generations are dead: the sky is produced per pixel in the shader now.
     private const string LegacyDeepSpacePanoramaPngPath =
         GeneratedMaterialsRoot + "/AC6SparseDeepSpacePanorama.png";
@@ -66,7 +105,7 @@ public static class AC6PlayableSceneBuilder
     private const string SunLensFlareDataPath = RenderingRoot + "/AC6SunLensFlare.asset";
     // Shared by the key light's rotation and the skybox's analytic sun direction. These two must
     // not be allowed to drift apart, or the visible disc stops agreeing with the shading.
-    private static readonly Vector3 KeyLightEuler = new(31f, -32f, 0f);
+    private static readonly Vector3 KeyLightEuler = new(31f, -68f, 0f);
     private const string PoseRoot = "Tools/LocalOut/actions";
     private const string LoadoutRoot =
         "Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Loadouts";
@@ -134,6 +173,96 @@ public static class AC6PlayableSceneBuilder
         Debug.Log("[AC6PlayableScene] Player environment rebuilt with finite structural platform.");
     }
 
+    public static void RebuildPlayerEnvironmentBatch()
+    {
+        AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+        var scene = EditorSceneManager.OpenScene(PlayableScenePath, OpenSceneMode.Single);
+        BuildPlayerEnvironment();
+        EnsureSpaceDustFieldForCurrentPlayer();
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        AssetDatabase.SaveAssets();
+        Debug.Log("[AC6PlayableScene] Player environment rebuilt in batch mode.");
+    }
+
+    private static void CapturePlayerEnvironmentPreview()
+    {
+        if (!string.Equals(
+                SceneManager.GetActiveScene().path,
+                PlayableScenePath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            EditorSceneManager.OpenScene(PlayableScenePath, OpenSceneMode.Single);
+        }
+
+        var cameraObject = GameObject.Find("AC6PlayerCamera");
+        var camera = cameraObject != null ? cameraObject.GetComponent<Camera>() : null;
+        if (camera == null)
+        {
+            Debug.LogError("[AC6PlayableScene] Player environment preview camera was not found.");
+            return;
+        }
+
+        var backdrop = UnityEngine.Object.FindAnyObjectByType<MechOrbitalPlanetBackdrop>();
+        backdrop?.RefreshNow();
+
+        const int width = 2560;
+        const int height = 1440;
+        var renderTexture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+        var texture = new Texture2D(width, height, TextureFormat.RGB24, false);
+        var previousTarget = camera.targetTexture;
+        var previousActive = RenderTexture.active;
+        var previousRotation = camera.transform.rotation;
+        var previousCullingMask = camera.cullingMask;
+        try
+        {
+            camera.targetTexture = renderTexture;
+            camera.Render();
+            RenderTexture.active = renderTexture;
+            texture.ReadPixels(new Rect(0f, 0f, width, height), 0, 0);
+            texture.Apply();
+
+            var projectRoot = Directory.GetParent(Application.dataPath)?.FullName;
+            if (string.IsNullOrWhiteSpace(projectRoot))
+            {
+                return;
+            }
+
+            var outputPath = Path.Combine(projectRoot, "Temp", "MarsOrbitalPreview.png");
+            File.WriteAllBytes(outputPath, texture.EncodeToPNG());
+            Debug.Log($"[AC6PlayableScene] Player environment preview saved to '{outputPath}'.");
+
+            if (backdrop != null)
+            {
+                var planetDirection = backdrop.transform.position - camera.transform.position;
+                camera.transform.rotation = Quaternion.LookRotation(planetDirection, Vector3.up);
+                camera.cullingMask = 1 << backdrop.gameObject.layer;
+                camera.Render();
+                RenderTexture.active = renderTexture;
+                texture.ReadPixels(new Rect(0f, 0f, width, height), 0, 0);
+                texture.Apply();
+
+                var nadirOutputPath = Path.Combine(
+                    projectRoot,
+                    "Temp",
+                    "MarsOrbitalNadirPreview.png");
+                File.WriteAllBytes(nadirOutputPath, texture.EncodeToPNG());
+                Debug.Log(
+                    $"[AC6PlayableScene] Mars nadir preview saved to '{nadirOutputPath}'.");
+            }
+        }
+        finally
+        {
+            camera.transform.rotation = previousRotation;
+            camera.cullingMask = previousCullingMask;
+            camera.targetTexture = previousTarget;
+            RenderTexture.active = previousActive;
+            renderTexture.Release();
+            UnityEngine.Object.DestroyImmediate(texture);
+            UnityEngine.Object.DestroyImmediate(renderTexture);
+        }
+    }
+
     // Also services one-shot rebuild requests created while the editor is open.
     [InitializeOnLoadMethod]
     private static void RunRequestedBuildAfterReload()
@@ -151,28 +280,70 @@ public static class AC6PlayableSceneBuilder
             projectRoot,
             "Temp",
             SkyboxBuildRequestFileName);
+        var playerEnvironmentRequestPath = Path.Combine(
+            projectRoot,
+            "Temp",
+            PlayerEnvironmentBuildRequestFileName);
+        var playerEnvironmentPreviewRequestPath = Path.Combine(
+            projectRoot,
+            "Temp",
+            PlayerEnvironmentPreviewRequestFileName);
         var buildRequested = File.Exists(requestPath);
         var skyboxBuildRequested = File.Exists(skyboxRequestPath);
-        if (!buildRequested && !skyboxBuildRequested)
+        var playerEnvironmentBuildRequested = File.Exists(playerEnvironmentRequestPath);
+        var playerEnvironmentPreviewRequested = File.Exists(playerEnvironmentPreviewRequestPath);
+        if (!buildRequested &&
+            !skyboxBuildRequested &&
+            !playerEnvironmentBuildRequested &&
+            !playerEnvironmentPreviewRequested)
         {
             return;
-        }
-
-        if (buildRequested)
-        {
-            File.Delete(requestPath);
-        }
-
-        if (skyboxBuildRequested)
-        {
-            File.Delete(skyboxRequestPath);
         }
 
         EditorApplication.delayCall += () =>
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                Debug.LogError("AC6 playable scene build request was skipped because Unity is in Play Mode.");
+                Debug.LogWarning(
+                    "AC6 playable scene build request is waiting for Unity to leave Play Mode.");
+                EditorApplication.playModeStateChanged -= RetryRequestedBuildAfterPlayMode;
+                EditorApplication.playModeStateChanged += RetryRequestedBuildAfterPlayMode;
+                return;
+            }
+
+            if (buildRequested)
+            {
+                File.Delete(requestPath);
+            }
+
+            if (skyboxBuildRequested)
+            {
+                File.Delete(skyboxRequestPath);
+            }
+
+            if (playerEnvironmentBuildRequested)
+            {
+                File.Delete(playerEnvironmentRequestPath);
+            }
+
+            if (playerEnvironmentPreviewRequested)
+            {
+                File.Delete(playerEnvironmentPreviewRequestPath);
+            }
+
+            if (playerEnvironmentBuildRequested && !buildRequested)
+            {
+                RebuildPlayerEnvironmentBatch();
+                if (playerEnvironmentPreviewRequested)
+                {
+                    CapturePlayerEnvironmentPreview();
+                }
+                return;
+            }
+
+            if (playerEnvironmentPreviewRequested && !buildRequested)
+            {
+                CapturePlayerEnvironmentPreview();
                 return;
             }
 
@@ -195,6 +366,17 @@ public static class AC6PlayableSceneBuilder
                 EditorSceneManager.OpenScene(PlayableScenePath, OpenSceneMode.Single);
             }
         };
+    }
+
+    private static void RetryRequestedBuildAfterPlayMode(PlayModeStateChange state)
+    {
+        if (state != PlayModeStateChange.EnteredEditMode)
+        {
+            return;
+        }
+
+        EditorApplication.playModeStateChanged -= RetryRequestedBuildAfterPlayMode;
+        RunRequestedBuildAfterReload();
     }
 
     private static void RegisterPlayerEnvironmentValidation()
@@ -514,6 +696,8 @@ public static class AC6PlayableSceneBuilder
         var runner = Ensure<MechBehaviorGraphRunner>(mech);
         var weapon = Ensure<MechWeaponArmLayer>(mech);
         var rig = Ensure<MechPlayerRig>(mech);
+        var solarSystemMap = Ensure<MechSolarSystemMap>(mech);
+        EditorUtility.SetDirty(solarSystemMap);
 
         rig.ConfigureActionPlayback(
             controller.ActionRegistry,
@@ -1024,6 +1208,7 @@ public static class AC6PlayableSceneBuilder
             root.transform, "Cross Slope", new Vector3(0f, 5.45f, 390f),
             new Vector3(120f, 1f, 70f), new Vector3(-9f, 0f, 0f), floorMaterial);
 
+        CreateMarsBackdrop(root.transform);
         ConfigureDeepSpaceEnvironment();
 
         // The playable scene is generated and intentionally ignored by Git. Keep a serialized
@@ -1035,6 +1220,470 @@ public static class AC6PlayableSceneBuilder
             hideFlags = HideFlags.HideInHierarchy,
         };
         versionObject.transform.SetParent(root.transform, false);
+    }
+
+    private static void CreateMarsBackdrop(Transform parent)
+    {
+        ConfigureMarsTextureImporters();
+        var surfaceCube = LoadMarsCubeTextures(MarsSurfaceCubePaths);
+        var dustCloudCube = LoadMarsCubeTextures(MarsDustCloudCubePaths);
+        var waterIceCloudCube = LoadMarsCubeTextures(MarsWaterIceCloudCubePaths);
+        var hasSurfaceCube = surfaceCube.All(texture => texture != null);
+        var hasCloudCube = dustCloudCube.All(texture => texture != null) &&
+            waterIceCloudCube.All(texture => texture != null);
+        Texture surfaceTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(MarsOrbitalAlbedoMapPath);
+        if (surfaceTexture == null)
+        {
+            var marsPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(MarsBackdropAssetPath);
+            var sourceRenderer = marsPrefab != null
+                ? marsPrefab.GetComponentInChildren<Renderer>(true)
+                : null;
+            var sourceMaterial = sourceRenderer != null ? sourceRenderer.sharedMaterial : null;
+            surfaceTexture = sourceMaterial != null && sourceMaterial.HasProperty("_BaseMap")
+                ? sourceMaterial.GetTexture("_BaseMap")
+                : sourceMaterial != null
+                    ? sourceMaterial.mainTexture
+                    : null;
+        }
+
+        if (surfaceTexture == null)
+        {
+            Debug.LogWarning("[AC6PlayableScene] Mars surface texture is unavailable.");
+            return;
+        }
+
+        var orbitalNormal = AssetDatabase.LoadAssetAtPath<Texture2D>(MarsOrbitalNormalMapPath);
+        if (orbitalNormal == null)
+        {
+            Debug.LogWarning(
+                $"[AC6PlayableScene] Orbital Mars normal map is unavailable at " +
+                $"'{MarsOrbitalNormalMapPath}'.");
+        }
+
+        var shader = Shader.Find(MarsOrbitalShaderName);
+        if (shader == null)
+        {
+            Debug.LogWarning(
+                $"[AC6PlayableScene] Orbital planet shader '{MarsOrbitalShaderName}' is unavailable.");
+            return;
+        }
+
+        var material = AssetDatabase.LoadAssetAtPath<Material>(MarsOrbitalMaterialPath);
+        if (material == null)
+        {
+            material = new Material(shader);
+            AssetDatabase.CreateAsset(material, MarsOrbitalMaterialPath);
+        }
+
+        material.shader = shader;
+        material.SetTexture("_BaseMap", surfaceTexture);
+        material.SetColor("_BaseColor", Color.white);
+        BindMarsCubeTextures(material, "_Surface", surfaceCube);
+        BindMarsCubeTextures(material, "_CloudDust", dustCloudCube);
+        BindMarsCubeTextures(material, "_CloudWaterIce", waterIceCloudCube);
+        material.SetFloat("_UseSurfaceCube", hasSurfaceCube ? 1f : 0f);
+        material.SetFloat("_UseCloudCube", hasCloudCube ? 1f : 0f);
+        material.SetColor("_DustCloudColor", new Color(0.69f, 0.43f, 0.24f, 1f));
+        material.SetColor("_WaterIceCloudColor", new Color(0.76f, 0.82f, 0.86f, 1f));
+        material.SetFloat("_DustCloudStrength", 0.58f);
+        material.SetFloat("_WaterIceCloudStrength", 0.48f);
+        material.SetFloat("_CloudRotationSpeed", 0.000035f);
+        // The source masks describe one instant in time. A longitudinal phase keeps their
+        // latitude intact while placing a real mid-latitude weather front below this test orbit.
+        material.SetFloat("_CloudMapLongitudeRadians", 190f * Mathf.Deg2Rad);
+        material.SetFloat("_CloudMapTiltRadians", 0f);
+        material.SetFloat("_CloudShadowStrength", 0.18f);
+        material.SetTexture("_BumpMap", orbitalNormal);
+        material.SetFloat("_BumpScale", orbitalNormal != null ? 0.58f : 0f);
+        material.SetFloat("_TextureMipBias", -1f);
+        material.SetFloat("_AlbedoSharpness", 0.55f);
+        material.SetVector(
+            "_SunDirection",
+            -(Quaternion.Euler(KeyLightEuler) * Vector3.forward));
+        material.SetColor("_SunColor", new Color(1f, 0.972f, 0.863f, 1f));
+        material.SetFloat("_DaylightStrength", 1.05f);
+        material.SetFloat("_DaylightFloor", 0.012f);
+        material.SetFloat("_SunlightContrast", 1.65f);
+        material.SetFloat("_TerminatorSoftness", 0.018f);
+        material.SetFloat("_NightAmbient", 0.0015f);
+        material.SetColor("_AtmosphereColor", new Color(0.62f, 0.34f, 0.18f, 1f));
+        material.SetFloat("_AtmosphereStrength", 0.045f);
+        material.SetFloat("_AtmospherePower", 6f);
+        EditorUtility.SetDirty(material);
+
+        Debug.Log(
+            $"[AC6PlayableScene] Mars textures: surface cube " +
+            $"{(hasSurfaceCube ? "6x8192" : "missing; using GLB fallback")}, " +
+            $"cloud cube {(hasCloudCube ? "2x6x512" : "missing")}, " +
+            $"fallback albedo {surfaceTexture.width}x{surfaceTexture.height}, normal " +
+            $"{(orbitalNormal != null ? $"{orbitalNormal.width}x{orbitalNormal.height}" : "missing")}.");
+
+        var mars = new GameObject(
+            "Mars Orbital Body",
+            typeof(MeshFilter),
+            typeof(MeshRenderer),
+            typeof(MechOrbitalPlanetBackdrop));
+        mars.layer = MechOrbitalPlanetBackdrop.OrbitalPlanetLayer;
+        mars.transform.SetParent(parent, false);
+        var orbitCenterDirection = new Vector3(0f, -0.7660444f, 0.6427876f);
+        const float initialLongitudeDegrees = 60.5f;
+        const float initialLatitudeDegrees = -13.4f;
+        var longitude = initialLongitudeDegrees * Mathf.Deg2Rad;
+        var latitude = initialLatitudeDegrees * Mathf.Deg2Rad;
+        var latitudeCosine = Mathf.Cos(latitude);
+        var initialSurfaceNormal = new Vector3(
+            latitudeCosine * Mathf.Cos(longitude),
+            Mathf.Sin(latitude),
+            latitudeCosine * Mathf.Sin(longitude));
+        mars.transform.localRotation = Quaternion.FromToRotation(
+            initialSurfaceNormal,
+            -orbitCenterDirection.normalized);
+
+        mars.GetComponent<MeshFilter>().sharedMesh = GetOrCreateMarsOrbitalMesh();
+        var renderer = mars.GetComponent<MeshRenderer>();
+        renderer.sharedMaterial = material;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        renderer.lightProbeUsage = LightProbeUsage.Off;
+        renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+        renderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+
+        if (hasCloudCube)
+        {
+            var cloudShader = Shader.Find(MarsOrbitalCloudShaderName);
+            if (cloudShader != null)
+            {
+                var cloudMaterial = AssetDatabase.LoadAssetAtPath<Material>(
+                    MarsOrbitalCloudMaterialPath);
+                if (cloudMaterial == null)
+                {
+                    cloudMaterial = new Material(cloudShader);
+                    AssetDatabase.CreateAsset(cloudMaterial, MarsOrbitalCloudMaterialPath);
+                }
+
+                cloudMaterial.shader = cloudShader;
+                BindMarsCubeTextures(cloudMaterial, "_CloudDust", dustCloudCube);
+                BindMarsCubeTextures(cloudMaterial, "_CloudWaterIce", waterIceCloudCube);
+                cloudMaterial.SetColor(
+                    "_DustCloudColor",
+                    new Color(0.74f, 0.53f, 0.34f, 1f));
+                cloudMaterial.SetColor(
+                    "_WaterIceCloudColor",
+                    new Color(0.86f, 0.9f, 0.92f, 1f));
+                cloudMaterial.SetFloat("_DustCloudStrength", 0.28f);
+                cloudMaterial.SetFloat("_WaterIceCloudStrength", 0.32f);
+                cloudMaterial.SetFloat("_CloudRotationSpeed", 0.000035f);
+                cloudMaterial.SetFloat(
+                    "_CloudMapLongitudeRadians",
+                    190f * Mathf.Deg2Rad);
+                cloudMaterial.SetFloat("_CloudMapTiltRadians", 0f);
+                cloudMaterial.SetVector(
+                    "_SunDirection",
+                    -(Quaternion.Euler(KeyLightEuler) * Vector3.forward));
+                cloudMaterial.SetColor("_SunColor", new Color(1f, 0.972f, 0.863f, 1f));
+                EditorUtility.SetDirty(cloudMaterial);
+
+                var cloudShell = new GameObject(
+                    "Mars Orbital Cloud Shell",
+                    typeof(MeshFilter),
+                    typeof(MeshRenderer));
+                cloudShell.layer = MechOrbitalPlanetBackdrop.OrbitalPlanetLayer;
+                cloudShell.transform.SetParent(mars.transform, false);
+                cloudShell.transform.localScale = Vector3.one * 1.0035f;
+                cloudShell.GetComponent<MeshFilter>().sharedMesh = renderer.GetComponent<MeshFilter>()
+                    .sharedMesh;
+                var cloudRenderer = cloudShell.GetComponent<MeshRenderer>();
+                cloudRenderer.sharedMaterial = cloudMaterial;
+                cloudRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                cloudRenderer.receiveShadows = false;
+                cloudRenderer.lightProbeUsage = LightProbeUsage.Off;
+                cloudRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+                cloudRenderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+            }
+            else
+            {
+                Debug.LogWarning(
+                    $"[AC6PlayableScene] Orbital cloud shader '{MarsOrbitalCloudShaderName}' " +
+                    "is unavailable.");
+            }
+        }
+
+        var atmosphereShader = Shader.Find(MarsOrbitalAtmosphereShaderName);
+        if (atmosphereShader != null)
+        {
+            var atmosphereMaterial = AssetDatabase.LoadAssetAtPath<Material>(
+                MarsOrbitalAtmosphereMaterialPath);
+            if (atmosphereMaterial == null)
+            {
+                atmosphereMaterial = new Material(atmosphereShader);
+                AssetDatabase.CreateAsset(
+                    atmosphereMaterial,
+                    MarsOrbitalAtmosphereMaterialPath);
+            }
+
+            atmosphereMaterial.shader = atmosphereShader;
+            atmosphereMaterial.SetColor(
+                "_AtmosphereColor",
+                new Color(0.62f, 0.38f, 0.25f, 1f));
+            atmosphereMaterial.SetFloat("_AtmosphereStrength", 0.12f);
+            atmosphereMaterial.SetFloat("_InnerRadiusRatio", 1f / 1.006f);
+            atmosphereMaterial.SetFloat("_PathScale", 7.5f);
+            atmosphereMaterial.SetVector(
+                "_SunDirection",
+                -(Quaternion.Euler(KeyLightEuler) * Vector3.forward));
+            atmosphereMaterial.SetColor(
+                "_SunColor",
+                new Color(1f, 0.972f, 0.863f, 1f));
+            EditorUtility.SetDirty(atmosphereMaterial);
+
+            var atmosphereShell = new GameObject(
+                "Mars Orbital Atmosphere Shell",
+                typeof(MeshFilter),
+                typeof(MeshRenderer));
+            atmosphereShell.layer = MechOrbitalPlanetBackdrop.OrbitalPlanetLayer;
+            atmosphereShell.transform.SetParent(mars.transform, false);
+            atmosphereShell.transform.localScale = Vector3.one * 1.006f;
+            atmosphereShell.GetComponent<MeshFilter>().sharedMesh =
+                mars.GetComponent<MeshFilter>().sharedMesh;
+            var atmosphereRenderer = atmosphereShell.GetComponent<MeshRenderer>();
+            atmosphereRenderer.sharedMaterial = atmosphereMaterial;
+            atmosphereRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            atmosphereRenderer.receiveShadows = false;
+            atmosphereRenderer.lightProbeUsage = LightProbeUsage.Off;
+            atmosphereRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            atmosphereRenderer.motionVectorGenerationMode =
+                MotionVectorGenerationMode.ForceNoMotion;
+        }
+        else
+        {
+            Debug.LogWarning(
+                $"[AC6PlayableScene] Orbital atmosphere shader " +
+                $"'{MarsOrbitalAtmosphereShaderName}' is unavailable.");
+        }
+
+        var playerCamera = GameObject.Find("AC6PlayerCamera");
+        var observer = playerCamera != null ? playerCamera.transform : null;
+        var orbitalBackdrop = mars.GetComponent<MechOrbitalPlanetBackdrop>();
+        orbitalBackdrop.Configure(
+            observer,
+            orbitCenterDirection,
+            3_389_500.0,
+            400_000.0,
+            0.01f,
+            Vector3.zero);
+        EditorUtility.SetDirty(orbitalBackdrop);
+    }
+
+    private static void ConfigureMarsTextureImporters()
+    {
+        ConfigureMarsTextureImporter(
+            MarsOrbitalAlbedoMapPath,
+            TextureImporterType.Default,
+            true,
+            TextureImporterFormat.BC7,
+            16384,
+            TextureWrapMode.Repeat,
+            TextureWrapMode.Clamp,
+            true);
+        ConfigureMarsTextureImporter(
+            MarsOrbitalNormalMapPath,
+            TextureImporterType.NormalMap,
+            false,
+            TextureImporterFormat.BC5,
+            16384,
+            TextureWrapMode.Repeat,
+            TextureWrapMode.Clamp,
+            true);
+
+        foreach (var path in MarsSurfaceCubePaths)
+        {
+            ConfigureMarsTextureImporter(
+                path,
+                TextureImporterType.Default,
+                true,
+                TextureImporterFormat.BC7,
+                8192,
+                TextureWrapMode.Clamp,
+                TextureWrapMode.Clamp,
+                true);
+        }
+
+        foreach (var path in MarsDustCloudCubePaths.Concat(MarsWaterIceCloudCubePaths))
+        {
+            ConfigureMarsTextureImporter(
+                path,
+                TextureImporterType.Default,
+                false,
+                TextureImporterFormat.BC4,
+                512,
+                TextureWrapMode.Clamp,
+                TextureWrapMode.Clamp,
+                false);
+        }
+    }
+
+    private static Texture2D[] LoadMarsCubeTextures(IReadOnlyList<string> paths)
+    {
+        var textures = new Texture2D[paths.Count];
+        for (var index = 0; index < paths.Count; index++)
+        {
+            textures[index] = AssetDatabase.LoadAssetAtPath<Texture2D>(paths[index]);
+        }
+
+        return textures;
+    }
+
+    private static void BindMarsCubeTextures(
+        Material material,
+        string propertyPrefix,
+        IReadOnlyList<Texture2D> textures)
+    {
+        for (var index = 0; index < MarsCubeFaceNames.Length; index++)
+        {
+            material.SetTexture(
+                $"{propertyPrefix}{MarsCubeFaceNames[index]}",
+                textures[index]);
+        }
+    }
+
+    private static void ConfigureMarsTextureImporter(
+        string assetPath,
+        TextureImporterType textureType,
+        bool sRgb,
+        TextureImporterFormat standaloneFormat,
+        int maximumTextureSize,
+        TextureWrapMode wrapModeU,
+        TextureWrapMode wrapModeV,
+        bool streamingMipmaps)
+    {
+        var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+        if (importer == null)
+        {
+            return;
+        }
+
+        var standalone = importer.GetPlatformTextureSettings("Standalone");
+        var settingsChanged = importer.textureType != textureType ||
+            importer.sRGBTexture != sRgb ||
+            !importer.mipmapEnabled ||
+            importer.maxTextureSize != maximumTextureSize ||
+            importer.wrapModeU != wrapModeU ||
+            importer.wrapModeV != wrapModeV ||
+            importer.filterMode != FilterMode.Trilinear ||
+            importer.anisoLevel != 16 ||
+            importer.streamingMipmaps != streamingMipmaps ||
+            !standalone.overridden ||
+            standalone.maxTextureSize != maximumTextureSize ||
+            standalone.format != standaloneFormat ||
+            standalone.compressionQuality != 100;
+        if (!settingsChanged)
+        {
+            return;
+        }
+
+        importer.textureType = textureType;
+        importer.sRGBTexture = sRgb;
+        importer.mipmapEnabled = true;
+        importer.maxTextureSize = maximumTextureSize;
+        importer.wrapModeU = wrapModeU;
+        importer.wrapModeV = wrapModeV;
+        importer.filterMode = FilterMode.Trilinear;
+        importer.anisoLevel = 16;
+        importer.streamingMipmaps = streamingMipmaps;
+        importer.streamingMipmapsPriority = streamingMipmaps ? 1 : 0;
+        importer.textureCompression = TextureImporterCompression.CompressedHQ;
+        standalone.overridden = true;
+        standalone.maxTextureSize = maximumTextureSize;
+        standalone.format = standaloneFormat;
+        standalone.compressionQuality = 100;
+        importer.SetPlatformTextureSettings(standalone);
+        importer.SaveAndReimport();
+    }
+
+    private static Mesh GetOrCreateMarsOrbitalMesh()
+    {
+        const int longitudeSegments = 512;
+        const int latitudeSegments = 256;
+        var expectedVertexCount = (longitudeSegments + 1) * (latitudeSegments + 1);
+        var existing = AssetDatabase.LoadAssetAtPath<Mesh>(MarsOrbitalMeshPath);
+        if (existing != null && existing.vertexCount == expectedVertexCount)
+        {
+            return existing;
+        }
+
+        if (existing != null)
+        {
+            AssetDatabase.DeleteAsset(MarsOrbitalMeshPath);
+        }
+
+        var vertices = new Vector3[expectedVertexCount];
+        var normals = new Vector3[expectedVertexCount];
+        var tangents = new Vector4[expectedVertexCount];
+        var uv = new Vector2[expectedVertexCount];
+        var vertex = 0;
+        for (var latitudeIndex = 0; latitudeIndex <= latitudeSegments; latitudeIndex++)
+        {
+            var v = latitudeIndex / (float)latitudeSegments;
+            var latitude = Mathf.Lerp(Mathf.PI * 0.5f, -Mathf.PI * 0.5f, v);
+            var latitudeCosine = Mathf.Cos(latitude);
+            var latitudeSine = Mathf.Sin(latitude);
+            for (var longitudeIndex = 0; longitudeIndex <= longitudeSegments; longitudeIndex++)
+            {
+                var u = longitudeIndex / (float)longitudeSegments;
+                var longitude = Mathf.Lerp(-Mathf.PI, Mathf.PI, u);
+                var longitudeCosine = Mathf.Cos(longitude);
+                var longitudeSine = Mathf.Sin(longitude);
+                var normal = new Vector3(
+                    latitudeCosine * longitudeCosine,
+                    latitudeSine,
+                    latitudeCosine * longitudeSine);
+                vertices[vertex] = normal;
+                normals[vertex] = normal;
+                tangents[vertex] = new Vector4(-longitudeSine, 0f, longitudeCosine, 1f);
+                uv[vertex] = new Vector2(u, v);
+                vertex++;
+            }
+        }
+
+        var triangles = new List<int>(longitudeSegments * latitudeSegments * 6);
+        var rowStride = longitudeSegments + 1;
+        for (var latitudeIndex = 0; latitudeIndex < latitudeSegments; latitudeIndex++)
+        {
+            for (var longitudeIndex = 0; longitudeIndex < longitudeSegments; longitudeIndex++)
+            {
+                var topLeft = latitudeIndex * rowStride + longitudeIndex;
+                var topRight = topLeft + 1;
+                var bottomLeft = topLeft + rowStride;
+                var bottomRight = bottomLeft + 1;
+                if (latitudeIndex > 0)
+                {
+                    triangles.Add(topLeft);
+                    triangles.Add(topRight);
+                    triangles.Add(bottomLeft);
+                }
+
+                if (latitudeIndex < latitudeSegments - 1)
+                {
+                    triangles.Add(topRight);
+                    triangles.Add(bottomRight);
+                    triangles.Add(bottomLeft);
+                }
+            }
+        }
+
+        var mesh = new Mesh
+        {
+            name = "Mars Orbital Sphere 512x256",
+            indexFormat = IndexFormat.UInt32,
+        };
+        mesh.vertices = vertices;
+        mesh.normals = normals;
+        mesh.tangents = tangents;
+        mesh.uv = uv;
+        mesh.SetTriangles(triangles, 0, true);
+        mesh.RecalculateBounds();
+        AssetDatabase.CreateAsset(mesh, MarsOrbitalMeshPath);
+        return mesh;
     }
 
     private static void ConfigureDeepSpaceEnvironment()

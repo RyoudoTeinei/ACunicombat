@@ -34,9 +34,9 @@ TagManager:
   - 
   - 
   - 
-  - 
-  - 
-  - 
+  - OrbitalPlanet
+  - SolarSystemMap
+  - HangarPreview
   m_SortingLayers:
   - name: Default
     uniqueID: 0

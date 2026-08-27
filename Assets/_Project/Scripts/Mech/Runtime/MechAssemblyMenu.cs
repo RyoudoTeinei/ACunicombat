@@ -32,6 +32,14 @@ namespace ACunicombat.Mechs
 
 		private const float AggregateMetricRowStride = 40f;
 
+		private const float AssemblySlotRowHeight = 70f;
+
+		private const float AssemblySlotRowStride = 81f;
+
+		private const float AssemblyMissileRowHeight = 57f;
+
+		private const float AssemblyMissileRowStride = 68f;
+
 		private const float KilowattsPerMegawatt = 1000f;
 
 		private static readonly Color ComparisonImprovementColor = new Color(0.36f, 0.7f, 1f, 1f);
@@ -86,7 +94,52 @@ namespace ACunicombat.Mechs
 			MechPartSlot.Extension
 		};
 
+		private readonly struct MissileOption
+		{
+			public MissileOption(
+				string variantId,
+				string id,
+				string displayName,
+				string guidance,
+				string resourcePath,
+				MissileFlightProfile profile,
+				float warheadMassKg,
+				float directHitDamage,
+				int magazineCapacity)
+			{
+				VariantId = variantId;
+				Id = id;
+				DisplayName = displayName;
+				Guidance = guidance;
+				ResourcePath = resourcePath;
+				Profile = profile;
+				WarheadMassKg = warheadMassKg;
+				DirectHitDamage = directHitDamage;
+				MagazineCapacity = magazineCapacity;
+			}
+
+			public string VariantId { get; }
+
+			public string Id { get; }
+
+			public string DisplayName { get; }
+
+			public string Guidance { get; }
+
+			public string ResourcePath { get; }
+
+			public MissileFlightProfile Profile { get; }
+
+			public float WarheadMassKg { get; }
+
+			public float DirectHitDamage { get; }
+
+			public int MagazineCapacity { get; }
+		}
+
 		private readonly Dictionary<MechPartSlot, string> selection = new Dictionary<MechPartSlot, string>();
+
+		private readonly Dictionary<MechPartSlot, string> missileVariantSelection = new Dictionary<MechPartSlot, string>();
 
 		private MechAssembler assembler;
 
@@ -111,6 +164,16 @@ namespace ACunicombat.Mechs
 		private bool visible;
 
 		private bool selectingPart;
+
+		private bool selectingMissile;
+
+		private bool missileSelectionReturnsToPart;
+
+		private MechPartSlot missileSlot = MechPartSlot.RightBackWeapon;
+
+		private string missileLauncherPartId;
+
+		private Vector2 missileStatsScroll;
 
 		private bool editingAppearance;
 
@@ -260,6 +323,19 @@ namespace ACunicombat.Mechs
 
 		public static bool IsAnyMenuVisible { get; private set; }
 
+		internal static void CloseAllForSolarMap()
+		{
+			MechAssemblyMenu[] menus = FindObjectsByType<MechAssemblyMenu>(
+				FindObjectsInactive.Exclude);
+			foreach (MechAssemblyMenu menu in menus)
+			{
+				if (menu.visible)
+				{
+					menu.SetVisible(false);
+				}
+			}
+		}
+
 		private void Awake()
 		{
 			assembler = GetComponent<MechAssembler>();
@@ -357,7 +433,11 @@ namespace ACunicombat.Mechs
 			}
 			else if (visible && keyboard.escapeKey.wasPressedThisFrame)
 			{
-				if (selectingPart)
+				if (selectingMissile)
+				{
+					CloseMissileSelection();
+				}
+				else if (selectingPart)
 				{
 					ClosePartSelection();
 				}
@@ -443,7 +523,11 @@ namespace ACunicombat.Mechs
 				GUI.DrawTexture(new Rect(0f, 83f, Screen.width, 1f), lineTexture);
 				GUI.DrawTexture(new Rect(0f, (float)Screen.height - 64f, Screen.width, 1f), lineTexture);
 				DrawHeader();
-				if (selectingPart)
+				if (selectingMissile)
+				{
+					DrawMissileSelection();
+				}
+				else if (selectingPart)
 				{
 					DrawPartSelection();
 				}
@@ -467,7 +551,7 @@ namespace ACunicombat.Mechs
 			GUI.DrawTexture(new Rect(289f, 0f, 1f, 84f), frameTexture);
 			GUI.Label(new Rect(48f, 12f, 244f, 42f), "机体组装", titleStyle);
 			GUI.Label(new Rect(49f, 48f, 244f, 22f), "ASSEMBLY / CONFIGURATION", overlineStyle);
-			if (!selectingPart)
+			if (!selectingPart && !selectingMissile)
 			{
 				if (GUI.Button(new Rect(304f, 22f, 112f, 42f), "装配", editingAppearance ? segmentButtonStyle : selectedSegmentButtonStyle))
 				{
@@ -481,7 +565,12 @@ namespace ACunicombat.Mechs
 					previewDirty = true;
 				}
 			}
-			GUI.Label(new Rect((float)Screen.width - 590f, 20f, 542f, 44f), selectingPart ? ("装配  /  " + SlotName(activeSlot) + "  /  部件选择") : (editingAppearance ? "机库  /  涂装设置" : "机库  /  装配总览"), breadcrumbStyle);
+			string breadcrumb = selectingMissile
+				? ("装配  /  " + SlotName(missileSlot) + "  /  导弹选择")
+				: (selectingPart
+					? ("装配  /  " + SlotName(activeSlot) + "  /  部件选择")
+					: (editingAppearance ? "机库  /  涂装设置" : "机库  /  装配总览"));
+			GUI.Label(new Rect((float)Screen.width - 590f, 20f, 542f, 44f), breadcrumb, breadcrumbStyle);
 		}
 
 		private void DrawAppearanceEditor()
@@ -632,7 +721,7 @@ namespace ACunicombat.Mechs
 		private void DrawAssemblyOverview()
 		{
 			float contentHeight = (float)Screen.height - 102f - 78f;
-			Rect left = new Rect(32f, 102f, Mathf.Clamp((float)Screen.width * 0.235f, 390f, 500f), contentHeight);
+			Rect left = new Rect(32f, 102f, Mathf.Clamp((float)Screen.width * 0.282f, 468f, 600f), contentHeight);
 			float rightWidth = Mathf.Clamp((float)Screen.width * 0.265f, 430f, 560f);
 			Rect right = new Rect((float)Screen.width - rightWidth - 32f, 102f, rightWidth, contentHeight);
 			Rect preview = new Rect(left.xMax + 14f, 102f, right.x - left.xMax - 28f, contentHeight);
@@ -640,7 +729,8 @@ namespace ACunicombat.Mechs
 			DrawSectionFrame(right, "机体总数值");
 			DrawSectionFrame(preview, "整机预览");
 			Rect content = new Rect(left.x + 16f, left.y + 58f, left.width - 32f, left.height - 74f);
-			Rect view = new Rect(0f, 0f, content.width - 18f, (float)Slots.Length * 62f + 108f);
+			float viewHeight = (float)Slots.Length * AssemblySlotRowStride + 108f + CountEquippedMissileRows() * AssemblyMissileRowStride;
+			Rect view = new Rect(0f, 0f, content.width - 18f, viewHeight);
 			slotScroll = GUI.BeginScrollView(content, slotScroll, view);
 			float y = 0f;
 			for (int i = 0; i < Slots.Length; i++)
@@ -655,8 +745,13 @@ namespace ACunicombat.Mechs
 					}, headingStyle);
 					y += 34f;
 				}
-				DrawSlotButton(new Rect(4f, y, view.width - 8f, 54f), Slots[i]);
-				y += 62f;
+				DrawSlotButton(new Rect(4f, y, view.width - 8f, AssemblySlotRowHeight), Slots[i]);
+				y += AssemblySlotRowStride;
+				if (TryGetMissileOption(Slots[i], GetSelectedPartId(Slots[i]), out var missile))
+				{
+					DrawMissileChildButton(new Rect(30f, y - 2f, view.width - 34f, AssemblyMissileRowHeight), Slots[i], missile);
+					y += AssemblyMissileRowStride;
+				}
 			}
 			GUI.EndScrollView();
 			DrawPreview(new Rect(preview.x + 2f, preview.y + 51f, preview.width - 4f, preview.height - 53f), selectedPartOnly: false);
@@ -683,13 +778,138 @@ namespace ACunicombat.Mechs
 			DrawPartList(new Rect(left.x + 12f, left.y + 154f, left.width - 24f, left.height - 168f));
 			Rect identity = new Rect(middle.x + 20f, middle.y + 60f, middle.width - 40f, 78f);
 			DrawSelectedPartIdentity(identity);
-			float maximumPreviewHeight = Mathf.Max(180f, middle.height - 330f);
+			bool hasMissile = TryGetMissileOption(activeSlot, pendingPartId, out var missile);
+			float missileControlHeight = hasMissile ? 54f : 0f;
+			if (hasMissile)
+			{
+				DrawPartMissileButton(new Rect(middle.x + 18f, identity.yMax + 4f, middle.width - 36f, 46f), missile);
+			}
+			float maximumPreviewHeight = Mathf.Max(180f, middle.height - 330f - missileControlHeight);
 			float previewHeight = Mathf.Clamp(middle.height * 0.38f, 180f, Mathf.Min(455f, maximumPreviewHeight));
-			Rect preview = new Rect(middle.x + 18f, identity.yMax + 4f, middle.width - 36f, previewHeight);
+			Rect preview = new Rect(middle.x + 18f, identity.yMax + 4f + missileControlHeight, middle.width - 36f, previewHeight);
 			DrawPreview(preview, selectedPartOnly: true);
 			Rect stats = new Rect(middle.x + 18f, preview.yMax + 14f, middle.width - 36f, middle.yMax - preview.yMax - 30f);
 			DrawSelectedPartStats(stats);
 			DrawAggregateStats(new Rect(right.x + 18f, right.y + 58f, right.width - 36f, right.height - 76f));
+		}
+
+		private void DrawMissileSelection()
+		{
+			float contentHeight = (float)Screen.height - 102f - 78f;
+			Rect left = new Rect(32f, 102f, Mathf.Clamp((float)Screen.width * 0.21f, 350f, 440f), contentHeight);
+			float rightWidth = Mathf.Clamp((float)Screen.width * 0.27f, 430f, 560f);
+			Rect right = new Rect((float)Screen.width - rightWidth - 32f, 102f, rightWidth, contentHeight);
+			Rect middle = new Rect(left.xMax + 14f, 102f, right.x - left.xMax - 28f, contentHeight);
+			DrawSectionFrame(left, "导弹选择");
+			DrawSectionFrame(middle, "导弹预览");
+			DrawSectionFrame(right, "导弹性能");
+
+			List<MissileOption> missiles = GetMissileOptions(missileSlot, missileLauncherPartId);
+			if (missiles.Count == 0)
+			{
+				GUI.Label(new Rect(left.x + 18f, left.y + 68f, left.width - 36f, 64f), "当前发射器没有可配置的制导导弹。", warningStyle);
+				return;
+			}
+
+			string selectedVariantId = GetSelectedMissileVariantId(missileSlot, missileLauncherPartId, missiles[0].VariantId);
+			MissileOption missile = missiles[0];
+			for (int i = 0; i < missiles.Count; i++)
+			{
+				if (string.Equals(missiles[i].VariantId, selectedVariantId, StringComparison.OrdinalIgnoreCase))
+				{
+					missile = missiles[i];
+					break;
+				}
+			}
+
+			GUI.Label(new Rect(left.x + 18f, left.y + 62f, left.width - 36f, 26f), $"可用弹种  {missiles.Count:00}", idStyle);
+			float rowY = left.y + 98f;
+			for (int i = 0; i < missiles.Count; i++)
+			{
+				MissileOption option = missiles[i];
+				bool selected = string.Equals(option.VariantId, missile.VariantId, StringComparison.OrdinalIgnoreCase);
+				Rect row = new Rect(left.x + 14f, rowY, left.width - 28f, 86f);
+				if (GUI.Button(row, GUIContent.none, selected ? selectedPartButtonStyle : buttonStyle))
+				{
+					missileVariantSelection[missileSlot] = option.VariantId;
+					missile = option;
+					previewDirty = true;
+				}
+				GUI.DrawTexture(new Rect(row.x + 1f, row.y + 1f, 68f, row.height - 2f), selected ? selectedTexture : sectionHeaderTexture);
+				GUI.Label(new Rect(row.x + 5f, row.y + 12f, 60f, 30f), (i + 1).ToString("00"), selected ? darkCenteredStyle : overlineStyle);
+				GUI.Label(new Rect(row.x + 82f, row.y + 12f, row.width - 180f, 28f), option.DisplayName, selected ? darkHeadingStyle : headingStyle);
+				GUI.Label(new Rect(row.x + 82f, row.y + 44f, row.width - 180f, 22f), option.Id, selected ? darkLabelStyle : idStyle);
+				GUI.Label(new Rect(row.xMax - 92f, row.y + 32f, 78f, 24f), selected ? "已装填" : "可装填", selected ? darkCenteredStyle : testedStyle);
+				rowY += 96f;
+			}
+			GUI.Label(new Rect(left.x + 18f, rowY + 8f, left.width - 36f, 84f), "标准型兼顾射程与战斗部；格斗型减重并强化矢量机动；远程型保持战斗部并增加推进剂。", noteStyle);
+
+			Rect identity = new Rect(middle.x + 20f, middle.y + 62f, middle.width - 40f, 72f);
+			GUI.Label(new Rect(identity.x, identity.y, identity.width, 32f), missile.DisplayName, titleStyle);
+			GUI.Label(new Rect(identity.x, identity.y + 34f, identity.width, 24f), missile.Id + "  /  " + SlotName(missileSlot), idStyle);
+			Rect preview = new Rect(middle.x + 18f, identity.yMax + 6f, middle.width - 36f, middle.height - 158f);
+			DrawMissilePreview(preview, missile);
+
+			DrawMissileStats(new Rect(right.x + 18f, right.y + 58f, right.width - 36f, right.height - 76f), missile);
+		}
+
+		private void DrawMissilePreview(Rect rect, MissileOption missile)
+		{
+			if (previewRenderer == null)
+			{
+				return;
+			}
+			if (previewDirty)
+			{
+				GameObject model = Resources.Load<GameObject>(missile.ResourcePath);
+				previewRenderer.ShowStandaloneModel(model, missile.DisplayName, new Vector3(-90f, 58f, -6f));
+				previewDirty = false;
+			}
+			previewRenderer.Draw(rect);
+			DrawOutline(rect);
+			GUI.Label(new Rect(rect.x + 14f, rect.y + 12f, rect.width - 28f, 28f), missile.Id + " / ORDNANCE PREVIEW", overlineStyle);
+		}
+
+		private void DrawMissileStats(Rect rect, MissileOption missile)
+		{
+			MissileFlightProfile profile = missile.Profile.Sanitized();
+			Rect view = new Rect(0f, 0f, rect.width - 18f, 1160f);
+			missileStatsScroll = GUI.BeginScrollView(rect, missileStatsScroll, view);
+			float y = 0f;
+			DrawPartMetricGroup(view, ref y, "制导与装填");
+			DrawPartTextRow(view, ref y, "制导方式", missile.Guidance);
+			DrawPartTextRow(view, ref y, "发射位置", SlotName(missileSlot));
+			DrawPartMetric(view, ref y, "单架装填", missile.MagazineCapacity, 12f, missile.MagazineCapacity + " 发");
+			DrawPartMetricGroup(view, ref y, "结构与推进");
+			DrawPartMetric(view, ref y, "发射质量", profile.InitialMassKg, 300f, $"{profile.InitialMassKg:0.0} kg");
+			float propellantMass = profile.MainPropellantMassKg + profile.SecondStagePropellantMassKg + profile.RcsPropellantMassKg;
+			DrawPartMetric(view, ref y, "燃料质量", propellantMass, 200f, $"{propellantMass:0.0} kg");
+			DrawPartMetric(view, ref y, "主发动机推力", profile.MainEngineThrustNewtons, 80000f, $"{profile.MainEngineThrustNewtons / 1000f:0.0} kN");
+			DrawPartMetric(view, ref y, "主发动机燃烧", profile.MainBurnDurationSeconds, 12f, $"{profile.MainBurnDurationSeconds:0.00} s");
+			if (profile.HasSecondStage)
+			{
+				DrawPartTextRow(view, ref y, "续航动力", profile.PropulsionMode == MissilePropulsionMode.DualPulseSolid ? "第二固体脉冲" : "可调流量固体冲压");
+				DrawPartMetric(view, ref y, "续航段推力", profile.SecondStageThrustNewtons, 80000f, $"{profile.SecondStageThrustNewtons / 1000f:0.0} kN");
+				DrawPartMetric(view, ref y, "续航段燃烧", profile.SecondStageBurnDurationSeconds, 40f, $"{profile.SecondStageBurnDurationSeconds:0.00} s");
+				DrawPartMetric(view, ref y, "再点火延迟", profile.SecondStageIgnitionDelaySeconds, 12f, $"{profile.SecondStageIgnitionDelaySeconds:0.00} s", higherIsBetter: false);
+			}
+			DrawPartMetric(view, ref y, "离架速度", profile.EjectionSpeedMps, 100f, $"{profile.EjectionSpeedMps:0} m/s");
+			DrawPartMetric(view, ref y, "RCS 推力", profile.RcsThrustNewtons, 30000f, $"{profile.RcsThrustNewtons / 1000f:0.0} kN");
+			DrawPartMetric(view, ref y, "最大角速度", profile.MaximumAngularRateDegreesPerSecond, 600f, $"{profile.MaximumAngularRateDegreesPerSecond:0} °/s");
+			DrawPartMetricGroup(view, ref y, "射程与导引头");
+			DrawPartMetric(view, ref y, "最大射程", profile.MaximumRangeMeters, 150000f, FormatDistance(profile.MaximumRangeMeters));
+			DrawPartMetric(view, ref y, "最大飞行时间", profile.MaximumFlightTimeSeconds, 300f, $"{profile.MaximumFlightTimeSeconds:0.#} s");
+			DrawPartMetric(view, ref y, "导引头作用距离", profile.SeekerRangeMeters, 50000f, FormatDistance(profile.SeekerRangeMeters));
+			DrawPartMetric(view, ref y, "搜索半角", profile.SeekerSearchHalfAngleDegrees, 90f, $"{profile.SeekerSearchHalfAngleDegrees:0}°");
+			DrawPartMetric(view, ref y, "导引头框架角", profile.SeekerGimbalDegrees, 90f, $"{profile.SeekerGimbalDegrees:0}°");
+			DrawPartMetricGroup(view, ref y, "引信与战斗部");
+			DrawPartMetric(view, ref y, "战斗部质量", missile.WarheadMassKg, 40f, $"{missile.WarheadMassKg:0.0} kg");
+			DrawPartMetric(view, ref y, "攻击力", missile.DirectHitDamage, 5000f, $"{missile.DirectHitDamage:0}");
+			DrawPartMetric(view, ref y, "近炸触发半径", profile.ProximityFuseRadiusMeters, 30f, $"{profile.ProximityFuseRadiusMeters:0.0} m");
+			DrawPartMetric(view, ref y, "引信解保时间", profile.ProximityFuseArmSeconds, 1f, $"{profile.ProximityFuseArmSeconds:0.00} s", higherIsBetter: false);
+			DrawPartMetric(view, ref y, "安全距离", profile.ProximityFuseSafeDistanceMeters, 100f, $"{profile.ProximityFuseSafeDistanceMeters:0} m", higherIsBetter: false);
+			DrawPartMetric(view, ref y, "战斗部有效半径", profile.WarheadLethalRadiusMeters, 30f, $"{profile.WarheadLethalRadiusMeters:0.0} m");
+			GUI.EndScrollView();
 		}
 
 		private void DrawSlotButton(Rect rect, MechPartSlot slot)
@@ -702,11 +922,11 @@ namespace ACunicombat.Mechs
 			}
 			GUI.DrawTexture(new Rect(rect.x + 1f, rect.y + 1f, 54f, rect.height - 2f), sectionHeaderTexture);
 			GUI.Label(new Rect(rect.x + 3f, rect.y, 50f, rect.height), SlotShortName(slot), overlineStyle);
-			GUI.Label(new Rect(rect.x + 68f, rect.y + 5f, rect.width - 178f, 22f), SlotName(slot), labelStyle);
-			GUI.Label(new Rect(rect.x + 68f, rect.y + 27f, rect.width - 178f, 22f), (entry == null) ? "未安装" : entry.DisplayName, (entry == null) ? idStyle : headingStyle);
+			GUI.Label(new Rect(rect.x + 68f, rect.y + 9f, rect.width - 178f, 24f), SlotName(slot), labelStyle);
+			GUI.Label(new Rect(rect.x + 68f, rect.y + 35f, rect.width - 178f, 26f), (entry == null) ? "未安装" : entry.DisplayName, (entry == null) ? idStyle : headingStyle);
 			if (entry != null)
 			{
-				DrawStatusTag(new Rect(rect.xMax - 98f, rect.y + 16f, 84f, 22f), entry, onSelectedRow: false);
+				DrawStatusTag(new Rect(rect.xMax - 98f, rect.y + (rect.height - 22f) * 0.5f, 84f, 22f), entry, onSelectedRow: false);
 			}
 		}
 
@@ -1000,13 +1220,13 @@ namespace ACunicombat.Mechs
 				DrawPartMetric(view, ref y, "攻击力", weapon.DirectHitDamage, 500f, $"{weapon.DirectHitDamage:0}", Compared(equippedConfigured, equippedWeapon.DirectHitDamage), equippedConfigured ? $"{equippedWeapon.DirectHitDamage:0}" : null);
 				if (weapon.HasEffectiveRange)
 				{
-					DrawPartMetric(view, ref y, "有效射程", weapon.EffectiveRangeMeters, 50000f, FormatDistance(weapon.EffectiveRangeMeters), Compared(equippedConfigured && equippedWeapon.HasEffectiveRange, equippedWeapon.EffectiveRangeMeters), (equippedConfigured && equippedWeapon.HasEffectiveRange) ? FormatDistance(equippedWeapon.EffectiveRangeMeters) : null);
+					DrawPartMetric(view, ref y, "有效射程", weapon.EffectiveRangeMeters, 150000f, FormatDistance(weapon.EffectiveRangeMeters), Compared(equippedConfigured && equippedWeapon.HasEffectiveRange, equippedWeapon.EffectiveRangeMeters), (equippedConfigured && equippedWeapon.HasEffectiveRange) ? FormatDistance(equippedWeapon.EffectiveRangeMeters) : null);
 				}
 				else
 				{
 					DrawPartTextRow(view, ref y, "有效射程", "未标定", (equippedConfigured && equippedWeapon.HasEffectiveRange) ? FormatDistance(equippedWeapon.EffectiveRangeMeters) : null);
 				}
-				DrawPartMetric(view, ref y, "最大射程", weapon.MaximumRangeMeters, 50000f, FormatDistance(weapon.MaximumRangeMeters), Compared(equippedConfigured, equippedWeapon.MaximumRangeMeters), equippedConfigured ? FormatDistance(equippedWeapon.MaximumRangeMeters) : null);
+				DrawPartMetric(view, ref y, "最大射程", weapon.MaximumRangeMeters, 150000f, FormatDistance(weapon.MaximumRangeMeters), Compared(equippedConfigured, equippedWeapon.MaximumRangeMeters), equippedConfigured ? FormatDistance(equippedWeapon.MaximumRangeMeters) : null);
 			}
 			else
 			{
@@ -1020,7 +1240,7 @@ namespace ACunicombat.Mechs
 				DrawPartMetric(view, ref y, weapon.IsGuidedMissile ? "出筒速度" : "弹丸初速", weapon.MuzzleVelocityMetersPerSecond, 3000f, $"{weapon.MuzzleVelocityMetersPerSecond:0} m/s", Compared(equippedConfigured, equippedWeapon.MuzzleVelocityMetersPerSecond), equippedConfigured ? $"{equippedWeapon.MuzzleVelocityMetersPerSecond:0} m/s" : null);
 				if (weapon.HasFireRate)
 				{
-					DrawPartMetric(view, ref y, "射速", weapon.FireRateRoundsPerMinute, 1200f, $"{weapon.FireRateRoundsPerMinute:0.#} rpm", Compared(equippedConfigured && equippedWeapon.HasFireRate, equippedWeapon.FireRateRoundsPerMinute), (equippedConfigured && equippedWeapon.HasFireRate) ? $"{equippedWeapon.FireRateRoundsPerMinute:0.#} rpm" : null);
+					DrawPartMetric(view, ref y, "射速", weapon.FireRateRoundsPerMinute, 2400f, $"{weapon.FireRateRoundsPerMinute:0.#} rpm", Compared(equippedConfigured && equippedWeapon.HasFireRate, equippedWeapon.FireRateRoundsPerMinute), (equippedConfigured && equippedWeapon.HasFireRate) ? $"{equippedWeapon.FireRateRoundsPerMinute:0.#} rpm" : null);
 				}
 				else
 				{
@@ -1038,7 +1258,7 @@ namespace ACunicombat.Mechs
 					DrawPartMetric(view, ref y, accuracyLabel, weapon.BaseDispersionMilliradians, 1f, $"{weapon.BaseDispersionMilliradians:0.00} mrad", Compared(equippedConfigured && !equippedWeapon.IsGuidedMissile && equippedWeapon.HasAccuracy, equippedWeapon.BaseDispersionMilliradians), (equippedConfigured && !equippedWeapon.IsGuidedMissile && equippedWeapon.HasAccuracy) ? $"{equippedWeapon.BaseDispersionMilliradians:0.00} mrad" : null, higherIsBetter: false);
 					if (weapon.IsAutomatic && weapon.HasSustainedAccuracy)
 					{
-						DrawPartMetric(view, ref y, "持续射击精度", weapon.SustainedDispersionMilliradians, 1f, $"{weapon.SustainedDispersionMilliradians:0.00} mrad", Compared(equippedConfigured && equippedWeapon.HasSustainedAccuracy, equippedWeapon.SustainedDispersionMilliradians), (equippedConfigured && equippedWeapon.HasSustainedAccuracy) ? $"{equippedWeapon.SustainedDispersionMilliradians:0.00} mrad" : null, higherIsBetter: false);
+						DrawPartMetric(view, ref y, "持续射击精度", weapon.SustainedDispersionMilliradians, 5f, $"{weapon.SustainedDispersionMilliradians:0.00} mrad", Compared(equippedConfigured && equippedWeapon.HasSustainedAccuracy, equippedWeapon.SustainedDispersionMilliradians), (equippedConfigured && equippedWeapon.HasSustainedAccuracy) ? $"{equippedWeapon.SustainedDispersionMilliradians:0.00} mrad" : null, higherIsBetter: false);
 					}
 					DrawPartTextRow(view, ref y, "火控误差", "随航迹质量动态变化");
 				}
@@ -1073,7 +1293,10 @@ namespace ACunicombat.Mechs
 				DrawPartTextRow(view, ref y, "工作模式", "自动拦截");
 				DrawPartTextRow(view, ref y, "目标门限", (weapon.RequiresWeaponsQualityTrack && weapon.IncomingTargetsOnly) ? "武器级来袭导弹航迹" : "融合导弹航迹");
 				DrawPartMetric(view, ref y, "最大拦截距离", weapon.PointDefenseMaximumRangeMeters, 10000f, FormatDistance(weapon.PointDefenseMaximumRangeMeters), Compared(equippedConfigured && equippedWeapon.IsPointDefense, equippedWeapon.PointDefenseMaximumRangeMeters), (equippedConfigured && equippedWeapon.IsPointDefense) ? FormatDistance(equippedWeapon.PointDefenseMaximumRangeMeters) : null);
-				DrawPartMetric(view, ref y, "方位覆盖", weapon.PointDefenseFieldOfFireDegrees, 360f, $"{weapon.PointDefenseFieldOfFireDegrees:0}°", Compared(equippedConfigured && equippedWeapon.IsPointDefense, equippedWeapon.PointDefenseFieldOfFireDegrees), (equippedConfigured && equippedWeapon.IsPointDefense) ? $"{equippedWeapon.PointDefenseFieldOfFireDegrees:0}°" : null);
+				DrawPartMetric(view, ref y, "向外方位角", weapon.PointDefenseOutboardYawDegrees, 120f, $"{weapon.PointDefenseOutboardYawDegrees:0}°", Compared(equippedConfigured && equippedWeapon.IsPointDefense, equippedWeapon.PointDefenseOutboardYawDegrees), (equippedConfigured && equippedWeapon.IsPointDefense) ? $"{equippedWeapon.PointDefenseOutboardYawDegrees:0}°" : null);
+				DrawPartMetric(view, ref y, "向内方位角", weapon.PointDefenseInboardYawDegrees, 120f, $"{weapon.PointDefenseInboardYawDegrees:0}°", Compared(equippedConfigured && equippedWeapon.IsPointDefense, equippedWeapon.PointDefenseInboardYawDegrees), (equippedConfigured && equippedWeapon.IsPointDefense) ? $"{equippedWeapon.PointDefenseInboardYawDegrees:0}°" : null);
+				DrawPartMetric(view, ref y, "最大仰角", weapon.PointDefenseElevationDegrees, 90f, $"{weapon.PointDefenseElevationDegrees:0}°", Compared(equippedConfigured && equippedWeapon.IsPointDefense, equippedWeapon.PointDefenseElevationDegrees), (equippedConfigured && equippedWeapon.IsPointDefense) ? $"{equippedWeapon.PointDefenseElevationDegrees:0}°" : null);
+				DrawPartMetric(view, ref y, "最大俯角", weapon.PointDefenseDepressionDegrees, 90f, $"{weapon.PointDefenseDepressionDegrees:0}°", Compared(equippedConfigured && equippedWeapon.IsPointDefense, equippedWeapon.PointDefenseDepressionDegrees), (equippedConfigured && equippedWeapon.IsPointDefense) ? $"{equippedWeapon.PointDefenseDepressionDegrees:0}°" : null);
 				DrawPartMetric(view, ref y, "跟踪转速", weapon.PointDefenseTraverseRateDegreesPerSecond, 360f, $"{weapon.PointDefenseTraverseRateDegreesPerSecond:0} °/s", Compared(equippedConfigured && equippedWeapon.IsPointDefense, equippedWeapon.PointDefenseTraverseRateDegreesPerSecond), (equippedConfigured && equippedWeapon.IsPointDefense) ? $"{equippedWeapon.PointDefenseTraverseRateDegreesPerSecond:0} °/s" : null);
 				DrawPartTextRow(view, ref y, "开火门限", $"单发命中率 ≥ {weapon.PointDefenseMinimumHitProbability * 100f:0.#}% / TCPA ≤ {weapon.PointDefenseMaximumThreatTimeSeconds:0.#} s");
 				DrawPartTextRow(view, ref y, "提前量 / 保持", $"{weapon.PointDefenseMaximumLeadSeconds:0.0} s / {weapon.PointDefenseLockHoldSeconds:0.00} s");
@@ -1521,8 +1744,21 @@ namespace ACunicombat.Mechs
 		private void DrawFooter()
 		{
 			float y = (float)Screen.height - 64f + 10f;
-			bool drawingPartSelection = selectingPart;
-			if (drawingPartSelection)
+			bool drawingMissileSelection = selectingMissile;
+			bool drawingPartSelection = selectingPart && !drawingMissileSelection;
+			if (drawingMissileSelection)
+			{
+				string backLabel = missileSelectionReturnsToPart ? ("返回" + SlotName(missileSlot)) : "返回装配总览";
+				if (GUI.Button(new Rect(32f, y, 190f, 42f), backLabel, buttonStyle))
+				{
+					CloseMissileSelection();
+				}
+				if (GUI.Button(new Rect((float)Screen.width - 32f - 230f, y, 230f, 42f), "确认装填", primaryButtonStyle))
+				{
+					CloseMissileSelection();
+				}
+			}
+			else if (drawingPartSelection)
 			{
 				if (GUI.Button(new Rect(32f, y, 190f, 42f), "返回装配总览", buttonStyle))
 				{
@@ -1537,6 +1773,7 @@ namespace ACunicombat.Mechs
 				if (GUI.Button(new Rect((float)Screen.width - 32f - 230f, y, 230f, 42f), referenceOnly ? "尚未接入仿真" : (alreadyEquipped ? "已装备" : "装备"), primaryButtonStyle))
 				{
 					selection[activeSlot] = pendingPartId;
+					missileVariantSelection.Remove(activeSlot);
 					ClosePartSelection();
 				}
 				GUI.enabled = true;
@@ -1548,18 +1785,22 @@ namespace ACunicombat.Mechs
 				ReloadScene();
 			}
 			RefreshSummary();
-			if (!drawingPartSelection)
+			if (!drawingPartSelection && !drawingMissileSelection)
 			{
 				GUI.enabled = cachedValidation == null || cachedValidation.IsValid;
 				if (GUI.Button(new Rect((float)Screen.width - 32f - 230f, y, 230f, 42f), "应用并进入测试", primaryButtonStyle))
 				{
 					MechLoadoutSelectionStore.SaveSelection(selection);
+					MechLoadoutSelectionStore.SaveMissileVariants(selection, missileVariantSelection);
 					MechAppearanceSelectionStore.Save(appearance);
 					ReloadScene();
 				}
 				GUI.enabled = true;
 			}
-			GUI.Label(new Rect((float)Screen.width * 0.5f - 220f, y + 8f, 440f, 26f), drawingPartSelection ? ("候选配置 / " + SlotName(activeSlot)) : "LOCAL TEST LOADOUT", overlineStyle);
+			string footerLabel = drawingMissileSelection
+				? ("弹种配置 / " + SlotShortName(missileSlot))
+				: (drawingPartSelection ? ("候选配置 / " + SlotName(activeSlot)) : "LOCAL TEST LOADOUT");
+			GUI.Label(new Rect((float)Screen.width * 0.5f - 220f, y + 8f, 440f, 26f), footerLabel, overlineStyle);
 		}
 
 		private void RefreshSummary()
@@ -1611,6 +1852,7 @@ namespace ACunicombat.Mechs
 		private void CopySelection(Dictionary<MechPartSlot, string> source)
 		{
 			selection.Clear();
+			missileVariantSelection.Clear();
 			pendingPartId = null;
 			foreach (KeyValuePair<MechPartSlot, string> pair in source)
 			{
@@ -1627,6 +1869,135 @@ namespace ACunicombat.Mechs
 			IsAnyMenuVisible = false;
 			Scene scene = SceneManager.GetActiveScene();
 			SceneManager.LoadScene((scene.buildIndex >= 0) ? scene.buildIndex : 0);
+		}
+
+		private int CountEquippedMissileRows()
+		{
+			int count = 0;
+			for (int i = 0; i < Slots.Length; i++)
+			{
+				if (TryGetMissileOption(Slots[i], GetSelectedPartId(Slots[i]), out _))
+				{
+					count++;
+				}
+			}
+			return count;
+		}
+
+		private string GetSelectedPartId(MechPartSlot slot)
+		{
+			selection.TryGetValue(slot, out string partId);
+			return partId;
+		}
+
+		private bool TryGetMissileOption(MechPartSlot slot, string launcherPartId, out MissileOption missile)
+		{
+			List<MissileOption> missiles = GetMissileOptions(slot, launcherPartId);
+			missile = missiles.Count > 0 ? missiles[0] : default;
+			if (missiles.Count == 0)
+			{
+				return false;
+			}
+
+			string selectedVariantId = GetSelectedMissileVariantId(slot, launcherPartId, missiles[0].VariantId);
+			for (int i = 0; i < missiles.Count; i++)
+			{
+				if (string.Equals(missiles[i].VariantId, selectedVariantId, StringComparison.OrdinalIgnoreCase))
+				{
+					missile = missiles[i];
+					break;
+				}
+			}
+			return true;
+		}
+
+		private List<MissileOption> GetMissileOptions(MechPartSlot slot, string launcherPartId)
+		{
+			var missiles = new List<MissileOption>();
+			MechPartDefinition launcher = catalog?.Find(launcherPartId)?.LoadPart();
+			MechWeaponPerformance basePerformance = launcher?.WeaponPerformance;
+			if (launcher == null || launcher.Slot != slot || basePerformance == null || !basePerformance.IsConfigured || !basePerformance.IsGuidedMissile)
+			{
+				return missiles;
+			}
+
+			int count = MechMissileVariantCatalog.GetVariantCount(launcherPartId, basePerformance);
+			for (int i = 0; i < count; i++)
+			{
+				MechMissileVariant variant = MechMissileVariantCatalog.GetVariant(launcherPartId, basePerformance, i);
+				MechWeaponPerformance performance = variant.Performance;
+				bool interceptor = performance.role == MechWeaponRole.InterceptorMissile;
+				MissileFlightProfile profile = performance.missileFlightProfile.IsConfigured
+					? performance.missileFlightProfile.Sanitized()
+					: (interceptor ? MissileFlightProfile.InterceptorDefault : MissileFlightProfile.AirToAirDefault);
+				missiles.Add(new MissileOption(
+					variant.VariantId,
+					variant.MissileId,
+					variant.DisplayName,
+					ResolveMissileGuidanceDescription(profile, interceptor),
+					!string.IsNullOrWhiteSpace(performance.missileVisualResourcePath)
+						? performance.missileVisualResourcePath
+						: (interceptor ? "Projectiles/r27_white" : "Projectiles/aam4290_white_blackband"),
+					profile,
+					MechMissileVariantCatalog.ResolveWarheadMassKg(performance),
+					performance.directHitDamage,
+					Mathf.Max(1, performance.magazineCapacity)));
+			}
+
+			return missiles;
+		}
+
+		private string GetSelectedMissileVariantId(
+			MechPartSlot slot,
+			string launcherPartId,
+			string defaultVariantId)
+		{
+			if (!missileVariantSelection.TryGetValue(slot, out string variantId))
+			{
+				variantId = MechLoadoutSelectionStore.LoadMissileVariantId(slot, launcherPartId, defaultVariantId);
+				missileVariantSelection[slot] = variantId;
+			}
+
+			return variantId;
+		}
+
+		private static string ResolveMissileGuidanceDescription(MissileFlightProfile profile, bool interceptor)
+		{
+			if (interceptor)
+			{
+				return "主动雷达制导 / 近程拦截";
+			}
+
+			return profile.PropulsionMode switch
+			{
+				MissilePropulsionMode.DualPulseSolid => "数据链中段修正 / 双脉冲固体发动机 / 主动雷达末制导",
+				MissilePropulsionMode.VariableFlowDuctedRocket => "数据链中段修正 / 可调流量固体冲压发动机 / 主动雷达末制导",
+				_ => "数据链中段修正 / 主动雷达末制导",
+			};
+		}
+
+		private void OpenMissileSelection(MechPartSlot slot, string launcherPartId, bool returnToPartSelection)
+		{
+			if (!TryGetMissileOption(slot, launcherPartId, out _))
+			{
+				return;
+			}
+			missileSlot = slot;
+			missileLauncherPartId = launcherPartId;
+			missileSelectionReturnsToPart = returnToPartSelection;
+			selectingMissile = true;
+			editingAppearance = false;
+			missileStatsScroll = Vector2.zero;
+			previewDirty = true;
+		}
+
+		private void CloseMissileSelection()
+		{
+			selectingMissile = false;
+			missileLauncherPartId = null;
+			missileStatsScroll = Vector2.zero;
+			missileSelectionReturnsToPart = false;
+			previewDirty = true;
 		}
 
 		private void OpenPartSelection(MechPartSlot slot)
@@ -2148,6 +2519,34 @@ namespace ACunicombat.Mechs
 				}
 				previous = current;
 			}
+		}
+
+		private void DrawMissileChildButton(Rect rect, MechPartSlot slot, MissileOption missile)
+		{
+			float connectorX = rect.x - 16f;
+			GUI.DrawTexture(new Rect(connectorX, rect.y - 11f, 1f, rect.height * 0.5f + 11f), frameTexture);
+			GUI.DrawTexture(new Rect(connectorX, rect.center.y, 14f, 1f), frameTexture);
+			if (GUI.Button(rect, GUIContent.none, equippedButtonStyle))
+			{
+				OpenMissileSelection(slot, GetSelectedPartId(slot), returnToPartSelection: false);
+			}
+			GUI.DrawTexture(new Rect(rect.x + 1f, rect.y + 1f, 52f, rect.height - 2f), sectionHeaderTexture);
+			GUI.Label(new Rect(rect.x + 3f, rect.y, 48f, rect.height), "弹", overlineStyle);
+			GUI.Label(new Rect(rect.x + 66f, rect.y + 6f, rect.width - 82f, 22f), "装填导弹", labelStyle);
+			GUI.Label(new Rect(rect.x + 66f, rect.y + 29f, rect.width - 82f, 24f), missile.DisplayName, headingStyle);
+		}
+
+		private void DrawPartMissileButton(Rect rect, MissileOption missile)
+		{
+			if (GUI.Button(rect, GUIContent.none, equippedButtonStyle))
+			{
+				OpenMissileSelection(activeSlot, pendingPartId, returnToPartSelection: true);
+			}
+			GUI.DrawTexture(new Rect(rect.x + 1f, rect.y + 1f, 64f, rect.height - 2f), sectionHeaderTexture);
+			GUI.Label(new Rect(rect.x + 4f, rect.y, 58f, rect.height), "导弹", overlineStyle);
+			GUI.Label(new Rect(rect.x + 80f, rect.y + 3f, rect.width - 210f, 20f), "弹药配置", labelStyle);
+			GUI.Label(new Rect(rect.x + 80f, rect.y + 22f, rect.width - 210f, 20f), missile.DisplayName, headingStyle);
+			GUI.Label(new Rect(rect.xMax - 118f, rect.y, 102f, rect.height), "选择导弹  >", testedStyle);
 		}
 
 		private static void DrawGraphLine(Vector2 start, Vector2 end, Color color, float width)

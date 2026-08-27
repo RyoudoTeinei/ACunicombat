@@ -7,6 +7,7 @@ namespace ACunicombat.Mechs
     /// <summary>
     /// 第三人称镜头：初始在机体后方看向机体前方；水平鼠标 = Yaw（同时是机体转向来源，
     /// 由 MotionController 持有同一 Yaw 值）；垂直鼠标 = Pitch（仅镜头/瞄准，不给机体）；
+    /// 按住 F 时鼠标只操作独立自由视角，不改变机体或火控姿态；
     /// Roll 由中键拖动旋转运动控制器的参考平面；镜头、机体、推进与瞄准共用该姿态基准。
     /// </summary>
     public sealed class MechThirdPersonCamera : MonoBehaviour
@@ -49,6 +50,10 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0.01f)] private float aimCursorSensitivity = 1f;
         [SerializeField, Range(0f, 0.5f)] private float aimDeadZone = 0.06f;
         [SerializeField, Min(1f)] private float pitchTurnRateDegrees = 60f;
+        [Header("Free look")]
+        [SerializeField, Min(0.01f)] private float freeLookDegreesPerPixel = 0.14f;
+        [SerializeField, Range(10f, 89f)] private float freeLookPitchLimitDegrees = 80f;
+        [SerializeField, Min(0.01f)] private float freeLookReturnSmoothTime = 0.18f;
         [Header("Space-scale rendering")]
         [SerializeField, Min(0.01f)] private float nearClipDistance = 0.5f;
         [SerializeField, Min(1000f)] private float farClipDistance = 100000f;
@@ -61,6 +66,10 @@ namespace ACunicombat.Mechs
         [SerializeField] private bool zoomTracksSttTarget = true;
         [SerializeField, Min(1f)] private float zoomTrackingPitchRateDegrees = 75f;
         [SerializeField, Min(1f)] private float zoomTrackingYawCaptureDegrees = 18f;
+        [Header("Tracked target stabilization")]
+        [SerializeField, Min(0.02f)] private float trackedPositionSmoothingSeconds = 0.2f;
+        [SerializeField, Min(0.02f)] private float trackedVelocitySmoothingSeconds = 0.3f;
+        [SerializeField, Min(1f)] private float maximumTrackCorrectionSpeed = 220f;
 
         private float pitchDegrees = 8f;
         private Vector3 localLag;
@@ -88,6 +97,8 @@ namespace ACunicombat.Mechs
         private TrackId compositionTrackId;
         private float shoulderSign = 1f;
         private float shoulderBiasUntil;
+        private MechTrackControlFilter zoomTrackControlFilter;
+        private MechTrackControlFilter compositionTrackControlFilter;
         private uint observedReferenceFrameVersion;
         // -1 = 无避让，0 = 横向，1 = 纵向。
         private int occlusionEscapeAxis = -1;
@@ -96,6 +107,11 @@ namespace ACunicombat.Mechs
         private bool occlusionEscapeClamped;
         private float occlusionEscapeSwitchAllowedAt;
         private float occlusionHoldUntil;
+        private bool freeLookActive;
+        private float freeLookYawDegrees;
+        private float freeLookPitchDegrees;
+        private float freeLookYawVelocity;
+        private float freeLookPitchVelocity;
 
         public float PitchDegrees => pitchDegrees;
         public Vector2 AimViewportPoint
@@ -107,7 +123,9 @@ namespace ACunicombat.Mechs
             }
         }
 
-        public Quaternion AimRotation => ComputeRotation();
+        public Quaternion AimRotation => ComputeAimRotation();
+        public bool FreeLookActive => freeLookActive;
+        public bool FreeLookViewOffsetActive => HasFreeLookOffset;
         public bool IsZoomActive
         {
             get
@@ -125,6 +143,36 @@ namespace ACunicombat.Mechs
         public void SetZoomTracksSttTarget(bool enabled)
         {
             zoomTracksSttTarget = enabled;
+        }
+
+        /// <summary>
+        /// Returns the combat aim ray without the free-look orbit offset. This keeps
+        /// weapons and fire-control designation attached to the mech while the view moves.
+        /// </summary>
+        public Ray GetCombatAimRay()
+        {
+            EnsureAimCursorInitialized();
+            if (motion == null || followTarget == null)
+            {
+                return new Ray(transform.position, transform.forward);
+            }
+
+            InitializeFieldOfView();
+            var aimRotation = ComputeAimRotation();
+            var fieldOfView = controlledCamera != null
+                ? controlledCamera.fieldOfView
+                : 60f;
+            var aspect = controlledCamera != null
+                ? Mathf.Max(0.1f, controlledCamera.aspect)
+                : Mathf.Max(0.1f, (float)Screen.width / Mathf.Max(1f, Screen.height));
+            var halfHeight = Mathf.Tan(fieldOfView * 0.5f * Mathf.Deg2Rad);
+            var viewportPoint = AimViewportPoint;
+            var localDirection = new Vector3(
+                (viewportPoint.x - 0.5f) * 2f * halfHeight * aspect,
+                (viewportPoint.y - 0.5f) * 2f * halfHeight,
+                1f).normalized;
+            var origin = followTarget.position + motion.ReferenceUp * focusHeight;
+            return new Ray(origin, aimRotation * localDirection);
         }
 
         public void Configure(Transform target, MechFlightMotionController motionController)
@@ -186,6 +234,8 @@ namespace ACunicombat.Mechs
             compositionLocalOffset = BaseCompositionOffset();
             compositionLocalOffsetVelocity = Vector3.zero;
             compositionTrackId = default;
+            zoomTrackControlFilter.Reset();
+            compositionTrackControlFilter.Reset();
             shoulderBiasUntil = 0f;
             occlusionEscapeAxis = -1;
             occlusionEscapeMeters = 0f;
@@ -193,7 +243,8 @@ namespace ACunicombat.Mechs
             occlusionHoldUntil = 0f;
             occlusionEscapeSwitchAllowedAt = 0f;
             fieldOfViewVelocity = 0f;
-            var rotation = ComputeRotation();
+            ResetFreeLookImmediate();
+            var rotation = ComputeViewRotation();
             transform.SetPositionAndRotation(
                 ComputePosition(rotation) + rotation * compositionLocalOffset,
                 rotation);
@@ -209,6 +260,7 @@ namespace ACunicombat.Mechs
             pitchDegrees = 0f;
             aimViewportPoint = aimViewportCenter;
             aimCursorInitialized = true;
+            ResetFreeLookImmediate();
             if (motion == null)
             {
                 return;
@@ -221,14 +273,27 @@ namespace ACunicombat.Mechs
 
         public void UpdateLook(in MechPlayerInputFrame frame)
         {
-            if (MechAssemblyMenu.IsAnyMenuVisible ||
-                MechSystemsRadialMenu.IsAnyMenuVisible ||
-                followTarget == null || motion == null)
+            if (followTarget == null || motion == null)
             {
                 return;
             }
 
+            if (MechSolarSystemMap.IsAnyMapVisible ||
+                MechAssemblyMenu.IsAnyMenuVisible ||
+                MechSystemsRadialMenu.IsAnyMenuVisible)
+            {
+                EndFreeLook();
+                return;
+            }
+
             EnsureAimCursorInitialized();
+            if (frame.FreeLookHeld)
+            {
+                UpdateFreeLook(in frame);
+                return;
+            }
+
+            EndFreeLook();
             if (TryTrackSttWhileZoomed())
             {
                 return;
@@ -267,6 +332,38 @@ namespace ACunicombat.Mechs
             pitchDegrees = motion.ConstrainPitchForCurrentMode(
                 pitchDegrees -
                 pitchInput * pitchTurnRateDegrees * Time.unscaledDeltaTime);
+        }
+
+        private void UpdateFreeLook(in MechPlayerInputFrame frame)
+        {
+            if (!freeLookActive)
+            {
+                freeLookActive = true;
+                aimViewportPoint = aimViewportCenter;
+                zoomTrackControlFilter.Reset();
+            }
+
+            freeLookYawDegrees = Mathf.DeltaAngle(
+                0f,
+                freeLookYawDegrees + frame.MouseDelta.x * freeLookDegreesPerPixel);
+            freeLookPitchDegrees = Mathf.Clamp(
+                freeLookPitchDegrees - frame.MouseDelta.y * freeLookDegreesPerPixel,
+                -freeLookPitchLimitDegrees,
+                freeLookPitchLimitDegrees);
+            freeLookYawVelocity = 0f;
+            freeLookPitchVelocity = 0f;
+            motion.SetYawTurnInput(0f);
+        }
+
+        private void EndFreeLook()
+        {
+            if (!freeLookActive)
+            {
+                return;
+            }
+
+            freeLookActive = false;
+            motion?.SetYawTurnInput(0f);
         }
 
         private void EnsureAimCursorInitialized()
@@ -311,6 +408,7 @@ namespace ACunicombat.Mechs
         {
             if (!zoomTracksSttTarget || !IsZoomActive)
             {
+                zoomTrackControlFilter.Reset();
                 return false;
             }
 
@@ -318,11 +416,16 @@ namespace ACunicombat.Mechs
             if (radar == null || !radar.SttTrackId.IsValid ||
                 !radar.TryGetTrack(radar.SttTrackId, out var sttTrack))
             {
+                zoomTrackControlFilter.Reset();
                 return false;
             }
 
             var focusPoint = followTarget.position + motion.ReferenceUp * focusHeight;
-            var direction = radar.PredictTrackPosition(in sttTrack) - focusPoint;
+            var direction = StabilizeTrackPosition(
+                                ref zoomTrackControlFilter,
+                                in sttTrack,
+                                Time.unscaledDeltaTime) -
+                            focusPoint;
             if (direction.sqrMagnitude <= 0.001f)
             {
                 return false;
@@ -368,11 +471,14 @@ namespace ACunicombat.Mechs
                 ResetToReferenceHorizon();
             }
 
-            var rotation = ComputeRotation();
+            UpdateFreeLookReturn(deltaTime);
+            var rotation = ComputeViewRotation();
             var desiredPosition = ComputePosition(rotation);
             var targetLag = ComputeTargetLocalLag(rotation);
             SmoothLocalLag(targetLag, deltaTime);
-            var targetComposition = ComputeTargetCompositionOffset();
+            var targetComposition = HasFreeLookOffset
+                ? BaseCompositionOffset()
+                : ComputeTargetCompositionOffset();
             SmoothCompositionOffset(targetComposition, deltaTime);
             transform.SetPositionAndRotation(
                 desiredPosition + rotation * (localLag + compositionLocalOffset),
@@ -386,10 +492,64 @@ namespace ACunicombat.Mechs
             Follow(deltaTime);
         }
 
-        private Quaternion ComputeRotation() =>
+        private Quaternion ComputeAimRotation() =>
             motion.ResolveReferenceViewRotation(pitchDegrees);
 
-        private Vector3 ComputePosition() => ComputePosition(ComputeRotation());
+        private Quaternion ComputeViewRotation()
+        {
+            var aimRotation = ComputeAimRotation();
+            var yawedRotation =
+                Quaternion.AngleAxis(freeLookYawDegrees, motion.ReferenceUp) *
+                aimRotation;
+            return Quaternion.AngleAxis(
+                       freeLookPitchDegrees,
+                       yawedRotation * Vector3.right) *
+                   yawedRotation;
+        }
+
+        private bool HasFreeLookOffset =>
+            freeLookActive ||
+            Mathf.Abs(freeLookYawDegrees) > 0.01f ||
+            Mathf.Abs(freeLookPitchDegrees) > 0.01f;
+
+        private void UpdateFreeLookReturn(float deltaTime)
+        {
+            if (freeLookActive)
+            {
+                return;
+            }
+
+            var smoothTime = Mathf.Max(0.01f, freeLookReturnSmoothTime);
+            freeLookYawDegrees = Mathf.SmoothDampAngle(
+                freeLookYawDegrees,
+                0f,
+                ref freeLookYawVelocity,
+                smoothTime,
+                Mathf.Infinity,
+                Mathf.Max(0f, deltaTime));
+            freeLookPitchDegrees = Mathf.SmoothDampAngle(
+                freeLookPitchDegrees,
+                0f,
+                ref freeLookPitchVelocity,
+                smoothTime,
+                Mathf.Infinity,
+                Mathf.Max(0f, deltaTime));
+
+            if (Mathf.Abs(freeLookYawDegrees) < 0.01f &&
+                Mathf.Abs(freeLookPitchDegrees) < 0.01f)
+            {
+                ResetFreeLookImmediate();
+            }
+        }
+
+        private void ResetFreeLookImmediate()
+        {
+            freeLookActive = false;
+            freeLookYawDegrees = 0f;
+            freeLookPitchDegrees = 0f;
+            freeLookYawVelocity = 0f;
+            freeLookPitchVelocity = 0f;
+        }
 
         private Vector3 ComputePosition(Quaternion rotation)
         {
@@ -449,6 +609,7 @@ namespace ACunicombat.Mechs
 
             if (!TryResolveOcclusionTarget(hasStt, sttTrack, out var avoidTrack))
             {
+                compositionTrackControlFilter.Reset();
                 occlusionEscapeAxis = -1;
                 occlusionEscapeMeters = 0f;
                 occlusionEscapeClamped = false;
@@ -456,7 +617,10 @@ namespace ACunicombat.Mechs
             }
 
             ApplyOcclusionEscape(
-                radar.PredictTrackPosition(avoidTrack),
+                StabilizeTrackPosition(
+                    ref compositionTrackControlFilter,
+                    in avoidTrack,
+                    Time.unscaledDeltaTime),
                 now,
                 ref targetOffset);
             return targetOffset;
@@ -632,6 +796,25 @@ namespace ACunicombat.Mechs
             }
 
             return sign >= 0f ? pushDown : pushUp;
+        }
+
+        private Vector3 StabilizeTrackPosition(
+            ref MechTrackControlFilter filter,
+            in TrackSnapshot track,
+            float deltaTime)
+        {
+            var measuredVelocity = new Vector3(
+                (float)track.Velocity.x,
+                (float)track.Velocity.y,
+                (float)track.Velocity.z);
+            return filter.Update(
+                track.TrackId,
+                radar.PredictTrackPosition(in track),
+                measuredVelocity,
+                deltaTime,
+                trackedPositionSmoothingSeconds,
+                trackedVelocitySmoothingSeconds,
+                maximumTrackCorrectionSpeed);
         }
 
         /// <summary>

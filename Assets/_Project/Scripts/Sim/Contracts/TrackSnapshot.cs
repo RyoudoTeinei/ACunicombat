@@ -24,6 +24,8 @@ namespace ACunicombat.Sensing.Contracts
         Unknown = 0,
         AirVehicle = 1,
         Missile = 2,
+        /// <summary>雷达或红外诱饵；不是可交战平台航迹。</summary>
+        Decoy = 3,
     }
 
     public enum MissileMissionRole : byte

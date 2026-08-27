@@ -18,6 +18,10 @@ namespace ACunicombat.Mechs
     public static class MechEffectResources
     {
         private static Texture2D softParticleTexture;
+        private static Texture2D fireballParticleTexture;
+        private static Texture2D smokeParticleTexture;
+        private static Texture2D missileExplosionFlipbook;
+        private static bool missileExplosionFlipbookLoaded;
         private static Mesh debrisShardMesh;
 
         /// <summary>径向柔化的白色圆点。所有加色粒子共用，避免出现硬边方片。</summary>
@@ -31,6 +35,49 @@ namespace ACunicombat.Mechs
                 }
 
                 return softParticleTexture;
+            }
+        }
+
+        /// <summary>带有不规则边缘和暗斑的程序化火球贴图，用于短促的导弹爆炸团簇。</summary>
+        public static Texture2D FireballParticleTexture
+        {
+            get
+            {
+                if (fireballParticleTexture == null)
+                {
+                    fireballParticleTexture = BuildFireballParticleTexture();
+                }
+
+                return fireballParticleTexture;
+            }
+        }
+
+        /// <summary>带有破碎边缘与内部密度变化的烟尘贴图，避免烟团退化成柔边圆片。</summary>
+        public static Texture2D SmokeParticleTexture
+        {
+            get
+            {
+                if (smokeParticleTexture == null)
+                {
+                    smokeParticleTexture = BuildSmokeParticleTexture();
+                }
+
+                return smokeParticleTexture;
+            }
+        }
+
+        /// <summary>项目内的 4x4 导弹爆炸序列帧；缺失时回退到程序化单帧火球。</summary>
+        public static Texture2D MissileExplosionFlipbook
+        {
+            get
+            {
+                if (!missileExplosionFlipbookLoaded)
+                {
+                    missileExplosionFlipbook = Resources.Load<Texture2D>("Effects/MissileExplosionFlipbook");
+                    missileExplosionFlipbookLoaded = true;
+                }
+
+                return missileExplosionFlipbook;
             }
         }
 
@@ -96,6 +143,43 @@ namespace ACunicombat.Mechs
             return material;
         }
 
+        public static Material CreateFireballParticleMaterial(string materialName, Color color)
+        {
+            // 火球主体必须保留纹理中的暗腔和不规则边缘。纯加色混合会把所有层叠区域
+            // 迅速烧成没有结构的柔光圆，因此这里只让亮部通过 HDR 颜色进入 Bloom。
+            var material = CreateAlphaParticleMaterial(materialName, color);
+            if (material == null)
+            {
+                return null;
+            }
+
+            var fireballTexture = MissileExplosionFlipbook != null
+                ? MissileExplosionFlipbook
+                : FireballParticleTexture;
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", fireballTexture);
+            }
+            material.mainTexture = fireballTexture;
+            return material;
+        }
+
+        public static Material CreateSmokeParticleMaterial(string materialName, Color color)
+        {
+            var material = CreateAlphaParticleMaterial(materialName, color);
+            if (material == null)
+            {
+                return null;
+            }
+
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", SmokeParticleTexture);
+            }
+            material.mainTexture = SmokeParticleTexture;
+            return material;
+        }
+
         /// <summary>
         /// 加色拖尾材质。与粒子材质的区别是<b>不贴软圆点贴图</b>——那张贴图沿拖尾拉伸后
         /// 会在长度方向糊成一条渐变，反而破坏曳光弹应有的均匀亮度；拖尾的形状由
@@ -115,6 +199,53 @@ namespace ACunicombat.Mechs
                 material.SetTexture("_BaseMap", null);
             }
             material.mainTexture = null;
+            return material;
+        }
+
+        /// <summary>
+        /// URP 标准 Alpha 混合粒子材质。用于烟雾、蒸气等会遮挡背景但不应自行发光的介质。
+        /// </summary>
+        public static Material CreateAlphaParticleMaterial(string materialName, Color color)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit")
+                         ?? Shader.Find("Particles/Standard Unlit")
+                         ?? Shader.Find("Sprites/Default");
+            if (shader == null)
+            {
+                return null;
+            }
+
+            var material = new Material(shader)
+            {
+                name = materialName,
+                hideFlags = HideFlags.DontSave,
+            };
+
+            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_Blend", 0f);
+            material.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+            material.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+            material.SetInt("_SrcBlendAlpha", (int)BlendMode.One);
+            material.SetInt("_DstBlendAlpha", (int)BlendMode.OneMinusSrcAlpha);
+            material.SetInt("_ZWrite", 0);
+            if (material.HasProperty("_Cull"))
+            {
+                material.SetInt("_Cull", (int)CullMode.Off);
+            }
+
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.DisableKeyword("_ALPHATEST_ON");
+            material.SetShaderPassEnabled("DepthOnly", false);
+            material.SetShaderPassEnabled("ShadowCaster", false);
+            material.renderQueue = (int)RenderQueue.Transparent;
+            material.SetOverrideTag("RenderType", "Transparent");
+
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", SoftParticleTexture);
+            }
+            material.mainTexture = SoftParticleTexture;
+            SetColor(material, color);
             return material;
         }
 
@@ -197,6 +328,28 @@ namespace ACunicombat.Mechs
             return gradient;
         }
 
+        /// <summary>烟尘先被爆心照成琥珀色，随后冷却为近黑灰并逐渐稀释。</summary>
+        public static Gradient CreateExplosionSmokeGradient()
+        {
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(new Color(1f, 0.58f, 0.16f), 0f),
+                    new GradientColorKey(new Color(0.62f, 0.25f, 0.07f), 0.2f),
+                    new GradientColorKey(new Color(0.19f, 0.16f, 0.15f), 0.52f),
+                    new GradientColorKey(new Color(0.055f, 0.06f, 0.07f), 1f),
+                },
+                new[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(0.88f, 0.08f),
+                    new GradientAlphaKey(0.72f, 0.4f),
+                    new GradientAlphaKey(0f, 1f),
+                });
+            return gradient;
+        }
+
         /// <summary>把粒子渲染器统一配成不投影、不接收阴影、不采样探针的自发光形态。</summary>
         public static void ConfigureUnlitRenderer(ParticleSystemRenderer renderer, Material material)
         {
@@ -238,6 +391,97 @@ namespace ACunicombat.Mechs
             }
 
             texture.SetPixels32(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
+        private static Texture2D BuildFireballParticleTexture()
+        {
+            const int resolution = 128;
+            var texture = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false, true)
+            {
+                name = "AC6 Effect Fireball (Runtime)",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+                hideFlags = HideFlags.DontSave,
+            };
+
+            var pixels = new Color[resolution * resolution];
+            for (var y = 0; y < resolution; y++)
+            {
+                for (var x = 0; x < resolution; x++)
+                {
+                    var uv = new Vector2(
+                        (x + 0.5f) / resolution * 2f - 1f,
+                        (y + 0.5f) / resolution * 2f - 1f);
+                    var radius = uv.magnitude;
+                    var angle = Mathf.Atan2(uv.y, uv.x);
+                    var edge = 0.8f +
+                               Mathf.Sin(angle * 5f + 0.7f) * 0.095f +
+                               Mathf.Sin(angle * 9f - 1.2f) * 0.055f +
+                               Mathf.Sin(angle * 14f + 2.1f) * 0.028f;
+                    var normalizedRadius = radius / Mathf.Max(0.01f, edge);
+                    var edgeAlpha = 1f - Mathf.SmoothStep(0.72f, 1f, normalizedRadius);
+
+                    var coarse = Mathf.PerlinNoise(x * 0.075f + 7.3f, y * 0.075f + 11.9f);
+                    var fine = Mathf.PerlinNoise(x * 0.17f + 23.1f, y * 0.17f + 3.7f);
+                    var mottling = Mathf.Clamp01(coarse * 0.72f + fine * 0.28f);
+                    var core = Mathf.Pow(Mathf.Clamp01(1f - normalizedRadius), 0.58f);
+                    var pore = Mathf.SmoothStep(0.42f, 0.66f, mottling);
+                    var brightness = Mathf.Lerp(0.08f, 1f, pore);
+                    var hotColor = Color.Lerp(
+                        new Color(1f, 0.16f, 0.015f, 1f),
+                        new Color(1f, 0.96f, 0.56f, 1f),
+                        Mathf.Clamp01(core * 1.15f));
+                    hotColor *= brightness;
+                    hotColor.a = edgeAlpha * Mathf.Lerp(0.48f, 1f, pore);
+                    pixels[y * resolution + x] = hotColor;
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
+        private static Texture2D BuildSmokeParticleTexture()
+        {
+            const int resolution = 128;
+            var texture = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false, true)
+            {
+                name = "AC6 Effect Explosion Smoke (Runtime)",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+                hideFlags = HideFlags.DontSave,
+            };
+
+            var pixels = new Color[resolution * resolution];
+            for (var y = 0; y < resolution; y++)
+            {
+                for (var x = 0; x < resolution; x++)
+                {
+                    var uv = new Vector2(
+                        (x + 0.5f) / resolution * 2f - 1f,
+                        (y + 0.5f) / resolution * 2f - 1f);
+                    var radius = uv.magnitude;
+                    var angle = Mathf.Atan2(uv.y, uv.x);
+                    var edge = 0.78f +
+                               Mathf.Sin(angle * 4f + 0.4f) * 0.12f +
+                               Mathf.Sin(angle * 7f - 1.1f) * 0.075f +
+                               Mathf.Sin(angle * 13f + 2.4f) * 0.035f;
+                    var normalizedRadius = radius / Mathf.Max(0.01f, edge);
+                    var envelope = 1f - Mathf.SmoothStep(0.56f, 1f, normalizedRadius);
+
+                    var coarse = Mathf.PerlinNoise(x * 0.045f + 4.9f, y * 0.045f + 17.2f);
+                    var medium = Mathf.PerlinNoise(x * 0.105f + 31.6f, y * 0.105f + 2.8f);
+                    var density = Mathf.Clamp01(coarse * 0.68f + medium * 0.32f);
+                    density = Mathf.SmoothStep(0.23f, 0.82f, density);
+                    var alpha = envelope * Mathf.Lerp(0.28f, 1f, density);
+                    pixels[y * resolution + x] = new Color(1f, 1f, 1f, alpha);
+                }
+            }
+
+            texture.SetPixels(pixels);
             texture.Apply(false, true);
             return texture;
         }

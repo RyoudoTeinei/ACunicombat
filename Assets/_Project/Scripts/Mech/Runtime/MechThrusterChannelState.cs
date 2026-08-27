@@ -14,6 +14,7 @@ namespace ACunicombat.Mechs
         Descent = 45,
         ShoulderRcs = 50,
         LegRcs = 60,
+        Translation = 70,
     }
 
     public enum MechThrusterSide
@@ -25,8 +26,7 @@ namespace ACunicombat.Mechs
 
     /// <summary>
     /// Runtime state for one physical or provisional thruster nozzle. Translation forces are
-    /// applied to the mech's fixed control center. Paired RCS channels additionally produce an
-    /// explicit attitude torque while retaining zero net translation force.
+    /// applied to the mech as a net force; nozzle positions do not create attitude torque.
     /// </summary>
     [Serializable]
     public sealed class MechThrusterChannelState
@@ -39,6 +39,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private bool usesProvisionalOrigin;
         [SerializeField] [Range(0f, 1f)] private float health = 1f;
         [SerializeField] private Vector3 currentForceNewtons;
+        [SerializeField] private float currentRatedCapacityNewtons;
 
         public MechThrusterChannelState(
             string channelId,
@@ -63,6 +64,9 @@ namespace ACunicombat.Mechs
         public bool UsesProvisionalOrigin => usesProvisionalOrigin;
         public float Health => health;
         public Vector3 CurrentForceNewtons => currentForceNewtons;
+        public float CurrentOutputFraction => currentRatedCapacityNewtons > Mathf.Epsilon
+            ? Mathf.Clamp01(currentForceNewtons.magnitude / currentRatedCapacityNewtons)
+            : 0f;
         public bool Operational => health > 0.0001f;
 
         public Vector3 ResolveWorldOrigin(Transform vehicleRoot)
@@ -80,16 +84,21 @@ namespace ACunicombat.Mechs
         public void ClearForce()
         {
             currentForceNewtons = Vector3.zero;
+            currentRatedCapacityNewtons = 0f;
         }
 
-        public void AddForce(Vector3 forceNewtons)
+        public void AddForce(Vector3 forceNewtons, float ratedCapacityNewtons)
         {
             currentForceNewtons += forceNewtons;
+            currentRatedCapacityNewtons = Mathf.Max(
+                currentRatedCapacityNewtons,
+                Mathf.Max(0f, ratedCapacityNewtons));
         }
 
-        public void SetForce(Vector3 forceNewtons)
+        public void SetForce(Vector3 forceNewtons, float ratedCapacityNewtons)
         {
             currentForceNewtons = forceNewtons;
+            currentRatedCapacityNewtons = Mathf.Max(0f, ratedCapacityNewtons);
         }
     }
 }

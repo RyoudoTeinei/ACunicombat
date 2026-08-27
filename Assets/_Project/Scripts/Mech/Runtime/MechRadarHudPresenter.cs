@@ -47,10 +47,7 @@ namespace ACunicombat.Mechs
 		private Key operationModeKey = Key.Tab;
 
 		[SerializeField]
-		private Key breakLockKey = Key.T;
-
-		[SerializeField]
-		private Key cycleTargetKey = Key.G;
+		private Key cycleTargetKey = Key.T;
 
 		[Header("Radar operator audio")]
 		[SerializeField]
@@ -343,16 +340,13 @@ namespace ACunicombat.Mechs
 				{
 					radar.SetTrackOperationMode(!radar.TrackOperationMode);
 				}
-				if (WasPressed(keyboard, breakLockKey))
-				{
-					radar.BreakSingleTargetTrack();
-				}
 				if (WasPressed(keyboard, cycleTargetKey))
 				{
 					radar.CycleCandidate(1);
 				}
 			}
-			if (!systemsMenuVisible)
+			if (!systemsMenuVisible &&
+				(aimController == null || !aimController.FreeLookViewOffsetActive))
 			{
 				radar.UpdateDesignation(viewCamera, GetAimViewportPoint(), Time.unscaledDeltaTime);
 			}
@@ -406,12 +400,14 @@ namespace ACunicombat.Mechs
 
 		private void OnGUI()
 		{
-			if (MechAssemblyMenu.IsAnyMenuVisible || radar == null || viewCamera == null)
+			if (MechSolarSystemMap.IsAnyMapVisible ||
+				MechAssemblyMenu.IsAnyMenuVisible || radar == null || viewCamera == null)
 			{
 				return;
 			}
 			EnsureStyles();
 			EnsureSoftLineTexture();
+			Matrix4x4 previousGuiMatrix = MechHudLayout.BeginScaledGui();
 			Color previousColor = GUI.color;
 			SetStartupGuiAlpha(MechStartupHudModule.TrackData);
 			DrawMissileAttackLinks();
@@ -456,6 +452,7 @@ namespace ACunicombat.Mechs
 			GUI.color = previousColor;
 			DrawHitConfirmation();
 			GUI.color = previousColor;
+			GUI.matrix = previousGuiMatrix;
 		}
 
 		private void HandleDamageApplied(
@@ -553,7 +550,7 @@ namespace ACunicombat.Mechs
 				Mathf.Clamp01(age / 0.045f),
 				Mathf.Clamp01(remaining / Mathf.Min(0.14f, duration * 0.5f)));
 			float pulse = 1f + 0.08f * Mathf.Exp(-age * 18f);
-			Vector2 center = new Vector2(Screen.width * 0.5f, Screen.height * 0.39f);
+			Vector2 center = new Vector2(MechHudLayout.Width * 0.5f, MechHudLayout.Height * 0.39f);
 			Rect labelRect = new Rect(
 				center.x - 76f * pulse,
 				center.y - 19f * pulse,
@@ -610,14 +607,14 @@ namespace ACunicombat.Mechs
 		{
 			if (!(weaponSystem == null))
 			{
-				float centerGaugeWidth = Mathf.Clamp((float)Screen.width * 0.34f, 300f, 520f);
-				float availableLeft = (float)Screen.width * 0.5f + centerGaugeWidth * 0.5f + 28f;
-				float availableWidth = (float)Screen.width - 560f - 34f - availableLeft;
+				float centerGaugeWidth = Mathf.Clamp(MechHudLayout.Width * 0.34f, 300f, 520f);
+				float availableLeft = MechHudLayout.Width * 0.5f + centerGaugeWidth * 0.5f + 28f;
+				float availableWidth = MechHudLayout.Width - 560f - 34f - availableLeft;
 				bool num = availableWidth >= 300f;
-				float panelWidth = (num ? Mathf.Min(420f, availableWidth) : Mathf.Min(420f, (float)Screen.width - 32f));
+				float panelWidth = (num ? Mathf.Min(420f, availableWidth) : Mathf.Min(420f, MechHudLayout.Width - 32f));
 				float entryWidth = (panelWidth - 20f) * 0.5f;
-				float panelX = (num ? (availableLeft + (availableWidth - panelWidth) * 0.5f) : ((float)Screen.width - 560f - panelWidth - 42f));
-				float firstRowY = (num ? Mathf.Max(12f, (float)Screen.height - 148f) : Mathf.Max(12f, (float)Screen.height - 440f - 126f));
+				float panelX = (num ? (availableLeft + (availableWidth - panelWidth) * 0.5f) : (MechHudLayout.Width - 560f - panelWidth - 42f));
+				float firstRowY = (num ? Mathf.Max(12f, MechHudLayout.Height - 148f) : Mathf.Max(12f, MechHudLayout.Height - 440f - 126f));
 				Rect leftMissileRect = new Rect(panelX, firstRowY, entryWidth, 40f);
 				Rect cannonRect = new Rect(panelX, firstRowY + 44f, entryWidth, 40f);
 				Rect rightMissileRect = new Rect(leftMissileRect.xMax + 20f, firstRowY, entryWidth, 40f);
@@ -809,10 +806,13 @@ namespace ACunicombat.Mechs
 				{
 					bool confirmedOwnshipThreat =
 						track.IsLikelyTargetingOwnship;
-					Color color = confirmedOwnshipThreat
+					bool identifiedAirToAir = track.IsLikelyAirToAir;
+					bool emphasizedThreat =
+						confirmedOwnshipThreat || identifiedAirToAir;
+					Color color = emphasizedThreat
 						? HudRed
 						: HudAmber;
-					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), color, confirmedOwnshipThreat, dashed: false);
+					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), color, emphasizedThreat, dashed: false);
 				}
 			}
 		}
@@ -839,7 +839,7 @@ namespace ACunicombat.Mechs
 
 		private void DrawRadarStatus(bool showScan, bool showTrackData)
 		{
-			Rect rect = new Rect((float)Screen.width - 560f - 18f, (float)Screen.height - 440f - 18f, 560f, 440f);
+			Rect rect = new Rect(MechHudLayout.Width - 560f - 18f, MechHudLayout.Height - 440f - 18f, 560f, 440f);
 			float halfAngle = Mathf.Clamp(radarStatus.ScanAzimuthDegrees * 0.5f, 20f, 80f);
 			float displayRange = GetRadarDisplayRange(halfAngle);
 			Vector2 fanApex = new Vector2(rect.x + 240f, rect.y + 325f);
@@ -1043,7 +1043,7 @@ namespace ACunicombat.Mechs
 		private void DrawTrackOperationOverlay()
 		{
 			Vector2 center = GetReticleGuiPosition();
-			float ringRadius = Mathf.Clamp((float)Screen.height * 0.75f, 320f, (float)Screen.height * 0.8f) * 0.5f;
+			float ringRadius = Mathf.Clamp(MechHudLayout.Height * 0.75f, 320f, MechHudLayout.Height * 0.8f) * 0.5f;
 			Vector2 ringCenter = GetBodyForwardGuiPosition(ringRadius);
 			DrawSmoothTrackOperationRing(ringCenter, ringRadius);
 			for (int i = 0; i < 4; i++)
@@ -1092,7 +1092,7 @@ namespace ACunicombat.Mechs
 			Vector3 referenceUp = GetReferenceUp();
 			float sightElevationDegrees = Mathf.Asin(Mathf.Clamp(Vector3.Dot(bodyForward, referenceUp), -1f, 1f)) * 57.29578f;
 			float verticalFovRadians = Mathf.Clamp(viewCamera.fieldOfView, 1f, 179f) * (MathF.PI / 180f);
-			float focalPixels = (float)Screen.height * 0.5f / Mathf.Tan(verticalFovRadians * 0.5f);
+			float focalPixels = MechHudLayout.Height * 0.5f / Mathf.Tan(verticalFovRadians * 0.5f);
 			Matrix4x4 previousGuiMatrix = GUI.matrix;
 			GUIUtility.RotateAroundPivot(ResolvePitchLadderRollDegrees(bodyForward, referenceUp), center);
 			DrawMirroredPitchTick(center, radius, 0f, 10f, 44f, HudBrightGreen, 2.1f, null);
@@ -1174,7 +1174,7 @@ namespace ACunicombat.Mechs
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
 				if (!(screen.z <= 0f))
 				{
-					Vector2 center = new Vector2(screen.x, (float)Screen.height - screen.y);
+					Vector2 center = MechHudLayout.ScreenToHudPoint(screen);
 					float alpha = GetLifecycleAlpha(in track);
 					bool isCandidate = track.TrackId.Equals(radar.CandidateTrackId);
 					bool isStt = track.TrackId.Equals(radar.SttTrackId);
@@ -1188,7 +1188,12 @@ namespace ACunicombat.Mechs
 						DrawCornerFrame(new Rect(center.x - size * 0.5f, center.y - size * 0.5f, size, size), color, isTentative ? 7f : 10f, isStt ? 2.8f : 1.7f, dashed);
 						if (!IsMissileTrack(in track))
 						{
-							DrawTrackVelocityVector(center, size, position, ToVector3(track.Velocity), alpha);
+							DrawTrackVelocityVector(
+								center,
+								size,
+								position,
+								ToVector3(track.Velocity - radarStatus.OwnshipVelocity),
+								alpha);
 						}
 					}
 					Vector3 relative = position - base.transform.position;
@@ -1284,7 +1289,7 @@ namespace ACunicombat.Mechs
 			Vector3 projectedTip = viewCamera.WorldToScreenPoint(worldPosition + worldVelocity.normalized * probeDistance);
 			if (!(projectedTip.z <= 0f))
 			{
-				Vector2 screenDirection = new Vector2(projectedTip.x - center.x, (float)Screen.height - projectedTip.y - center.y);
+				Vector2 screenDirection = MechHudLayout.ScreenToHudPoint(projectedTip) - center;
 				if (!(screenDirection.sqrMagnitude < 0.25f))
 				{
 					screenDirection.Normalize();
@@ -1333,9 +1338,10 @@ namespace ACunicombat.Mechs
 						missileTrackCount))
 				{
 					Vector3 screen = viewCamera.WorldToScreenPoint(projectile.transform.position);
-					if (!(screen.z <= 0f) && !(screen.x < radius) && !(screen.x > (float)Screen.width - radius) && !(screen.y < radius) && !(screen.y > (float)Screen.height - radius))
+					Vector2 point = MechHudLayout.ScreenToHudPoint(screen);
+					if (!(screen.z <= 0f) && IsInsideScreen(point, radius))
 					{
-						DrawDiamond(new Vector2(screen.x, (float)Screen.height - screen.y), radius, HudBrightGreen, dashed: false, 1.4f);
+						DrawDiamond(point, radius, HudBrightGreen, dashed: false, 1.4f);
 					}
 				}
 			}
@@ -1351,17 +1357,14 @@ namespace ACunicombat.Mechs
 				Vector3 position = ToVector3(
 					track.PredictPosition(radar.SimTimeSeconds));
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
-				if (screen.z <= 0f ||
-					screen.x < radius ||
-					screen.x > (float)Screen.width - radius ||
-					screen.y < radius ||
-					screen.y > (float)Screen.height - radius)
+				Vector2 point = MechHudLayout.ScreenToHudPoint(screen);
+				if (screen.z <= 0f || !IsInsideScreen(point, radius))
 				{
 					continue;
 				}
 
 				DrawDiamond(
-					new Vector2(screen.x, (float)Screen.height - screen.y),
+					point,
 					radius,
 					HudBrightGreen,
 					dashed: false,
@@ -1417,6 +1420,9 @@ namespace ACunicombat.Mechs
 				Vector3 position = ToVector3(track.PredictPosition(radar.SimTimeSeconds));
 				bool confirmedOwnshipThreat =
 					track.IsLikelyTargetingOwnship;
+				bool identifiedAirToAir = track.IsLikelyAirToAir;
+				bool emphasizedThreat =
+					confirmedOwnshipThreat || identifiedAirToAir;
 				bool inferredInterceptor = IsInferredInterceptor(in track);
 				bool interceptorAssigned = HasFriendlyInterceptorAssigned(track.TrackId);
 				bool interceptorSolutionAvailable =
@@ -1424,22 +1430,22 @@ namespace ACunicombat.Mechs
 					weaponSystem.HasInterceptorLaunchSolution &&
 					weaponSystem.InterceptorTrackId.Equals(track.TrackId);
 				float markerRadius =
-					confirmedOwnshipThreat ? radius + 2f : radius;
-				Color markerColor = confirmedOwnshipThreat
+					emphasizedThreat ? radius + 2f : radius;
+				Color markerColor = emphasizedThreat
 					? HudRed
 					: HudAmber;
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
-				if (screen.z <= 0f || screen.x < markerRadius || screen.x > (float)Screen.width - markerRadius || screen.y < markerRadius || screen.y > (float)Screen.height - markerRadius)
+				Vector2 markerCenter = MechHudLayout.ScreenToHudPoint(screen);
+				if (screen.z <= 0f || !IsInsideScreen(markerCenter, markerRadius))
 				{
 					continue;
 				}
-				Vector2 markerCenter = new Vector2(screen.x, (float)Screen.height - screen.y);
 				DrawDiamond(
 					markerCenter,
 					markerRadius,
 					markerColor,
 					dashed: false,
-					confirmedOwnshipThreat ? 2.2f : 1.6f);
+					emphasizedThreat ? 2.2f : 1.6f);
 				bool shaoWeiTrackSelected = weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack && weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId);
 				bool handPointDefenseTrackSelected = weaponSystem != null && weaponSystem.HasPointDefenseTrack && weaponSystem.PointDefenseTrackId.Equals(track.TrackId);
 				if (interceptorAssigned)
@@ -1460,9 +1466,11 @@ namespace ACunicombat.Mechs
 				}
 				string missileLabel = confirmedOwnshipThreat
 					? "导弹来袭"
-					: inferredInterceptor
-						? "拦截弹"
-						: string.Empty;
+					: identifiedAirToAir
+						? "导弹"
+						: inferredInterceptor
+							? "拦截弹"
+							: string.Empty;
 				if (interceptorAssigned)
 				{
 					missileLabel = string.IsNullOrEmpty(missileLabel)
@@ -1471,13 +1479,13 @@ namespace ACunicombat.Mechs
 				}
 				if (!string.IsNullOrEmpty(missileLabel))
 				{
-					Vector2 labelCenter = new Vector2(screen.x, (float)Screen.height - screen.y + markerRadius + 12f);
+					Vector2 labelCenter = markerCenter + new Vector2(0f, markerRadius + 12f);
 					smallStyle.alignment = TextAnchor.UpperCenter;
 					smallStyle.normal.textColor = markerColor;
 					float measuredLabelWidth = smallStyle.CalcSize(new GUIContent(missileLabel)).x + 12f;
 					float labelWidth = Mathf.Min(
 						Mathf.Max(72f, measuredLabelWidth),
-						Mathf.Max(1f, Screen.width - 8f));
+						Mathf.Max(1f, MechHudLayout.Width - 8f));
 					Rect position2 = ClampToScreen(new Rect(labelCenter.x - labelWidth * 0.5f, labelCenter.y, labelWidth, 24f), 4f);
 					GUI.Label(position2, missileLabel, smallStyle);
 				}
@@ -1496,7 +1504,7 @@ namespace ACunicombat.Mechs
 					continue;
 				}
 				Vector3 missileScreen = viewCamera.WorldToScreenPoint(projectile.transform.position);
-				Vector2 missilePoint = new Vector2(missileScreen.x, (float)Screen.height - missileScreen.y);
+				Vector2 missilePoint = MechHudLayout.ScreenToHudPoint(missileScreen);
 				if (!(missileScreen.z <= 0f) && IsInsideScreen(missilePoint, missileRadius) && IsInsideScreen(targetPoint, 31f))
 				{
 					Vector2 delta = targetPoint - missilePoint;
@@ -1573,9 +1581,9 @@ namespace ACunicombat.Mechs
 
 		private static bool IsInsideScreen(Vector2 point, float margin)
 		{
-			if (point.x >= margin && point.x <= (float)Screen.width - margin && point.y >= margin)
+			if (point.x >= margin && point.x <= MechHudLayout.Width - margin && point.y >= margin)
 			{
-				return point.y <= (float)Screen.height - margin;
+				return point.y <= MechHudLayout.Height - margin;
 			}
 			return false;
 		}
@@ -1593,7 +1601,7 @@ namespace ACunicombat.Mechs
 					if (!(screen.z <= 0f))
 					{
 						float alpha = (float)(1.0 - age / 0.25);
-						Vector2 center = new Vector2(screen.x, (float)Screen.height - screen.y);
+						Vector2 center = MechHudLayout.ScreenToHudPoint(screen);
 						DrawLine(center + new Vector2(-4f, 0f), center + new Vector2(4f, 0f), new Color(HudGreen.r, HudGreen.g, HudGreen.b, alpha * 0.75f), 1f);
 					}
 				}
@@ -1870,14 +1878,14 @@ namespace ACunicombat.Mechs
 		{
 			Vector2 viewportPoint = GetAimViewportPoint();
 			Vector3 screen = viewCamera.ViewportToScreenPoint(new Vector3(viewportPoint.x, viewportPoint.y, 0f));
-			return new Vector2(screen.x, (float)Screen.height - screen.y);
+			return MechHudLayout.ScreenToHudPoint(screen);
 		}
 
 		private Vector2 GetBodyForwardGuiPosition(float ringRadius)
 		{
 			if (viewCamera == null)
 			{
-				return new Vector2((float)Screen.width * 0.5f, (float)Screen.height * 0.5f);
+				return new Vector2(MechHudLayout.Width * 0.5f, MechHudLayout.Height * 0.5f);
 			}
 
 			Vector3 bodyForward = GetBodyForwardWorld();
@@ -1885,13 +1893,13 @@ namespace ACunicombat.Mechs
 				viewCamera.transform.position + bodyForward * 1000f);
 			if (screen.z <= 0f)
 			{
-				return new Vector2((float)Screen.width * 0.5f, (float)Screen.height * 0.5f);
+				return new Vector2(MechHudLayout.Width * 0.5f, MechHudLayout.Height * 0.5f);
 			}
 
-			Vector2 point = new Vector2(screen.x, (float)Screen.height - screen.y);
+			Vector2 point = MechHudLayout.ScreenToHudPoint(screen);
 			float visibleMargin = Mathf.Clamp(ringRadius * 0.12f, 24f, 64f);
-			point.x = Mathf.Clamp(point.x, visibleMargin, (float)Screen.width - visibleMargin);
-			point.y = Mathf.Clamp(point.y, visibleMargin, (float)Screen.height - visibleMargin);
+			point.x = Mathf.Clamp(point.x, visibleMargin, MechHudLayout.Width - visibleMargin);
+			point.y = Mathf.Clamp(point.y, visibleMargin, MechHudLayout.Height - visibleMargin);
 			return point;
 		}
 
@@ -1924,7 +1932,7 @@ namespace ACunicombat.Mechs
 					Vector3 screen = viewCamera.WorldToScreenPoint(radar.PredictTrackPosition(in tracks[i]));
 					if (screen.z > 0f)
 					{
-						point = new Vector2(screen.x, (float)Screen.height - screen.y);
+						point = MechHudLayout.ScreenToHudPoint(screen);
 						return true;
 					}
 				}
@@ -2086,8 +2094,8 @@ namespace ACunicombat.Mechs
 
 		private static Rect ClampToScreen(Rect rect, float margin)
 		{
-			rect.x = Mathf.Clamp(rect.x, margin, Mathf.Max(margin, (float)Screen.width - rect.width - margin));
-			rect.y = Mathf.Clamp(rect.y, margin, Mathf.Max(margin, (float)Screen.height - rect.height - margin));
+			rect.x = Mathf.Clamp(rect.x, margin, Mathf.Max(margin, MechHudLayout.Width - rect.width - margin));
+			rect.y = Mathf.Clamp(rect.y, margin, Mathf.Max(margin, MechHudLayout.Height - rect.height - margin));
 			return rect;
 		}
 

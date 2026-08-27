@@ -30,6 +30,10 @@ namespace ACunicombat.Mechs
 		{
 			public MechEquipmentAnimationPlayer Player;
 
+			public GameObject EquipmentInstance;
+
+			public string PartId;
+
 			public MechPartSlot Slot;
 
 			public ShoulderLauncherPhase Phase;
@@ -43,6 +47,8 @@ namespace ACunicombat.Mechs
 			public bool IsAutomaticPointDefense;
 
 			public string FallbackFireActionId;
+
+			public float FallbackReleaseAt;
 		}
 
 		private const string ForwardQuickBoostActionId = "a000_004240";
@@ -77,6 +83,8 @@ namespace ACunicombat.Mechs
 
 		private const string ShoulderStowActionId = "a000_800310";
 
+		private const float NonAnimatedLauncherReleaseDelaySeconds = 0.18f;
+
 		private static readonly string[] ShoulderFireSequenceActionIds = new string[5] { "a000_800110", "a000_800120", "a000_800210", "a000_800320", "a000_800310" };
 
 		[SerializeField]
@@ -87,6 +95,9 @@ namespace ACunicombat.Mechs
 
 		[SerializeField]
 		private MechThrustVisualizer thrustVisualizer;
+
+		[SerializeField]
+		private MechMainThrusterPlume mainThrusterPlume;
 
 		[SerializeField]
 		private MechThirdPersonCamera cam;
@@ -150,6 +161,8 @@ namespace ACunicombat.Mechs
 		[SerializeField]
 		private bool aiControlled;
 
+		public bool AiControlled => aiControlled;
+
 		private GUIStyle instrumentCaptionStyle;
 
 		private GUIStyle instrumentValueStyle;
@@ -190,6 +203,10 @@ namespace ACunicombat.Mechs
 
 		private MechMechanicalAudioController mechanicalAudioController;
 
+		private MechOrbitalPlanetBackdrop orbitalPlanet;
+
+		private MechCountermeasureController countermeasureController;
+
 		private ShoulderLauncherState leftShoulderLauncher;
 
 		private ShoulderLauncherState rightShoulderLauncher;
@@ -219,6 +236,10 @@ namespace ACunicombat.Mechs
 				mechanicalAudioController = base.gameObject.AddComponent<MechMechanicalAudioController>();
 			}
 			mechanicalAudioController.Configure(motion, !aiControlled);
+			if (!aiControlled)
+			{
+				orbitalPlanet = UnityEngine.Object.FindAnyObjectByType<MechOrbitalPlanetBackdrop>();
+			}
 			if (thrustVisualizer == null)
 			{
 				thrustVisualizer = GetComponent<MechThrustVisualizer>();
@@ -228,6 +249,15 @@ namespace ACunicombat.Mechs
 				}
 			}
 			thrustVisualizer.Configure(motion);
+			if (mainThrusterPlume == null)
+			{
+				mainThrusterPlume = GetComponent<MechMainThrusterPlume>();
+				if (mainThrusterPlume == null)
+				{
+					mainThrusterPlume = base.gameObject.AddComponent<MechMainThrusterPlume>();
+				}
+			}
+			mainThrusterPlume.Configure(motion);
 			if (weaponLayer == null)
 			{
 				weaponLayer = GetComponent<MechWeaponArmLayer>();
@@ -271,6 +301,17 @@ namespace ACunicombat.Mechs
 				thermalSignature = base.gameObject.AddComponent<MechThermalSignature>();
 			}
 			thermalSignature.Configure(motion);
+			if (!aiControlled)
+			{
+				countermeasureController =
+					GetComponent<MechCountermeasureController>();
+				if (countermeasureController == null)
+				{
+					countermeasureController =
+						base.gameObject.AddComponent<MechCountermeasureController>();
+				}
+				countermeasureController.Configure(motion, radar);
+			}
 			if (!aiControlled && thermalVision == null)
 			{
 				thermalVision = UnityEngine.Object.FindAnyObjectByType<MechThermalVisionController>();
@@ -458,6 +499,7 @@ namespace ACunicombat.Mechs
 
 		private void Update()
 		{
+			MechSolarSystemMap.EnsureAttached(this);
 			if (input == null || motion == null || graphRunner == null)
 			{
 				return;
@@ -479,7 +521,6 @@ namespace ACunicombat.Mechs
 				lastFrame.AssaultBoostEdge = false;
 				lastFrame.QuickBoostEdge = false;
 				lastFrame.BrakeHeld = false;
-				lastFrame.InertialThrustLockHeld = false;
 			}
 			quickBoostActivationConsumed = false;
 			if (lastFrame.ThrustVisualizationToggleEdge)
@@ -487,9 +528,18 @@ namespace ACunicombat.Mechs
 				thrustVisualizer?.ToggleVisible();
 				Debug.Log("[MechPlayerRig] Thrust visualization: " + ((thrustVisualizer != null && thrustVisualizer.Visible) ? "ON" : "OFF") + ".", this);
 			}
+			if (lastFrame.EnemyAiToggleEdge)
+			{
+				bool enabled = MechAiTargetController.ToggleGlobalAiEnabled();
+				Debug.Log("[MechPlayerRig] Enemy AI: " + (enabled ? "ON" : "OFF") + ".", this);
+			}
 			if (lastFrame.ThermalVisionCycleEdge)
 			{
 				thermalVision?.CycleMode();
+			}
+			if (lastFrame.CountermeasureReleaseEdge)
+			{
+				countermeasureController?.ReleaseCombinedBurst();
 			}
 			if (thermalSignature != null)
 			{
@@ -797,27 +847,54 @@ namespace ACunicombat.Mechs
 				return false;
 			}
 			launcher.LaunchAuthorizedThisFrame = false;
+			if (launcher.Player == null)
+			{
+				launcher.FireRequested = false;
+				launcher.Phase = ShoulderLauncherPhase.Stowed;
+			}
 			return true;
 		}
 
 		private void TryInitializeShoulderLaunchers()
 		{
-			if (leftShoulderLauncher == null)
-			{
-				leftShoulderLauncher = CreateShoulderLauncher(MechPartSlot.LeftBackWeapon);
-			}
-			if (rightShoulderLauncher == null)
-			{
-				rightShoulderLauncher = CreateShoulderLauncher(MechPartSlot.RightBackWeapon);
-			}
+			RefreshShoulderLauncher(ref leftShoulderLauncher, MechPartSlot.LeftBackWeapon);
+			RefreshShoulderLauncher(ref rightShoulderLauncher, MechPartSlot.RightBackWeapon);
 		}
 
-		private ShoulderLauncherState CreateShoulderLauncher(MechPartSlot slot)
+		private void RefreshShoulderLauncher(ref ShoulderLauncherState launcher, MechPartSlot slot)
 		{
-			MechEquipmentAnimationPlayer equipmentPlayer = ResolveEquipmentPlayer(slot);
+			if (!TryResolveEquipmentRecord(slot, out MechAssemblyRecord record))
+			{
+				launcher = null;
+				return;
+			}
+
+			bool partDefinesAnimations = record.part != null &&
+				record.part.EquipmentAnimations != null &&
+				record.part.EquipmentAnimations.Count > 0;
+			bool sameInstance = launcher != null && launcher.EquipmentInstance == record.instance;
+			if (sameInstance && (launcher.Player != null || !partDefinesAnimations))
+			{
+				return;
+			}
+
+			launcher = CreateShoulderLauncher(record);
+		}
+
+		private ShoulderLauncherState CreateShoulderLauncher(MechAssemblyRecord record)
+		{
+			MechPartSlot slot = record.slot;
+			MechEquipmentAnimationPlayer equipmentPlayer = ResolveOrRepairEquipmentPlayer(record);
 			if (equipmentPlayer == null)
 			{
-				return null;
+				return new ShoulderLauncherState
+				{
+					EquipmentInstance = record.instance,
+					PartId = record.part != null ? record.part.PartId : string.Empty,
+					Slot = slot,
+					Phase = ShoulderLauncherPhase.Stowed,
+					HasCanonicalCycle = false
+				};
 			}
 			if (IsShaoWeiEquipped(slot))
 			{
@@ -825,6 +902,8 @@ namespace ACunicombat.Mechs
 				return new ShoulderLauncherState
 				{
 					Player = equipmentPlayer,
+					EquipmentInstance = record.instance,
+					PartId = record.part != null ? record.part.PartId : string.Empty,
 					Slot = slot,
 					Phase = ShoulderLauncherPhase.Stowed,
 					IsAutomaticPointDefense = true
@@ -844,6 +923,8 @@ namespace ACunicombat.Mechs
 			return new ShoulderLauncherState
 			{
 				Player = equipmentPlayer,
+				EquipmentInstance = record.instance,
+				PartId = record.part != null ? record.part.PartId : string.Empty,
 				Slot = slot,
 				Phase = ShoulderLauncherPhase.Stowed,
 				HasCanonicalCycle = hasCanonicalSequence,
@@ -879,46 +960,60 @@ namespace ACunicombat.Mechs
 
 		private void RequestShoulderFire(ShoulderLauncherState launcher)
 		{
-			if (launcher == null || launcher.Player == null)
+			if (launcher == null)
 			{
-				Debug.LogWarning("[MechPlayerRig] No shoulder launcher animation player found.", this);
+				Debug.LogWarning("[MechPlayerRig] No shoulder launcher state found.", this);
+				return;
 			}
-			else
+			if (launcher.IsAutomaticPointDefense)
 			{
-				if (launcher.IsAutomaticPointDefense)
+				return;
+			}
+			if (launcher.Player == null)
+			{
+				StartNonAnimatedShoulderFire(launcher);
+				return;
+			}
+			switch (launcher.Phase)
+			{
+			case ShoulderLauncherPhase.Stowed:
+				if (!launcher.HasCanonicalCycle)
 				{
-					return;
-				}
-				switch (launcher.Phase)
-				{
-				case ShoulderLauncherPhase.Stowed:
-					if (!launcher.HasCanonicalCycle)
-					{
-						StartFallbackShoulderFire(launcher);
-						break;
-					}
-					launcher.FireRequested = true;
-					PlayShoulderAction(launcher, "a000_800110", ShoulderLauncherPhase.Deploying);
-					break;
-				case ShoulderLauncherPhase.Deploying:
-					launcher.FireRequested = true;
-					break;
-				case ShoulderLauncherPhase.Ready:
-					PlayShoulderAction(launcher, "a000_800120", ShoulderLauncherPhase.Opening);
+					StartFallbackShoulderFire(launcher);
 					break;
 				}
+				launcher.FireRequested = true;
+				PlayShoulderAction(launcher, "a000_800110", ShoulderLauncherPhase.Deploying);
+				break;
+			case ShoulderLauncherPhase.Deploying:
+				launcher.FireRequested = true;
+				break;
+			case ShoulderLauncherPhase.Ready:
+				PlayShoulderAction(launcher, "a000_800120", ShoulderLauncherPhase.Opening);
+				break;
 			}
 		}
 
 		private void UpdateShoulderLauncher(ShoulderLauncherState launcher, bool hasStt)
 		{
-			if (launcher == null || launcher.Player == null)
+			if (launcher == null)
 			{
 				return;
 			}
 			if (launcher.IsAutomaticPointDefense)
 			{
 				launcher.LaunchAuthorizedThisFrame = false;
+				return;
+			}
+			if (launcher.Player == null)
+			{
+				if (launcher.Phase == ShoulderLauncherPhase.FallbackFiring &&
+					launcher.FireRequested &&
+					Time.time >= launcher.FallbackReleaseAt)
+				{
+					launcher.FireRequested = false;
+					launcher.LaunchAuthorizedThisFrame = true;
+				}
 				return;
 			}
 			launcher.LaunchAuthorizedThisFrame = false;
@@ -980,6 +1075,18 @@ namespace ACunicombat.Mechs
 			}
 		}
 
+		private static void StartNonAnimatedShoulderFire(ShoulderLauncherState launcher)
+		{
+			if (launcher.Phase != ShoulderLauncherPhase.Stowed)
+			{
+				return;
+			}
+			launcher.LaunchAuthorizedThisFrame = false;
+			launcher.FireRequested = true;
+			launcher.FallbackReleaseAt = Time.time + NonAnimatedLauncherReleaseDelaySeconds;
+			launcher.Phase = ShoulderLauncherPhase.FallbackFiring;
+		}
+
 		private void StartFallbackShoulderFire(ShoulderLauncherState launcher)
 		{
 			if (string.IsNullOrEmpty(launcher.FallbackFireActionId))
@@ -1020,15 +1127,16 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private MechEquipmentAnimationPlayer ResolveEquipmentPlayer(MechPartSlot slot)
+		private bool TryResolveEquipmentRecord(MechPartSlot slot, out MechAssemblyRecord resolvedRecord)
 		{
+			resolvedRecord = null;
 			if (runtimeState == null)
 			{
 				runtimeState = GetComponent<MechRuntimeState>();
 			}
 			if (runtimeState == null)
 			{
-				return null;
+				return false;
 			}
 			IReadOnlyList<MechAssemblyRecord> parts = runtimeState.AssembledParts;
 			for (int i = 0; i < parts.Count; i++)
@@ -1036,10 +1144,52 @@ namespace ACunicombat.Mechs
 				MechAssemblyRecord record = parts[i];
 				if (record.slot == slot && record.instance != null)
 				{
-					return record.instance.GetComponent<MechEquipmentAnimationPlayer>();
+					resolvedRecord = record;
+					return true;
 				}
 			}
-			return null;
+			return false;
+		}
+
+		private MechEquipmentAnimationPlayer ResolveOrRepairEquipmentPlayer(MechAssemblyRecord record)
+		{
+			if (record == null || record.instance == null)
+			{
+				return null;
+			}
+
+			MechEquipmentAnimationPlayer player = record.instance.GetComponent<MechEquipmentAnimationPlayer>();
+			if (player == null)
+			{
+				player = record.instance.GetComponentInChildren<MechEquipmentAnimationPlayer>(true);
+			}
+
+			MechPartDefinition part = record.part;
+			bool hasDefinedAnimations = part != null &&
+				part.EquipmentAnimations != null &&
+				part.EquipmentAnimations.Count > 0;
+			if (!hasDefinedAnimations)
+			{
+				return player;
+			}
+
+			if (player == null)
+			{
+				player = record.instance.AddComponent<MechEquipmentAnimationPlayer>();
+			}
+			if (player.Actions == null || player.Actions.Count == 0)
+			{
+				player.Configure(
+					part.EquipmentAnimations,
+					part.DefaultEquipmentActionId,
+					part.PlayDefaultEquipmentActionOnAssemble);
+			}
+
+			Debug.Log(
+				$"[MechPlayerRig] Bound {record.slot} launcher animation: " +
+				$"part={part.PartId}, actions={player.Actions.Count}.",
+				this);
+			return player;
 		}
 
 		private bool IsShaoWeiEquipped(MechPartSlot slot)
@@ -1079,14 +1229,16 @@ namespace ACunicombat.Mechs
 
 		private void OnGUI()
 		{
-			if (MechAssemblyMenu.IsAnyMenuVisible)
+			if (MechSolarSystemMap.IsAnyMapVisible || MechAssemblyMenu.IsAnyMenuVisible)
 			{
 				return;
 			}
 			int depth = GUI.depth;
+			Matrix4x4 previousGuiMatrix = MechHudLayout.BeginScaledGui();
 			GUI.depth = -100;
 			DrawFlightInstruments();
 			GUI.depth = depth;
+			GUI.matrix = previousGuiMatrix;
 			if (GetComponent<MechRadarHudPresenter>() != null || !showDebugOverlay || graphRunner == null)
 			{
 				return;
@@ -1107,7 +1259,7 @@ namespace ACunicombat.Mechs
 				sb.AppendLine($"机动能量: {motion.CurrentManeuverEnergy:F1}/" + $"{motion.MaximumManeuverEnergy:F1}  " + $"耗尽: {motion.ManeuverEnergyDepleted}");
 				sb.AppendLine($"肩部上推: {motion.CurrentShoulderLiftForceNewtons.magnitude / 1000f:F0} kN " + $"{motion.CurrentShoulderLiftForceNewtons.normalized}  " + $"腿部上推: {motion.CurrentLegLiftForceNewtons.magnitude / 1000f:F0} kN " + $"{motion.CurrentLegLiftForceNewtons.normalized}");
 				sb.AppendLine($"向下配平: {motion.CurrentDescentForceNewtons.magnitude / 1000f:F0} kN " + $"{motion.CurrentDescentForceNewtons.normalized}");
-				sb.AppendLine("矢量推力: " + (motion.VectorThrustEnabled ? "开启" : "关闭") + "  推力显示[2]: " + ((thrustVisualizer != null && thrustVisualizer.Visible) ? "开启" : "关闭") + "  惯性锁定[F]: " + (motion.InertialThrustLockActive ? "开启" : "关闭"));
+				sb.AppendLine("矢量推力: " + (motion.VectorThrustEnabled ? "开启" : "关闭") + "  推力显示[2]: " + ((thrustVisualizer != null && thrustVisualizer.Visible) ? "开启" : "关闭") + "  自由视角[F]: " + ((cam != null && cam.FreeLookActive) ? "开启" : "关闭"));
 				if (orbitSynchronizer != null && orbitSynchronizer.Active)
 				{
 					sb.AppendLine($"轨道同步: T{orbitSynchronizer.SynchronizedTrackId.Value.Index:00}  " + $"纵向飞控: {orbitSynchronizer.AutomaticLongitudinalCommand:P0}  " + $"纵向偏置: {orbitSynchronizer.LongitudinalVelocityBias:F1} m/s");
@@ -1134,14 +1286,27 @@ namespace ACunicombat.Mechs
 			if (showFlightInstruments && !(motion == null))
 			{
 				EnsureInstrumentStyles();
-				float readoutY = Mathf.Clamp((float)Screen.height * 0.5f - 39f, 170f, (float)Screen.height - 78f - 130f);
-				float sideInset = Mathf.Clamp((float)Screen.width * 0.16f, 135f, 410f);
+				float readoutY = Mathf.Clamp(MechHudLayout.Height * 0.5f - 39f, 170f, MechHudLayout.Height - 78f - 130f);
+				float sideInset = Mathf.Clamp(MechHudLayout.Width * 0.16f, 135f, 410f);
 				Rect leftReadout = new Rect(sideInset - 90f, readoutY, 180f, 78f);
-				Rect rightReadout = new Rect((float)Screen.width - sideInset - 90f, readoutY, 180f, 78f);
+				Rect rightReadout = new Rect(MechHudLayout.Width - sideInset - 90f, readoutY, 180f, 78f);
 				Color color = GUI.color;
 				SetGuiAlpha(GetStartupHudAlpha(MechStartupHudModule.FlightReference));
 				DrawFlightReadout(leftReadout, "速度", FormatInstrumentValue(motion.Velocity.magnitude), "m/s", pointsRight: true);
-				DrawFlightReadout(rightReadout, "高度", FormatInstrumentValue(motion.Altitude), "m", pointsRight: false);
+				var altitudeValue = motion.Altitude;
+				var altitudeUnit = "m";
+				if (orbitalPlanet != null)
+				{
+					altitudeValue = (float)(orbitalPlanet.GetOrbitalAltitudeMeters(
+						motion.transform.position) / 1000.0);
+					altitudeUnit = "km";
+				}
+				DrawFlightReadout(
+					rightReadout,
+					"高度",
+					FormatInstrumentValue(altitudeValue),
+					altitudeUnit,
+					pointsRight: false);
 				GUI.color = color;
 				DrawEngineStartupStatus();
 				SetGuiAlpha(GetStartupHudAlpha(MechStartupHudModule.VitalStatus));
@@ -1155,8 +1320,8 @@ namespace ACunicombat.Mechs
 		{
 			if (!(engineController == null) && engineController.StartupActive)
 			{
-				float width = Mathf.Clamp((float)Screen.width * 0.28f, 300f, 440f);
-				Rect rect = new Rect((float)Screen.width * 0.5f - width * 0.5f, (float)Screen.height * 0.52f, width, 8f);
+				float width = Mathf.Clamp(MechHudLayout.Width * 0.28f, 300f, 440f);
+				Rect rect = new Rect(MechHudLayout.Width * 0.5f - width * 0.5f, MechHudLayout.Height * 0.52f, width, 8f);
 				float readyBlend = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.72f, 1f, engineController.StartupProgress));
 				Color color = Color.Lerp(new Color(1f, 0.62f, 0.12f, 0.98f), new Color(0.38f, 1f, 0.56f, 0.98f), readyBlend);
 				DrawInstrumentRect(new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f), new Color(0.015f, 0.035f, 0.018f, 0.9f));
@@ -1196,8 +1361,8 @@ namespace ACunicombat.Mechs
 					return;
 				}
 			}
-			float width = Mathf.Clamp((float)Screen.width * 0.34f, 300f, 520f);
-			Rect rect = new Rect((float)Screen.width * 0.5f - width * 0.5f, (float)Screen.height - 86f, width, 14f);
+			float width = Mathf.Clamp(MechHudLayout.Width * 0.34f, 300f, 520f);
+			Rect rect = new Rect(MechHudLayout.Width * 0.5f - width * 0.5f, MechHudLayout.Height - 86f, width, 14f);
 			float normalized = combatTarget.HealthFraction;
 			Color color = ((normalized <= 0.2f) ? new Color(1f, 0.2f, 0.14f, 0.98f) : ((normalized <= 0.5f) ? new Color(1f, 0.72f, 0.18f, 0.98f) : new Color(0.34f, 0.94f, 0.82f, 0.98f)));
 			DrawInstrumentRect(new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f), new Color(0.01f, 0.05f, 0.045f, 0.9f));
@@ -1215,8 +1380,8 @@ namespace ACunicombat.Mechs
 
 		private void DrawManeuverEnergyGauge()
 		{
-			float width = Mathf.Clamp((float)Screen.width * 0.34f, 300f, 520f);
-			Rect rect = new Rect((float)Screen.width * 0.5f - width * 0.5f, (float)Screen.height - 126f, width, 12f);
+			float width = Mathf.Clamp(MechHudLayout.Width * 0.34f, 300f, 520f);
+			Rect rect = new Rect(MechHudLayout.Width * 0.5f - width * 0.5f, MechHudLayout.Height - 126f, width, 12f);
 			float normalized = Mathf.Clamp01(motion.ManeuverEnergyNormalized);
 			Color color = (motion.ManeuverEnergyDepleted ? new Color(1f, 0.2f, 0.14f, 0.98f) : ((normalized <= 0.3f) ? new Color(1f, 0.72f, 0.18f, 0.98f) : new Color(0.38f, 1f, 0.56f, 0.98f)));
 			DrawInstrumentRect(new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f), new Color(0.01f, 0.05f, 0.035f, 0.86f));

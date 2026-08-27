@@ -8,6 +8,7 @@ namespace ACunicombat.Mechs
     {
         public const string CatalogResourcePath = "AC6FullPartCatalog";
         private const string SelectionPrefix = "acunicombat.hangar.part.";
+        private const string MissileVariantPrefix = "acunicombat.hangar.missile-variant.";
         private const string HasSelectionKey = "acunicombat.hangar.has-selection";
         private const string SkipNextOpenKey = "acunicombat.hangar.skip-next-open";
 
@@ -147,11 +148,59 @@ namespace ACunicombat.Mechs
             PlayerPrefs.Save();
         }
 
+        public static string LoadMissileVariantId(
+            MechPartSlot slot,
+            string launcherPartId,
+            string defaultVariantId)
+        {
+            string encoded = PlayerPrefs.GetString(MissileVariantKey(slot), string.Empty);
+            int separator = encoded.IndexOf('|');
+            if (separator <= 0 || separator >= encoded.Length - 1)
+            {
+                return defaultVariantId;
+            }
+
+            string savedLauncherId = encoded.Substring(0, separator);
+            return string.Equals(savedLauncherId, launcherPartId, StringComparison.OrdinalIgnoreCase)
+                ? encoded.Substring(separator + 1)
+                : defaultVariantId;
+        }
+
+        public static void SaveMissileVariants(
+            IReadOnlyDictionary<MechPartSlot, string> launcherSelection,
+            IReadOnlyDictionary<MechPartSlot, string> variantSelection)
+        {
+            if (launcherSelection == null || variantSelection == null)
+            {
+                return;
+            }
+
+            foreach (MechPartSlot slot in Enum.GetValues(typeof(MechPartSlot)))
+            {
+                if (launcherSelection.TryGetValue(slot, out string launcherPartId) &&
+                    variantSelection.TryGetValue(slot, out string variantId) &&
+                    !string.IsNullOrWhiteSpace(launcherPartId) &&
+                    !string.IsNullOrWhiteSpace(variantId))
+                {
+                    PlayerPrefs.SetString(
+                        MissileVariantKey(slot),
+                        launcherPartId + "|" + variantId);
+                }
+                else
+                {
+                    PlayerPrefs.DeleteKey(MissileVariantKey(slot));
+                }
+            }
+
+            PlayerPrefs.Save();
+        }
+
         public static void ResetToDefault()
         {
             foreach (MechPartSlot slot in Enum.GetValues(typeof(MechPartSlot)))
             {
                 PlayerPrefs.DeleteKey(Key(slot));
+                PlayerPrefs.DeleteKey(MissileVariantKey(slot));
             }
 
             PlayerPrefs.DeleteKey(HasSelectionKey);
@@ -170,15 +219,27 @@ namespace ACunicombat.Mechs
             return string.IsNullOrWhiteSpace(partId) ? null : catalog.Find(partId)?.LoadPart();
         }
 
-        private static bool IsPlayerMech(GameObject owner)
+        public static bool IsPlayerMech(GameObject owner)
         {
-            return owner.name.StartsWith("Player_", StringComparison.OrdinalIgnoreCase) ||
-                   owner.name.Equals("Player", StringComparison.OrdinalIgnoreCase);
+            if (owner == null)
+            {
+                return false;
+            }
+
+            return owner.GetComponent<MechPlayerInputAdapter>() != null ||
+                   owner.name.StartsWith("Player_", StringComparison.OrdinalIgnoreCase) ||
+                   owner.name.Equals("Player", StringComparison.OrdinalIgnoreCase) ||
+                   owner.name.IndexOf("PlayerControl", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static string Key(MechPartSlot slot)
         {
             return SelectionPrefix + (int)slot;
+        }
+
+        private static string MissileVariantKey(MechPartSlot slot)
+        {
+            return MissileVariantPrefix + (int)slot;
         }
     }
 }

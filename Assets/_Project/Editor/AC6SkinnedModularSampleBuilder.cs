@@ -205,6 +205,7 @@ public static class AC6SkinnedModularSampleBuilder
 	private const string BoosterMountedDisplayActionId = "a000_000001";
 
 	private static readonly Vector3 NativeBoosterInstallEuler = new Vector3(180f, 0f, 0f);
+	private static readonly Vector3 NativeBoosterInstallPosition = Vector3.zero;
 
 	private static readonly Vector3 NativeWeaponInstallEuler = new Vector3(0f, 180f, 0f);
 
@@ -1186,7 +1187,6 @@ public static class AC6SkinnedModularSampleBuilder
 		List<MechAssemblyRecord> equipmentRecords = ((runtime == null) ? new List<MechAssemblyRecord>() : runtime.AssembledParts.Where((MechAssemblyRecord mechAssemblyRecord) => mechAssemblyRecord?.part != null && (mechAssemblyRecord.slot == MechPartSlot.Booster || MechSlotRules.IsWeaponSlot(mechAssemblyRecord.slot))).ToList());
 		List<MechAssemblyRecord> weaponRecords = equipmentRecords.Where((MechAssemblyRecord mechAssemblyRecord) => MechSlotRules.IsWeaponSlot(mechAssemblyRecord.slot)).ToList();
 		MechAssemblyRecord boosterRecord = equipmentRecords.FirstOrDefault((MechAssemblyRecord mechAssemblyRecord) => mechAssemblyRecord.slot == MechPartSlot.Booster);
-		MechAssemblyRecord coreRecord = frameRecords.FirstOrDefault((MechAssemblyRecord mechAssemblyRecord) => mechAssemblyRecord.slot == MechPartSlot.Core);
 		bool ok = true;
 		ok &= Check(frameRecords.Count == 4, key, $"expected 4 skinned frame records, got {frameRecords.Count}", report);
 		ok &= Check(runtime != null && runtime.LoadoutValid, key, "assembled equipment loadout is invalid", report);
@@ -1197,9 +1197,10 @@ public static class AC6SkinnedModularSampleBuilder
 		for (int i = 0; i < boosterMounts.Count; i++)
 		{
 			Transform source = boosterMounts[i].transform.parent;
-			ok &= Check(source != null && source.name.IndexOf("_dmy_800", StringComparison.OrdinalIgnoreCase) >= 0, key, $"booster mount {i} is not attached to a _dmy_800 node", report);
-			float sourceLocalZ = ((source != null && coreRecord?.instance != null) ? coreRecord.instance.transform.InverseTransformPoint(source.position).z : float.MinValue);
-			ok &= Check(sourceLocalZ > 0.001f, key, $"booster mount {i} uses a front/effect-only ref 800 at local z={sourceLocalZ:0.###}", report);
+			bool isMechanicalSocket = source != null &&
+				(source.name.IndexOf("_dmy_150", StringComparison.OrdinalIgnoreCase) >= 0 ||
+				 source.name.IndexOf("_dmy_151", StringComparison.OrdinalIgnoreCase) >= 0);
+			ok &= Check(isMechanicalSocket, key, $"booster mount {i} is not attached to a _dmy_150/_dmy_151 mechanical socket", report);
 		}
 		List<Transform> boosterVisuals = (from candidate in mech.GetComponentsInChildren<Transform>(includeInactive: true)
 			where candidate != null && candidate.name.StartsWith("Booster_", StringComparison.Ordinal) && candidate.GetComponentInChildren<Renderer>(includeInactive: true) != null
@@ -1213,12 +1214,13 @@ public static class AC6SkinnedModularSampleBuilder
 			Transform socket = ((visual.parent != null) ? visual.parent.parent : null);
 			Transform flame = FindChildBySuffix(visual, "_dmy_31");
 			float rootError = ((socket != null) ? Vector3.Distance(visual.position, socket.position) : float.MaxValue);
+			float positionError = (visual.localPosition - NativeBoosterInstallPosition).magnitude;
 			float rotationError = Quaternion.Angle(visual.localRotation, Quaternion.Euler(NativeBoosterInstallEuler));
 			float scaleError = (visual.localScale - Vector3.one).magnitude;
 			float flameError = ((flame != null && socket != null) ? Vector3.Distance(flame.position, socket.position) : float.MaxValue);
 			report.Log.AppendLine($"[{key}] booster {i2}: rootToSocket={rootError:0.####}m flameFromSocket={flameError:0.####}m rootOffset={Format(visual.localPosition)} drot={rotationError:0.###}deg dscale={scaleError:0.####}");
 			ok &= Check(flame != null, key, $"booster visual {i2} has no _dmy_31 flame anchor", report);
-			ok &= Check(rootError < 0.005f, key, $"booster visual {i2} root is {rootError:0.####}m away from its ref 800 socket", report);
+			ok &= Check(positionError < 0.0001f, key, $"booster visual {i2} install offset is {Format(visual.localPosition)}; expected {Format(NativeBoosterInstallPosition)}", report);
 			ok &= Check(rotationError < 0.05f, key, $"booster visual {i2} root rotation error is {rotationError:0.###} degrees", report);
 			ok &= Check(scaleError < 0.0001f, key, $"booster visual {i2} root scale error is {scaleError:0.####}", report);
 			if (flame != null)
@@ -1917,7 +1919,7 @@ public static class AC6SkinnedModularSampleBuilder
 				"booster",
 				"ac6-native",
 				"set-" + code
-			}, null, MechVisualRigMode.MountedPrefab, null, MechPartSlot.None, null, shouldInstantiateVisualAtAllMounts: true, actions, SelectDefaultAction(actions, "a000_000001"), shouldPlayDefaultEquipmentActionOnAssemble: false, Vector3.zero, NativeBoosterInstallEuler, Vector3.one, newBoosterPerformance: BuildBoosterPerformance(code));
+			}, null, MechVisualRigMode.MountedPrefab, null, MechPartSlot.None, null, shouldInstantiateVisualAtAllMounts: true, actions, SelectDefaultAction(actions, "a000_000001"), shouldPlayDefaultEquipmentActionOnAssemble: false, NativeBoosterInstallPosition, NativeBoosterInstallEuler, Vector3.one, newBoosterPerformance: BuildBoosterPerformance(code));
 			result[code] = part;
 		}
 		return result;
@@ -1925,7 +1927,7 @@ public static class AC6SkinnedModularSampleBuilder
 
 	private static Dictionary<string, MechPartDefinition> LoadWeaponParts(ICollection<string> missing, PaintPresetRecord paintPreset, MaterialCatalogRecord materialCatalog)
 	{
-		NativeWeaponSpec[] specs = new NativeWeaponSpec[15]
+		NativeWeaponSpec[] specs = new NativeWeaponSpec[23]
 		{
 			new NativeWeaponSpec("WP_L_0010", "Native Pile Bunker ASHMEAD 0010", MechPartSlot.LeftHandWeapon, "a000_000000", 4180f, isMelee: true),
 			new NativeWeaponSpec("WP_L_0230", "Native Left Laser Blade 0230", MechPartSlot.LeftHandWeapon, "a000_000000", 4700f, isMelee: true),
@@ -1939,6 +1941,14 @@ public static class AC6SkinnedModularSampleBuilder
 			new NativeWeaponSpec("WP_L_4250", "BML-G1/P07VTC-12", MechPartSlot.LeftBackWeapon, "a000_800000", 5010f),
 			new NativeWeaponSpec("WP_L_4290", "BML-G2/P03MLT-06", MechPartSlot.LeftBackWeapon, "a000_800000", 3840f),
 			new NativeWeaponSpec("WP_R_4290", "BML-G2/P03MLT-06", MechPartSlot.RightBackWeapon, "a000_800000", 3840f),
+			new NativeWeaponSpec("WP_L_4300", "Compact Interceptor Missile Launcher 4300", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_R_4300", "Compact Interceptor Missile Launcher 4300", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_L_4301", "Close-Combat Missile Launcher 4301", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_R_4301", "Close-Combat Missile Launcher 4301", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_L_4302", "Dual-Pulse Missile Launcher 4302", MechPartSlot.LeftBackWeapon, "a000_800000", 4020f),
+			new NativeWeaponSpec("WP_R_4302", "Dual-Pulse Missile Launcher 4302", MechPartSlot.RightBackWeapon, "a000_800000", 4020f),
+			new NativeWeaponSpec("WP_L_4340", "Ducted Missile Launcher 4340", MechPartSlot.LeftBackWeapon, "a000_800000", 4380f),
+			new NativeWeaponSpec("WP_R_4340", "Ducted Missile Launcher 4340", MechPartSlot.RightBackWeapon, "a000_800000", 4380f),
 			new NativeWeaponSpec("WP_R_4410", "Native Right Songbirds 4410", MechPartSlot.RightBackWeapon, "a000_800000", 5500f),
 			new NativeWeaponSpec("WP_L_5110", "DF-GA-09 SHAO-WEI", MechPartSlot.LeftBackWeapon, "a000_800000", 3960f, isMelee: false, isPointDefense: true),
 			new NativeWeaponSpec("WP_R_5110", "DF-GA-09 SHAO-WEI", MechPartSlot.RightBackWeapon, "a000_800000", 3960f, isMelee: false, isPointDefense: true)
@@ -2170,9 +2180,10 @@ public static class AC6SkinnedModularSampleBuilder
 	{
 		return slot switch
 		{
-			MechPartSlot.Core => new MechMountPointDefinition[3]
+			MechPartSlot.Core => new MechMountPointDefinition[4]
 			{
-				Mount("Booster Nozzles", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_800", matchAll: true, 10000f, null, null, MechMountSourceRegion.Rear),
+				Mount("Left Booster", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_150", matchAll: false, 10000f),
+				Mount("Right Booster", MechPartSlot.Booster, MechHardpointType.Internal, "_dmy_151", matchAll: false, 10000f),
 				Mount("Left Back", MechPartSlot.LeftBackWeapon, MechHardpointType.BackWeapon, "_dmy_13", matchAll: false, 10000f),
 				Mount("Right Back", MechPartSlot.RightBackWeapon, MechHardpointType.BackWeapon, "_dmy_14", matchAll: false, 10000f)
 			}, 
@@ -2316,7 +2327,7 @@ public static class AC6SkinnedModularSampleBuilder
 			energyRechargePowerKw = 70000f,
 			energyRechargeDelayS = 0.75f,
 			depletedRestartFraction = 0.2f,
-			startupTimeS = 7.5f
+			startupTimeS = 5.5f
 		};
 	}
 

@@ -119,6 +119,60 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void MissileSolution_ActivatesSeekerOnAcquisitionEnvelopeEntry()
+        {
+            var track = ConfirmedTrack(lastUpdateTime: 1.0);
+            track.Position = new double3(0.0, 0.0, 20_000.0);
+            var kinematics = StandardMissileKinematics();
+            kinematics.SeekerRange = 8_000.0;
+
+            var solution = FireSolutionSolver.SolveMissile(
+                track,
+                double3.zero,
+                double3.zero,
+                kinematics,
+                requestTime: 1.0);
+
+            var activationFlightTime =
+                solution.SeekerActivationTime - 1.0;
+            var remainingRange =
+                20_000.0 -
+                kinematics.RelativeTravelDistance(activationFlightTime);
+            var acquisitionRange =
+                FireSolutionSolver.CalculateReliableSeekerAcquisitionRange(
+                    kinematics.SeekerRange,
+                    math.cmax(solution.SearchBasketSemiAxes));
+
+            Assert.That(solution.Failure, Is.EqualTo(FireSolutionFailure.None));
+            Assert.That(activationFlightTime, Is.GreaterThan(0.0));
+            Assert.That(
+                solution.SeekerActivationTime,
+                Is.LessThan(solution.InterceptTime - 2.0));
+            Assert.That(
+                remainingRange,
+                Is.EqualTo(acquisitionRange).Within(0.1));
+        }
+
+        [Test]
+        public void MissileSolution_TargetInsideAcquisitionEnvelope_ActivatesImmediately()
+        {
+            var track = ConfirmedTrack(lastUpdateTime: 1.0);
+            track.Position = new double3(0.0, 0.0, 6_000.0);
+            var kinematics = StandardMissileKinematics();
+            kinematics.SeekerRange = 8_000.0;
+
+            var solution = FireSolutionSolver.SolveMissile(
+                track,
+                double3.zero,
+                double3.zero,
+                kinematics,
+                requestTime: 1.0);
+
+            Assert.That(solution.Failure, Is.EqualTo(FireSolutionFailure.None));
+            Assert.That(solution.SeekerActivationTime, Is.EqualTo(1.0).Within(0.001));
+        }
+
+        [Test]
         public void VariableMassMissile_UsesPropellantMassAndMassFlow()
         {
             var kinematics = new MissileKinematicProfile
