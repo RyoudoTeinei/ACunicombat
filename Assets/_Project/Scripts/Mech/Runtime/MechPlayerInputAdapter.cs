@@ -10,6 +10,9 @@ namespace ACunicombat.Mechs
     {
         /// <summary>机体局部平移输入：x=右(+)/左(−)，y=前(+)/后(−)。W/S/A/D。</summary>
         public Vector2 MoveLocal;
+        /// <summary>AI/autopilot acceleration request in world axes; realized by normal thrusters.</summary>
+        public bool HasAutonomousFlightCommand;
+        public Vector3 AutonomousAccelerationWorld;
         public Vector2 MouseDelta;
         /// <summary>Space 按住（上升推力）。</summary>
         public bool RiseHeld;

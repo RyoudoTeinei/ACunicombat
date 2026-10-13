@@ -64,6 +64,8 @@ namespace ACunicombat.Mechs
         [Min(0f)] [SerializeField] private float auxiliaryNozzleThrustKn = 300f;
         [Tooltip("三轴平移喷口分配器的迭代次数。喷口数量较少时 12 次足以稳定收敛。")]
         [Range(4, 32)] [SerializeField] private int translationAllocatorIterations = 12;
+        [Tooltip("喷口分配时对绕质心残余力矩的抑制强度。推力误差始终是首要目标。")]
+        [Range(0f, 0.5f)] [SerializeField] private float translationTorqueNeutralityWeight = 0.03f;
 
         [Header("Quick Boost")]
         [Tooltip("QB 窗口内持续施加的固定推力。默认值对 50 吨机体产生约 320 m/s²。")]
@@ -153,6 +155,10 @@ namespace ACunicombat.Mechs
         private float pitchDegrees;
         private float pitchAngularVelocityRadians;
         private float yawTurnInput;
+        private bool localAttitudeControl;
+        private Quaternion localAttitude = Quaternion.identity;
+        private float localPitchRateInput;
+        public bool LocalAttitudeControl => localAttitudeControl;
         private float yawMomentOfInertiaKgM2;
         private float attitudeWidthMeters = 1f;
         private float attitudeDepthMeters = 1f;
@@ -207,8 +213,12 @@ namespace ACunicombat.Mechs
         private MechMainThrusterPlume thrusterPlume;
         private Vector3 currentTranslationInput;
         private Vector3[] translationNozzleDirections = Array.Empty<Vector3>();
+        private Vector3[] translationNozzleTorquePerNewton = Array.Empty<Vector3>();
         private float[] translationNozzleCapacities = Array.Empty<float>();
         private float[] translationNozzleOutputs = Array.Empty<float>();
+        private bool[] translationNozzleLockedOutputs = Array.Empty<bool>();
+        private float translationTorqueReferenceArmMeters = 1f;
+        private Vector3 currentAllocationTorqueNewtonMeters;
         private Vector3 currentMainVectorDirectionLocal = Vector3.forward;
 
         public float YawDegrees => yawDegrees;
@@ -302,6 +312,8 @@ namespace ACunicombat.Mechs
 
         public Vector3 FixedControlCenterWorld => transform.TransformPoint(fixedControlCenterLocal);
 
+        public Vector3 CurrentAllocationTorqueNewtonMeters => currentAllocationTorqueNewtonMeters;
+
         public IReadOnlyList<MechThrusterChannelState> ThrusterChannels => thrusterChannels;
 
         public bool TranslationInputActive => currentTranslationInput.sqrMagnitude > 0.0001f;
@@ -366,10 +378,11 @@ namespace ACunicombat.Mechs
         public uint ReferenceFrameVersion => referenceFrameVersion;
 
         /// <summary>完整三维逻辑朝向；滚转包含在动态导航参考平面中，模型轴修正只应用到可见根节点。</summary>
-        public Quaternion LogicalRotation =>
-            referenceRotation *
-            Quaternion.AngleAxis(yawDegrees, Vector3.up) *
-            Quaternion.AngleAxis(pitchDegrees, Vector3.right);
+        public Quaternion LogicalRotation => localAttitudeControl
+            ? localAttitude
+            : referenceRotation *
+              Quaternion.AngleAxis(yawDegrees, Vector3.up) *
+              Quaternion.AngleAxis(pitchDegrees, Vector3.right);
 
         public float ModelForwardYawOffset => modelForwardYawOffset;
 
@@ -415,10 +428,16 @@ namespace ACunicombat.Mechs
             var legBounds = TryGetPartBounds(MechPartSlot.Legs, out var resolvedLegs)
                 ? resolvedLegs
                 : coreBounds;
-            fixedControlCenterLocal = transform.InverseTransformPoint(coreBounds.center);
             var allPartBounds = ResolveAllPartBounds();
+            fixedControlCenterLocal = ResolveAssembledCenterOfMassLocal(coreBounds.center);
+            if (massBody != null)
+            {
+                massBody.centerOfMass = fixedControlCenterLocal;
+            }
+
             attitudeWidthMeters = Mathf.Max(0.5f, allPartBounds.size.x);
             attitudeDepthMeters = Mathf.Max(0.5f, allPartBounds.size.z);
+            translationTorqueReferenceArmMeters = Mathf.Max(1f, allPartBounds.extents.magnitude);
 
             var logicalRight = LogicalRotation * Vector3.right;
             var logicalForward = LogicalRotation * Vector3.forward;
@@ -493,12 +512,81 @@ namespace ACunicombat.Mechs
             yawAngularVelocityRadians = 0f;
             pitchDegrees = 0f;
             pitchAngularVelocityRadians = 0f;
+            localAttitude = referenceRotation;
+            localPitchRateInput = 0f;
             ApplyVisualRotation();
         }
 
+        // The scalar API remains reference-relative for AI/legacy autopilots.
+        // Player input uses local angular rates instead of reconstructing Euler angles.
         public void SetAimPitch(float pitchDegrees)
         {
+            localAttitudeControl = false;
+            localPitchRateInput = 0f;
             aimPitchDegrees = ConstrainPitchForCurrentMode(pitchDegrees);
+        }
+
+        public void EnableLocalAttitudeControl(float initialViewPitch)
+        {
+            if (localAttitudeControl) return;
+            localAttitude = ResolveReferenceViewRotation(ConstrainPitchForCurrentMode(initialViewPitch));
+            localAttitudeControl = true;
+            UpdateLocalAttitudeReadout();
+        }
+
+        public void SetLocalAttitudeInput(float yawInput, float pitchRateDegrees)
+        {
+            if (!localAttitudeControl)
+            {
+                localAttitude = LogicalRotation;
+                localAttitudeControl = true;
+            }
+            yawTurnInput = float.IsFinite(yawInput) ? Mathf.Clamp(yawInput, -1f, 1f) : 0f;
+            localPitchRateInput = float.IsFinite(pitchRateDegrees) ? pitchRateDegrees : 0f;
+        }
+
+        public void StopLocalAttitudeInput()
+        {
+            yawTurnInput = 0f;
+            localPitchRateInput = 0f;
+        }
+
+        private void UpdateLocalAttitudeReadout()
+        {
+            var forward = Quaternion.Inverse(referenceRotation) * (localAttitude * Vector3.forward);
+            var horizontal = Mathf.Sqrt(forward.x * forward.x + forward.z * forward.z);
+            if (horizontal > 0.001f)
+                yawDegrees = Mathf.Repeat(Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg, 360f);
+            pitchDegrees = -Mathf.Atan2(forward.y, horizontal) * Mathf.Rad2Deg;
+            commandedYawDegrees = yawDegrees;
+            aimPitchDegrees = pitchDegrees;
+        }
+
+        private void IntegrateLocalAttitude(float deltaTime, float maximumTurnRate)
+        {
+            var rates = new Vector3(
+                Mathf.Clamp(localPitchRateInput, -maximumTurnRate, maximumTurnRate),
+                yawTurnInput * maximumTurnRate, 0f);
+            if (isGrounded)
+            {
+                // Clamp BEFORE crossing the pole; extracting Euler elevation
+                // afterwards would fold an illegal -103 degrees back into -77.
+                UpdateLocalAttitudeReadout();
+                yawDegrees = Mathf.Repeat(yawDegrees + rates.y * deltaTime, 360f);
+                pitchDegrees = ConstrainPitchForCurrentMode(pitchDegrees + rates.x * deltaTime);
+                localAttitude = referenceRotation * Quaternion.AngleAxis(yawDegrees, Vector3.up) *
+                                Quaternion.AngleAxis(pitchDegrees, Vector3.right);
+            }
+            else
+            {
+                var speed = rates.magnitude;
+                if (speed > 0.0001f && deltaTime > 0f)
+                    localAttitude = Quaternion.Normalize(localAttitude *
+                        Quaternion.AngleAxis(speed * deltaTime, rates / speed));
+            }
+            UpdateLocalAttitudeReadout();
+            yawAngularVelocityRadians = rates.y * Mathf.Deg2Rad;
+            pitchAngularVelocityRadians = rates.x * Mathf.Deg2Rad;
         }
 
         public float ConstrainPitchForCurrentMode(float requestedPitchDegrees)
@@ -516,7 +604,7 @@ namespace ACunicombat.Mechs
         }
 
         public Quaternion ResolveReferenceViewRotation(float viewPitchDegrees) =>
-            referenceRotation *
+            localAttitudeControl ? localAttitude : referenceRotation *
             Quaternion.AngleAxis(yawDegrees, Vector3.up) *
             Quaternion.AngleAxis(viewPitchDegrees, Vector3.right);
 
@@ -536,7 +624,8 @@ namespace ACunicombat.Mechs
             }
 
             direction.Normalize();
-            var up = Vector3.ProjectOnPlane(ReferenceUp, direction);
+            var up = Vector3.ProjectOnPlane(
+                localAttitudeControl ? LogicalRotation * Vector3.up : ReferenceUp, direction);
             if (up.sqrMagnitude <= 0.0001f)
             {
                 up = Vector3.ProjectOnPlane(LogicalRotation * Vector3.up, direction);
@@ -590,6 +679,8 @@ namespace ACunicombat.Mechs
             pitchDegrees = 0f;
             aimPitchDegrees = 0f;
             pitchAngularVelocityRadians = 0f;
+            localAttitude = referenceRotation;
+            StopLocalAttitudeInput();
             referenceFrameVersion++;
             ApplyVisualRotation();
         }
@@ -616,9 +707,13 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            referenceRotation = Quaternion.Normalize(
-                Quaternion.AngleAxis(deltaDegrees, forward.normalized) *
-                referenceRotation);
+            var roll = Quaternion.AngleAxis(deltaDegrees, forward.normalized);
+            referenceRotation = Quaternion.Normalize(roll * referenceRotation);
+            if (localAttitudeControl)
+            {
+                localAttitude = Quaternion.Normalize(roll * localAttitude);
+                UpdateLocalAttitudeReadout();
+            }
             ApplyVisualRotation();
         }
 
@@ -831,6 +926,46 @@ namespace ACunicombat.Mechs
                    Mathf.Max(1f, ResolveMassKg());
         }
 
+        /// <summary>Axial support estimate from live nozzles for autonomous braking decisions.</summary>
+        public float EstimateTranslationAcceleration(Vector3 worldDirection)
+        {
+            if (!engineAvailable || !IsFinite(worldDirection) || worldDirection.sqrMagnitude < 0.0001f)
+                return 0f;
+            EnsureThrusterLayout();
+            ResolveThrusterForces(out var mainForce, out _, out _, out _, out _);
+            var mainCount = 0;
+            foreach (var channel in thrusterChannels)
+                if (channel.Operational && channel.Anchor != null &&
+                    channel.Id.StartsWith("main.", StringComparison.Ordinal)) mainCount++;
+            var direction = worldDirection.normalized;
+            var projectedForce = 0f;
+            thrusterPlume ??= GetComponent<MechMainThrusterPlume>();
+            foreach (var channel in thrusterChannels)
+            {
+                if (!channel.Operational || channel.Anchor == null) continue;
+                Vector3 nozzleDirection;
+                float capacity;
+                if (channel.Id.StartsWith("main.", StringComparison.Ordinal))
+                {
+                    nozzleDirection = LogicalRotation * Vector3.forward;
+                    capacity = mainForce * ResolveOverloadAccelerationScale() / Mathf.Max(1, mainCount);
+                }
+                else if (thrusterPlume != null && thrusterPlume.TryResolveAuxiliaryNozzleAllocation(
+                             channel.Anchor, direction, out nozzleDirection, out var thrustKn))
+                {
+                    capacity = thrustKn * 1000f;
+                }
+                else
+                {
+                    nozzleDirection = -channel.Anchor.forward;
+                    capacity = auxiliaryNozzleThrustKn * 1000f;
+                }
+                projectedForce += Mathf.Max(0f, Vector3.Dot(direction, nozzleDirection)) *
+                                  Mathf.Max(0f, capacity) * channel.Health;
+            }
+            return projectedForce / Mathf.Max(1f, ResolveMassKg());
+        }
+
         public void ConfigureGravity(float acceleration)
         {
             gravityAcceleration = Mathf.Max(0f, acceleration);
@@ -871,52 +1006,59 @@ namespace ACunicombat.Mechs
             // Cursor displacement commands bounded yaw and pitch rates in the active reference
             // frame. Player roll input rotates that reference frame separately.
             var maximumTurnRateDegrees = ResolveMaximumYawRateDegrees();
-            var desiredYawRateDegrees = yawTurnInput * maximumTurnRateDegrees;
-            var currentYawRateDegrees = desiredYawRateDegrees;
-            if (Mathf.Abs(desiredYawRateDegrees) < 0.01f &&
-                Mathf.Abs(currentYawRateDegrees) < 0.01f)
+            if (localAttitudeControl)
             {
-                currentYawRateDegrees = 0f;
-            }
-
-            yawDegrees = Mathf.Repeat(
-                yawDegrees + currentYawRateDegrees * Mathf.Max(0f, deltaTime),
-                360f);
-            commandedYawDegrees = yawDegrees;
-            yawAngularVelocityRadians = currentYawRateDegrees * Mathf.Deg2Rad;
-
-            aimPitchDegrees = ConstrainPitchForCurrentMode(aimPitchDegrees);
-            if (isGrounded)
-            {
-                var constrainedPitch = ConstrainPitchForCurrentMode(pitchDegrees);
-                if (!Mathf.Approximately(constrainedPitch, pitchDegrees))
-                {
-                    pitchDegrees = constrainedPitch;
-                    pitchAngularVelocityRadians = 0f;
-                }
-            }
-
-            var pitchErrorDegrees = Mathf.DeltaAngle(pitchDegrees, aimPitchDegrees);
-            var desiredPitchRateDegrees = Mathf.Clamp(
-                pitchErrorDegrees / Mathf.Max(0.06f, yawResponseTimeSeconds),
-                -maximumTurnRateDegrees,
-                maximumTurnRateDegrees);
-            var currentPitchRateDegrees = desiredPitchRateDegrees;
-            var pitchStepDegrees =
-                currentPitchRateDegrees * Mathf.Max(0f, deltaTime);
-            if (Mathf.Abs(pitchStepDegrees) >= Mathf.Abs(pitchErrorDegrees))
-            {
-                pitchDegrees = aimPitchDegrees;
-                currentPitchRateDegrees = 0f;
+                IntegrateLocalAttitude(Mathf.Max(0f, deltaTime), maximumTurnRateDegrees);
             }
             else
             {
-                pitchDegrees = Mathf.DeltaAngle(
-                    0f,
-                    pitchDegrees + pitchStepDegrees);
+                var desiredYawRateDegrees = yawTurnInput * maximumTurnRateDegrees;
+                var currentYawRateDegrees = desiredYawRateDegrees;
+                if (Mathf.Abs(desiredYawRateDegrees) < 0.01f &&
+                    Mathf.Abs(currentYawRateDegrees) < 0.01f)
+                {
+                    currentYawRateDegrees = 0f;
+                }
+
+                yawDegrees = Mathf.Repeat(
+                    yawDegrees + currentYawRateDegrees * Mathf.Max(0f, deltaTime),
+                    360f);
+                commandedYawDegrees = yawDegrees;
+                yawAngularVelocityRadians = currentYawRateDegrees * Mathf.Deg2Rad;
+
+                aimPitchDegrees = ConstrainPitchForCurrentMode(aimPitchDegrees);
+                if (isGrounded)
+                {
+                    var constrainedPitch = ConstrainPitchForCurrentMode(pitchDegrees);
+                    if (!Mathf.Approximately(constrainedPitch, pitchDegrees))
+                    {
+                        pitchDegrees = constrainedPitch;
+                        pitchAngularVelocityRadians = 0f;
+                    }
+                }
+
+                var pitchErrorDegrees = Mathf.DeltaAngle(pitchDegrees, aimPitchDegrees);
+                var desiredPitchRateDegrees = Mathf.Clamp(
+                    pitchErrorDegrees / Mathf.Max(0.06f, yawResponseTimeSeconds),
+                    -maximumTurnRateDegrees,
+                    maximumTurnRateDegrees);
+                var currentPitchRateDegrees = desiredPitchRateDegrees;
+                var pitchStepDegrees =
+                    currentPitchRateDegrees * Mathf.Max(0f, deltaTime);
+                if (Mathf.Abs(pitchStepDegrees) >= Mathf.Abs(pitchErrorDegrees))
+                {
+                    pitchDegrees = aimPitchDegrees;
+                    currentPitchRateDegrees = 0f;
+                }
+                else
+                {
+                    pitchDegrees = Mathf.DeltaAngle(
+                        0f,
+                        pitchDegrees + pitchStepDegrees);
+                }
+                pitchAngularVelocityRadians =
+                    currentPitchRateDegrees * Mathf.Deg2Rad;
             }
-            pitchAngularVelocityRadians =
-                currentPitchRateDegrees * Mathf.Deg2Rad;
             currentYawTorqueNewtonMeters = 0f;
             currentShoulderRcsTorqueNewtonMeters = 0f;
             currentLegRcsTorqueNewtonMeters = 0f;
@@ -983,8 +1125,16 @@ namespace ACunicombat.Mechs
             var requestedTranslationForce = !braking
                 ? attitudeBasis * localRequestedForce
                 : Vector3.zero;
+            if (!braking && frame.HasAutonomousFlightCommand)
+            {
+                // MoveLocal/RiseHeld remain animation and takeoff cues for AI.
+                // Its continuous 3D request replaces those digital thrust commands.
+                requestedTranslationForce = IsFinite(frame.AutonomousAccelerationWorld)
+                    ? frame.AutonomousAccelerationWorld * currentMassKg * movementEnergyScale
+                    : Vector3.zero;
+            }
             var requestedSyncForce = Vector3.zero;
-            if (!braking && trajectorySyncCommandActive &&
+            if (!braking && !frame.HasAutonomousFlightCommand && trajectorySyncCommandActive &&
                 trajectorySyncAccelerationCommand.sqrMagnitude > 0.0001f)
             {
                 requestedSyncForce = trajectorySyncAccelerationCommand * currentMassKg;
@@ -1029,7 +1179,8 @@ namespace ACunicombat.Mechs
                 mainThrustNewtons + (AssaultBoostActive
                     ? assaultBoostThrustKn * 1000f
                     : 0f),
-                deltaTime);
+                deltaTime,
+                frame.HasAutonomousFlightCommand ? movementEnergyScale : 1f);
             var hasPropulsionCommand = propulsionForce.sqrMagnitude > 0.0001f;
             currentControlForceNewtons = propulsionForce;
             currentControlAcceleration = propulsionForce / currentMassKg;
@@ -1597,7 +1748,8 @@ namespace ACunicombat.Mechs
         private Vector3 AllocateTranslationForce(
             Vector3 requestedForce,
             float ratedMainForceNewtons,
-            float deltaTime)
+            float deltaTime,
+            float auxiliaryCapacityScale = 1f)
         {
             var channelCount = thrusterChannels.Count;
             EnsureTranslationAllocatorBuffers(channelCount);
@@ -1644,63 +1796,53 @@ namespace ACunicombat.Mechs
                                  out var resolvedDirection,
                                  out var ratedThrustKn))
                     {
-                        capacity = ratedThrustKn * 1000f * channel.Health;
+                        capacity = ratedThrustKn * 1000f * channel.Health * auxiliaryCapacityScale;
                         direction = resolvedDirection;
                     }
                     else
                     {
                         capacity = Mathf.Max(0f, auxiliaryNozzleThrustKn)
                                    * 1000f
-                                   * channel.Health;
+                                   * channel.Health * auxiliaryCapacityScale;
                         direction = -anchor.forward.normalized;
                     }
                 }
 
                 translationNozzleDirections[i] = direction;
+                var origin = channel.ResolveWorldOrigin(transform);
+                translationNozzleTorquePerNewton[i] = Vector3.Cross(
+                    origin - FixedControlCenterWorld,
+                    direction);
                 translationNozzleCapacities[i] = capacity;
                 translationNozzleOutputs[i] = 0f;
+                translationNozzleLockedOutputs[i] = false;
             }
 
-            var achievedForce = AllocatePairedMainThrusters(requestedForce);
-            if (requestedForce.sqrMagnitude > Mathf.Epsilon)
+            AllocatePairedMainThrusters(requestedForce);
+            for (var i = 0; i < channelCount; i++)
             {
-                var iterationCount = Mathf.Clamp(translationAllocatorIterations, 4, 32);
-                for (var iteration = 0; iteration < iterationCount; iteration++)
-                {
-                    var reverseOrder = (iteration & 1) != 0;
-                    for (var step = 0; step < channelCount; step++)
-                    {
-                        var index = reverseOrder ? channelCount - 1 - step : step;
-                        if (thrusterChannels[index].Id.StartsWith(
-                                "main.",
-                                StringComparison.Ordinal))
-                        {
-                            continue;
-                        }
-
-                        var capacity = translationNozzleCapacities[index];
-                        var direction = translationNozzleDirections[index];
-                        if (capacity <= Mathf.Epsilon ||
-                            direction.sqrMagnitude <= Mathf.Epsilon)
-                        {
-                            continue;
-                        }
-
-                        var previousOutput = translationNozzleOutputs[index];
-                        var forceWithoutNozzle = achievedForce - direction * previousOutput;
-                        var optimalOutput = Mathf.Clamp(
-                            Vector3.Dot(requestedForce - forceWithoutNozzle, direction),
-                            0f,
-                            capacity);
-                        translationNozzleOutputs[index] = optimalOutput;
-                        achievedForce = forceWithoutNozzle + direction * optimalOutput;
-                    }
-                }
+                translationNozzleLockedOutputs[i] = thrusterChannels[i].Id.StartsWith(
+                    "main.",
+                    StringComparison.Ordinal);
             }
+
+            MechTranslationAllocator.Solve(
+                requestedForce,
+                translationNozzleDirections,
+                translationNozzleTorquePerNewton,
+                translationNozzleCapacities,
+                translationNozzleLockedOutputs,
+                translationNozzleOutputs,
+                translationAllocatorIterations,
+                translationTorqueNeutralityWeight,
+                translationTorqueReferenceArmMeters,
+                out var achievedForce,
+                out currentAllocationTorqueNewtonMeters);
 
             ApplyTranslationSymmetryConstraints(requestedForce);
 
             achievedForce = Vector3.zero;
+            currentAllocationTorqueNewtonMeters = Vector3.zero;
             for (var i = 0; i < channelCount; i++)
             {
                 var channelForce = translationNozzleDirections[i]
@@ -1709,6 +1851,8 @@ namespace ACunicombat.Mechs
                     channelForce,
                     translationNozzleCapacities[i]);
                 achievedForce += channelForce;
+                currentAllocationTorqueNewtonMeters += translationNozzleTorquePerNewton[i]
+                                                      * translationNozzleOutputs[i];
             }
 
             return achievedForce;
@@ -1882,14 +2026,77 @@ namespace ACunicombat.Mechs
 
         private void EnsureTranslationAllocatorBuffers(int requiredCount)
         {
-            if (translationNozzleDirections.Length >= requiredCount)
+            if (translationNozzleDirections.Length == requiredCount)
             {
                 return;
             }
 
             translationNozzleDirections = new Vector3[requiredCount];
+            translationNozzleTorquePerNewton = new Vector3[requiredCount];
             translationNozzleCapacities = new float[requiredCount];
             translationNozzleOutputs = new float[requiredCount];
+            translationNozzleLockedOutputs = new bool[requiredCount];
+        }
+
+        private Vector3 ResolveAssembledCenterOfMassLocal(Vector3 fallbackWorldCenter)
+        {
+            runtimeState ??= GetComponent<MechRuntimeState>();
+            if (runtimeState == null || runtimeState.AssembledParts.Count == 0)
+            {
+                return transform.InverseTransformPoint(fallbackWorldCenter);
+            }
+
+            var weightedWorldCenter = Vector3.zero;
+            var totalMassKg = 0f;
+            for (var i = 0; i < runtimeState.AssembledParts.Count; i++)
+            {
+                var record = runtimeState.AssembledParts[i];
+                var massKg = record?.part?.Stats != null
+                    ? Mathf.Max(0f, record.part.Stats.massKg)
+                    : 0f;
+                if (massKg <= Mathf.Epsilon || record?.instance == null)
+                {
+                    continue;
+                }
+
+                var worldCenter = TryGetExclusivePartRendererBounds(record.instance, out var bounds)
+                    ? bounds.center
+                    : record.instance.transform.position;
+                weightedWorldCenter += worldCenter * massKg;
+                totalMassKg += massKg;
+            }
+
+            return totalMassKg > Mathf.Epsilon
+                ? transform.InverseTransformPoint(weightedWorldCenter / totalMassKg)
+                : transform.InverseTransformPoint(fallbackWorldCenter);
+        }
+
+        private static bool TryGetExclusivePartRendererBounds(GameObject partRoot, out Bounds bounds)
+        {
+            var rootPart = partRoot.GetComponent<MechAssembledPart>();
+            var renderers = partRoot.GetComponentsInChildren<Renderer>(true);
+            var initialized = false;
+            bounds = default;
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                if (rootPart != null &&
+                    renderers[i].GetComponentInParent<MechAssembledPart>() != rootPart)
+                {
+                    continue;
+                }
+
+                if (!initialized)
+                {
+                    bounds = renderers[i].bounds;
+                    initialized = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(renderers[i].bounds);
+                }
+            }
+
+            return initialized;
         }
 
         private bool CanThrusterChannelProvideForce(
@@ -3005,12 +3212,18 @@ namespace ACunicombat.Mechs
             in MechPlayerInputFrame frame,
             float forwardCommand)
         {
-            var verticalCommand = Mathf.Abs(
+            // Autonomous input's digital axes are animation/takeoff cues, not
+            // extra full-throttle thrusters to bill on top of the world request.
+            if (frame.HasAutonomousFlightCommand) forwardCommand = 0f;
+            var lateralCommand = frame.HasAutonomousFlightCommand ? 0f : Mathf.Abs(frame.MoveLocal.x);
+            var verticalCommand = frame.HasAutonomousFlightCommand ? 0f : Mathf.Abs(
                 (frame.RiseHeld ? 1f : 0f) -
                 (frame.DescendHeld ? 1f : 0f));
-            var automaticDemand = trajectorySyncCommandActive
-                ? Mathf.Clamp01(trajectorySyncAccelerationCommand.magnitude / 20f)
-                : 0f;
+            var automaticAcceleration = frame.HasAutonomousFlightCommand
+                ? frame.AutonomousAccelerationWorld
+                : trajectorySyncCommandActive ? trajectorySyncAccelerationCommand : Vector3.zero;
+            var automaticDemand = IsFinite(automaticAcceleration)
+                ? Mathf.Clamp01(automaticAcceleration.magnitude / 20f) : 0f;
             var brakingDemand = braking &&
                                 (!isGrounded || HorizontalSpeed > groundStopSpeed)
                 ? 1f
@@ -3025,7 +3238,7 @@ namespace ACunicombat.Mechs
                     out var legLateralPowerKw))
             {
                 var manualDemand = Mathf.Clamp01(Mathf.Max(
-                    Mathf.Abs(frame.MoveLocal.x),
+                    lateralCommand,
                     Mathf.Abs(forwardCommand),
                     verticalCommand));
                 var demand = Mathf.Max(manualDemand, automaticDemand, brakingDemand);
@@ -3037,9 +3250,9 @@ namespace ACunicombat.Mechs
 
             var forwardDemand = Mathf.Max(0f, forwardCommand);
             var reverseDemand = Mathf.Max(0f, -forwardCommand);
-            var lateralDemand = Mathf.Abs(frame.MoveLocal.x);
-            var riseDemand = frame.RiseHeld ? 1f : 0f;
-            var descendDemand = frame.DescendHeld ? 1f : 0f;
+            var lateralDemand = lateralCommand;
+            var riseDemand = !frame.HasAutonomousFlightCommand && frame.RiseHeld ? 1f : 0f;
+            var descendDemand = !frame.HasAutonomousFlightCommand && frame.DescendHeld ? 1f : 0f;
 
             // A vectored nozzle cannot spend its full rated power independently on
             // multiple axes. Each source therefore uses its strongest simultaneous demand.

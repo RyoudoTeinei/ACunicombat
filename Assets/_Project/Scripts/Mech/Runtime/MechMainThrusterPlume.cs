@@ -1293,7 +1293,7 @@ namespace ACunicombat.Mechs
             return result;
         }
 
-        private static string BuildNozzleSourceId(MechPartSlot slot, Transform candidate)
+        internal static string BuildNozzleSourceId(MechPartSlot slot, Transform candidate)
         {
             var segments = new List<string>();
             var partId = string.Empty;
@@ -1315,7 +1315,7 @@ namespace ACunicombat.Mechs
             return $"{slot}:{partId}:{string.Join("/", segments)}";
         }
 
-        private static bool TryResolveAuxiliaryNozzleSlot(
+        internal static bool TryResolveAuxiliaryNozzleSlot(
             Transform candidate,
             out MechPartSlot slot)
         {

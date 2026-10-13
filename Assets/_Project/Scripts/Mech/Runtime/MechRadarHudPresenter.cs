@@ -128,6 +128,111 @@ namespace ACunicombat.Mechs
 		[Min(0.5f)]
 		private float velocityVectorThickness = 2f;
 
+        [Header("Enemy direction indicator")]
+        [SerializeField] private bool showEnemyDirectionIndicator = true;
+        [SerializeField, Range(18f, 48f)] private float enemyEdgeIndicatorSize = 36f;
+        private readonly Dictionary<TrackId, EnemyDirectionState> directionStates = new();
+        private readonly EnemyDirectionState[] preparedDirectionStates = new EnemyDirectionState[32];
+        private readonly List<TrackId> staleDirectionIds = new();
+        private readonly List<EnemyDirectionState> edgeLayoutScratch = new();
+        private int directionPreparedFrame = -1;
+        private int directionPreparationSerial;
+        private Rect directionViewport;
+        private Material directionArrowMaterial;
+        private readonly DirectionArrowEdge[] directionArrowEdges = new DirectionArrowEdge[8];
+        private readonly Vector3[] directionArrowVertices = new Vector3[5];
+        private int directionArrowEdgeCount;
+        private struct DirectionArrowEdge
+        {
+            public Vector3 A, B;
+        }
+        // Per-track state: each normal frame is replaced by its own edge cue.
+        private sealed class EnemyDirectionState
+        {
+            public TrackId TrackId;
+            public Vector2 Direction = Vector2.right;
+            public bool IsRear;
+            public bool BoxVisible;
+            public Quaternion Orientation = Quaternion.identity;
+            public Vector2 Anchor;
+            public Rect InfoRect;
+            public int Edge; // left, right, top, bottom
+            public int TrackIndex;
+            public int SeenSerial;
+            public bool FullDetails = true;
+            public float RenderSize;
+            private bool initialized;
+            private bool rearPoleHeld;
+            private float angle;
+            private float angularVelocity;
+
+            public void Reset()
+            {
+                TrackId = default;
+                Direction = Vector2.right;
+                IsRear = BoxVisible = initialized = rearPoleHeld = false;
+                angle = angularVelocity = 0f;
+                Orientation = Quaternion.identity;
+            }
+
+            public void Update(TrackId id, Vector3 cameraDirection, Vector2 screenDirection,
+                Rect frame, bool frameEligible, Rect viewport, float deltaTime)
+            {
+                if (!id.IsValid || !float.IsFinite(cameraDirection.sqrMagnitude) ||
+                    cameraDirection.sqrMagnitude < 0.000001f)
+                {
+                    Reset();
+                    return;
+                }
+                var changed = !initialized || !TrackId.Equals(id);
+                if (changed) Reset();
+                TrackId = id;
+                var local = cameraDirection.normalized;
+                if (changed) IsRear = local.z < 0f;
+                else if (local.z < -0.04f) IsRear = true;
+                else if (local.z > 0.04f) IsRear = false;
+
+                // Visibility follows the target center, not a large inset around
+                // the frame. Only six HUD pixels of re-entry hysteresis are used.
+                var inset = BoxVisible ? 0f : 6f;
+                var center = frame.center;
+                BoxVisible = frameEligible && local.z > 0f &&
+                    center.x >= viewport.xMin + inset && center.x <= viewport.xMax - inset &&
+                    center.y >= viewport.yMin + inset && center.y <= viewport.yMax - inset;
+                if (changed)
+                {
+                    var up = Vector3.ProjectOnPlane(Vector3.up, local);
+                    if (up.sqrMagnitude < 0.0001f) up = Vector3.ProjectOnPlane(Vector3.forward, local);
+                    Orientation = Quaternion.LookRotation(local, up.normalized);
+                }
+                else
+                {
+                    // Transport the 3D orientation continuously. The actual
+                    // camera-relative Z component controls foreshortening.
+                    var previousForward = Orientation * Vector3.forward;
+                    var nextForward = Vector3.RotateTowards(previousForward, local,
+                        12f * Mathf.Clamp(deltaTime, 0f, 0.1f), 0f);
+                    Orientation = Quaternion.Normalize(
+                        Quaternion.FromToRotation(previousForward, nextForward) * Orientation);
+                }
+
+                var transverse = new Vector2(local.x, -local.y);
+                var poleThreshold = rearPoleHeld ? 0.208f : 0.139f; // 12 / 8 degrees
+                rearPoleHeld = IsRear && local.z < 0f && transverse.magnitude < poleThreshold;
+                var desired = local.z <= 0f ? new Vector2(transverse.x / Mathf.Max(0.1f, viewport.width / viewport.height), transverse.y) : screenDirection;
+                if (rearPoleHeld || desired.sqrMagnitude < 0.000001f ||
+                    !float.IsFinite(desired.sqrMagnitude))
+                    desired = Direction;
+                desired.Normalize();
+                var desiredAngle = Mathf.Atan2(desired.y, desired.x) * Mathf.Rad2Deg;
+                angle = changed ? desiredAngle : Mathf.SmoothDampAngle(
+                    angle, desiredAngle, ref angularVelocity, 0.08f, 720f,
+                    Mathf.Clamp(deltaTime, 0f, 0.1f));
+                Direction = new Vector2(Mathf.Cos(angle * Mathf.Deg2Rad), Mathf.Sin(angle * Mathf.Deg2Rad));
+                initialized = true;
+            }
+        }
+
 		private readonly TrackSnapshot[] tracks = new TrackSnapshot[32];
 
 		private readonly MissileTrackSnapshot[] missileTracks = new MissileTrackSnapshot[32];
@@ -306,6 +411,12 @@ namespace ACunicombat.Mechs
 
 		private void OnDestroy()
 		{
+            if (directionArrowMaterial != null)
+            {
+                if (Application.isPlaying) Destroy(directionArrowMaterial);
+                else DestroyImmediate(directionArrowMaterial);
+                directionArrowMaterial = null;
+            }
 			if (operationRingTexture != null)
 			{
 				UnityEngine.Object.Destroy(operationRingTexture);
@@ -442,7 +553,10 @@ namespace ACunicombat.Mechs
 				GUI.color = previousColor;
 			}
 			SetStartupGuiAlpha(MechStartupHudModule.TrackData);
+            if (Event.current.type == EventType.Repaint)
+                PrepareEnemyDirectionIndicator(Time.unscaledDeltaTime);
 			DrawWorldTrackMarkers();
+            DrawEnemyDirectionIndicator();
 			GUI.color = previousColor;
 			SetStartupGuiAlpha(MechStartupHudModule.Weapons);
 			DrawWeaponStatus();
@@ -798,7 +912,7 @@ namespace ACunicombat.Mechs
 			for (int j = 0; j < missileTrackCount; j++)
 			{
 				MissileTrackSnapshot track = missileTracks[j];
-				if (track.IsFriendly)
+				if (ShouldDisplayFriendlyMissile(in track))
 				{
 					DrawTacticalMissile(center, radius, displayRange, ToVector3(track.PredictPosition(radar.SimTimeSeconds)), ToVector3(track.Velocity), HudBrightGreen, false, false);
 				}
@@ -1088,13 +1202,17 @@ namespace ACunicombat.Mechs
 
 		private void DrawSightElevationLadder(Vector2 center, float radius)
 		{
-			Vector3 bodyForward = GetBodyForwardWorld();
+            var sightForward = viewCamera.transform.forward;
 			Vector3 referenceUp = GetReferenceUp();
-			float sightElevationDegrees = Mathf.Asin(Mathf.Clamp(Vector3.Dot(bodyForward, referenceUp), -1f, 1f)) * 57.29578f;
+            var visibility = ResolveHorizonVisibility(sightForward, referenceUp);
+            if (visibility <= 0f) return;
+            var previousTint = GUI.color;
+            GUI.color = new Color(previousTint.r, previousTint.g, previousTint.b, previousTint.a * visibility);
+			float sightElevationDegrees = Mathf.Asin(Mathf.Clamp(Vector3.Dot(sightForward, referenceUp), -1f, 1f)) * 57.29578f;
 			float verticalFovRadians = Mathf.Clamp(viewCamera.fieldOfView, 1f, 179f) * (MathF.PI / 180f);
 			float focalPixels = MechHudLayout.Height * 0.5f / Mathf.Tan(verticalFovRadians * 0.5f);
 			Matrix4x4 previousGuiMatrix = GUI.matrix;
-			GUIUtility.RotateAroundPivot(ResolvePitchLadderRollDegrees(bodyForward, referenceUp), center);
+			GUIUtility.RotateAroundPivot(ResolvePitchLadderRollDegrees(sightForward, referenceUp), center);
 			DrawMirroredPitchTick(center, radius, 0f, 10f, 44f, HudBrightGreen, 2.1f, null);
 			for (int pitchDegrees = -80; pitchDegrees <= 80; pitchDegrees += 5)
 			{
@@ -1114,7 +1232,14 @@ namespace ACunicombat.Mechs
 				}
 			}
 			GUI.matrix = previousGuiMatrix;
+            GUI.color = previousTint;
 		}
+
+        // At a navigation pole the projected horizon has no stable direction.
+        // Fade the ladder there; never turn this display ambiguity into camera rotation.
+        private static float ResolveHorizonVisibility(Vector3 sightForward, Vector3 referenceUp) =>
+            Mathf.InverseLerp(0.03f, 0.15f,
+                Vector3.ProjectOnPlane(referenceUp.normalized, sightForward.normalized).magnitude);
 
 		private void DrawZoomMagnification(Vector2 center, float radius)
 		{
@@ -1161,6 +1286,280 @@ namespace ACunicombat.Mechs
 			}
 		}
 
+        private static bool CanIndicateEnemy(in TrackSnapshot track)
+        {
+            return track.TrackId.IsValid && track.Affiliation != TrackAffiliation.Friendly &&
+                track.ObjectClass != TrackObjectClass.Missile && track.ObjectClass != TrackObjectClass.Decoy &&
+                track.Lifecycle != TrackLifecycle.Dropped && track.Lifecycle != TrackLifecycle.Tentative &&
+                track.Confidence >= 0.25f;
+        }
+
+        private EnemyDirectionState GetDirectionState(TrackId id) =>
+            directionStates.TryGetValue(id, out var state) ? state : null;
+
+        private Rect GetDirectionViewport()
+        {
+            var pixels = viewCamera.pixelRect;
+            var scale = MechHudLayout.Scale;
+            return new Rect(pixels.x / scale, (Screen.height - pixels.yMax) / scale,
+                pixels.width / scale, pixels.height / scale);
+        }
+
+        private void ResetEnemyDirectionIndicator()
+        {
+            Array.Clear(preparedDirectionStates, 0, preparedDirectionStates.Length);
+            directionStates.Clear();
+        }
+
+        private void PrepareEnemyDirectionIndicator(float deltaTime)
+        {
+            if (directionPreparedFrame == Time.frameCount) return;
+            directionPreparedFrame = Time.frameCount;
+            directionPreparationSerial++;
+            directionViewport = GetDirectionViewport();
+            Array.Clear(preparedDirectionStates, 0, preparedDirectionStates.Length);
+            if (!showEnemyDirectionIndicator || !IsStartupModuleOnline(MechStartupHudModule.TrackData))
+            {
+                ResetEnemyDirectionIndicator();
+                return;
+            }
+            for (var i = 0; i < trackCount; i++)
+            {
+                var track = tracks[i];
+                if (!CanIndicateEnemy(in track) || IsMissileTrack(in track) || !ShouldDisplayTrack(i) ||
+                    radar.IsRetiredFriendlyMissileTrack(track.TrackId)) continue;
+                if (!directionStates.TryGetValue(track.TrackId, out var state))
+                {
+                    state = new EnemyDirectionState();
+                    directionStates.Add(track.TrackId, state);
+                }
+                state.SeenSerial = directionPreparationSerial;
+                state.TrackIndex = i;
+                var position = radar.PredictTrackPosition(in track);
+                var screen = viewCamera.WorldToScreenPoint(position);
+                var center = MechHudLayout.ScreenToHudPoint(screen);
+                var local = viewCamera.transform.InverseTransformDirection(position - viewCamera.transform.position);
+                var focused = track.TrackId.Equals(radar.SttTrackId) || track.TrackId.Equals(radar.CandidateTrackId);
+                var halfSize = focused ? 33f : 27f;
+                // Positive depth projection is safe; behind the camera, use the
+                // unmirrored camera-space bearing with the same aspect correction.
+                var bearing = screen.z > 0f ? center - directionViewport.center :
+                    new Vector2(local.x / Mathf.Max(0.1f, viewCamera.aspect), -local.y);
+                state.Update(track.TrackId, local, bearing,
+                    new Rect(center.x - halfSize, center.y - halfSize, halfSize * 2f, halfSize * 2f),
+                    screen.z > viewCamera.nearClipPlane, directionViewport, deltaTime);
+                if (!state.TrackId.IsValid) continue;
+                state.RenderSize = enemyEdgeIndicatorSize;
+                state.Anchor = ResolveEdgeAnchor(state.Direction, directionViewport,
+                    enemyEdgeIndicatorSize * 1.3f + 10f, out state.Edge);
+                preparedDirectionStates[i] = state;
+            }
+            staleDirectionIds.Clear();
+            foreach (var pair in directionStates)
+                if (pair.Value.SeenSerial != directionPreparationSerial) staleDirectionIds.Add(pair.Key);
+            foreach (var id in staleDirectionIds) directionStates.Remove(id);
+            ArrangeEdgeIndicators();
+        }
+
+        private static Vector2 ResolveEdgeAnchor(Vector2 direction, Rect viewport, float margin, out int edge)
+        {
+            if (direction.sqrMagnitude < 0.000001f) direction = Vector2.right;
+            direction.Normalize();
+            var half = new Vector2(Mathf.Max(1f, viewport.width * 0.5f - margin),
+                Mathf.Max(1f, viewport.height * 0.5f - margin));
+            var tx = Mathf.Abs(direction.x) > 0.000001f ? half.x / Mathf.Abs(direction.x) : float.PositiveInfinity;
+            var ty = Mathf.Abs(direction.y) > 0.000001f ? half.y / Mathf.Abs(direction.y) : float.PositiveInfinity;
+            edge = tx <= ty ? (direction.x < 0f ? 0 : 1) : (direction.y < 0f ? 2 : 3);
+            return viewport.center + direction * Mathf.Min(tx, ty);
+        }
+
+        private void ArrangeEdgeIndicators()
+        {
+            var margin = enemyEdgeIndicatorSize * 1.3f + 10f;
+            for (var edge = 0; edge < 4; edge++)
+            {
+                edgeLayoutScratch.Clear();
+                for (var i = 0; i < trackCount; i++)
+                {
+                    var state = preparedDirectionStates[i];
+                    if (state != null && !state.BoxVisible && state.Edge == edge) edgeLayoutScratch.Add(state);
+                }
+                var vertical = edge < 2;
+                var lower = (vertical ? directionViewport.yMin : directionViewport.xMin) + margin;
+                var upper = (vertical ? directionViewport.yMax : directionViewport.xMax) - margin;
+                var preferredSpacing = vertical ? Mathf.Max(64f, enemyEdgeIndicatorSize * 2.6f + 12f) : 212f;
+                var spacing = edgeLayoutScratch.Count > 1
+                    ? Mathf.Min(preferredSpacing, (upper - lower) / (edgeLayoutScratch.Count - 1))
+                    : preferredSpacing;
+                for (var i = 1; i < edgeLayoutScratch.Count; i++)
+                {
+                    var entry = edgeLayoutScratch[i];
+                    var coordinate = vertical ? entry.Anchor.y : entry.Anchor.x;
+                    var j = i - 1;
+                    while (j >= 0)
+                    {
+                        var other = edgeLayoutScratch[j];
+                        var otherCoordinate = vertical ? other.Anchor.y : other.Anchor.x;
+                        if (otherCoordinate < coordinate ||
+                            (Mathf.Approximately(otherCoordinate, coordinate) && other.TrackId.Packed < entry.TrackId.Packed)) break;
+                        edgeLayoutScratch[j + 1] = other; j--;
+                    }
+                    edgeLayoutScratch[j + 1] = entry;
+                }
+                var previous = lower - spacing;
+                for (var i = 0; i < edgeLayoutScratch.Count; i++)
+                {
+                    var state = edgeLayoutScratch[i];
+                    var coordinate = Mathf.Max(vertical ? state.Anchor.y : state.Anchor.x, previous + spacing);
+                    if (vertical) state.Anchor.y = coordinate; else state.Anchor.x = coordinate;
+                    previous = coordinate;
+                }
+                var next = upper + spacing;
+                for (var i = edgeLayoutScratch.Count - 1; i >= 0; i--)
+                {
+                    var state = edgeLayoutScratch[i];
+                    var coordinate = Mathf.Min(vertical ? state.Anchor.y : state.Anchor.x, next - spacing);
+                    if (vertical) state.Anchor.y = coordinate; else state.Anchor.x = coordinate;
+                    next = coordinate;
+                    state.FullDetails = spacing >= preferredSpacing - 0.1f;
+                    state.RenderSize = Mathf.Min(enemyEdgeIndicatorSize, Mathf.Max(10f, (spacing - 8f) * 0.4f));
+                    state.InfoRect = ResolveEdgeInfoRect(state.Anchor, edge, state.RenderSize,
+                        state.FullDetails ? 200f : 48f, state.FullDetails ? 44f : 22f, directionViewport);
+                }
+            }
+        }
+
+        private static Rect ResolveEdgeInfoRect(Vector2 anchor, int edge, float size,
+            float width, float height, Rect viewport)
+        {
+            var gap = size * 1.3f + 8f;
+            var origin = edge switch
+            {
+                0 => new Vector2(anchor.x + gap, anchor.y - height * 0.5f),
+                1 => new Vector2(anchor.x - gap - width, anchor.y - height * 0.5f),
+                2 => new Vector2(anchor.x - width * 0.5f, anchor.y + gap),
+                _ => new Vector2(anchor.x - width * 0.5f, anchor.y - gap - height),
+            };
+            return new Rect(Mathf.Clamp(origin.x, viewport.xMin + 8f, viewport.xMax - width - 8f),
+                Mathf.Clamp(origin.y, viewport.yMin + 8f, viewport.yMax - height - 8f), width, height);
+        }
+
+        private bool ShouldDrawDirectionTargetFrame(int index)
+        {
+            var state = preparedDirectionStates[index];
+            if (state != null) return state.BoxVisible;
+            // Do not clamp labels for an off-screen frame independently: it
+            // produces the floating distance/ID fragments shown in the report.
+            var screen = viewCamera.WorldToScreenPoint(radar.PredictTrackPosition(in tracks[index]));
+            return screen.z > viewCamera.nearClipPlane &&
+                GetDirectionViewport().Contains(MechHudLayout.ScreenToHudPoint(screen));
+        }
+
+        private void DrawEnemyDirectionIndicator()
+        {
+            // Unlike GUI.Label, immediate GL drawing is not automatically
+            // ignored during layout/input events.
+            if (Event.current == null || Event.current.type != EventType.Repaint) return;
+            for (var i = 0; i < trackCount; i++)
+            {
+                var state = preparedDirectionStates[i];
+                if (state == null || state.BoxVisible) continue;
+                var track = tracks[i];
+                var stale = track.Lifecycle == TrackLifecycle.Coasting || track.Lifecycle == TrackLifecycle.Degraded;
+                var color = HudGreen;
+                color.a = stale ? Mathf.Min(0.55f, GetLifecycleAlpha(in track)) : GetLifecycleAlpha(in track);
+                var tint = color; tint.a *= GUI.color.a;
+                BuildDirectionArrow(state.Orientation);
+                RenderDirectionArrow(state.Anchor, state.RenderSize, tint, GUI.matrix, Screen.width, Screen.height);
+                DrawEdgeTrackInfo(in track, state, color);
+            }
+        }
+
+        private void DrawEdgeTrackInfo(in TrackSnapshot track, EnemyDirectionState state, Color color)
+        {
+            smallStyle.normal.textColor = color;
+            smallStyle.alignment = state.Edge == 0 ? TextAnchor.MiddleLeft :
+                state.Edge == 1 ? TextAnchor.MiddleRight : TextAnchor.MiddleCenter;
+            if (!state.FullDetails)
+            {
+                GUI.Label(state.InfoRect, TrackLabel(track.TrackId), smallStyle);
+                return;
+            }
+            var relative = radar.PredictTrackPosition(in track) - transform.position;
+            var closing = relative.sqrMagnitude > 0.01f
+                ? -Vector3.Dot(ToVector3(track.Velocity - radarStatus.OwnshipVelocity), relative.normalized) : 0f;
+            GetTrackReadout(in track, closing, out var displayedClosing);
+            var first = state.InfoRect; first.height = 22f;
+            GUI.Label(first, $"{relative.magnitude / 1000f:0.00} km  {displayedClosing:+0;-0;0} m/s", smallStyle);
+            var lifecycle = track.TrackId.Equals(radar.SttTrackId) ? "STT" : LifecycleLabel(track.Lifecycle);
+            var classification = track.Classification >= 0.72f && track.IdentityConfidence >= 0.7f
+                ? AffiliationLabel(track.Affiliation) : "UNK";
+            first.y += 22f;
+            GUI.Label(first, TrackLabel(track.TrackId) + "  " + lifecycle + "  " + classification, smallStyle);
+        }
+
+        private void BuildDirectionArrow(Quaternion rotation)
+        {
+            // Full camera-relative orientation, with no artificial depth tilt.
+            // One square-based pyramid: four base edges and four tip edges.
+            directionArrowVertices[0] = rotation * new Vector3(-0.38f, -0.38f, -0.55f);
+            directionArrowVertices[1] = rotation * new Vector3(0.38f, -0.38f, -0.55f);
+            directionArrowVertices[2] = rotation * new Vector3(0.38f, 0.38f, -0.55f);
+            directionArrowVertices[3] = rotation * new Vector3(-0.38f, 0.38f, -0.55f);
+            directionArrowVertices[4] = rotation * new Vector3(0f, 0f, 0.95f);
+            directionArrowEdgeCount = 0;
+            for (var i = 0; i < 4; i++)
+            {
+                directionArrowEdges[directionArrowEdgeCount++] = new DirectionArrowEdge
+                {
+                    A = directionArrowVertices[i], B = directionArrowVertices[(i + 1) % 4]
+                };
+                directionArrowEdges[directionArrowEdgeCount++] = new DirectionArrowEdge
+                {
+                    A = directionArrowVertices[i], B = directionArrowVertices[4]
+                };
+            }
+        }
+
+        private static Vector3 ProjectArrowVertex(Vector3 vertex, Vector2 center, float size, Matrix4x4 matrix)
+        {
+            var perspective = 4f / (4f + vertex.z);
+            return matrix.MultiplyPoint3x4(new Vector3(
+                center.x + vertex.x * size * perspective, center.y - vertex.y * size * perspective, 0f));
+        }
+
+        private void RenderDirectionArrow(Vector2 center, float size, Color color, Matrix4x4 matrix,
+            float canvasWidth, float canvasHeight)
+        {
+            if (directionArrowMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("Mech/EnemyDirectionArrow");
+                if (shader == null) return;
+                directionArrowMaterial = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+            }
+            if (!directionArrowMaterial.SetPass(0)) return;
+            GL.PushMatrix();
+            GL.LoadPixelMatrix(0f, canvasWidth, canvasHeight, 0f);
+            GL.Begin(GL.TRIANGLES);
+            GL.Color(color);
+            var halfWidth = Mathf.Max(0.6f, matrix.MultiplyVector(Vector3.right).magnitude * 1.1f);
+            for (var i = 0; i < directionArrowEdgeCount; i++)
+            {
+                var edge = directionArrowEdges[i];
+                var a = ProjectArrowVertex(edge.A, center, size, matrix);
+                var b = ProjectArrowVertex(edge.B, center, size, matrix);
+                var delta = b - a;
+                if (delta.sqrMagnitude < 0.0001f) continue;
+                var side = new Vector3(-delta.y, delta.x, 0f).normalized * halfWidth;
+                // Thin screen-space ribbons keep wire width readable at all
+                // HUD scales. The pyramid's faces remain completely transparent.
+                GL.Vertex(a + side); GL.Vertex(a - side); GL.Vertex(b - side);
+                GL.Vertex(a + side); GL.Vertex(b - side); GL.Vertex(b + side);
+            }
+            GL.End();
+            GL.PopMatrix();
+        }
+
 		private void DrawWorldTrackMarkers()
 		{
 			for (int i = 0; i < trackCount; i++)
@@ -1170,6 +1569,8 @@ namespace ACunicombat.Mechs
 				{
 					continue;
 				}
+                if (!ShouldDrawDirectionTargetFrame(i))
+                    continue;
 				Vector3 position = radar.PredictTrackPosition(in track);
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
 				if (!(screen.z <= 0f))
@@ -1349,7 +1750,7 @@ namespace ACunicombat.Mechs
 			for (int i = 0; i < missileTrackCount; i++)
 			{
 				MissileTrackSnapshot track = missileTracks[i];
-				if (!track.IsFriendly)
+				if (!ShouldDisplayFriendlyMissile(in track))
 				{
 					continue;
 				}
@@ -1379,7 +1780,7 @@ namespace ACunicombat.Mechs
 			for (var i = 0; i < missileTrackCount; i++)
 			{
 				var track = missileTracks[i];
-				if (!track.IsFriendly)
+				if (!ShouldDisplayFriendlyMissile(in track))
 				{
 					continue;
 				}
@@ -1527,9 +1928,15 @@ namespace ACunicombat.Mechs
 			return false;
 		}
 
+		private bool ShouldDisplayFriendlyMissile(in MissileTrackSnapshot track)
+		{
+			return track.IsFriendly && !radar.IsRetiredFriendlyMissileTrack(track.TrackId);
+		}
+
 		private bool ShouldDisplayIncomingMissile(in MissileTrackSnapshot track)
 		{
-			if (!track.IsWarning || track.IsFriendly)
+			if (!track.IsWarning || track.IsFriendly ||
+				radar.IsRetiredFriendlyMissileTrack(track.TrackId))
 			{
 				return false;
 			}
@@ -1672,7 +2079,8 @@ namespace ACunicombat.Mechs
 		private bool IsTrackPresentationEligible(int index)
 		{
 			TrackSnapshot track = tracks[index];
-			if (track.ObjectClass == TrackObjectClass.Missile)
+			if (radar.IsRetiredFriendlyMissileTrack(track.TrackId) ||
+				track.ObjectClass == TrackObjectClass.Missile)
 			{
 				return false;
 			}

@@ -568,7 +568,8 @@ namespace ACunicombat.Mechs
 				{
 					ResetNavigationReference();
 				}
-				motion.SetAimPitch(cam.PitchDegrees);
+                if (!motion.LocalAttitudeControl)
+                    motion.SetAimPitch(cam.PitchDegrees);
 			}
 			else
 			{

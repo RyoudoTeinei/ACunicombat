@@ -1696,7 +1696,7 @@ namespace ACunicombat.Mechs
 			RefreshSummary();
 			MechAggregatedStats current = cachedStats ?? new MechAggregatedStats();
 			MechAggregatedStats equipped = cachedEquippedStats ?? current;
-			statsScroll = GUI.BeginScrollView(rect, statsScroll, new Rect(0f, 0f, rect.width - 18f, 1650f));
+			statsScroll = GUI.BeginScrollView(rect, statsScroll, new Rect(0f, 0f, rect.width - 18f, 1800f));
 			Rect row = new Rect(0f, 0f, rect.width - 22f, AggregateMetricRowHeight);
 			float y = 0f;
 			if (selectingPart)
@@ -1707,19 +1707,16 @@ namespace ACunicombat.Mechs
 			DrawAggregateValueRow(row, ref y, "总质量", current.totalMassKg, equipped.totalMassKg, "0", " kg", higherIsBetter: false, 100000f);
 			DrawAggregateValueRow(row, ref y, "装甲", current.armorPoints, equipped.armorPoints, "0", string.Empty, higherIsBetter: true, 10000f);
 			DrawAggregateValueRow(row, ref y, "结构强度", current.structurePoints, equipped.structurePoints, "0", string.Empty, higherIsBetter: true, 8000f);
-			DrawGroup(ref y, row, "能源与热量");
-			DrawAggregateValueRow(row, ref y, "发电功率", ToKilowatts(current.powerOutputMw), ToKilowatts(equipped.powerOutputMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(150f));
-			DrawAggregateValueRow(row, ref y, "储能容量", current.energyStorageCapacityMj, equipped.energyStorageCapacityMj, "0.0", " MJ", higherIsBetter: true, 600f);
-			DrawAggregateValueRow(row, ref y, "回充功率", current.energyRechargePowerKw, equipped.energyRechargePowerKw, "0", " kW", higherIsBetter: true, 120000f);
-			DrawAggregateValueRow(row, ref y, "峰值余量", ToKilowatts(current.peakPowerSurplusMw), ToKilowatts(equipped.peakPowerSurplusMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(100f), ToKilowatts(-50f));
-			DrawAggregateValueRow(row, ref y, "散热余量", ToKilowatts(current.heatSurplusMw), ToKilowatts(equipped.heatSurplusMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(100f), ToKilowatts(-50f));
 			DrawGroup(ref y, row, "推进");
 			DrawAggregateValueRow(row, ref y, "主向加速度", current.mainAccelerationMps2, equipped.mainAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 30f);
 			DrawAggregateValueRow(row, ref y, "横向加速度", current.lateralAccelerationMps2, equipped.lateralAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 30f);
 			DrawAggregateValueRow(row, ref y, "反向加速度", current.reverseAccelerationMps2, equipped.reverseAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 30f);
 			DrawAggregateValueRow(row, ref y, "上向加速度", current.upwardAccelerationMps2, equipped.upwardAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 40f);
 			DrawAggregateValueRow(row, ref y, "下向加速度", current.downwardAccelerationMps2, equipped.downwardAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 30f);
-			DrawAggregateValueRow(row, ref y, "RCS 推力", current.rcsThrustKn, equipped.rcsThrustKn, "0", " kN", higherIsBetter: true, 1500f);
+			DrawAggregateValueRow(row, ref y, "AB 总加速度", current.assaultBoostAccelerationMps2, equipped.assaultBoostAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 120f);
+			DrawAggregateValueRow(row, ref y, "QB 额定加速度", current.quickBoostAccelerationMps2, equipped.quickBoostAccelerationMps2, "0.00", " m/s²", higherIsBetter: true, 400f);
+			DrawAggregateValueRow(row, ref y, "QB 持续时间", current.boosterPerformance?.quickBoostDurationS ?? 0f, equipped.boosterPerformance?.quickBoostDurationS ?? 0f, "0.00", " s", higherIsBetter: true, 1f);
+			DrawAggregateValueRow(row, ref y, "QB 再启动间隔", current.boosterPerformance?.quickBoostRecoveryS ?? 0f, equipped.boosterPerformance?.quickBoostRecoveryS ?? 0f, "0.00", " s", higherIsBetter: false, 2f);
 			DrawAggregateValueRow(row, ref y, "RCS 转向速度", current.rcsTurnRateDegreesPerSecond, equipped.rcsTurnRateDegreesPerSecond, "0.0", " °/s", higherIsBetter: true, 300f);
 			DrawGroup(ref y, row, "雷达");
 			DrawAggregateValueRow(row, ref y, "参考探测距离", current.radarPerformance.referenceDetectionRangeKm, equipped.radarPerformance.referenceDetectionRangeKm, "0.0", " km", higherIsBetter: true, 100f);
@@ -1731,6 +1728,12 @@ namespace ACunicombat.Mechs
 			DrawAggregateValueRow(row, ref y, "最大预测时间", current.fireControlPerformance.maximumPredictionTimeS, equipped.fireControlPerformance.maximumPredictionTimeS, "0.0", " s", higherIsBetter: true, 12f);
 			DrawAggregateValueRow(row, ref y, "武器控制通道", current.fireControlPerformance.weaponControlChannels, equipped.fireControlPerformance.weaponControlChannels, "0", string.Empty, higherIsBetter: true, 16f);
 			DrawAggregateValueRow(row, ref y, "制导通道", current.fireControlPerformance.guidanceChannelCapacity, equipped.fireControlPerformance.guidanceChannelCapacity, "0", string.Empty, higherIsBetter: true, 16f);
+			DrawGroup(ref y, row, "能源与热量");
+			DrawAggregateValueRow(row, ref y, "发电功率", ToKilowatts(current.powerOutputMw), ToKilowatts(equipped.powerOutputMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(150f));
+			DrawAggregateValueRow(row, ref y, "储能容量", current.energyStorageCapacityMj, equipped.energyStorageCapacityMj, "0.0", " MJ", higherIsBetter: true, 600f);
+			DrawAggregateValueRow(row, ref y, "回充功率", current.energyRechargePowerKw, equipped.energyRechargePowerKw, "0", " kW", higherIsBetter: true, 120000f);
+			DrawAggregateValueRow(row, ref y, "峰值余量", ToKilowatts(current.peakPowerSurplusMw), ToKilowatts(equipped.peakPowerSurplusMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(100f), ToKilowatts(-50f));
+			DrawAggregateValueRow(row, ref y, "散热余量", ToKilowatts(current.heatSurplusMw), ToKilowatts(equipped.heatSurplusMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(100f), ToKilowatts(-50f));
 			y += 12f;
 			GUI.Label(new Rect(0f, y, row.width, 54f), (cachedValidation == null || cachedValidation.IsValid) ? "装配检查：通过" : $"装配检查：{cachedValidation.ErrorCount} 个错误，{cachedValidation.WarningCount} 个警告", (cachedValidation == null || cachedValidation.IsValid) ? testedStyle : warningStyle);
 			y += 64f;
@@ -1819,9 +1822,13 @@ namespace ACunicombat.Mechs
 				}
 				previewLoadout = CreateRuntimeLoadout(effectiveSelection, "hangar_preview", "机库预览");
 				cachedStats = MechStatsCalculator.Calculate(previewLoadout);
+				MechThrusterCapabilityEvaluator.TryApplyToStats(previewLoadout, cachedStats);
 				cachedValidation = MechLoadoutValidator.Validate(previewLoadout, new MechValidationOptions());
 				MechLoadoutDefinition equippedLoadout = CreateRuntimeLoadout(selection, "hangar_equipped", "当前装备");
 				cachedEquippedStats = MechStatsCalculator.Calculate(equippedLoadout);
+				MechThrusterCapabilityEvaluator.TryApplyToStats(
+					equippedLoadout,
+					cachedEquippedStats);
 				UnityEngine.Object.Destroy(equippedLoadout);
 				previewDirty = true;
 			}

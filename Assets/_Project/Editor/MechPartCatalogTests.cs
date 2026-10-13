@@ -410,6 +410,27 @@ namespace ACunicombat.Editor.Tests
 		}
 
 		[Test]
+		public void AggregatedStats_CalculateAssaultAndQuickBoostAccelerations()
+		{
+			var stats = new MechAggregatedStats();
+			stats.Add(new MechPartStats
+			{
+				massKg = 50000f,
+				mainThrustKn = 1000f
+			});
+			stats.AddBoosterPerformance(new MechBoosterPerformance
+			{
+				assaultBoostThrustKn = 3000f,
+				quickBoostThrustKn = 15000f
+			});
+			stats.RecalculateDerived();
+
+			Assert.That(stats.mainAccelerationMps2, Is.EqualTo(20f).Within(0.001f));
+			Assert.That(stats.assaultBoostAccelerationMps2, Is.EqualTo(80f).Within(0.001f));
+			Assert.That(stats.quickBoostAccelerationMps2, Is.EqualTo(300f).Within(0.001f));
+		}
+
+		[Test]
 		public void LegPerformance_DerivesVectoredAxisLimitsWithoutDuplicatingNozzles()
 		{
 			var legs = new MechLegPerformance

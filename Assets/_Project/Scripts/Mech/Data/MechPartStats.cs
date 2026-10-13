@@ -964,6 +964,8 @@ namespace ACunicombat.Mechs
 		public float peakPowerSurplusMw;
 		public float heatSurplusMw;
 		public float mainAccelerationMps2;
+		public float assaultBoostAccelerationMps2;
+		public float quickBoostAccelerationMps2;
 		public float lateralAccelerationMps2;
 		public float reverseAccelerationMps2;
 		public float upwardAccelerationMps2;
@@ -1022,6 +1024,8 @@ namespace ACunicombat.Mechs
 			peakPowerSurplusMw = 0f;
 			heatSurplusMw = 0f;
 			mainAccelerationMps2 = 0f;
+			assaultBoostAccelerationMps2 = 0f;
+			quickBoostAccelerationMps2 = 0f;
 			lateralAccelerationMps2 = 0f;
 			reverseAccelerationMps2 = 0f;
 			upwardAccelerationMps2 = 0f;
@@ -1203,6 +1207,12 @@ namespace ACunicombat.Mechs
 			if (totalMassKg > 0f)
 			{
 				mainAccelerationMps2 = mainThrustKn * 1000f / totalMassKg;
+				assaultBoostAccelerationMps2 =
+					(mainThrustKn + (boosterPerformance?.assaultBoostThrustKn ?? 0f))
+					* 1000f / totalMassKg;
+				quickBoostAccelerationMps2 =
+					(boosterPerformance?.quickBoostThrustKn ?? 0f)
+					* 1000f / totalMassKg;
 				lateralAccelerationMps2 = lateralThrustKn * 1000f / totalMassKg;
 				reverseAccelerationMps2 = reverseThrustKn * 1000f / totalMassKg;
 				upwardAccelerationMps2 = upwardThrustKn * 1000f / totalMassKg;
@@ -1218,6 +1228,8 @@ namespace ACunicombat.Mechs
 			else
 			{
 				mainAccelerationMps2 = 0f;
+				assaultBoostAccelerationMps2 = 0f;
+				quickBoostAccelerationMps2 = 0f;
 				lateralAccelerationMps2 = 0f;
 				reverseAccelerationMps2 = 0f;
 				upwardAccelerationMps2 = 0f;

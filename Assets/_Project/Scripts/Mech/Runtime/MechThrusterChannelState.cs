@@ -26,7 +26,7 @@ namespace ACunicombat.Mechs
 
     /// <summary>
     /// Runtime state for one physical or provisional thruster nozzle. Translation forces are
-    /// applied to the mech as a net force; nozzle positions do not create attitude torque.
+    /// applied as a net force; nozzle positions guide allocation but do not rotate the mech.
     /// </summary>
     [Serializable]
     public sealed class MechThrusterChannelState

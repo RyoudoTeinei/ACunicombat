@@ -245,6 +245,11 @@ namespace ACunicombat.Mechs
         private readonly FriendlyMissileIdentityAssociation[]
             friendlyMissileIdentityAssociations =
                 new FriendlyMissileIdentityAssociation[64];
+        // A locally ended friendly weapon can leave a valid coasting sensor track.
+        // Keep its exact identity independently of reusable data-link terminal slots.
+        private readonly Dictionary<TrackId, FriendlyMissileLinkReport>
+            retiredFriendlyMissileTracks = new(MaximumPublicTracks);
+        private readonly List<TrackId> retiredTrackRemovalScratch = new(MaximumPublicTracks);
         private readonly FriendlyMissileIntentCandidate[]
             friendlyMissileIntentCandidates =
                 new FriendlyMissileIntentCandidate[64];
@@ -922,6 +927,9 @@ namespace ACunicombat.Mechs
         private int CopyRawTracks(TrackSnapshot[] destination) =>
             driver != null ? driver.CopyTracks(destination) : 0;
 
+        public bool IsRetiredFriendlyMissileTrack(TrackId trackId) =>
+            trackId.IsValid && retiredFriendlyMissileTracks.ContainsKey(trackId);
+
         public int CopyMissileTracks(MissileTrackSnapshot[] destination)
         {
             if (destination == null || destination.Length == 0 ||
@@ -957,6 +965,7 @@ namespace ACunicombat.Mechs
             }
 
             var trackCount = CopyRawTracks(trackScratch);
+            PruneRetiredFriendlyMissileTracks(trackCount);
             var threatCount = CopyThreats(threatScratch);
             var electroOpticalCount =
                 driver.CopyElectroOpticalObservations(
@@ -998,8 +1007,46 @@ namespace ACunicombat.Mechs
             missileTrackCacheTime = now;
         }
 
+        private void PruneRetiredFriendlyMissileTracks(int trackCount)
+        {
+            retiredTrackRemovalScratch.Clear();
+            foreach (var retiredTrack in retiredFriendlyMissileTracks)
+            {
+                var stillTracked = false;
+                for (var i = 0; i < trackCount; i++)
+                {
+                    if (trackScratch[i].TrackId.Equals(retiredTrack.Key) &&
+                        trackScratch[i].Lifecycle != TrackLifecycle.Dropped)
+                    {
+                        stillTracked = true;
+                        break;
+                    }
+                }
+
+                if (!stillTracked)
+                {
+                    retiredTrackRemovalScratch.Add(retiredTrack.Key);
+                }
+            }
+            foreach (var trackId in retiredTrackRemovalScratch)
+            {
+                retiredFriendlyMissileTracks.Remove(trackId);
+            }
+        }
+
         private void ApplyResolvedMissileIdentity(ref TrackSnapshot track)
         {
+            if (retiredFriendlyMissileTracks.TryGetValue(track.TrackId, out var retiredReport))
+            {
+                track.ObjectClass = TrackObjectClass.Missile;
+                track.MissileRole = retiredReport.MissionRole;
+                track.MissileRoleConfidence = retiredReport.MissionRoleConfidence;
+                track.Affiliation = TrackAffiliation.Friendly;
+                track.IdentityConfidence = 1f;
+                track.SourceMask |= TrackSourceMask.DataLink;
+                return;
+            }
+
             for (var i = 0; i < missileTrackCacheCount; i++)
             {
                 var missileTrack = missileTrackCache[i];
@@ -2868,31 +2915,36 @@ namespace ACunicombat.Mechs
 
         public void UnregisterMissileLinkTerminal(LinkTerminalId terminalId)
         {
-            if (driver == null || !terminalId.IsValid)
+            if (!TryGetOwnedMissileLinkEntity(terminalId, out var linkEntity))
             {
                 return;
             }
 
+            // Only a friendly weapon's local terminal supplies this end-of-life
+            // signal. Enemy sensor contacts still expire through normal tracking.
+            EnsureMissileTrackCache();
+            var index = terminalId.Value.Index;
+            var association = friendlyMissileIdentityAssociations[index];
+            if (association.HasTrack)
+            {
+                retiredFriendlyMissileTracks[association.TrackId] =
+                    friendlyMissileReports[index];
+            }
+            // A final report must not associate with another missile crossing the
+            // old predicted position, or survive reuse of this terminal's slot.
+            friendlyMissileReports[index] = default;
+            friendlyMissileIdentityAssociations[index].Clear();
+            missileTrackCacheTime = double.NaN;
+
             EndGuidanceUplink(terminalId);
             driver.UnregisterLinkTerminal(terminalId);
-            var index = terminalId.Value.Index;
-            if (index >= MissileLinkIndexStart && index < missileLinkAllocated.Length)
+            driver.UnregisterEntity(linkEntity);
+            missileLinkAllocated[index] = false;
+            missileLinkEntities[index] = default;
+            missileLinkGenerations[index]++;
+            if (missileLinkGenerations[index] == 0)
             {
-                if (missileLinkEntities[index].IsValid)
-                {
-                    driver.UnregisterEntity(missileLinkEntities[index]);
-                }
-                missileLinkAllocated[index] = false;
-                missileLinkEntities[index] = default;
-                // Keep the last authenticated association until the sensor track
-                // itself disappears. Otherwise a destroyed friendly missile leaves
-                // a short-lived hostile-looking coast track on the radar display.
-                // Reallocating this terminal slot clears both records below.
-                missileLinkGenerations[index]++;
-                if (missileLinkGenerations[index] == 0)
-                {
-                    missileLinkGenerations[index] = 1;
-                }
+                missileLinkGenerations[index] = 1;
             }
         }
 
@@ -3026,6 +3078,21 @@ namespace ACunicombat.Mechs
                 friendlyMissileTrackMatched,
                 0,
                 friendlyMissileTrackMatched.Length);
+            for (var i = 0; i < missileTrackCacheCount; i++)
+            {
+                if (!retiredFriendlyMissileTracks.TryGetValue(
+                        missileTrackCache[i].TrackId, out var retiredReport))
+                {
+                    continue;
+                }
+
+                // Preserve friendly IFF without offering a spent track to another
+                // missile's association. HUD visibility is handled separately.
+                friendlyMissileTrackMatched[i] = true;
+                MissileTrackFusion.ApplyFriendlyDataLinkIdentity(
+                    ref missileTrackCache[i], 0.0,
+                    retiredReport.MissionRole, retiredReport.MissionRoleConfidence);
+            }
             for (var reportIndex = MissileLinkIndexStart;
                  reportIndex < friendlyMissileReports.Length;
                  reportIndex++)

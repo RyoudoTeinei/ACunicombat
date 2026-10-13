@@ -33,8 +33,8 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0f)] private float shoulderReleaseSeconds = 1.5f;
         [SerializeField, Range(0f, 0.2f)] private float occlusionViewportPadding = 0.025f;
         [Header("Occlusion escape")]
-        // 旧实现只给固定横移。当前约 27.7 m 机距下，机体张角仍接近缩放前的构图；要把远处目标从剪影
-        // 中心推到边缘需要约 20*tan(19 度) = 6.9 m，固定 3 m 不到需要量的一半，必然推不出去。
+        // Horizontal limit is the total shoulder offset; vertical escape is
+        // measured relative to the base camera height.
         [SerializeField, Min(0f)] private float occlusionLateralLimit = 11.790144f;
         // 纵向上限刻意小于横向：抬降镜头对"机体压在画面下方"的基础构图破坏更明显。
         [SerializeField, Min(0f)] private float occlusionVerticalLimit = 6.935379f;
@@ -89,9 +89,15 @@ namespace ACunicombat.Mechs
         private bool aimCursorInitialized;
         private MechRadarController radar;
         private Renderer[] followRenderers = new Renderer[0];
+        private Bounds ownshipLocalBounds;
         private Bounds ownshipWorldBounds;
+        private bool hasOwnshipLocalBounds;
         private bool hasOwnshipWorldBounds;
         private float nextBoundsRefreshTime;
+        private readonly Vector3[] ownshipWorldCorners = new Vector3[8];
+        private readonly Vector3[] ownshipCameraCorners = new Vector3[8];
+        private Vector3 compositionTargetCameraPosition;
+        private Vector2 compositionProjectionScale;
         private Vector3 compositionLocalOffset;
         private Vector3 compositionLocalOffsetVelocity;
         private TrackId compositionTrackId;
@@ -104,16 +110,21 @@ namespace ACunicombat.Mechs
         private int occlusionEscapeAxis = -1;
         private float occlusionEscapeSign = 1f;
         private float occlusionEscapeMeters;
+        private float occlusionEscapeCoordinate;
         private bool occlusionEscapeClamped;
         private float occlusionEscapeSwitchAllowedAt;
-        private float occlusionHoldUntil;
+        private float occlusionSafeSince = float.NaN;
+        private int pendingEscapeAxis = -1;
+        private float pendingEscapeSign;
+        private float pendingEscapeSince;
         private bool freeLookActive;
         private float freeLookYawDegrees;
         private float freeLookPitchDegrees;
         private float freeLookYawVelocity;
         private float freeLookPitchVelocity;
 
-        public float PitchDegrees => pitchDegrees;
+        public float PitchDegrees => motion != null && motion.LocalAttitudeControl
+            ? motion.LogicalPitchDegrees : pitchDegrees;
         public Vector2 AimViewportPoint
         {
             get
@@ -171,12 +182,19 @@ namespace ACunicombat.Mechs
                 (viewportPoint.x - 0.5f) * 2f * halfHeight * aspect,
                 (viewportPoint.y - 0.5f) * 2f * halfHeight,
                 1f).normalized;
-            var origin = followTarget.position + motion.ReferenceUp * focusHeight;
+            var origin = followTarget.position + (motion.LogicalRotation * Vector3.up) * focusHeight;
             return new Ray(origin, aimRotation * localDirection);
         }
 
         public void Configure(Transform target, MechFlightMotionController motionController)
         {
+            if (followTarget != target)
+            {
+                radar = null;
+                followRenderers = System.Array.Empty<Renderer>();
+                hasOwnshipLocalBounds = false;
+                nextBoundsRefreshTime = 0f;
+            }
             followTarget = target;
             motion = motionController;
             if (motion != null)
@@ -233,17 +251,13 @@ namespace ACunicombat.Mechs
             localLagVelocity = Vector3.zero;
             compositionLocalOffset = BaseCompositionOffset();
             compositionLocalOffsetVelocity = Vector3.zero;
-            compositionTrackId = default;
             zoomTrackControlFilter.Reset();
-            compositionTrackControlFilter.Reset();
+            ClearCompositionTarget();
             shoulderBiasUntil = 0f;
-            occlusionEscapeAxis = -1;
-            occlusionEscapeMeters = 0f;
-            occlusionEscapeClamped = false;
-            occlusionHoldUntil = 0f;
-            occlusionEscapeSwitchAllowedAt = 0f;
             fieldOfViewVelocity = 0f;
             ResetFreeLookImmediate();
+            motion.EnableLocalAttitudeControl(pitchDegrees);
+            motion.StopLocalAttitudeInput();
             var rotation = ComputeViewRotation();
             transform.SetPositionAndRotation(
                 ComputePosition(rotation) + rotation * compositionLocalOffset,
@@ -261,13 +275,14 @@ namespace ACunicombat.Mechs
             aimViewportPoint = aimViewportCenter;
             aimCursorInitialized = true;
             ResetFreeLookImmediate();
+            ClearCompositionTarget();
             if (motion == null)
             {
                 return;
             }
 
-            motion.SetAimPitch(0f);
-            motion.SetYawTurnInput(0f);
+            if (!motion.LocalAttitudeControl) motion.SetAimPitch(0f);
+            motion.StopLocalAttitudeInput();
             observedReferenceFrameVersion = motion.ReferenceFrameVersion;
         }
 
@@ -283,9 +298,11 @@ namespace ACunicombat.Mechs
                 MechSystemsRadialMenu.IsAnyMenuVisible)
             {
                 EndFreeLook();
+                motion.StopLocalAttitudeInput();
                 return;
             }
 
+            motion.EnableLocalAttitudeControl(pitchDegrees);
             EnsureAimCursorInitialized();
             if (frame.FreeLookHeld)
             {
@@ -324,14 +341,9 @@ namespace ACunicombat.Mechs
 
             aimViewportPoint =
                 aimViewportCenter + Vector2.Scale(normalizedOffset, extents);
-            motion.SetYawTurnInput(
-                ApplyDeadZone(normalizedOffset.x, aimDeadZone));
-
-            var pitchInput =
-                ApplyDeadZone(normalizedOffset.y, aimDeadZone);
-            pitchDegrees = motion.ConstrainPitchForCurrentMode(
-                pitchDegrees -
-                pitchInput * pitchTurnRateDegrees * Time.unscaledDeltaTime);
+            motion.SetLocalAttitudeInput(
+                ApplyDeadZone(normalizedOffset.x, aimDeadZone),
+                -ApplyDeadZone(normalizedOffset.y, aimDeadZone) * pitchTurnRateDegrees);
         }
 
         private void UpdateFreeLook(in MechPlayerInputFrame frame)
@@ -352,7 +364,7 @@ namespace ACunicombat.Mechs
                 freeLookPitchLimitDegrees);
             freeLookYawVelocity = 0f;
             freeLookPitchVelocity = 0f;
-            motion.SetYawTurnInput(0f);
+            motion.StopLocalAttitudeInput();
         }
 
         private void EndFreeLook()
@@ -363,7 +375,7 @@ namespace ACunicombat.Mechs
             }
 
             freeLookActive = false;
-            motion?.SetYawTurnInput(0f);
+            motion?.StopLocalAttitudeInput();
         }
 
         private void EnsureAimCursorInitialized()
@@ -420,7 +432,7 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            var focusPoint = followTarget.position + motion.ReferenceUp * focusHeight;
+            var focusPoint = followTarget.position + (motion.LogicalRotation * Vector3.up) * focusHeight;
             var direction = StabilizeTrackPosition(
                                 ref zoomTrackControlFilter,
                                 in sttTrack,
@@ -431,8 +443,17 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            var localDirection = Quaternion.Inverse(motion.ReferenceRotation) *
-                direction.normalized;
+            SteerLocallyToward(direction);
+            aimViewportPoint = Vector2.MoveTowards(
+                aimViewportPoint,
+                aimViewportCenter,
+                Time.unscaledDeltaTime * 2.5f);
+            return true;
+        }
+
+        private void SteerLocallyToward(Vector3 direction)
+        {
+            var localDirection = Quaternion.Inverse(motion.LogicalRotation) * direction.normalized;
             var desiredYaw = Mathf.Atan2(localDirection.x, localDirection.z) *
                 Mathf.Rad2Deg;
             var horizontal = Mathf.Sqrt(
@@ -440,22 +461,10 @@ namespace ACunicombat.Mechs
                 localDirection.z * localDirection.z);
             var desiredPitch = -Mathf.Atan2(localDirection.y, horizontal) *
                 Mathf.Rad2Deg;
-            var yawError = Mathf.DeltaAngle(motion.LogicalYawDegrees, desiredYaw);
-            motion.SetYawTurnInput(Mathf.Clamp(
-                yawError / Mathf.Max(1f, zoomTrackingYawCaptureDegrees),
-                -1f,
-                1f));
-            pitchDegrees = motion.ConstrainPitchForCurrentMode(
-                Mathf.MoveTowardsAngle(
-                    pitchDegrees,
-                    desiredPitch,
-                    Mathf.Max(1f, zoomTrackingPitchRateDegrees) *
-                    Time.unscaledDeltaTime));
-            aimViewportPoint = Vector2.MoveTowards(
-                aimViewportPoint,
-                aimViewportCenter,
-                Time.unscaledDeltaTime * 2.5f);
-            return true;
+            motion.SetLocalAttitudeInput(
+                Mathf.Clamp(desiredYaw / Mathf.Max(1f, zoomTrackingYawCaptureDegrees), -1f, 1f),
+                Mathf.Clamp(desiredPitch / 0.2f,
+                    -zoomTrackingPitchRateDegrees, zoomTrackingPitchRateDegrees));
         }
 
         public void Follow(float deltaTime)
@@ -476,14 +485,23 @@ namespace ACunicombat.Mechs
             var desiredPosition = ComputePosition(rotation);
             var targetLag = ComputeTargetLocalLag(rotation);
             SmoothLocalLag(targetLag, deltaTime);
-            var targetComposition = HasFreeLookOffset
-                ? BaseCompositionOffset()
-                : ComputeTargetCompositionOffset();
+            // Projection and the rendered camera must use the same frame's FOV,
+            // rotation and follow position, never last frame's camera transform.
+            UpdateFieldOfView(deltaTime);
+            var targetComposition = BaseCompositionOffset();
+            if (HasFreeLookOffset)
+            {
+                ClearCompositionTarget();
+            }
+            else
+            {
+                targetComposition = ComputeTargetCompositionOffset(
+                    desiredPosition + rotation * localLag, rotation);
+            }
             SmoothCompositionOffset(targetComposition, deltaTime);
             transform.SetPositionAndRotation(
                 desiredPosition + rotation * (localLag + compositionLocalOffset),
                 rotation);
-            UpdateFieldOfView(deltaTime);
         }
 
         public void Tick(in MechPlayerInputFrame frame, float deltaTime)
@@ -497,14 +515,9 @@ namespace ACunicombat.Mechs
 
         private Quaternion ComputeViewRotation()
         {
-            var aimRotation = ComputeAimRotation();
-            var yawedRotation =
-                Quaternion.AngleAxis(freeLookYawDegrees, motion.ReferenceUp) *
-                aimRotation;
-            return Quaternion.AngleAxis(
-                       freeLookPitchDegrees,
-                       yawedRotation * Vector3.right) *
-                   yawedRotation;
+            return ComputeAimRotation() *
+                   Quaternion.AngleAxis(freeLookYawDegrees, Vector3.up) *
+                   Quaternion.AngleAxis(freeLookPitchDegrees, Vector3.right);
         }
 
         private bool HasFreeLookOffset =>
@@ -553,7 +566,7 @@ namespace ACunicombat.Mechs
 
         private Vector3 ComputePosition(Quaternion rotation)
         {
-            var focusPoint = followTarget.position + motion.ReferenceUp * focusHeight;
+            var focusPoint = followTarget.position + (motion.LogicalRotation * Vector3.up) * focusHeight;
             return focusPoint - rotation * Vector3.forward * distance;
         }
 
@@ -570,7 +583,37 @@ namespace ACunicombat.Mechs
                 SoftLimit(requestedLag.z, distance * maxDepthLagRatio));
         }
 
-        private Vector3 ComputeTargetCompositionOffset()
+        private void ResetOcclusionEscape()
+        {
+            occlusionEscapeAxis = -1;
+            occlusionEscapeMeters = 0f;
+            occlusionEscapeCoordinate = 0f;
+            occlusionEscapeClamped = false;
+            occlusionSafeSince = float.NaN;
+            occlusionEscapeSwitchAllowedAt = 0f;
+            pendingEscapeAxis = -1;
+        }
+
+        private void SetCompositionTarget(TrackId trackId)
+        {
+            if (compositionTrackId.Equals(trackId))
+            {
+                return;
+            }
+            compositionTrackId = trackId;
+            compositionTrackControlFilter.Reset();
+            ResetOcclusionEscape();
+        }
+
+        private void ClearCompositionTarget()
+        {
+            compositionTrackId = default;
+            compositionTrackControlFilter.Reset();
+            ResetOcclusionEscape();
+        }
+
+        private Vector3 ComputeTargetCompositionOffset(
+            Vector3 followPosition, Quaternion rotation)
         {
             ResolveCombatReferences();
             var targetOffset = BaseCompositionOffset();
@@ -587,20 +630,11 @@ namespace ACunicombat.Mechs
 
             if (hasStt)
             {
-                if (!sttTrack.TrackId.Equals(compositionTrackId))
-                {
-                    // 换目标时清掉避让状态，避免沿用上一个目标的绕行方向。
-                    compositionTrackId = sttTrack.TrackId;
-                    occlusionEscapeAxis = -1;
-                    occlusionEscapeSwitchAllowedAt = 0f;
-                }
-
                 shoulderBiasUntil = now + Mathf.Max(0.5f, shoulderReleaseSeconds);
                 targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
             }
             else
             {
-                compositionTrackId = default;
                 if (now < shoulderBiasUntil)
                 {
                     targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
@@ -609,27 +643,26 @@ namespace ACunicombat.Mechs
 
             if (!TryResolveOcclusionTarget(hasStt, sttTrack, out var avoidTrack))
             {
-                compositionTrackControlFilter.Reset();
-                occlusionEscapeAxis = -1;
-                occlusionEscapeMeters = 0f;
-                occlusionEscapeClamped = false;
+                ClearCompositionTarget();
                 return targetOffset;
             }
 
+            SetCompositionTarget(avoidTrack.TrackId);
             ApplyOcclusionEscape(
                 StabilizeTrackPosition(
                     ref compositionTrackControlFilter,
                     in avoidTrack,
                     Time.unscaledDeltaTime),
                 now,
+                followPosition,
+                rotation,
                 ref targetOffset);
             return targetOffset;
         }
 
         /// <summary>
         /// 遮挡避让的目标：STT → 准星候选 → 最优航迹兜底。
-        /// 旧实现只认 STT，未锁定时 <c>IsTargetOccludedByOwnship</c> 一次都不会被调用——
-        /// 这是"机体完全盖住目标"最主要的成因。
+        /// 基础肩位只由 STT 决定，避让也可保护未锁定的准星候选或最佳航迹。
         /// </summary>
         private bool TryResolveOcclusionTarget(
             bool hasStt,
@@ -660,142 +693,175 @@ namespace ACunicombat.Mechs
         private void ApplyOcclusionEscape(
             Vector3 targetPosition,
             float now,
+            Vector3 followPosition,
+            Quaternion rotation,
             ref Vector3 targetOffset)
         {
-            var occluded = IsTargetOccludedByOwnship(
-                targetPosition,
+            // Evaluate the intended base/cruise pose, including current velocity
+            // lag but excluding escape. A successful escape must not erase its
+            // own cause and send the camera back into the same obstruction.
+            if (!TryGetOcclusionProjection(
+                targetPosition, followPosition + rotation * targetOffset, rotation,
                 out var targetViewport,
-                out var ownshipRect);
+                out var ownshipRect))
+            {
+                ResetOcclusionEscape();
+                return;
+            }
+
+            var point = new Vector2(targetViewport.x, targetViewport.y);
+            var entryRect = ExpandRect(ownshipRect, occlusionViewportPadding);
+            var exitRect = ExpandRect(entryRect, occlusionEscapeMargin);
+            var occluded = entryRect.Contains(point);
             if (occluded)
             {
-                occlusionHoldUntil = now + Mathf.Max(0.1f, occlusionHoldSeconds);
-                UpdateEscapeDecision(targetViewport, ownshipRect, now);
+                occlusionSafeSince = float.NaN;
+                UpdateEscapeDecision(targetOffset, now);
             }
-            else if (now >= occlusionHoldUntil)
+            else if (occlusionEscapeAxis >= 0 && exitRect.Contains(point))
             {
-                // 目标露出后再保持一小段：剪影边缘附近的目标否则会让镜头反复进出避让状态。
-                occlusionEscapeAxis = -1;
-                occlusionEscapeMeters = 0f;
-                occlusionEscapeClamped = false;
+                // Spatial hysteresis: a target grazing the entry boundary has
+                // not yet made the unescaped composition safe to return to.
+                occlusionSafeSince = float.NaN;
+                pendingEscapeAxis = -1;
+            }
+            else if (occlusionEscapeAxis >= 0)
+            {
+                pendingEscapeAxis = -1;
+                if (float.IsNaN(occlusionSafeSince)) occlusionSafeSince = now;
+                if (now - occlusionSafeSince >= Mathf.Max(0.1f, occlusionHoldSeconds))
+                    ResetOcclusionEscape();
             }
 
             if (occlusionEscapeAxis == 0)
             {
-                // 与巡航肩位同轴：取两者中较大的位移，避免叠加成两倍。
-                targetOffset.x = occlusionEscapeSign * Mathf.Max(
-                    Mathf.Abs(targetOffset.x),
-                    occlusionEscapeMeters);
-                shoulderSign = occlusionEscapeSign;
+                // Hold the solved absolute coordinate if the same target enters
+                // or leaves STT during release hysteresis; do not add the new
+                // cruise shoulder a second time to an old relative displacement.
+                var limit = Mathf.Max(Mathf.Abs(targetOffset.x), occlusionLateralLimit);
+                targetOffset.x = Mathf.Clamp(occlusionEscapeCoordinate, -limit, limit);
             }
             else if (occlusionEscapeAxis == 1)
             {
-                targetOffset.y += occlusionEscapeSign * occlusionEscapeMeters;
+                targetOffset.y = Mathf.Clamp(occlusionEscapeCoordinate,
+                    targetOffset.y - occlusionVerticalLimit, targetOffset.y + occlusionVerticalLimit);
             }
 
-            // 单独后撤解决不了遮挡（机体与目标同时缩小、屏幕相对位置不变），但位移已经顶到
-            // 上限仍未露出时，后撤能减小剪影角宽度从而降低所需位移，作为辅助是有意义的。
-            if (occluded && occlusionEscapeClamped)
+            if (occlusionEscapeAxis >= 0 && occlusionEscapeClamped)
             {
                 targetOffset.z -= sttOcclusionPullback;
             }
         }
 
         /// <summary>
-        /// 闭环选路：把目标推出剪影所需的视口位移换算成相机位移，在左/右/上/下四个方向里
-        /// 取代价最小的一个。相机只平移不转向，而机体在当前跟随距离、目标在数公里外，视差使得
-        /// 横移主要移动机体、几乎不移动目标——这正是位移能分离两者的原因。
+        /// Solve displacement from the stable reference pose. Perspective depth
+        /// of both the ownship corners and the target contributes to parallax.
         /// </summary>
         private void UpdateEscapeDecision(
-            Vector3 targetViewport,
-            Rect ownshipRect,
+            Vector3 baseOffset,
             float now)
         {
-            if (!TryGetViewportScale(out var lateralPerViewport, out var verticalPerViewport))
-            {
-                return;
-            }
-
-            var margin = occlusionEscapeMargin;
-            // 相机 +x 使近处的机体在画面上左移，所以"把机体推到目标左侧"对应 sign = +1。
-            var pushLeft = (ownshipRect.xMax - targetViewport.x + margin) * lateralPerViewport;
-            var pushRight = (targetViewport.x - ownshipRect.xMin + margin) * lateralPerViewport;
-            var pushDown = (ownshipRect.yMax - targetViewport.y + margin) * verticalPerViewport;
-            var pushUp = (targetViewport.y - ownshipRect.yMin + margin) * verticalPerViewport;
-
-            var bestAxis = 0;
+            var bestAxis = -1;
             var bestSign = 1f;
-            var bestCost = pushLeft;
-            if (pushRight < bestCost)
+            var bestCost = float.PositiveInfinity;
+            var bestFits = false;
+            for (var axis = 0; axis < 2; axis++)
             {
-                bestAxis = 0;
-                bestSign = -1f;
-                bestCost = pushRight;
-            }
-            if (pushDown < bestCost)
-            {
-                bestAxis = 1;
-                bestSign = 1f;
-                bestCost = pushDown;
-            }
-            if (pushUp < bestCost)
-            {
-                bestAxis = 1;
-                bestSign = -1f;
-                bestCost = pushUp;
-            }
-
-            // 迟滞：同轴同向时允许连续跟随重叠深度调整（这才是"闭环"）；换边/换轴需要新方案
-            // 明显更省且冷却已过。旧实现用的是 2.5 s 硬锁，目标横穿剪影时会一直被挡住。
-            if (occlusionEscapeAxis >= 0)
-            {
-                var currentCost = ResolveEscapeCost(
-                    occlusionEscapeAxis,
-                    occlusionEscapeSign,
-                    pushLeft,
-                    pushRight,
-                    pushDown,
-                    pushUp);
-                var sameChoice =
-                    occlusionEscapeAxis == bestAxis &&
-                    Mathf.Approximately(occlusionEscapeSign, bestSign);
-                if (!sameChoice)
+                for (var direction = 0; direction < 2; direction++)
                 {
-                    var cheaperByMargin = bestCost + occlusionEscapeSwitchMargin < currentCost;
-                    if (!cheaperByMargin || now < occlusionEscapeSwitchAllowedAt)
+                    var sign = direction == 0 ? 1f : -1f;
+                    var cost = ComputeEscapeDistance(axis, sign);
+                    var limit = EscapeLimit(axis, sign, baseOffset);
+                    if (limit <= 0f || !float.IsFinite(cost)) continue;
+                    var fits = cost <= limit;
+                    if (bestAxis < 0 || (fits && !bestFits) ||
+                        (fits == bestFits && cost < bestCost))
                     {
-                        bestAxis = occlusionEscapeAxis;
-                        bestSign = occlusionEscapeSign;
-                        bestCost = currentCost;
-                    }
-                    else
-                    {
-                        occlusionEscapeSwitchAllowedAt =
-                            now + Mathf.Max(0f, occlusionEscapeSwitchCooldown);
+                        bestAxis = axis;
+                        bestSign = sign;
+                        bestCost = cost;
+                        bestFits = fits;
                     }
                 }
             }
-
-            var limit = bestAxis == 0 ? occlusionLateralLimit : occlusionVerticalLimit;
-            occlusionEscapeClamped = bestCost > limit;
-            occlusionEscapeAxis = bestAxis;
-            occlusionEscapeSign = bestSign;
-            occlusionEscapeMeters = Mathf.Min(Mathf.Max(0f, bestCost), limit);
-        }
-
-        private static float ResolveEscapeCost(
-            int axis,
-            float sign,
-            float pushLeft,
-            float pushRight,
-            float pushDown,
-            float pushUp)
-        {
-            if (axis == 0)
+            if (bestAxis < 0)
             {
-                return sign >= 0f ? pushLeft : pushRight;
+                ResetOcclusionEscape();
+                return;
             }
 
-            return sign >= 0f ? pushDown : pushUp;
+            var sameChoice = occlusionEscapeAxis == bestAxis &&
+                             occlusionEscapeSign == bestSign;
+            if (occlusionEscapeAxis >= 0 && !sameChoice)
+            {
+                var currentCost = ComputeEscapeDistance(occlusionEscapeAxis, occlusionEscapeSign);
+                var currentLimit = EscapeLimit(occlusionEscapeAxis, occlusionEscapeSign, baseOffset);
+                var currentFits = currentCost <= currentLimit;
+                var materiallyBetter = (bestFits && !currentFits) ||
+                    (bestFits == currentFits &&
+                     bestCost + occlusionEscapeSwitchMargin < currentCost);
+                if (materiallyBetter)
+                {
+                    if (pendingEscapeAxis != bestAxis || pendingEscapeSign != bestSign)
+                    {
+                        pendingEscapeAxis = bestAxis;
+                        pendingEscapeSign = bestSign;
+                        pendingEscapeSince = now;
+                    }
+                }
+                else
+                {
+                    pendingEscapeAxis = -1;
+                }
+                if (!materiallyBetter || now < occlusionEscapeSwitchAllowedAt ||
+                    now - pendingEscapeSince < occlusionEscapeSwitchCooldown)
+                {
+                    bestAxis = occlusionEscapeAxis;
+                    bestSign = occlusionEscapeSign;
+                    bestCost = currentCost;
+                }
+            }
+            else
+            {
+                pendingEscapeAxis = -1;
+            }
+
+            if (occlusionEscapeAxis != bestAxis || occlusionEscapeSign != bestSign)
+            {
+                occlusionEscapeSwitchAllowedAt = now + occlusionEscapeSwitchCooldown;
+                pendingEscapeAxis = -1;
+            }
+            var finalLimit = EscapeLimit(bestAxis, bestSign, baseOffset);
+            occlusionEscapeClamped = bestCost > finalLimit;
+            occlusionEscapeAxis = bestAxis;
+            occlusionEscapeSign = bestSign;
+            occlusionEscapeMeters = Mathf.Clamp(bestCost, 0f, finalLimit);
+            occlusionEscapeCoordinate = baseOffset[bestAxis] + bestSign * occlusionEscapeMeters;
+        }
+
+        private float EscapeLimit(int axis, float sign, Vector3 baseOffset)
+        {
+            return axis == 0
+                ? Mathf.Max(0f, Mathf.Max(Mathf.Abs(baseOffset.x), occlusionLateralLimit) - sign * baseOffset.x)
+                : Mathf.Max(0f, occlusionVerticalLimit);
+        }
+
+        private float ComputeEscapeDistance(int axis, float sign)
+        {
+            var target = compositionTargetCameraPosition;
+            var targetSlope = target[axis] / target.z;
+            var marginSlope = (occlusionViewportPadding + occlusionEscapeMargin) *
+                              compositionProjectionScale[axis];
+            var required = 0f;
+            for (var i = 0; i < ownshipCameraCorners.Length; i++)
+            {
+                var corner = ownshipCameraCorners[i];
+                var parallax = 1f / corner.z - 1f / target.z;
+                if (parallax <= 0.000001f) return float.PositiveInfinity;
+                var offset = (sign * (corner[axis] / corner.z - targetSlope) + marginSlope) / parallax;
+                required = Mathf.Max(required, offset);
+            }
+            return required;
         }
 
         private Vector3 StabilizeTrackPosition(
@@ -815,35 +881,6 @@ namespace ACunicombat.Mechs
                 trackedPositionSmoothingSeconds,
                 trackedVelocitySmoothingSeconds,
                 maximumTrackCorrectionSpeed);
-        }
-
-        /// <summary>
-        /// 一个完整视口跨度在机体所在深度上对应多少米。视口位移必须按<b>机体</b>的距离换算，
-        /// 因为要移动的是机体在画面上的位置，目标在数公里外基本不动。
-        /// </summary>
-        private bool TryGetViewportScale(
-            out float lateralPerViewport,
-            out float verticalPerViewport)
-        {
-            lateralPerViewport = 0f;
-            verticalPerViewport = 0f;
-            if (controlledCamera == null || !hasOwnshipWorldBounds)
-            {
-                return false;
-            }
-
-            var ownshipDistance = Vector3.Distance(
-                transform.position,
-                ownshipWorldBounds.center);
-            if (ownshipDistance <= 0.01f)
-            {
-                return false;
-            }
-
-            var halfFovRadians = controlledCamera.fieldOfView * 0.5f * Mathf.Deg2Rad;
-            verticalPerViewport = 2f * Mathf.Tan(halfFovRadians) * ownshipDistance;
-            lateralPerViewport = verticalPerViewport * Mathf.Max(0.1f, controlledCamera.aspect);
-            return verticalPerViewport > 0.0001f;
         }
 
         private Vector3 BaseCompositionOffset() =>
@@ -875,8 +912,10 @@ namespace ACunicombat.Mechs
                 deltaTime);
         }
 
-        private bool IsTargetOccludedByOwnship(
+        private bool TryGetOcclusionProjection(
             Vector3 targetPosition,
+            Vector3 referencePosition,
+            Quaternion referenceRotation,
             out Vector3 targetViewport,
             out Rect ownshipRect)
         {
@@ -889,60 +928,41 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            targetViewport = controlledCamera.WorldToViewportPoint(targetPosition);
-            var ownshipCenterViewport =
-                controlledCamera.WorldToViewportPoint(ownshipWorldBounds.center);
-            if (targetViewport.z <= 0f ||
-                ownshipCenterViewport.z <= 0f ||
-                targetViewport.z <= ownshipCenterViewport.z ||
-                !TryProjectBoundsToViewport(ownshipWorldBounds, out ownshipRect))
+            var inverseRotation = Quaternion.Inverse(referenceRotation);
+            compositionTargetCameraPosition = inverseRotation * (targetPosition - referencePosition);
+            if (!IsFinite(compositionTargetCameraPosition) || compositionTargetCameraPosition.z <= 0.01f)
             {
                 return false;
             }
-
-            ownshipRect.xMin -= occlusionViewportPadding;
-            ownshipRect.xMax += occlusionViewportPadding;
-            ownshipRect.yMin -= occlusionViewportPadding;
-            ownshipRect.yMax += occlusionViewportPadding;
-            return ownshipRect.Contains(new Vector2(targetViewport.x, targetViewport.y));
-        }
-
-        private bool TryProjectBoundsToViewport(Bounds bounds, out Rect viewportRect)
-        {
-            viewportRect = default;
+            var heightPerDepth = 2f * Mathf.Tan(controlledCamera.fieldOfView * 0.5f * Mathf.Deg2Rad);
+            compositionProjectionScale = new Vector2(
+                heightPerDepth * Mathf.Max(0.1f, controlledCamera.aspect), heightPerDepth);
+            targetViewport = ProjectCameraPoint(compositionTargetCameraPosition);
             var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
             var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
-            var projectedCorners = 0;
-            for (var x = -1; x <= 1; x += 2)
+            for (var i = 0; i < ownshipWorldCorners.Length; i++)
             {
-                for (var y = -1; y <= 1; y += 2)
-                {
-                    for (var z = -1; z <= 1; z += 2)
-                    {
-                        var corner = bounds.center + Vector3.Scale(
-                            bounds.extents,
-                            new Vector3(x, y, z));
-                        var viewport = controlledCamera.WorldToViewportPoint(corner);
-                        if (viewport.z <= 0f)
-                        {
-                            continue;
-                        }
-
-                        min = Vector2.Min(min, viewport);
-                        max = Vector2.Max(max, viewport);
-                        projectedCorners++;
-                    }
-                }
+                var corner = inverseRotation * (ownshipWorldCorners[i] - referencePosition);
+                // An overlapping/behind-camera target has no well-defined
+                // foreground/background escape. Avoid commanding an extreme jump.
+                if (corner.z <= 0.01f || compositionTargetCameraPosition.z <= corner.z + 0.01f)
+                    return false;
+                ownshipCameraCorners[i] = corner;
+                var viewport = ProjectCameraPoint(corner);
+                min = Vector2.Min(min, viewport);
+                max = Vector2.Max(max, viewport);
             }
-
-            if (projectedCorners == 0)
-            {
-                return false;
-            }
-
-            viewportRect = Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+            ownshipRect = Rect.MinMaxRect(min.x, min.y, max.x, max.y);
             return true;
         }
+
+        private Vector3 ProjectCameraPoint(Vector3 point) =>
+            new Vector3(0.5f + point.x / (point.z * compositionProjectionScale.x),
+                        0.5f + point.y / (point.z * compositionProjectionScale.y), point.z);
+
+        private static Rect ExpandRect(Rect rect, float padding) =>
+            Rect.MinMaxRect(rect.xMin - padding, rect.yMin - padding,
+                           rect.xMax + padding, rect.yMax + padding);
 
         private void ResolveCombatReferences()
         {
@@ -965,16 +985,38 @@ namespace ACunicombat.Mechs
 
         private void RefreshOwnshipBounds()
         {
-            if (Time.unscaledTime < nextBoundsRefreshTime)
+            if (followTarget == null)
             {
+                hasOwnshipWorldBounds = false;
                 return;
             }
 
-            nextBoundsRefreshTime =
-                Time.unscaledTime + Mathf.Max(0.02f, rendererBoundsRefreshSeconds);
-            hasOwnshipWorldBounds = false;
+            if (!hasOwnshipLocalBounds || Time.unscaledTime >= nextBoundsRefreshTime)
+            {
+                RefreshOwnshipLocalBounds();
+            }
+            // Cache shape, never world position: the proxy follows translation,
+            // rotation and scale every frame, even between shape refreshes.
+            for (var i = 0; i < ownshipWorldCorners.Length; i++)
+            {
+                var corner = followTarget.TransformPoint(BoundsCorner(ownshipLocalBounds, i));
+                ownshipWorldCorners[i] = corner;
+                if (i == 0) ownshipWorldBounds = new Bounds(corner, Vector3.zero);
+                else ownshipWorldBounds.Encapsulate(corner);
+            }
+            hasOwnshipWorldBounds = hasOwnshipLocalBounds;
+        }
+
+        private void RefreshOwnshipLocalBounds()
+        {
+            nextBoundsRefreshTime = Time.unscaledTime + Mathf.Max(0.02f, rendererBoundsRefreshSeconds);
+            // Refresh the renderer list as well so rebuilding a loadout cannot
+            // leave the camera measuring destroyed renderers indefinitely.
+            followRenderers = followTarget.GetComponentsInChildren<Renderer>(true);
+            hasOwnshipLocalBounds = false;
             var maximumRendererRadius = Mathf.Max(12f, distance * 2f);
             var maximumCenterDistance = Mathf.Max(12f, distance * 1.5f);
+            var rootFromWorld = followTarget.worldToLocalMatrix;
             for (var i = 0; i < followRenderers.Length; i++)
             {
                 var renderer = followRenderers[i];
@@ -988,41 +1030,54 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                var rendererBounds = renderer.bounds;
-                if (!IsFinite(rendererBounds.center) ||
-                    !IsFinite(rendererBounds.extents) ||
-                    rendererBounds.extents.magnitude > maximumRendererRadius ||
-                    Vector3.Distance(rendererBounds.center, followTarget.position) >
-                    maximumCenterDistance)
+                var localBounds = renderer.localBounds;
+                var worldFromRenderer = renderer.localToWorldMatrix;
+                var worldCenter = worldFromRenderer.MultiplyPoint3x4(localBounds.center);
+                var worldRadius = Mathf.Sqrt(
+                    worldFromRenderer.MultiplyVector(Vector3.right * localBounds.extents.x).sqrMagnitude +
+                    worldFromRenderer.MultiplyVector(Vector3.up * localBounds.extents.y).sqrMagnitude +
+                    worldFromRenderer.MultiplyVector(Vector3.forward * localBounds.extents.z).sqrMagnitude);
+                if (!IsFinite(worldCenter) || !IsFinite(localBounds.extents) ||
+                    !float.IsFinite(worldRadius) || worldRadius > maximumRendererRadius ||
+                    Vector3.Distance(worldCenter, followTarget.position) > maximumCenterDistance)
                 {
                     continue;
                 }
 
-                if (!hasOwnshipWorldBounds)
+                var rootFromRenderer = rootFromWorld * worldFromRenderer;
+                for (var cornerIndex = 0; cornerIndex < 8; cornerIndex++)
                 {
-                    ownshipWorldBounds = rendererBounds;
-                    hasOwnshipWorldBounds = true;
-                }
-                else
-                {
-                    ownshipWorldBounds.Encapsulate(rendererBounds);
+                    var corner = rootFromRenderer.MultiplyPoint3x4(BoundsCorner(localBounds, cornerIndex));
+                    if (!hasOwnshipLocalBounds)
+                    {
+                        ownshipLocalBounds = new Bounds(corner, Vector3.zero);
+                        hasOwnshipLocalBounds = true;
+                    }
+                    else ownshipLocalBounds.Encapsulate(corner);
                 }
             }
 
-            if (!hasOwnshipWorldBounds)
+            if (!hasOwnshipLocalBounds)
             {
                 var fallbackSize = new Vector3(
                     Mathf.Max(1f, fallbackOwnshipBoundsSize.x),
                     Mathf.Max(1f, fallbackOwnshipBoundsSize.y),
                     Mathf.Max(1f, fallbackOwnshipBoundsSize.z));
-                ownshipWorldBounds = new Bounds(
-                    followTarget.position +
-                    (motion != null ? motion.ReferenceUp : Vector3.up) *
-                    (fallbackSize.y * 0.5f),
-                    fallbackSize);
-                hasOwnshipWorldBounds = true;
+                var scale = followTarget.lossyScale;
+                var localSize = new Vector3(
+                    fallbackSize.x / Mathf.Max(0.0001f, Mathf.Abs(scale.x)),
+                    fallbackSize.y / Mathf.Max(0.0001f, Mathf.Abs(scale.y)),
+                    fallbackSize.z / Mathf.Max(0.0001f, Mathf.Abs(scale.z)));
+                ownshipLocalBounds = new Bounds(Vector3.up * (localSize.y * 0.5f), localSize);
+                hasOwnshipLocalBounds = true;
             }
         }
+
+        private static Vector3 BoundsCorner(Bounds bounds, int index) =>
+            bounds.center + Vector3.Scale(bounds.extents,
+                new Vector3((index & 1) == 0 ? -1f : 1f,
+                            (index & 2) == 0 ? -1f : 1f,
+                            (index & 4) == 0 ? -1f : 1f));
 
         private static bool IsFinite(Vector3 value) =>
             !float.IsNaN(value.x) &&

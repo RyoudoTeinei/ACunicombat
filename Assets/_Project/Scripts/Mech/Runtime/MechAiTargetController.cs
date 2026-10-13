@@ -38,6 +38,10 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0.02f)] private float targetPositionSmoothingSeconds = 0.28f;
         [SerializeField, Min(0.02f)] private float targetVelocitySmoothingSeconds = 0.4f;
         [SerializeField, Min(1f)] private float maximumTrackCorrectionSpeed = 180f;
+        [Header("Spatial maneuvering")]
+        [SerializeField, Min(0.5f)] private float maximumManeuverAcceleration = 30f;
+        [SerializeField, Min(0.2f)] private float maneuverVelocityResponseSeconds = 1.5f;
+        [SerializeField, Min(0.1f)] private float lostTrackSearchMemorySeconds = 4f;
         [Header("Passive search cue")]
         [SerializeField, Min(0.2f)] private float passiveCueMemorySeconds = 3f;
         [SerializeField, Min(0.1f)] private float passiveCueRadarHoldSeconds = 0.65f;
@@ -62,7 +66,6 @@ namespace ACunicombat.Mechs
         private MechPlayerInputAdapter input;
         private MechPlayerRig rig;
         private MechFlightMotionController motion;
-        private MechRuntimeState runtimeState;
         private MechRadarController radar;
         private MechTestRadarEmitter radarEmitter;
         private MechTestWeaponSystem weapons;
@@ -75,11 +78,13 @@ namespace ACunicombat.Mechs
         private float nextInterceptorTime;
         private float nextInterceptorRadarSweepTime;
         private float nextDefensiveQuickBoostTime;
-        private float nextOrbitDirectionChangeTime;
-        private float nextVerticalManeuverChangeTime;
         private float lastThreatSeenTime = float.NegativeInfinity;
-        private float orbitDirection = 1f;
-        private float verticalManeuverSign = 1f;
+        private Vector3 orbitTangent;
+        private TrackId maneuverTrackId;
+        private bool urgentBraking;
+        private float lastTrackedTime = float.NegativeInfinity;
+        private Vector3 lastTrackedPosition;
+        private Vector3 lastTrackedVelocity;
         private float defensiveDodgeSign = 1f;
         private bool incomingThreat;
         private float incomingThreatTime = float.PositiveInfinity;
@@ -165,7 +170,6 @@ namespace ACunicombat.Mechs
             input = GetComponent<MechPlayerInputAdapter>();
             rig = GetComponent<MechPlayerRig>();
             motion = GetComponent<MechFlightMotionController>();
-            runtimeState = GetComponent<MechRuntimeState>();
             radar = GetComponent<MechRadarController>();
             if (radar != null)
             {
@@ -202,8 +206,6 @@ namespace ACunicombat.Mechs
             }
             nextInterceptorTime = Time.time + 1f;
             nextInterceptorRadarSweepTime = Time.time;
-            nextOrbitDirectionChangeTime = Time.time + Random.Range(3.5f, 6.5f);
-            nextVerticalManeuverChangeTime = Time.time + Random.Range(2.5f, 4.5f);
         }
 
         private void Start()
@@ -226,6 +228,8 @@ namespace ACunicombat.Mechs
         private void OnDisable()
         {
             input?.SubmitExternalFrame(default);
+            motion?.SetYawTurnInput(0f);
+            if (motion != null) motion.SetAimPitch(motion.LogicalPitchDegrees);
             combatState = CombatState.Disabled;
         }
 
@@ -278,6 +282,8 @@ namespace ACunicombat.Mechs
         {
             if (input == null || motion == null || objective == null)
             {
+                input?.SubmitExternalFrame(default);
+                motion?.SetYawTurnInput(0f);
                 return;
             }
 
@@ -286,6 +292,8 @@ namespace ACunicombat.Mechs
             {
                 combatState = CombatState.Disabled;
                 input.SubmitExternalFrame(default);
+                motion.SetYawTurnInput(0f);
+                motion.SetAimPitch(motion.LogicalPitchDegrees);
                 return;
             }
 
@@ -299,6 +307,8 @@ namespace ACunicombat.Mechs
                     : CombatState.Search;
                 var hasBearingCue = TryGetPassiveAirSearchCue(
                     out var searchDirection);
+                if (!hasBearingCue)
+                    hasBearingCue = TryGetLastTrackSearchDirection(out searchDirection);
                 if (!hasBearingCue)
                 {
                     searchDirection = GetSearchDirection();
@@ -336,10 +346,19 @@ namespace ACunicombat.Mechs
             var range = toTarget.magnitude;
             if (range <= 0.01f)
             {
+                input.SubmitExternalFrame(default);
                 return;
             }
 
             var direction = toTarget / range;
+            lastTrackedPosition = estimatedPosition;
+            lastTrackedVelocity = targetControlFilter.Velocity;
+            lastTrackedTime = Time.time;
+            if (!maneuverTrackId.Equals(targetTrack.TrackId))
+            {
+                maneuverTrackId = targetTrack.TrackId;
+                orbitTangent = Vector3.ProjectOnPlane(motion.Velocity - lastTrackedVelocity, direction);
+            }
             UpdateSensorCamera(direction);
             var weaponCount = CopyOffensiveWeaponStatuses();
             var doctrine = MechAiRulePlanner.ResolveCombatDoctrine(
@@ -735,8 +754,28 @@ namespace ACunicombat.Mechs
 
         private void CommandSearchAttitude()
         {
-            motion.SetYawTurnInput(Mathf.Sin(Time.time * 0.38f) * 0.42f);
-            motion.SetAimPitch(Mathf.Sin(Time.time * 0.27f) * 12f);
+            // Continue sweeping azimuth while covering high elevations, instead
+            // of repeatedly searching the same narrow strip around the horizon.
+            motion.SetYawTurnInput(0.18f);
+            motion.SetAimPitch(Mathf.Sin(Time.time * 0.23f) * 75f);
+        }
+
+        private bool TryGetLastTrackSearchDirection(out Vector3 direction)
+        {
+            var age = Time.time - lastTrackedTime;
+            direction = Vector3.zero;
+            if (age < 0f || age > lostTrackSearchMemorySeconds) return false;
+            var predicted = lastTrackedPosition + lastTrackedVelocity * Mathf.Min(age, 3f);
+            var relative = predicted - transform.position;
+            if (relative.sqrMagnitude < 0.0001f) return false;
+            var center = relative.normalized;
+            var tangent = MechAiRulePlanner.ResolveOrbitTangent(center, orbitTangent, motion.ReferenceUp);
+            var bitangent = Vector3.Cross(center, tangent).normalized;
+            var phase = age * Mathf.PI * 2f / Mathf.Max(1f, lateralWeavePeriodSeconds);
+            var sweep = Mathf.Tan(Mathf.Lerp(2f, 28f,
+                Mathf.Clamp01(age / lostTrackSearchMemorySeconds)) * Mathf.Deg2Rad);
+            direction = (center + (tangent * Mathf.Cos(phase) + bitangent * Mathf.Sin(phase)) * sweep).normalized;
+            return true;
         }
 
         private MechPlayerInputFrame BuildSearchFrame()
@@ -973,110 +1012,42 @@ namespace ACunicombat.Mechs
             in MechAiCombatDoctrine doctrine,
             out Vector3 maneuverDirection)
         {
-            var engagementBand = doctrine.EngagementBand;
-            var referenceUp = motion.ReferenceUp;
-            var radial = Vector3.ProjectOnPlane(
-                directionToTarget,
-                referenceUp).normalized;
-            if (radial.sqrMagnitude <= 0.0001f)
-            {
-                radial = motion.LogicalRotation * Vector3.forward;
-            }
-
-            if (Time.time >= nextOrbitDirectionChangeTime)
-            {
-                orbitDirection = -orbitDirection;
-                nextOrbitDirectionChangeTime = Time.time +
-                    Mathf.Max(2.5f, lateralWeavePeriodSeconds) *
-                    Random.Range(0.8f, 1.35f);
-            }
-            if (Time.time >= nextVerticalManeuverChangeTime)
-            {
-                verticalManeuverSign = Random.value < 0.5f ? -1f : 1f;
-                nextVerticalManeuverChangeTime = Time.time +
-                    Random.Range(2.4f, 4.8f);
-            }
-
-            var maneuverSign = state == CombatState.Defensive
-                ? defensiveDodgeSign
-                : orbitDirection;
-            var tangent = Vector3.Cross(referenceUp, radial).normalized *
-                          maneuverSign;
-            var rangeError = range - engagementBand.PreferredRangeMeters;
-            var radialSpeed = state switch
-            {
-                CombatState.Intercept => Mathf.Clamp(
-                    150f +
-                    (range - engagementBand.MaximumRangeMeters) * 0.06f,
-                    150f,
-                    320f),
-                CombatState.Extend => -Mathf.Clamp(
-                    150f +
-                    (engagementBand.MinimumRangeMeters - range) * 0.08f,
-                    150f,
-                    280f),
-                CombatState.Defensive => -80f,
-                _ => Mathf.Clamp(rangeError * 0.08f, -170f, 170f),
-            };
-            var tangentSpeed = state switch
-            {
-                CombatState.Intercept => doctrine.OrbitSpeedMetersPerSecond * 0.25f,
-                CombatState.Extend => doctrine.OrbitSpeedMetersPerSecond * 0.45f,
-                CombatState.Defensive => doctrine.OrbitSpeedMetersPerSecond * 1.35f,
-                _ => doctrine.OrbitSpeedMetersPerSecond,
-            };
-            var targetPlanarVelocity = Vector3.ProjectOnPlane(
-                targetVelocity,
-                referenceUp);
-            var desiredPlanarVelocity = targetPlanarVelocity +
-                                        radial * radialSpeed +
-                                        tangent * tangentSpeed;
-            var ownPlanarVelocity = Vector3.ProjectOnPlane(
-                motion.Velocity,
-                referenceUp);
-            var velocityError = desiredPlanarVelocity - ownPlanarVelocity;
-            maneuverDirection = velocityError.sqrMagnitude > 0.01f
-                ? velocityError.normalized
-                : radial;
-
-            var localManeuver = Quaternion.Inverse(motion.LogicalRotation) *
-                                maneuverDirection;
-            var availableAcceleration = Mathf.Max(
-                0.5f,
-                motion.GetAvailableDirectionalAcceleration(maneuverDirection));
-            var commandMagnitude = Mathf.Clamp01(
-                velocityError.magnitude /
-                Mathf.Max(25f, availableAcceleration * 2.2f));
-            var planarLocal = new Vector2(
-                localManeuver.x,
-                localManeuver.z);
-            if (planarLocal.sqrMagnitude > 1f)
-            {
-                planarLocal.Normalize();
-            }
-            planarLocal *= commandMagnitude;
-
+            var radial = directionToTarget.normalized;
+            orbitTangent = MechAiRulePlanner.ResolveOrbitTangent(radial, orbitTangent, motion.ReferenceUp);
             var defensive = state == CombatState.Defensive;
+            var tangent = defensive ? orbitTangent * defensiveDodgeSign : orbitTangent;
+            var acceleration = MechAiRulePlanner.CalculateSpatialAcceleration(
+                radial * range, targetVelocity - motion.Velocity, tangent, state, in doctrine,
+                motion.EstimateTranslationAcceleration(radial),
+                motion.EstimateTranslationAcceleration(-radial),
+                maximumManeuverAcceleration, maneuverVelocityResponseSeconds, out urgentBraking);
+            if (motion.Grounded)
+            {
+                // Air combat must first leave the launch platform. The allocator
+                // still decides whether the installed nozzles can supply lift.
+                var climb = Vector3.Dot(acceleration, motion.ReferenceUp);
+                acceleration += motion.ReferenceUp * Mathf.Max(0f, 3f - climb);
+                acceleration = Vector3.ClampMagnitude(acceleration, maximumManeuverAcceleration);
+            }
+            maneuverDirection = acceleration.sqrMagnitude > 0.01f ? acceleration.normalized : radial;
+            var localCommand = Quaternion.Inverse(motion.LogicalRotation) * acceleration /
+                               Mathf.Max(1f, maximumManeuverAcceleration);
             var quickBoost = defensive &&
                              motion.CanQuickBoost &&
+                             motion.ManeuverEnergyNormalized > 0.35f &&
                              Time.time >= nextDefensiveQuickBoostTime;
             if (quickBoost)
             {
                 nextDefensiveQuickBoostTime =
                     Time.time + defensiveQuickBoostCooldownSeconds;
             }
-            var useVerticalThrust = state == CombatState.Engage || defensive;
-            var desiredRelativeVerticalSpeed = useVerticalThrust
-                ? verticalManeuverSign * (defensive ? 95f : 45f)
-                : 0f;
-            var verticalVelocityError =
-                Vector3.Dot(targetVelocity - motion.Velocity, referenceUp) +
-                desiredRelativeVerticalSpeed;
             return new MechPlayerInputFrame
             {
-                MoveLocal = planarLocal,
-                RiseHeld = useVerticalThrust && verticalVelocityError > 8f,
-                DescendHeld = useVerticalThrust && verticalVelocityError < -8f,
+                HasAutonomousFlightCommand = true,
+                AutonomousAccelerationWorld = acceleration,
+                MoveLocal = new Vector2(localCommand.x, localCommand.z),
+                RiseHeld = motion.Grounded || localCommand.y > 0.05f,
+                DescendHeld = !motion.Grounded && localCommand.y < -0.05f,
                 QuickBoostEdge = quickBoost,
                 BrakeHeld = false,
             };
@@ -1093,57 +1064,36 @@ namespace ACunicombat.Mechs
                 return directionToTarget;
             }
 
-            if (state == CombatState.Defensive || state == CombatState.Extend)
+            if (urgentBraking || (state == CombatState.Defensive && incomingThreatTime < 3f))
             {
                 return maneuverDirection;
-            }
-            if (state == CombatState.Intercept)
-            {
-                return Vector3.Slerp(
-                    directionToTarget,
-                    maneuverDirection,
-                    0.72f).normalized;
             }
             if (weaponReady)
             {
                 return directionToTarget;
             }
 
-            var stats = runtimeState != null
-                ? runtimeState.AggregatedStats
-                : null;
-            var mainAdvantage = stats != null
-                ? stats.mainAccelerationMps2 /
-                  Mathf.Max(0.1f, stats.lateralAccelerationMps2)
-                : 1f;
-            var maneuverWeight = Mathf.InverseLerp(1.05f, 2.2f, mainAdvantage);
-            return Vector3.Slerp(
-                directionToTarget,
-                maneuverDirection,
-                maneuverWeight).normalized;
+            if (state == CombatState.Extend) return maneuverDirection;
+            // Keep a searchable forward view while repositioning/reloading.
+            return Vector3.RotateTowards(directionToTarget, maneuverDirection,
+                20f * Mathf.Deg2Rad, 0f).normalized;
         }
 
         private void CommandAttitude(Vector3 direction)
         {
-            var referenceUp = motion.ReferenceUp;
-            var flatDirection =
-                Vector3.ProjectOnPlane(direction, referenceUp);
-            if (flatDirection.sqrMagnitude > 0.0001f)
+            if (direction.sqrMagnitude < 0.0001f)
             {
-                var currentForward = Vector3.ProjectOnPlane(
-                    motion.LogicalRotation * Vector3.forward,
-                    referenceUp);
-                var yawError = Vector3.SignedAngle(
-                    currentForward,
-                    flatDirection,
-                    referenceUp);
-                motion.SetYawTurnInput(Mathf.Clamp(yawError / 35f, -1f, 1f));
+                motion.SetYawTurnInput(0f);
+                return;
             }
-
-            var elevation = Mathf.Asin(
-                Mathf.Clamp(Vector3.Dot(direction, referenceUp), -1f, 1f)) *
-                Mathf.Rad2Deg;
-            motion.SetAimPitch(elevation);
+            var local = Quaternion.Inverse(motion.ReferenceRotation) * direction.normalized;
+            var horizontal = Mathf.Sqrt(local.x * local.x + local.z * local.z);
+            var yawError = horizontal > 0.001f
+                ? Mathf.DeltaAngle(motion.LogicalYawDegrees, Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg)
+                : 0f;
+            motion.SetYawTurnInput(Mathf.Clamp(yawError / 35f, -1f, 1f));
+            // Positive rotation around local +X pitches the nose DOWN.
+            motion.SetAimPitch(-Mathf.Atan2(local.y, horizontal) * Mathf.Rad2Deg);
         }
 
         private void UpdateSensorCamera(Vector3 direction)
@@ -1155,9 +1105,12 @@ namespace ACunicombat.Mechs
 
             sensorCamera.transform.position =
                 transform.position + motion.ReferenceUp * 6f;
-            sensorCamera.transform.rotation = Quaternion.LookRotation(
-                direction,
-                motion.ReferenceUp);
+            var up = Vector3.ProjectOnPlane(motion.ReferenceUp, direction);
+            if (up.sqrMagnitude < 0.0001f)
+                up = Vector3.ProjectOnPlane(motion.LogicalRotation * Vector3.forward, direction);
+            if (up.sqrMagnitude < 0.0001f)
+                up = MechAiRulePlanner.ResolveOrbitTangent(direction, Vector3.zero, motion.ReferenceUp);
+            sensorCamera.transform.rotation = Quaternion.LookRotation(direction, up.normalized);
         }
 
         private void ApplyIdentificationTint()

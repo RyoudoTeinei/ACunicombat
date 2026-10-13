@@ -50,6 +50,100 @@ namespace ACunicombat.Mechs
 
     public static class MechAiRulePlanner
     {
+        public static Vector3 ResolveOrbitTangent(
+            Vector3 radial, Vector3 previousTangent, Vector3 preferredUp)
+        {
+            if (radial.sqrMagnitude < 0.0001f) return Vector3.zero;
+            radial.Normalize();
+            // Transport the previous orbit direction onto the new line-of-sight
+            // plane. Passing above/below the reference poles must not flip sides.
+            var tangent = Vector3.ProjectOnPlane(previousTangent, radial);
+            if (tangent.sqrMagnitude < 0.0001f)
+                tangent = Vector3.Cross(preferredUp, radial);
+            if (tangent.sqrMagnitude < 0.0001f)
+                tangent = Vector3.ProjectOnPlane(
+                    Mathf.Abs(radial.x) < 0.8f ? Vector3.right : Vector3.forward, radial);
+            return tangent.normalized;
+        }
+
+        /// <summary>
+        /// Both relative vectors are target minus ownship. Returns a force-derived
+        /// acceleration request, not a velocity assignment or a projected 2D path.
+        /// </summary>
+        public static Vector3 CalculateSpatialAcceleration(
+            Vector3 relativePosition,
+            Vector3 relativeVelocity,
+            Vector3 orbitTangent,
+            MechAiTargetController.CombatState state,
+            in MechAiCombatDoctrine doctrine,
+            float towardAcceleration,
+            float awayAcceleration,
+            float maximumAcceleration,
+            float responseSeconds,
+            out bool urgentBraking)
+        {
+            urgentBraking = false;
+            if (!IsFinite(relativePosition) || !IsFinite(relativeVelocity) ||
+                !IsFinite(orbitTangent)) return Vector3.zero;
+            var response = Mathf.Max(0.2f, responseSeconds);
+            var maxAcceleration = Mathf.Max(0f, maximumAcceleration);
+            var range = relativePosition.magnitude;
+            if (range < 0.01f)
+                return Vector3.ClampMagnitude(relativeVelocity / response, maxAcceleration);
+            var radial = relativePosition / range;
+            var preferredRange = Mathf.Max(100f, doctrine.EngagementBand.PreferredRangeMeters);
+            if (state == MechAiTargetController.CombatState.Defensive)
+                preferredRange = Mathf.Max(preferredRange, range + Mathf.Max(300f, range * 0.15f));
+            var rangeError = range - preferredRange;
+            var holdRadius = Mathf.Clamp(preferredRange * 0.025f, 20f, 120f);
+            var remainingDistance = Mathf.Max(0f, Mathf.Abs(rangeError) - holdRadius);
+            var closingSpeed = -Vector3.Dot(relativeVelocity, radial);
+            var brakingAcceleration = rangeError >= 0f ? awayAcceleration : towardAcceleration;
+            // Margin reserves authority for turns, allocation losses and track
+            // latency. The small floor permits attitude acquisition with weak RCS.
+            var safeBrakingAcceleration = Mathf.Max(0.1f, brakingAcceleration) * 0.65f;
+            var stoppingSpeed = Mathf.Sqrt(2f * safeBrakingAcceleration * remainingDistance);
+            var cruiseSpeed = state switch
+            {
+                MechAiTargetController.CombatState.Intercept => 320f,
+                MechAiTargetController.CombatState.Extend => 280f,
+                MechAiTargetController.CombatState.Defensive => 160f,
+                _ => 170f,
+            };
+            var desiredRadialSpeed = Mathf.Sign(rangeError) * Mathf.Min(
+                cruiseSpeed, stoppingSpeed, remainingDistance * 0.35f);
+            urgentBraking = Mathf.Abs(closingSpeed) > 20f &&
+                (closingSpeed * rangeError > 0f || remainingDistance <= 0.01f) &&
+                Mathf.Abs(closingSpeed) > stoppingSpeed + 10f;
+
+            var orbitFactor = state switch
+            {
+                MechAiTargetController.CombatState.Intercept => 0.2f,
+                MechAiTargetController.CombatState.Extend => 0.35f,
+                MechAiTargetController.CombatState.Defensive => 1.25f,
+                _ => 1f,
+            };
+            var orbitSpeed = Mathf.Min(doctrine.OrbitSpeedMetersPerSecond * orbitFactor,
+                Mathf.Sqrt(maxAcceleration * 0.35f * range));
+            if (urgentBraking) orbitSpeed *= 0.25f;
+            var tangent = Vector3.ProjectOnPlane(orbitTangent, radial).normalized;
+            var relativeTangentialVelocity = Vector3.ProjectOnPlane(relativeVelocity, radial);
+            var centripetalAcceleration = orbitSpeed > 0.01f
+                ? Mathf.Min(relativeTangentialVelocity.sqrMagnitude / range, maxAcceleration * 0.35f)
+                : 0f;
+            var radialAcceleration = Mathf.Clamp(
+                (desiredRadialSpeed - closingSpeed) / response + centripetalAcceleration,
+                -maxAcceleration, maxAcceleration);
+            var transverseBudget = Mathf.Sqrt(Mathf.Max(0f,
+                maxAcceleration * maxAcceleration - radialAcceleration * radialAcceleration));
+            var transverseAcceleration = Vector3.ClampMagnitude(
+                (relativeTangentialVelocity + tangent * orbitSpeed) / response, transverseBudget);
+            return radial * radialAcceleration + transverseAcceleration;
+        }
+
+        private static bool IsFinite(Vector3 value) =>
+            float.IsFinite(value.x) && float.IsFinite(value.y) && float.IsFinite(value.z);
+
         public static bool IsOffensiveRole(MechWeaponRole role)
         {
             return role == MechWeaponRole.HandCannon ||
