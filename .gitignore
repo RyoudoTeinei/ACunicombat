@@ -139,3 +139,7 @@ InitTestScene*.unity*
 /Assets/_Project/LocalGameAssets.meta
 /Tools/LocalOut/
 Tools/FxrTranslator/node_modules/
+
+# Reproducible sensor benchmark run artifacts.
+/Artifacts/SensorBench/
+/Tools/SensorBench/__pycache__/

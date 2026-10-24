@@ -264,28 +264,27 @@ public sealed class MechAiSpatialControlTests
             Is.LessThan(0.001f), "The body's local-up component must survive the world-space command bridge.");
         AssertVector(motion.Velocity,
             initialVelocity + motion.CurrentControlForceNewtons / motion.CurrentMassKg * 0.1f, 0.0001f);
-        Assert.That(motion.CurrentManeuverEnergy, Is.LessThan(energyBefore));
+        Assert.That(motion.CurrentManeuverEnergy, Is.EqualTo(energyBefore));
         foreach (var nozzle in motion.ThrusterChannels)
             Assert.That(nozzle.CurrentForceNewtons.magnitude, Is.LessThanOrEqualTo(1000.1f));
     }
 
     [Test]
-    public void PartialEnergy_LimitsSaturatedAutonomousAuxiliaryNozzleOutput()
+    public void PartialEnergy_DoesNotLimitOrdinaryAutonomousNozzleOutput()
     {
-        // Full autonomous demand costs 4 EN/s. Only half of this 0.1 s step's
-        // energy remains; an oversized request must not still saturate at 1 kN.
+        // Ordinary thrust remains available independently of the burst reserve.
         SetField(motion, "currentManeuverEnergy", 0.2f);
         var input = AutonomousInput(Vector3.up * 1000f);
 
         motion.Tick(in input, 0.1f);
 
-        Assert.That(motion.CurrentControlForceNewtons.y, Is.EqualTo(500f).Within(0.1f));
-        Assert.That(motion.Velocity.y, Is.EqualTo(0.05f).Within(0.0001f));
-        Assert.That(motion.CurrentManeuverEnergy, Is.Zero);
+        Assert.That(motion.CurrentControlForceNewtons.y, Is.EqualTo(1000f).Within(0.1f));
+        Assert.That(motion.Velocity.y, Is.EqualTo(0.1f).Within(0.0001f));
+        Assert.That(motion.CurrentManeuverEnergy, Is.EqualTo(.2f));
     }
 
     [Test]
-    public void DepletedEnergy_PreventsAutonomousThrustAndPreservesInertia()
+    public void DepletedEnergy_StillAllowsOrdinaryAutonomousThrust()
     {
         var velocity = new Vector3(3f, -4f, 5f);
         SetField(motion, "velocity", velocity);
@@ -295,8 +294,8 @@ public sealed class MechAiSpatialControlTests
 
         motion.Tick(in input, 0.1f);
 
-        AssertVector(motion.CurrentControlForceNewtons, Vector3.zero, 0.001f);
-        AssertVector(motion.Velocity, velocity, 0.0001f);
+        Assert.That(motion.CurrentControlForceNewtons.magnitude, Is.GreaterThan(0));
+        Assert.That((motion.Velocity-velocity).magnitude, Is.GreaterThan(0));
         Assert.That(motion.CurrentManeuverEnergy, Is.Zero);
     }
 
@@ -311,6 +310,32 @@ public sealed class MechAiSpatialControlTests
 
         AssertVector(motion.CurrentControlForceNewtons, Vector3.zero, 0.001f);
         AssertVector(motion.Velocity, Vector3.zero, 0.001f);
+    }
+
+    [TestCase(1,0,false,false)]
+    [TestCase(-1,0,false,false)]
+    [TestCase(0,1,false,false)]
+    [TestCase(0,-1,false,false)]
+    [TestCase(0,0,true,false)]
+    [TestCase(0,0,false,true)]
+    public void ContinuousTranslation_RechargesAfterQuickBoost(int x,int y,bool rise,bool descend)
+    {
+        motion.ConfigureManeuverEnergy(100,40,15,18,24,.5f,.2f);
+        Assert.That(motion.BeginQuickBoost(Vector2.up),Is.True);
+        float afterBurst=motion.CurrentManeuverEnergy;
+        var input=new MechPlayerInputFrame{MoveLocal=new Vector2(x,y),RiseHeld=rise,DescendHeld=descend};
+        for(int i=0;i<4;i++)motion.Tick(in input,.1f);
+        Assert.That(motion.CurrentManeuverEnergy,Is.EqualTo(afterBurst).Within(.001f));
+        for(int i=0;i<30;i++)motion.Tick(in input,.1f);
+        Assert.That(motion.CurrentManeuverEnergy,Is.EqualTo(100).Within(.001f));
+        Assert.That(motion.Velocity.magnitude,Is.GreaterThan(0));
+    }
+    [Test] public void AssaultBoost_StillConsumesBurstReserve()
+    {
+        motion.TriggerAssaultBoost();
+        var input=new MechPlayerInputFrame{MoveLocal=Vector2.up};
+        motion.Tick(in input,.1f);
+        Assert.That(motion.CurrentManeuverEnergy,Is.LessThan(100));
     }
 
     [Test]

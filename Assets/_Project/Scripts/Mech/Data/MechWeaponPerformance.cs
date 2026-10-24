@@ -10,6 +10,7 @@ namespace ACunicombat.Mechs
         public bool configured;
         public MechWeaponRole role;
         public string weaponType;
+        public string weaponSeriesId;
         public string hudLabel;
 
         [Header("Projectile")]
@@ -34,8 +35,10 @@ namespace ACunicombat.Mechs
         [Min(0f)] public float recoilImpulseNewtonSeconds;
 
         [Header("Ammunition")]
+        public bool beltFed;
         [Min(0)] public int magazineCapacity;
         [Min(0)] public int magazineCount;
+        [Min(0)] public int missileGroupCapacity;
         [Min(0f)] public float reloadSeconds;
 
         [Header("Trigger behavior")]
@@ -55,6 +58,7 @@ namespace ACunicombat.Mechs
         [Header("Guided missile")]
         public MissileFlightProfile missileFlightProfile;
         public bool verticalColdLaunch;
+        public bool supportsPassiveRfHoming;
 
         [Header("Guided missile presentation")]
         public string missileDisplayName;
@@ -81,6 +85,9 @@ namespace ACunicombat.Mechs
         [Min(0f)] public float pointDefenseRoundLethalRadiusMeters;
         [Min(0f)] public float pointDefenseRoundArmSeconds;
         [Min(0f)] public float pointDefenseRoundSafeDistanceMeters;
+
+        [Header("Action resources")]
+        [Min(0f)] public float energyPerShotMj;
 
         [Header("Heat")]
         [Min(0f)] public float heatPerShotMj;

@@ -6,6 +6,28 @@ internal static class AC6TestWeaponProfileFactory
 {
     internal static MechWeaponPerformance Create(string partId)
     {
+        var profile=CreateCore(partId);
+        string number=partId?.Length>=4?partId.Substring(partId.Length-4):"";
+        switch(number)
+        {
+            case "1810":case "1610":case "1710":case "1830":profile.weaponSeriesId="1610-1710-1810-1830";break;
+            case "5110":case "1620":case "1630":case "2030":case "2040":profile.weaponSeriesId="1620-1630-2030-2040-5110";break;
+            case "1720":case "1730":case "1820":case "1910":case "2020":profile.weaponSeriesId="1720-1730-1820-1910-2020";break;
+        }
+        if(profile.IsConfigured && !profile.IsGuidedMissile)
+        {
+            profile.baseDispersionMilliradians *= 2f;
+            profile.maximumDispersionMilliradians *= 2f;
+            profile.lowRecoilPerShotMilliradians *= 2f;
+            profile.sustainedRecoilPerShotMilliradians *= 2f;
+            profile.dispersionRecoveryMilliradiansPerSecond *= 2f;
+        }
+        return profile;
+    }
+    private static MechWeaponPerformance CreateCore(string partId)
+    {
+        var missile = MechMissileLauncherCatalog.CreateDefaultPerformance(partId);
+        if(missile != null)return missile;
         if (Matches(partId, "WP_L_1310") || Matches(partId, "WP_R_1310"))
         {
             return new MechWeaponPerformance
@@ -37,9 +59,11 @@ internal static class AC6TestWeaponProfileFactory
         {
             MechWeaponPerformance profile = AutomaticCannon(
                 95f, 1610f, 520f, 0.08f, 0.34f,
-                4, 0.009f, 0.025f, 32, 12, 5.25f,
+                4, 0.009f, 0.025f, 38, 10, 5.25f,
                 AutomaticCannonAudioProfile.Flak38);
-            profile.projectileCaliberMillimeters = 20f;
+            profile.projectileCaliberMillimeters = 25f;
+            profile.weaponType = "25 mm 弹匣式自动炮";
+            profile.hudLabel = "25MM";
             return profile;
         }
 
@@ -47,34 +71,40 @@ internal static class AC6TestWeaponProfileFactory
         {
             MechWeaponPerformance profile = AutomaticCannon(
                 132f, 2310f, 90f, 0.06f, 0.09f,
-                1, 0.003f, 0.006f, 12, 12, 7f,
+                1, 0.003f, 0.006f, 24, 8, 7f,
                 AutomaticCannonAudioProfile.Flak43);
             profile.targetProximityFuse = true;
-            profile.projectileCaliberMillimeters = 37f;
             profile.proximityFuseMode = "锁定目标时启用";
             profile.proximityFuseRadiusMeters = 5f;
             profile.warheadLethalRadiusMeters = 5f;
+            profile.projectileCaliberMillimeters = 23f;
+            profile.weaponType = "23 mm 精准自动炮";
+            profile.hudLabel = "23MM";
             return profile;
         }
 
         if (Matches(partId, "WP_L_1720") || Matches(partId, "WP_R_1720"))
         {
-            return AutomaticCannon(
+            MechWeaponPerformance profile = AutomaticCannon(
                 85f, 1500f, 580f, 0.07f, 0.3f,
-                4, 0.008f, 0.022f, 36, 12, 4.95f,
+                4, 0.008f, 0.022f, 46, 6, 4.95f,
                 AutomaticCannonAudioProfile.Legacy2A42);
+            profile.projectileCaliberMillimeters = 20f;
+            profile.weaponType = "20 mm 弹匣式自动炮";
+            profile.hudLabel = "20MM";
+            return profile;
         }
 
         if (Matches(partId, "WP_L_1810") || Matches(partId, "WP_R_1810"))
         {
             MechWeaponPerformance profile = AutomaticCannon(
                 28f, 820f, 960f, 0.24f, 2.74f,
-                3, 0.025f, 0.14f, 45, 12, 3.1f,
+                3, 0.025f, 0.14f, 48, 10, 3.1f,
                 AutomaticCannonAudioProfile.Mg81);
-            profile.weaponType = "11 mm 重型冲锋枪";
-            profile.hudLabel = "H-SMG";
-            profile.projectileCaliberMillimeters = 11f;
+            profile.hudLabel = "20MM";
             profile.tapBurstShotCount = 3;
+            profile.projectileCaliberMillimeters = 20f;
+            profile.weaponType = "20 mm 连发自动炮";
             return profile;
         }
 
@@ -82,23 +112,23 @@ internal static class AC6TestWeaponProfileFactory
         {
             MechWeaponPerformance profile = AutomaticCannon(
                 16f, 790f, 1420f, 0.37f, 2.95f,
-                2, 0.06f, 0.12f, 50, 12, 2.8f,
+                2, 0.06f, 0.12f, 82, 6, 2.8f,
                 AutomaticCannonAudioProfile.VickersK);
-            profile.weaponType = "9 mm 轻型冲锋枪";
             profile.hudLabel = "L-SMG";
-            profile.projectileCaliberMillimeters = 9f;
+            profile.projectileCaliberMillimeters = 12.7f;
+            profile.weaponType = "12.7 mm 突击冲锋枪";
             return profile;
         }
 
         if (Matches(partId, "WP_L_1830") || Matches(partId, "WP_R_1830"))
         {
             MechWeaponPerformance profile = AutomaticCannon(
-                32f, 880f, 700f, 0.49f, 3.82f,
-                2, 0.08f, 0.17f, 80, 10, 4.2f,
+                32f, 880f, 682f, 0.49f, 3.82f,
+                2, 0.08f, 0.17f, 180, 2, 4.2f,
                 AutomaticCannonAudioProfile.Shkas);
-            profile.weaponType = "12.7 mm 轻机枪";
             profile.hudLabel = "LMG";
-            profile.projectileCaliberMillimeters = 12.7f;
+            profile.projectileCaliberMillimeters = 14.5f;
+            profile.weaponType = "14.5 mm 轻机枪";
             return profile;
         }
 
@@ -106,17 +136,18 @@ internal static class AC6TestWeaponProfileFactory
         {
             MechWeaponPerformance profile = AutomaticCannon(
                 28f, 1550f, 2400f, 0.14f, 0.85f,
-                12, 0.015f, 0.028f, 240, 6, 6.8f,
+                12, 0.015f, 0.028f, 1440, 1, 0f,
                 AutomaticCannonAudioProfile.Gau8A);
-            profile.weaponType = "20 mm 转轮机枪";
             profile.hudLabel = "GAT";
-            profile.projectileCaliberMillimeters = 20f;
             profile.recoilImpulseNewtonSeconds = 780f;
             profile.spinUpSeconds = 0.55f;
             profile.heatPerShotMj = 0.035f;
             profile.heatCapacityMj = 18f;
-            profile.coolingMw = 2.8f;
+            profile.coolingMw = 0.35f;
+            profile.beltFed = true;
             profile.resumeThresholdMj = 7f;
+            profile.projectileCaliberMillimeters = 30f;
+            profile.weaponType = "30 mm 转轮机炮";
             return profile;
         }
 
@@ -124,115 +155,14 @@ internal static class AC6TestWeaponProfileFactory
         {
             MechWeaponPerformance profile = AutomaticCannon(
                 14f, 720f, 780f, 0.17f, 1.72f,
-                3, 0.025f, 0.065f, 21, 14, 2.3f,
+                3, 0.025f, 0.065f, 36, 6, 2.3f,
                 AutomaticCannonAudioProfile.Mg17);
-            profile.weaponType = "8 mm 连发精确手枪";
-            profile.hudLabel = "B-PST";
-            profile.projectileCaliberMillimeters = 8f;
             profile.tapBurstShotCount = 3;
             profile.heldBurstShotCount = 3;
             profile.heldBurstPauseSeconds = 0.28f;
-            return profile;
-        }
-
-        if (Matches(partId, "WP_L_4250") || Matches(partId, "WP_R_4250"))
-        {
-            MechWeaponPerformance profile = Missile(
-                MechWeaponRole.InterceptorMissile,
-                "拦截导弹发射器",
-                "INT",
-                16,
-                2,
-                300f,
-                MissileFlightProfile.InterceptorDefault);
-            profile.verticalColdLaunch = true;
-            return profile;
-        }
-
-        if (Matches(partId, "WP_L_4290") || Matches(partId, "WP_R_4290"))
-        {
-            return Missile(
-                MechWeaponRole.AirToAirMissile,
-                "空空导弹发射器",
-                "MSL",
-                4,
-                6,
-                3120f,
-                MissileFlightProfile.AirToAirDefault,
-                "AAM-4290",
-                "Projectiles/aam4290_white_blackband",
-                3.7f,
-                warheadMassKg: 24f);
-        }
-
-        if (Matches(partId, "WP_L_4300") || Matches(partId, "WP_R_4300"))
-        {
-            MechWeaponPerformance profile = Missile(
-                MechWeaponRole.InterceptorMissile,
-                "近程拦截导弹发射器",
-                "INT",
-                8,
-                4,
-                300f,
-                CompactInterceptorMissile(),
-                "CIM-4300",
-                "Projectiles/wp4300_interceptor_hellfire",
-                1.65f,
-                warheadMassKg: 8f);
-            profile.effectiveRangeMeters = 8_000f;
-            return profile;
-        }
-
-        if (Matches(partId, "WP_L_4301") || Matches(partId, "WP_R_4301"))
-        {
-            MechWeaponPerformance profile = Missile(
-                MechWeaponRole.AirToAirMissile,
-                "近距格斗空空导弹发射器",
-                "WVR",
-                8,
-                4,
-                2200f,
-                CloseCombatAirToAirMissile(),
-                "AAM-4301C",
-                "Projectiles/wp4301_dogfight_aim7",
-                2.35f,
-                warheadMassKg: 12f);
-            profile.effectiveRangeMeters = 16_000f;
-            return profile;
-        }
-
-        if (Matches(partId, "WP_L_4302") || Matches(partId, "WP_R_4302"))
-        {
-            MechWeaponPerformance profile = Missile(
-                MechWeaponRole.AirToAirMissile,
-                "双脉冲远程空空导弹发射器",
-                "DPL15",
-                4,
-                6,
-                3500f,
-                DualPulseLongRangeMissile(),
-                "DPL-15",
-                "Projectiles/r77_gridfin",
-                3.6f);
-            profile.effectiveRangeMeters = 65_000f;
-            return profile;
-        }
-
-        if (Matches(partId, "WP_L_4340") || Matches(partId, "WP_R_4340"))
-        {
-            MechWeaponPerformance profile = Missile(
-                MechWeaponRole.AirToAirMissile,
-                "可调流量冲压远程空空导弹发射器",
-                "MTR",
-                2,
-                4,
-                4200f,
-                DuctedLongRangeMissile(),
-                "MTR-4340",
-                "Projectiles/kh38mt_meteor_proxy",
-                4.2f,
-                Vector3.right);
-            profile.effectiveRangeMeters = 100_000f;
+            profile.projectileCaliberMillimeters = 20f;
+            profile.weaponType = "20 mm 连发精确炮";
+            profile.hudLabel = "B-CAN";
             return profile;
         }
 
@@ -242,20 +172,21 @@ internal static class AC6TestWeaponProfileFactory
             {
                 configured = true,
                 role = MechWeaponRole.PointDefenseCannon,
-                weaponType = "肩载点防御加特林炮",
+                weaponType = "12.7 mm 肩载点防御加特林机枪",
                 hudLabel = "CIWS",
                 directHitDamage = 45f,
-                projectileCaliberMillimeters = 7.62f,
+                projectileCaliberMillimeters = 12.7f,
                 muzzleVelocityMetersPerSecond = 1800f,
                 projectileLifetimeSeconds = 4f,
                 maximumRangeMeters = 6000f,
                 effectiveRangeMeters = 3000f,
-                roundsPerMinute = 858f,
+                roundsPerMinute = 1858f,
                 baseDispersionMilliradians = 0.1f,
                 maximumDispersionMilliradians = 0.35f,
-                magazineCapacity = 200,
-                magazineCount = 4,
-                reloadSeconds = 4f,
+                magazineCapacity = 1200,
+                magazineCount = 1,
+                beltFed = true,
+                reloadSeconds = 0f,
                 proximityFuseMode = "自动点防御破片云",
                 pointDefenseRoundLethalRadiusMeters = 4f,
                 pointDefenseRoundArmSeconds = 0.05f,
@@ -283,6 +214,41 @@ internal static class AC6TestWeaponProfileFactory
             };
         }
 
+        if (Matches(partId, "WP_L_1710") || Matches(partId, "WP_R_1710"))
+        {
+            var profile=CreateCore("WP_L_1610").Clone();
+            profile.projectileCaliberMillimeters=25f;
+            profile.weaponType="25 mm 弹匣式自动炮";
+            profile.hudLabel="25MM";
+            return profile;
+        }
+        if (Matches(partId, "WP_L_1620") || Matches(partId, "WP_R_1620"))
+        {
+            var profile=CreateCore("WP_L_1630").Clone();
+            profile.roundsPerMinute=180f;
+            profile.maximumRangeMeters=14000f;
+            profile.projectileLifetimeSeconds=profile.maximumRangeMeters/profile.muzzleVelocityMetersPerSecond;
+            profile.baseDispersionMilliradians*=1.5f;
+            profile.maximumDispersionMilliradians*=1.5f;
+            profile.lowRecoilPerShotMilliradians*=1.5f;
+            profile.sustainedRecoilPerShotMilliradians*=1.5f;
+            profile.dispersionRecoveryMilliradiansPerSecond*=1.5f;
+            profile.projectileCaliberMillimeters=23f;
+            profile.weaponType="23 mm 精准自动炮";
+            profile.hudLabel="23MM";
+            return profile;
+        }
+        if (Matches(partId, "WP_L_1730") || Matches(partId, "WP_R_1730"))
+        {
+            var profile=CreateCore("WP_L_1720").Clone();
+            profile.magazineCapacity=42;
+            profile.projectileCaliberMillimeters=25f;
+            profile.weaponType="25 mm 弹匣式自动炮";
+            profile.hudLabel="25MM";
+            return profile;
+        }
+        if (Matches(partId,"WP_L_2030") || Matches(partId,"WP_R_2030") || Matches(partId,"WP_L_2040") || Matches(partId,"WP_R_2040"))
+            return new MechWeaponPerformance { configured=false, projectileCaliberMillimeters=20f, weaponType="20 mm 炮", hudLabel="20MM" };
         return new MechWeaponPerformance();
     }
 
@@ -326,156 +292,6 @@ internal static class AC6TestWeaponProfileFactory
             reloadSeconds = reloadSeconds,
             automaticCannonAudioProfile = audioProfile
         };
-    }
-
-    private static MechWeaponPerformance Missile(
-        MechWeaponRole role,
-        string weaponType,
-        string hudLabel,
-        int magazineCapacity,
-        int magazineCount,
-        float directHitDamage,
-        MissileFlightProfile flightProfile,
-        string missileDisplayName = null,
-        string missileVisualResourcePath = null,
-        float missileVisualLengthMeters = 3.6f,
-        Vector3? missileVisualSourceForward = null,
-        float warheadMassKg = 0f)
-    {
-        return new MechWeaponPerformance
-        {
-            configured = true,
-            role = role,
-            weaponType = weaponType,
-            hudLabel = hudLabel,
-            directHitDamage = directHitDamage,
-            muzzleVelocityMetersPerSecond = flightProfile.EjectionSpeedMps,
-            projectileLifetimeSeconds = flightProfile.MaximumFlightTimeSeconds,
-            maximumRangeMeters = flightProfile.MaximumRangeMeters,
-            effectiveRangeMeters = flightProfile.MaximumRangeMeters,
-            magazineCapacity = magazineCapacity,
-            magazineCount = magazineCount,
-            proximityFuseMode = "常规近炸",
-            targetProximityFuse = true,
-            proximityFuseRadiusMeters = flightProfile.ProximityFuseRadiusMeters,
-            proximityFuseArmSeconds = flightProfile.ProximityFuseArmSeconds,
-            proximityFuseSafeDistanceMeters = flightProfile.ProximityFuseSafeDistanceMeters,
-            warheadMassKg = warheadMassKg,
-            warheadLethalRadiusMeters = flightProfile.WarheadLethalRadiusMeters,
-            missileFlightProfile = flightProfile,
-            missileDisplayName = missileDisplayName,
-            missileVisualResourcePath = missileVisualResourcePath,
-            missileVisualLengthMeters = missileVisualLengthMeters,
-            missileVisualSourceForward = missileVisualSourceForward ?? Vector3.down
-        };
-    }
-
-    private static MissileFlightProfile DualPulseLongRangeMissile()
-    {
-        MissileFlightProfile profile = MissileFlightProfile.AirToAirDefault;
-        profile.PropulsionMode = MissilePropulsionMode.DualPulseSolid;
-        profile.DryMassKg = 125f;
-        profile.MainPropellantMassKg = 48f;
-        profile.MainEngineThrustNewtons = 42_000f;
-        profile.MainMassFlowKgPerSecond = 12f;
-        profile.SecondStagePropellantMassKg = 54f;
-        profile.SecondStageThrustNewtons = 28_000f;
-        profile.SecondStageMassFlowKgPerSecond = 9f;
-        profile.SecondStageIgnitionDelaySeconds = 6f;
-        profile.SecondStageMinimumThrottle = 1f;
-        profile.RcsPropellantMassKg = 16f;
-        profile.RcsThrustNewtons = 15_000f;
-        profile.MaximumAngularRateDegreesPerSecond = 220f;
-        profile.MaximumFlightTimeSeconds = 360f;
-        profile.MaximumRangeMeters = 90_000f;
-        profile.SeekerActivationDelaySeconds = 4f;
-        profile.SeekerRangeMeters = 18_000f;
-        profile.SeekerSearchHalfAngleDegrees = 32f;
-        profile.SeekerGimbalDegrees = 60f;
-        profile.ProximityFuseRadiusMeters = 14f;
-        profile.WarheadLethalRadiusMeters = 22f;
-        return profile;
-    }
-
-    private static MissileFlightProfile CompactInterceptorMissile()
-    {
-        MissileFlightProfile profile = MissileFlightProfile.InterceptorDefault;
-        profile.DryMassKg = 32f;
-        profile.MainPropellantMassKg = 18f;
-        profile.MainEngineThrustNewtons = 42_000f;
-        profile.MainMassFlowKgPerSecond = 9f;
-        profile.RcsPropellantMassKg = 8f;
-        profile.RcsThrustNewtons = 28_000f;
-        profile.RcsMassFlowKgPerSecond = 1.1f;
-        profile.PitchYawInertiaKgM2 = 12f;
-        profile.RcsMomentArmMeters = 0.8f;
-        profile.MaximumAngularRateDegreesPerSecond = 720f;
-        profile.EjectionSpeedMps = 60f;
-        profile.MaximumFlightTimeSeconds = 32f;
-        profile.MaximumRangeMeters = 12_000f;
-        profile.SeekerActivationDelaySeconds = 0.08f;
-        profile.SeekerRangeMeters = 15_000f;
-        profile.SeekerSearchHalfAngleDegrees = 55f;
-        profile.SeekerGimbalDegrees = 80f;
-        profile.ProximityFuseRadiusMeters = 10f;
-        profile.ProximityFuseArmSeconds = 0.16f;
-        profile.ProximityFuseSafeDistanceMeters = 7f;
-        profile.WarheadLethalRadiusMeters = 18f;
-        return profile;
-    }
-
-    private static MissileFlightProfile CloseCombatAirToAirMissile()
-    {
-        MissileFlightProfile profile = MissileFlightProfile.AirToAirDefault;
-        profile.DryMassKg = 72f;
-        profile.MainPropellantMassKg = 38f;
-        profile.MainEngineThrustNewtons = 54_000f;
-        profile.MainMassFlowKgPerSecond = 11f;
-        profile.RcsPropellantMassKg = 11f;
-        profile.RcsThrustNewtons = 26_000f;
-        profile.RcsMassFlowKgPerSecond = 1.05f;
-        profile.PitchYawInertiaKgM2 = 55f;
-        profile.RcsMomentArmMeters = 0.9f;
-        profile.MaximumAngularRateDegreesPerSecond = 480f;
-        profile.EjectionSpeedMps = 50f;
-        profile.MaximumFlightTimeSeconds = 90f;
-        profile.MaximumRangeMeters = 24_000f;
-        profile.SeekerActivationDelaySeconds = 0.15f;
-        profile.SeekerRangeMeters = 10_000f;
-        profile.SeekerSearchHalfAngleDegrees = 50f;
-        profile.SeekerGimbalDegrees = 78f;
-        profile.ProximityFuseRadiusMeters = 9f;
-        profile.ProximityFuseArmSeconds = 0.35f;
-        profile.ProximityFuseSafeDistanceMeters = 12f;
-        profile.WarheadLethalRadiusMeters = 13f;
-        return profile;
-    }
-
-    private static MissileFlightProfile DuctedLongRangeMissile()
-    {
-        MissileFlightProfile profile = MissileFlightProfile.AirToAirDefault;
-        profile.PropulsionMode = MissilePropulsionMode.VariableFlowDuctedRocket;
-        profile.DryMassKg = 118f;
-        profile.MainPropellantMassKg = 35f;
-        profile.MainEngineThrustNewtons = 45_000f;
-        profile.MainMassFlowKgPerSecond = 10f;
-        profile.SecondStagePropellantMassKg = 72f;
-        profile.SecondStageThrustNewtons = 13_500f;
-        profile.SecondStageMassFlowKgPerSecond = 2.4f;
-        profile.SecondStageIgnitionDelaySeconds = 0.15f;
-        profile.SecondStageMinimumThrottle = 0.42f;
-        profile.RcsPropellantMassKg = 18f;
-        profile.RcsThrustNewtons = 14_000f;
-        profile.MaximumAngularRateDegreesPerSecond = 200f;
-        profile.MaximumFlightTimeSeconds = 420f;
-        profile.MaximumRangeMeters = 140_000f;
-        profile.SeekerActivationDelaySeconds = 6f;
-        profile.SeekerRangeMeters = 25_000f;
-        profile.SeekerSearchHalfAngleDegrees = 30f;
-        profile.SeekerGimbalDegrees = 58f;
-        profile.ProximityFuseRadiusMeters = 16f;
-        profile.WarheadLethalRadiusMeters = 26f;
-        return profile;
     }
 
     private static bool Matches(string partId, string sourceKey)

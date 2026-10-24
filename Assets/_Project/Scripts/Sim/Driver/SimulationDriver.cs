@@ -43,25 +43,45 @@ namespace ACunicombat.Simulation.Driver
         private FixedTickClock sensorClock;
         private FixedTickClock fusionClock;
         private SimWorld world;
+        private ObserverEntityBindings sceneEntities;
         private SpatialHashGrid grid;
         private DwellScheduler dwellScheduler;
         private RadarSensorSystem radar;
-        private RadarTrackManager trackManager;
+        private readonly RadarSensorAllocator radarIdentities = new RadarSensorAllocator();
+        public SensorId PrimaryRadarIdentity=>radarIdentities.PrimaryRadar;
+        public SensorId WarningReceiverIdentity=>radarIdentities.WarningReceiver;
+        public SensorId OpticalReceiverIdentity=>radarIdentities.OpticalReceiver;
+        public SensorId LaserRangefinderIdentity=>radarIdentities.LaserRangefinder;
+        public LinkTerminalId PrimaryLinkIdentity=>new LinkTerminalId(new Handle(1,1));
+        private readonly DeviceHandleAllocator emitterIdentities=new DeviceHandleAllocator(256);
+        private readonly System.Collections.Generic.Dictionary<SensorId,EmitterId> sensorEmitters=new System.Collections.Generic.Dictionary<SensorId,EmitterId>();
+        private readonly System.Collections.Generic.Dictionary<LinkTerminalId,EmitterId> linkEmitters=new System.Collections.Generic.Dictionary<LinkTerminalId,EmitterId>();
+        public EmitterId GetSensorEmitterId(SensorId sensor)
+        {
+            if(!radarIdentities.Owns(sensor))throw new System.InvalidOperationException("Unallocated sensor cannot own an emitter.");
+            if(sensorEmitters.TryGetValue(sensor,out var emitter))return emitter;
+            if(!emitterIdentities.TryAllocate(out var handle))throw new System.InvalidOperationException("Emitter capacity exhausted.");
+            emitter=new EmitterId(handle);sensorEmitters.Add(sensor,emitter);return emitter;
+        }
+        public EmitterId GetLinkEmitterId(LinkTerminalId terminal)
+        {
+            if(!linkIdentities.Owns(terminal.Value))throw new System.InvalidOperationException("Unallocated terminal cannot own an emitter.");
+            if(linkEmitters.TryGetValue(terminal,out var emitter))return emitter;
+            if(!emitterIdentities.TryAllocate(out var handle))throw new System.InvalidOperationException("Emitter capacity exhausted.");
+            emitter=new EmitterId(handle);linkEmitters.Add(terminal,emitter);return emitter;
+        }
+        public bool TryAllocateRadarSensor(out SensorId sensor) => radarIdentities.TryAllocate(out sensor);
+        private PlatformTrackContext trackContext;
         private EsmReceiverSystem esmReceiver;
-        private EsmThreatCorrelator threatCorrelator;
-        private SensorId ownshipEsmReceiverId;
+        private PlatformCombatContext combatContext;
+        private EsmThreatCorrelator threatCorrelator => combatContext?.Threats;
         private MawSensorSystem mawSensor;
-        private SimEntityId ownshipMawEntity;
         private ElectroOpticalSensorSystem electroOpticalSensor;
-        private ElectroOpticalReceiverProfile electroOpticalReceiver;
-        private bool electroOpticalReceiverRegistered;
         private LaserRangefinderSystem laserRangefinder;
         private DataLinkSystem dataLink;
-        private SimEntityId trackOriginEntity;
-        private SensorId trackSensorId;
-        private EmitterId trackEmitterId;
-        private NativeList<Measurement> trackDetectionScratch;
-        private NativeList<EmissionEvent> trackEmissionScratch;
+        private readonly DeviceHandleAllocator linkIdentities=new DeviceHandleAllocator(DataLinkSystem.MaxTerminals,1);
+        public bool TryAllocateLinkTerminal(out LinkTerminalId terminal)
+        {var result=linkIdentities.TryAllocate(out var handle);terminal=new LinkTerminalId(handle);return result;}
         private readonly TrackSnapshot[] telemetryTrackScratch =
             new TrackSnapshot[RadarTrackManager.MaxTracks];
         private readonly ThreatSnapshot[] telemetryThreatScratch =
@@ -74,16 +94,22 @@ namespace ACunicombat.Simulation.Driver
         private bool DetailedTelemetry =>
             telemetry != null && telemetryDetail == CombatTelemetryDetail.Detailed;
 
-        public double SimTimeSeconds => motionClock.SimTimeSeconds;
+        public System.Guid ObserverScope => trackContext?.ObserverScope ?? System.Guid.Empty;
+        private System.Func<double> simulationTimeSource;
+        public ulong ObservationRevision { get; private set; }
+        // Cadence clocks stay local; timestamps share battlefield physics time even for late joiners.
+        // Fixtures that deliberately bypass Awake may inject their existing manual motion clock.
+        public double SimTimeSeconds => simulationTimeSource!=null ? simulationTimeSource() : motionClock.SimTimeSeconds;
         public long MotionOverrunTicks => motionClock.OverrunTicks;
         public int DetectionCount => radar?.Detections.Length ?? 0;
-        public int TrackCount => trackManager?.Count ?? 0;
-        public int TrackCapacity => trackManager?.Capacity ?? RadarTrackManager.MaxTracks;
+        public int TrackCount => trackContext?.Count ?? 0;
+        public int TrackCapacity => trackContext?.Capacity ?? RadarTrackManager.MaxTracks;
         public int ScheduledDwellCount => dwellScheduler?.Count ?? 0;
         public long DeferredDwellCount => dwellScheduler?.DeferredCount ?? 0;
 
         private void Awake()
         {
+            simulationTimeSource = () => Time.fixedTimeAsDouble;
             motionClock = new FixedTickClock(MotionStepSeconds, maxMotionCatchUpTicks);
             sensorClock = new FixedTickClock(SensorStepSeconds, maxSensorCatchUpTicks);
             fusionClock = new FixedTickClock(FusionStepSeconds, maxSensorCatchUpTicks);
@@ -91,9 +117,9 @@ namespace ACunicombat.Simulation.Driver
             grid = new SpatialHashGrid(SimWorld.MaxEntities * 2);
             dwellScheduler = new DwellScheduler(512);
             radar = new RadarSensorSystem(world, grid, dwellScheduler) { SessionSeed = sessionSeed };
-            trackManager = new RadarTrackManager();
+            trackContext = new PlatformTrackContext();
             esmReceiver = new EsmReceiverSystem(world) { SessionSeed = sessionSeed };
-            threatCorrelator = new EsmThreatCorrelator();
+            combatContext = new PlatformCombatContext(trackContext);
             mawSensor = new MawSensorSystem(world) { SessionSeed = sessionSeed };
             electroOpticalSensor =
                 new ElectroOpticalSensorSystem(world)
@@ -106,14 +132,6 @@ namespace ACunicombat.Simulation.Driver
                     SessionSeed = sessionSeed,
                 };
             dataLink = new DataLinkSystem(world) { SessionSeed = sessionSeed };
-            trackDetectionScratch =
-                new NativeList<Measurement>(
-                    RadarSensorSystem.DetectionRingCapacity,
-                    Allocator.Persistent);
-            trackEmissionScratch =
-                new NativeList<EmissionEvent>(
-                    1024,
-                    Allocator.Persistent);
             if (enableCombatTelemetry)
             {
                 try
@@ -121,7 +139,7 @@ namespace ACunicombat.Simulation.Driver
                     telemetry = CombatTelemetrySession.Acquire(
                         telemetryMaximumFileSizeMegabytes);
                     telemetrySource = $"{name}#{GetEntityId()}";
-                    trackManager.Diagnostic += OnRadarTrackDiagnostic;
+                    trackContext.Diagnostic += OnRadarTrackDiagnostic;
                     telemetry.RecordDriverStart(
                         SimTimeSeconds,
                         telemetrySource,
@@ -144,45 +162,71 @@ namespace ACunicombat.Simulation.Driver
 
         public SimEntityId RegisterEntity(in KinematicState initial) => world.Register(initial);
 
-        public void UnregisterEntity(SimEntityId entityId) => world.Unregister(entityId);
+        public void UnregisterEntity(SimEntityId entityId)
+        {
+            if (sceneEntities != null && sceneEntities.OwnsLocalEntity(entityId))
+                throw new System.InvalidOperationException("Scene entity registrations must release their lease.");
+            world.Unregister(entityId);
+        }
+
+        public SceneEntityLease RegisterSceneEntity(BattlefieldEntityIdentity source, in KinematicState initial, SceneEntityProjection projection = SceneEntityProjection.Body)
+        {
+            if (source == null) throw new System.ArgumentNullException(nameof(source));
+            if (sceneEntities == null)
+            {
+                sceneEntities = new ObserverEntityBindings(world, BattlefieldEntityIdentity.Registry);
+                sceneEntities.LocalEntityReleased += UnregisterSceneTargetProfiles;
+            }
+            return sceneEntities.Acquire(source.Identity, in initial, projection);
+        }
+        public bool IsSceneEntityCurrent(in SceneEntityLease lease) => sceneEntities != null && sceneEntities.IsCurrent(in lease);
+        public bool ReleaseSceneEntity(in SceneEntityLease lease) => sceneEntities != null && sceneEntities.Release(in lease);
+        private void UnregisterSceneTargetProfiles(SimEntityId entity)
+        {
+            radar?.UnregisterTarget(entity);
+            electroOpticalSensor?.UnregisterTarget(entity);
+            laserRangefinder?.UnregisterTarget(entity);
+            mawSensor?.UnregisterSource(entity);
+        }
 
         public bool SetEntityState(SimEntityId entityId, in KinematicState state) =>
             world.TrySetState(entityId, state);
 
+        public bool SetTimedEntityState(SimEntityId entityId,in KinematicState state,double sampledTime)=>world.TrySetTimedState(entityId,in state,sampledTime);
+
+        public bool SetRadarSensorEfficiency(SensorId sensor,float efficiency) => radar != null && radar.SetSensorEfficiency(sensor,efficiency);
+
         public void RegisterRadarSensor(in RadarSensorProfile profile)
         {
-            radar.RegisterSensor(profile);
-            trackOriginEntity = profile.OwnerEntityId;
-            trackSensorId = profile.SensorId;
-            trackEmitterId = profile.EmitterId;
-            telemetry?.RecordRadarProfile(
-                SimTimeSeconds,
-                telemetrySource,
-                in profile,
-                false);
+            if(!radarIdentities.TryReserve(profile.SensorId))throw new System.InvalidOperationException("Radar identity is stale.");
+            var registered=profile;registered.EmitterId=GetSensorEmitterId(profile.SensorId);
+            trackContext.BindPrimaryRadar(in registered);
+            radar.RegisterSensor(registered);
+            telemetry?.RecordRadarProfile(SimTimeSeconds,telemetrySource,in registered,false);
         }
-
-        public void RegisterAuxiliaryRadarSensor(
-            in RadarSensorProfile profile)
+        public void RegisterAuxiliaryRadarSensor(in RadarSensorProfile profile, bool closeProtection = false)
         {
-            radar.RegisterSensor(profile);
-            telemetry?.RecordRadarProfile(
-                SimTimeSeconds,
-                telemetrySource,
-                in profile,
-                true);
+            if(!radarIdentities.TryReserve(profile.SensorId))throw new System.InvalidOperationException("Radar identity is stale.");
+            var registered=profile;registered.EmitterId=GetSensorEmitterId(profile.SensorId);
+            radar.RegisterSensor(registered);
+            if(registered.OwnerEntityId.Equals(trackContext.OriginEntity))trackContext.RegisterAuxiliary(in registered,closeProtection);
+            telemetry?.RecordRadarProfile(SimTimeSeconds,telemetrySource,in registered,true);
         }
-
-        public void UnregisterRadarSensor(SensorId sensorId) =>
+        public void UnregisterRadarSensor(SensorId sensorId)
+        {
+            trackContext.RemoveAuxiliary(sensorId);
             radar.UnregisterSensor(sensorId);
+            radarIdentities.Release(sensorId);
+            if(sensorEmitters.TryGetValue(sensorId,out var emitter)){emitterIdentities.Release(emitter.Value);sensorEmitters.Remove(sensorId);}
+        }
 
         /// <summary>登记本机被动告警接收机；相关器只消费该接收机的接触。
         /// MAW 红外通道复用同一接收机身份（同一相关器、同一 RWR 环）。</summary>
         public void RegisterEsmReceiver(in EsmReceiverProfile profile)
         {
             esmReceiver.RegisterReceiver(profile);
-            ownshipEsmReceiverId = profile.ReceiverId;
-            ownshipMawEntity = profile.OwnerEntityId;
+            combatContext.WarningReceiver = profile.ReceiverId;
+            combatContext.WarningOwner = profile.OwnerEntityId;
             telemetry?.RecordEsmProfile(
                 SimTimeSeconds,
                 telemetrySource,
@@ -200,11 +244,14 @@ namespace ACunicombat.Simulation.Driver
         public void UnregisterIrSource(SimEntityId entityId) =>
             mawSensor.UnregisterSource(entityId);
 
+        private float opticalEfficiency=1f;
+        public void SetOpticalEfficiency(float value)=>opticalEfficiency=float.IsFinite(value)?math.clamp(value,0,1):0;
+        public bool SetLaserEfficiency(SensorId id,float value)=>laserRangefinder!=null&&laserRangefinder.SetSensorEfficiency(id,value);
         public void RegisterElectroOpticalReceiver(
             in ElectroOpticalReceiverProfile profile)
         {
-            electroOpticalReceiver = profile;
-            electroOpticalReceiverRegistered = true;
+            combatContext.OpticalReceiver = profile;
+            combatContext.HasOpticalReceiver = true;
             telemetry?.RecordElectroOpticalProfile(
                 SimTimeSeconds,
                 telemetrySource,
@@ -213,7 +260,7 @@ namespace ACunicombat.Simulation.Driver
 
         public void UpdateElectroOpticalForward(float3 forward)
         {
-            electroOpticalReceiver.Forward = forward;
+            combatContext.OpticalReceiver.Forward = forward;
         }
 
         public void RegisterElectroOpticalTarget(
@@ -227,7 +274,7 @@ namespace ACunicombat.Simulation.Driver
         public int CopyElectroOpticalObservations(
             ElectroOpticalObservation[] destination)
         {
-            if (destination == null ||
+            if (destination == null || opticalEfficiency<=0 ||
                 electroOpticalSensor == null)
             {
                 return 0;
@@ -299,15 +346,15 @@ namespace ACunicombat.Simulation.Driver
 
         public void RegisterLinkTerminal(in LinkTerminalProfile profile)
         {
-            dataLink.RegisterTerminal(profile);
-            telemetry?.RecordLinkProfile(
-                SimTimeSeconds,
-                telemetrySource,
-                in profile);
+            if(!linkIdentities.TryReserve(profile.TerminalId.Value))throw new System.InvalidOperationException("Data-link identity is stale.");
+            var registered=profile;registered.EmitterId=GetLinkEmitterId(profile.TerminalId);
+            dataLink.RegisterTerminal(registered);
+            telemetry?.RecordLinkProfile(SimTimeSeconds,telemetrySource,in registered);
         }
-
-        public void UnregisterLinkTerminal(LinkTerminalId terminalId) =>
-            dataLink.UnregisterTerminal(terminalId);
+        public void UnregisterLinkTerminal(LinkTerminalId terminalId)
+        {dataLink.UnregisterTerminal(terminalId);linkIdentities.Release(terminalId.Value);
+            if(linkEmitters.TryGetValue(terminalId,out var emitter)){emitterIdentities.Release(emitter.Value);linkEmitters.Remove(terminalId);}
+        }
 
         /// <summary>入队发送；下一个传感器 Tick 投递（一 Tick 固有时延）。</summary>
         public bool SendLinkMessage(in LinkMessage message)
@@ -411,24 +458,68 @@ namespace ACunicombat.Simulation.Driver
             }
         }
 
+        public bool TryRefineMissileTelemetry(TrackId id,double3 position,double3 velocity,double reportTime)
+        {
+            if(trackContext==null||!trackContext.TryRefineMissileTelemetry(id,position,velocity,reportTime,SimTimeSeconds))return false;
+            ObservationRevision++;return true;
+        }
+        public bool CloseMissileAssociation(TrackId id)
+        {
+            if(trackContext==null||!trackContext.CloseMissileAssociation(id,SimTimeSeconds))return false;
+            ObservationRevision++;return true;
+        }
         public bool TryGetTrack(TrackId trackId, out TrackSnapshot snapshot) =>
-            trackManager.TryGetTrack(trackId, out snapshot);
+            trackContext.TryGetTrack(trackId, out snapshot);
 
         public bool TryGetBestTrack(out TrackSnapshot snapshot) =>
-            trackManager.TryGetBestTrack(out snapshot);
+            trackContext.TryGetBestTrack(out snapshot);
 
         public int CopyTracks(TrackSnapshot[] destination) =>
-            trackManager?.CopyTracks(destination) ?? 0;
+            trackContext?.CopyTracks(destination) ?? 0;
 
         public void ConfigureRadarTracking(int capacity, float trackMemorySeconds)
         {
-            trackManager?.ConfigureLimits(capacity, trackMemorySeconds);
+            trackContext?.ConfigureLimits(capacity, trackMemorySeconds);
             telemetry?.RecordTrackingConfiguration(
                 SimTimeSeconds,
                 telemetrySource,
                 capacity,
                 trackMemorySeconds,
                 telemetryTrackSnapshotIntervalSeconds);
+        }
+
+        /// <summary>Executed emissions for the requested local sensor; scheduled-but-deferred dwells are excluded.</summary>
+        private readonly System.Collections.Generic.List<EmissionEvent> externalIff=new System.Collections.Generic.List<EmissionEvent>();
+        private readonly System.Collections.Generic.Dictionary<System.Guid,EmitterId> iffEmitterIds=new System.Collections.Generic.Dictionary<System.Guid,EmitterId>();
+        public void ReleaseExternalIffEmitter(System.Guid source)
+        {if(iffEmitterIds.TryGetValue(source,out var emitter)){emitterIdentities.Release(emitter.Value);iffEmitterIds.Remove(source);}}
+        public void QueueExternalEmission(System.Guid source,EmissionEvent emission)
+        {
+            if(externalIff.Count>=1024)return;
+            if(!iffEmitterIds.TryGetValue(source,out var emitter))
+            {if(!emitterIdentities.TryAllocate(out var handle))return;emitter=new EmitterId(handle);iffEmitterIds.Add(source,emitter);}
+            emission.EmitterId=emitter;externalIff.Add(emission);
+        }
+        public void QueueExternalIffEmission(System.Guid source,double3 origin,float3 direction,float beamWidth,float powerDb)
+        {
+            QueueExternalEmission(source,new EmissionEvent{Origin=origin,Direction=direction,BeamWidth=beamWidth,
+                StartTime=SimTimeSeconds,EndTime=SimTimeSeconds+.1,MaxRangeMeters=1e9,FrequencyBand=1,WaveformId=0,
+                EmissionType=EmissionType.Iff,MainlobePowerDb=powerDb,SidelobeLevelDb=-30});
+        }
+
+        public int CopyWarningObservations(SensorId receiver,WarningObservation[] destination)
+        {if(esmReceiver==null||destination==null)return 0;int count=0;for(int i=0;i<esmReceiver.Contacts.Length&&count<destination.Length;i++)if(esmReceiver.Contacts[i].ReceiverId.Equals(receiver))destination[count++]=esmReceiver.Contacts[i];return count;}
+
+        public int CopyRadarEmissions(SensorId sensor, EmissionEvent[] destination)
+        {
+            if(radar==null||destination==null||!sensor.IsValid)return 0;
+            var emitter=GetSensorEmitterId(sensor);int count=0;
+            for(int i=0;i<radar.Emissions.Length&&count<destination.Length;i++)
+            {
+                var emission=radar.Emissions[i];
+                if(emission.EmitterId.Equals(emitter))destination[count++]=emission;
+            }
+            return count;
         }
 
         public int CopyDetections(Measurement[] destination)
@@ -473,6 +564,7 @@ namespace ACunicombat.Simulation.Driver
 
         private void FixedUpdate()
         {
+            sceneEntities?.PruneRetired();
             var dt = Time.fixedDeltaTime;
             var motionTicks = motionClock.Advance(dt);
 
@@ -482,7 +574,10 @@ namespace ACunicombat.Simulation.Driver
                 // Advance 已把时钟推到最终时刻；追帧时回推出每个 tick 的实际时间。
                 // 两个追赶 tick 共用最终时间戳会让第二个消费不到任何到期驻留，
                 // 还清空上一 tick 的探测环——等于白丢一帧探测。
-                var tickTime = sensorClock.SimTimeSeconds
+                // This driver runs before the scene's physics movers. Their published
+                // poses and velocities belong to the last completed physics step.
+                // Labelling them 'now' made velocity one step stale during acceleration.
+                var tickTime = SimTimeSeconds - dt
                                - SensorStepSeconds * (sensorTicks - 1 - i);
                 radar.Tick(tickTime);
                 if (DetailedTelemetry)
@@ -508,11 +603,14 @@ namespace ACunicombat.Simulation.Driver
                             in radar.Detections.ElementAt(detectionIndex));
                     }
                 }
-                if (electroOpticalReceiverRegistered)
+                if (combatContext.HasOpticalReceiver)
                 {
-                    electroOpticalSensor.Tick(
-                        in electroOpticalReceiver,
-                        tickTime);
+                    var effectiveOptical=combatContext.OpticalReceiver;
+                    effectiveOptical.MaximumRangeMeters*=math.sqrt(opticalEfficiency);
+                    effectiveOptical.BearingSigmaRadians/=math.max(.05f,opticalEfficiency);
+                    effectiveOptical.ClassificationScale*=opticalEfficiency;
+                    if(opticalEfficiency>0)electroOpticalSensor.Tick(in effectiveOptical,tickTime);
+                    else electroOpticalSensor.Observations.Clear();
                     if (DetailedTelemetry)
                     {
                         for (var observationIndex = 0;
@@ -542,44 +640,15 @@ namespace ACunicombat.Simulation.Driver
                 }
                 var sensorPosition = double3.zero;
                 var sensorVelocity = double3.zero;
-                if (trackOriginEntity.IsValid
-                    && world.TryGetReadState(trackOriginEntity, out var sensorState))
+                if (trackContext.OriginEntity.IsValid
+                    && world.TryGetReadState(trackContext.OriginEntity, out var sensorState))
                 {
                     sensorPosition = sensorState.PositionWorld;
                     sensorVelocity = sensorState.VelocityWorld;
                 }
 
-                trackDetectionScratch.Clear();
-                for (var detectionIndex = 0;
-                     detectionIndex < radar.Detections.Length;
-                     detectionIndex++)
-                {
-                    var measurement =
-                        radar.Detections[detectionIndex];
-                    if (measurement.SensorId.Equals(trackSensorId))
-                    {
-                        trackDetectionScratch.Add(measurement);
-                    }
-                }
-
-                trackEmissionScratch.Clear();
-                for (var emissionIndex = 0;
-                     emissionIndex < radar.Emissions.Length;
-                     emissionIndex++)
-                {
-                    var emission = radar.Emissions[emissionIndex];
-                    if (emission.EmitterId.Equals(trackEmitterId))
-                    {
-                        trackEmissionScratch.Add(emission);
-                    }
-                }
-
-                trackManager.Process(
-                    trackDetectionScratch,
-                    trackEmissionScratch,
-                    sensorPosition,
-                    sensorVelocity,
-                    tickTime);
+                trackContext.Process(radar.Detections, radar.Emissions,
+                    sensorPosition, sensorVelocity, tickTime);
 
                 // Laser returns refine only the confirmed missile track that
                 // cued the pulse. They do not create tracks, count as radar
@@ -594,7 +663,7 @@ namespace ACunicombat.Simulation.Driver
                         var laserObservation =
                             laserObservations[laserIndex];
                         var refinementAccepted =
-                            trackManager.TryRefineConfirmedTrackWithLaser(
+                            trackContext.TryRefineConfirmedTrackWithLaser(
                             in laserObservation,
                             sensorPosition,
                             tickTime,
@@ -628,16 +697,21 @@ namespace ACunicombat.Simulation.Driver
                 // 与辐射同步）——雷达环 + 数据链环 + MAW 红外通道，汇入同一
                 // 接触环后由相关器按本机接收机 Id 过滤处理。
                 esmReceiver.BeginTick();
+                if(externalIff.Count>0)
+                {
+                    using(var iffEvents=new NativeList<EmissionEvent>(externalIff.Count,Allocator.Temp))
+                    {for(int pendingExternalIndex=externalIff.Count-1;pendingExternalIndex>=0;pendingExternalIndex--)if(externalIff[pendingExternalIndex].StartTime<=tickTime){iffEvents.Add(externalIff[pendingExternalIndex]);externalIff.RemoveAt(pendingExternalIndex);}esmReceiver.Consume(iffEvents,tickTime);}
+                }
                 esmReceiver.Consume(radar.Emissions, tickTime);
                 esmReceiver.Consume(dataLink.Emissions, tickTime);
                 esmReceiver.Consume(
                     laserRangefinder.Emissions,
                     tickTime);
-                if (ownshipEsmReceiverId.IsValid)
+                if (combatContext.WarningReceiver.IsValid)
                 {
                     mawSensor.AppendContacts(
-                        ownshipMawEntity,
-                        ownshipEsmReceiverId,
+                        combatContext.WarningOwner,
+                        combatContext.WarningReceiver,
                         esmReceiver.Contacts,
                         tickTime);
                 }
@@ -657,7 +731,7 @@ namespace ACunicombat.Simulation.Driver
 
                 threatCorrelator.Process(
                     esmReceiver.Contacts,
-                    ownshipEsmReceiverId,
+                    combatContext.WarningReceiver,
                     tickTime);
 
                 var telemetryThreatCount = 0;
@@ -678,7 +752,7 @@ namespace ACunicombat.Simulation.Driver
 
                     if (tickTime + 1e-9 >= nextTelemetryTrackSnapshotTime)
                     {
-                        var telemetryTrackCount = trackManager.CopyTracks(
+                        var telemetryTrackCount = trackContext.CopyTracks(
                             telemetryTrackScratch);
                         for (var trackIndex = 0;
                              trackIndex < telemetryTrackCount;
@@ -705,12 +779,12 @@ namespace ACunicombat.Simulation.Driver
                             telemetrySource,
                             radar.Detections.Length,
                             radar.Emissions.Length,
-                            electroOpticalReceiverRegistered
+                            combatContext.HasOpticalReceiver
                                 ? electroOpticalSensor.Observations.Length
                                 : 0,
                             laserRangefinder.Observations.Length,
                             esmReceiver.Contacts.Length,
-                            trackManager.Count,
+                            trackContext.Count,
                             telemetryThreatCount,
                             dwellScheduler.Count,
                             dwellScheduler.DeferredCount);
@@ -720,6 +794,7 @@ namespace ACunicombat.Simulation.Driver
             }
 
             fusionClock.Advance(dt);
+            ObservationRevision++;
             if (motionClock.OverrunTicks > 0 && motionTicks == maxMotionCatchUpTicks)
             {
                 Debug.LogWarning($"[SimDriver] motion tick overrun total={motionClock.OverrunTicks}");
@@ -728,25 +803,19 @@ namespace ACunicombat.Simulation.Driver
 
         private void OnDestroy()
         {
-            if (trackManager != null)
+            if (trackContext != null)
             {
-                trackManager.Diagnostic -= OnRadarTrackDiagnostic;
+                trackContext.Diagnostic -= OnRadarTrackDiagnostic;
             }
             CombatTelemetrySession.Release(telemetry);
             telemetry = null;
+            sceneEntities?.Dispose();
             dataLink?.Dispose();
             laserRangefinder?.Dispose();
             electroOpticalSensor?.Dispose();
             esmReceiver?.Dispose();
             radar?.Dispose();
-            if (trackDetectionScratch.IsCreated)
-            {
-                trackDetectionScratch.Dispose();
-            }
-            if (trackEmissionScratch.IsCreated)
-            {
-                trackEmissionScratch.Dispose();
-            }
+            trackContext?.Dispose();
             dwellScheduler?.Dispose();
             grid?.Dispose();
             world?.Dispose();

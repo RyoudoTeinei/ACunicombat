@@ -1,0 +1,50 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3b265b4f46be4cea8ef57ee3fb2c8e20, type: 3}
+  m_Name: SpecialistKitCatalog
+  m_EditorClassIdentifier:
+  entries:
+  - partId: KIT_EARLY_WARNING
+    displayName: 预警机套件
+    slot: 200
+    category: 30
+    resourcePath: SpecialistKits/EarlyWarningKit
+    testStatus: 5
+    statusNote: 独占扩展系统并禁用双肩；专项能力参数仍待设计。
+  - partId: KIT_SUPPORT
+    displayName: 支援机套件
+    slot: 200
+    category: 30
+    resourcePath: SpecialistKits/SupportKit
+    testStatus: 5
+    statusNote: 独占扩展系统并禁用双肩；专项能力参数仍待设计。
+  - partId: KIT_AEW_RADAR_01
+    displayName: 预警雷达 01（性能待定）
+    slot: 80
+    category: 10
+    resourcePath: SpecialistKits/EarlyWarningRadar01
+    testStatus: 5
+    statusNote: 型号与性能待讨论；当前不启用主动探测。
+  - partId: KIT_AEW_RADAR_02
+    displayName: 预警雷达 02（性能待定）
+    slot: 80
+    category: 10
+    resourcePath: SpecialistKits/EarlyWarningRadar02
+    testStatus: 5
+    statusNote: 型号与性能待讨论；当前不启用主动探测。
+  - partId: KIT_AEW_RADAR_03
+    displayName: 预警雷达 03（性能待定）
+    slot: 80
+    category: 10
+    resourcePath: SpecialistKits/EarlyWarningRadar03
+    testStatus: 5
+    statusNote: 型号与性能待讨论；当前不启用主动探测。

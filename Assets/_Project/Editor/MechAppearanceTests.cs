@@ -105,7 +105,9 @@ public sealed class MechAppearanceTests
 
             var block = new MaterialPropertyBlock();
             renderer.GetPropertyBlock(block, 0);
-            Assert.That(block.GetColor("_BaseColor"), Is.EqualTo(settings.baseColor));
+            var actualColor=block.GetColor("_BaseColor");
+            for(var channel=0;channel<4;channel++)
+                Assert.That(actualColor[channel],Is.EqualTo(settings.baseColor[channel]).Within(0.000001f));
             Assert.That(block.GetFloat("_WeatheringAmount"), Is.EqualTo(0.31f).Within(0.0001f));
         }
         finally

@@ -5,7 +5,8 @@
         "ACunicombat.Simulation.Core",
         "ACunicombat.Sensing.Contracts",
         "ACunicombat.Tracking",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "Unity.Collections"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -3,7 +3,8 @@
     "rootNamespace": "ACunicombat.Sensing.Contracts",
     "references": [
         "ACunicombat.Simulation.Core",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "Unity.Collections"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

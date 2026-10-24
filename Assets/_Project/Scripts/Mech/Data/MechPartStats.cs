@@ -199,8 +199,27 @@ namespace ACunicombat.Mechs
 	[Serializable]
 	public sealed class MechRadarPerformance
 	{
-		[Min(0f)] public float referenceDetectionRangeKm;
-		[Min(0f)] public float stableTrackRangeKm;
+        [Tooltip("Average RF power during a dwell, not electrical peak input.")]
+        [Min(1f)] public float averageTransmitPowerWatts = 250000f;
+        [Min(.01f)] public float apertureDiameterMeters = 1.3f;
+        [Range(.01f,1f)] public float apertureEfficiency = .6f;
+        [Min(1f)] public float frequencyGHz = 10f;
+        [Min(1f)] public float systemNoiseTemperatureKelvin = 600f;
+        [Min(0f)] public float systemLossDb = 6f;
+        [Range(.01f,1f)] public float coherentIntegrationEfficiency = .5f;
+        [Min(1f)] public float signalBandwidthMHz = 20f;
+        [Range(.05f,1f)] public float antennaDutyCycle = .85f;
+        public ACunicombat.Sensors.RadarPhysicalParameters Physical => new ACunicombat.Sensors.RadarPhysicalParameters {
+            AverageTransmitPowerWatts=averageTransmitPowerWatts, ApertureDiameterMeters=apertureDiameterMeters,
+            ApertureEfficiency=apertureEfficiency, FrequencyHz=frequencyGHz*1e9f,
+            SystemNoiseTemperatureKelvin=systemNoiseTemperatureKelvin, SystemLossDb=systemLossDb,
+            CoherentIntegrationEfficiency=coherentIntegrationEfficiency, SignalBandwidthHz=signalBandwidthMHz*1e6f, AntennaDutyCycle=antennaDutyCycle
+        };
+        public float EstimatedSearchRangeKm => Physical.EstimateRangeMeters(1f,.008f)/1000f;
+        public float EstimatedTrackRangeKm => Physical.EstimateRangeMeters(1f,.028f)/1000f;
+        // Retained only for serialized legacy assets; no runtime range gates use these.
+		[HideInInspector] public float referenceDetectionRangeKm;
+		[HideInInspector] public float stableTrackRangeKm;
 		[Range(1f, 360f)] public float searchAzimuthDeg = 100f;
 		[Range(1f, 180f)] public float searchElevationDeg = 60f;
 		[Range(1, RadarTrackManagerSafetyLimit)] public int trackCapacity = 8;
@@ -216,24 +235,27 @@ namespace ACunicombat.Mechs
 
 		public const int RadarTrackManagerSafetyLimit = 32;
 
-		public bool HasData => referenceDetectionRangeKm > 0f || stableTrackRangeKm > 0f;
+		public bool HasData => Physical.IsValid;
 
 		public float LockMaintenanceRating
 		{
 			get
 			{
-				float rangeRatio = referenceDetectionRangeKm > 0f
-					? Mathf.Clamp01(stableTrackRangeKm / referenceDetectionRangeKm)
-					: 0f;
+				float integrationQuality = Mathf.Clamp01(coherentIntegrationEfficiency);
 				float revisit = Mathf.Clamp01(twsUpdateRateHz / 8f);
 				float trackingRate = Mathf.Clamp01(maximumTrackingRateDegPerSecond / 180f);
-				return (rangeRatio * 0.45f + revisit * 0.35f + trackingRate * 0.2f) * 100f;
+				return (integrationQuality * 0.45f + revisit * 0.35f + trackingRate * 0.2f) * 100f;
 			}
 		}
 
 		public void CopyFrom(MechRadarPerformance other)
 		{
 			if (other == null) return;
+            averageTransmitPowerWatts=other.averageTransmitPowerWatts;
+            apertureDiameterMeters=other.apertureDiameterMeters;apertureEfficiency=other.apertureEfficiency;
+            frequencyGHz=other.frequencyGHz;systemNoiseTemperatureKelvin=other.systemNoiseTemperatureKelvin;
+            systemLossDb=other.systemLossDb;coherentIntegrationEfficiency=other.coherentIntegrationEfficiency;
+            signalBandwidthMHz=other.signalBandwidthMHz;antennaDutyCycle=other.antennaDutyCycle;
 			referenceDetectionRangeKm = other.referenceDetectionRangeKm;
 			stableTrackRangeKm = other.stableTrackRangeKm;
 			searchAzimuthDeg = other.searchAzimuthDeg;
@@ -266,6 +288,8 @@ namespace ACunicombat.Mechs
 		[Range(1, 32)] public int simultaneousSolutionCapacity = 1;
 		[Range(1, 16)] public int weaponControlChannels = 1;
 		[Range(0, 16)] public int guidanceChannelCapacity;
+        [Tooltip("Concurrent missiles supported by this FCS, independent of distinct-target guidance channels.")]
+        [Min(0)] public int missileSupportCapacity = 16;
 		[Range(1, 16)] public int multiTargetEngagementCapacity = 1;
 		[Range(0f, 100f)] public float pointDefenseRating;
 		[Min(0f)] public float trackReacquisitionTimeS;
@@ -283,6 +307,7 @@ namespace ACunicombat.Mechs
 			simultaneousSolutionCapacity = other.simultaneousSolutionCapacity;
 			weaponControlChannels = other.weaponControlChannels;
 			guidanceChannelCapacity = other.guidanceChannelCapacity;
+            missileSupportCapacity = other.missileSupportCapacity;
 			multiTargetEngagementCapacity = other.multiTargetEngagementCapacity;
 			pointDefenseRating = other.pointDefenseRating;
 			trackReacquisitionTimeS = other.trackReacquisitionTimeS;
@@ -1178,10 +1203,13 @@ namespace ACunicombat.Mechs
 
 		public void AddFireControlPerformance(MechFireControlPerformance fireControl)
 		{
-			if (fireControl == null || !fireControl.HasData)
-			{
-				return;
-			}
+            if (fireControl == null) return;
+            if (!fireControl.HasData)
+            {
+                if (fireControlPerformance == null) fireControlPerformance = new MechFireControlPerformance();
+                fireControlPerformance.missileSupportCapacity = fireControl.missileSupportCapacity;
+                return;
+            }
 			if (fireControlPerformance == null)
 			{
 				fireControlPerformance = new MechFireControlPerformance();

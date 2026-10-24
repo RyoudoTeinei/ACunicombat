@@ -14,9 +14,11 @@ namespace ACunicombat.Mechs
 
         private static MechLoadoutDefinition runtimeLoadout;
 
+        private static MechPartCatalog combinedCatalog;
         public static MechPartCatalog LoadCatalog()
         {
-            return Resources.Load<MechPartCatalog>(CatalogResourcePath);
+            if(combinedCatalog==null)combinedCatalog=MechPartCatalog.Combine(MechPartCatalog.Combine(Resources.Load<MechPartCatalog>(CatalogResourcePath),Resources.Load<MechPartCatalog>("DefenseExtensions/Catalog")),Resources.Load<MechPartCatalog>("SpecialistKits/Catalog"));
+            return combinedCatalog;
         }
 
         public static bool HasSavedSelection => PlayerPrefs.GetInt(HasSelectionKey, 0) != 0;
@@ -37,7 +39,18 @@ namespace ACunicombat.Mechs
             GameObject owner,
             MechLoadoutDefinition defaultLoadout)
         {
-            if (owner == null || defaultLoadout == null || !IsPlayerMech(owner) || !HasSavedSelection)
+            if(owner==null||!IsPlayerMech(owner))return defaultLoadout;
+            return ResolveSavedPlayerLoadout(defaultLoadout);
+        }
+
+        public static MechLoadoutDefinition ResolveSavedPlayerLoadout(MechLoadoutDefinition defaultLoadout)
+        {
+            if (defaultLoadout != null && defaultLoadout.Platform != null)
+            {
+                var layoutCatalog = LoadCatalog();
+                return layoutCatalog == null ? defaultLoadout : MechLayoutSelection.Resolve(defaultLoadout, layoutCatalog);
+            }
+            if (defaultLoadout == null || !HasSavedSelection)
             {
                 return defaultLoadout;
             }
@@ -65,7 +78,7 @@ namespace ACunicombat.Mechs
             {
                 var slot = MechSlotRules.AssemblyOrder[i];
                 defaults.TryGetValue(slot, out var defaultPart);
-                var selectedPart = LoadSelectedPart(catalog, slot) ?? defaultPart;
+                var selectedPart = PlayerPrefs.HasKey(Key(slot)) ? LoadSelectedPart(catalog, slot) : defaultPart;
                 if (selectedPart == null)
                 {
                     continue;
@@ -105,9 +118,8 @@ namespace ACunicombat.Mechs
                 }
 
                 var saved = PlayerPrefs.GetString(Key(assignment.slot), string.Empty);
-                result[assignment.slot] = string.IsNullOrWhiteSpace(saved)
-                    ? assignment.part.PartId
-                    : saved;
+                if(PlayerPrefs.HasKey(Key(assignment.slot))){if(!string.IsNullOrWhiteSpace(saved))result[assignment.slot]=saved;}
+                else result[assignment.slot]=assignment.part.PartId;
             }
 
             for (var i = 0; i < MechSlotRules.AssemblyOrder.Length; i++)
@@ -135,13 +147,8 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            foreach (var pair in selection)
-            {
-                if (!string.IsNullOrWhiteSpace(pair.Value))
-                {
-                    PlayerPrefs.SetString(Key(pair.Key), pair.Value);
-                }
-            }
+            foreach(var slot in MechSlotRules.AssemblyOrder)
+                PlayerPrefs.SetString(Key(slot),selection.TryGetValue(slot,out var id)?id??string.Empty:string.Empty);
 
             PlayerPrefs.SetInt(HasSelectionKey, 1);
             PlayerPrefs.SetInt(SkipNextOpenKey, 1);
@@ -161,9 +168,11 @@ namespace ACunicombat.Mechs
             }
 
             string savedLauncherId = encoded.Substring(0, separator);
-            return string.Equals(savedLauncherId, launcherPartId, StringComparison.OrdinalIgnoreCase)
+            string selected = string.Equals(savedLauncherId, launcherPartId, StringComparison.OrdinalIgnoreCase)
                 ? encoded.Substring(separator + 1)
                 : defaultVariantId;
+            var performance = MechMissileLauncherCatalog.CreateDefaultPerformance(launcherPartId);
+            return performance == null ? selected : MechMissileVariantCatalog.ResolveVariant(launcherPartId, performance, selected).VariantId;
         }
 
         public static void SaveMissileVariants(
@@ -226,6 +235,7 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
+            if(owner.GetComponent<MechAiTargetController>()!=null)return false;
             return owner.GetComponent<MechPlayerInputAdapter>() != null ||
                    owner.name.StartsWith("Player_", StringComparison.OrdinalIgnoreCase) ||
                    owner.name.Equals("Player", StringComparison.OrdinalIgnoreCase) ||

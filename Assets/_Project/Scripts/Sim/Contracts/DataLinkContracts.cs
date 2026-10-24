@@ -29,6 +29,9 @@ namespace ACunicombat.Sensing.Contracts
         GuidanceUpdate = 2,
         /// <summary>指令（载荷为 CommandCode，语义由收发双方约定）。</summary>
         Command = 3,
+        CombatBehaviorReport = 4,
+        FleetCoordination = 5,
+        TargetObservation = 6,
     }
 
     /// <summary>
@@ -40,6 +43,8 @@ namespace ACunicombat.Sensing.Contracts
     [Serializable]
     public struct LinkMessage
     {
+        // Identity attested by the authenticated sender, never an unscoped scene/entity id.
+        public Guid AuthenticatedTrackSubject;
         /// <summary>系统分配的全局单调序号（投递时有效）。</summary>
         public ulong Sequence;
         public LinkMessageKind Kind;
@@ -54,5 +59,7 @@ namespace ACunicombat.Sensing.Contracts
         public uint CommandCode;
         /// <summary>TrackShare/GuidanceUpdate 的航迹载荷。</summary>
         public TrackSnapshot TrackPayload;
+        public CombatBehaviorReport BehaviorPayload;
+        public FleetPacket FleetPayload;
     }
 }

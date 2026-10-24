@@ -88,6 +88,14 @@ namespace ACunicombat.Mechs
         private float daysPerRealSecond = 1f;
         private bool timeRunning = true;
         private bool visible;
+        [Header("Tactical display surface")]
+        [SerializeField] private bool screenSurfaceEnabled = true;
+        [SerializeField, Range(0f,1f)] private float screenSurfaceIntensity = .85f;
+        [SerializeField, Range(2f,6f)] private float screenPixelPitch = 4f;
+        private Material screenSurfaceMaterial;
+        private RenderTexture screenScene;
+        [SerializeField,Range(0f,2f)] private float screenLocalGlow = .9f;
+
         private bool ownsPause;
         private float previousTimeScale = 1f;
         private float previousFixedDeltaTime = 0.02f;
@@ -126,21 +134,12 @@ namespace ACunicombat.Mechs
 
         internal static bool EnsureAttached(MechPlayerRig rig)
         {
-            if (runtimeInstance != null)
-            {
-                return true;
-            }
-            if (rig == null)
-            {
-                return false;
-            }
-
-            MechSolarSystemMap map = rig.GetComponent<MechSolarSystemMap>() ??
-                rig.gameObject.AddComponent<MechSolarSystemMap>();
-            runtimeInstance = map;
-            Debug.Log("[SolarSystemMap] Runtime map is ready.", rig);
+            if(rig==null||rig.AiControlled)return false;
+            var legacy=rig.GetComponent<MechSolarSystemMap>();if(legacy!=null)legacy.enabled=false;
+            if(rig.GetComponent<MechBattlefieldMap>()==null)rig.gameObject.AddComponent<MechBattlefieldMap>();
             return true;
         }
+        internal static void SetBattlefieldVisible(bool visible){IsAnyMapVisible=visible;}
 
         private void Awake()
         {
@@ -191,6 +190,8 @@ namespace ACunicombat.Mechs
         private void OnDestroy()
         {
             SetVisible(false);
+            if(screenSurfaceMaterial!=null)Destroy(screenSurfaceMaterial);
+            ReleaseScreenScene();
             if (orbitMaterial != null)
             {
                 Destroy(orbitMaterial);
@@ -249,6 +250,7 @@ namespace ACunicombat.Mechs
             }
 
             if (!visible) return;
+            EnsureScreenScene();
 
             if (keyboard.escapeKey.wasPressedThisFrame)
             {
@@ -382,6 +384,7 @@ namespace ACunicombat.Mechs
             mapCamera.depth = 100f;
             mapCamera.allowHDR = true;
             mapCamera.allowMSAA = true;
+            EnsureScreenScene();
             cameraObject.SetActive(false);
         }
 
@@ -800,6 +803,16 @@ namespace ACunicombat.Mechs
             int previousDepth = GUI.depth;
             Color previousColor = GUI.color;
             GUI.depth = -3000;
+            if(Event.current.type==EventType.Repaint && screenScene!=null)
+            {
+                EnsureScreenMaterial();
+                if(screenSurfaceEnabled && screenSurfaceMaterial!=null)
+                {
+                    screenSurfaceMaterial.SetFloat("_Glow",screenLocalGlow);
+                    Graphics.DrawTexture(new Rect(0,0,Screen.width,Screen.height),screenScene,screenSurfaceMaterial,1);
+                }
+                else GUI.DrawTexture(new Rect(0,0,Screen.width,Screen.height),screenScene,ScaleMode.StretchToFill,false);
+            }
             DrawPanel(new Rect(0f, 0f, Screen.width, TopBarHeight), Panel);
             DrawPanel(
                 new Rect(0f, Screen.height - BottomBarHeight, Screen.width, BottomBarHeight),
@@ -845,8 +858,63 @@ namespace ACunicombat.Mechs
 
             DrawBodyLabels();
             DrawSelectedBodyDetails();
+            if(GUI.Button(new Rect(22f,Screen.height-BottomBarHeight-34f,126f,26f),
+                screenSurfaceEnabled ? "屏幕质感：开" : "屏幕质感：关",buttonStyle))
+                screenSurfaceEnabled=!screenSurfaceEnabled;
+            DrawScreenSurface();
             GUI.color = previousColor;
             GUI.depth = previousDepth;
+        }
+
+        private void EnsureScreenMaterial()
+        {
+            if(screenSurfaceMaterial!=null)return;
+            var shader=Resources.Load<Shader>("Shaders/MechTacticalScreen");
+            if(shader!=null&&shader.isSupported)screenSurfaceMaterial=new Material(shader){hideFlags=HideFlags.HideAndDontSave};
+        }
+        private void EnsureScreenScene()
+        {
+            if(mapCamera==null)return;
+            int w=Mathf.Max(1,Screen.width),h=Mathf.Max(1,Screen.height);
+            if(screenScene!=null && screenScene.width==w && screenScene.height==h)return;
+            ReleaseScreenScene();
+            screenScene=new RenderTexture(w,h,24,RenderTextureFormat.ARGBHalf){name="Tactical screen scene",hideFlags=HideFlags.HideAndDontSave};
+            screenScene.Create();mapCamera.targetTexture=screenScene;
+        }
+        private void ReleaseScreenScene()
+        {
+            if(mapCamera!=null)mapCamera.targetTexture=null;
+            if(screenScene==null)return;
+            screenScene.Release();Destroy(screenScene);screenScene=null;
+        }
+        private void DrawGlowingLabel(Rect rect,string text,GUIStyle style)
+        {
+            if(screenSurfaceEnabled && screenLocalGlow>0 && Event.current.type==EventType.Repaint)
+            {
+                var color=GUI.color;
+                GUI.color=new Color(color.r,color.g,color.b,color.a*.10f*screenLocalGlow);
+                for(int i=0;i<8;i++)
+                {
+                    float angle=i*Mathf.PI*.25f;
+                    var halo=rect;halo.position+=new Vector2(Mathf.Cos(angle),Mathf.Sin(angle))*1.5f;
+                    GUI.Label(halo,text,style);
+                }
+                GUI.color=color;
+            }
+            GUI.Label(rect,text,style);
+        }
+
+        private void DrawScreenSurface()
+        {
+            if(!screenSurfaceEnabled || screenSurfaceIntensity<=0 || Event.current.type!=EventType.Repaint)return;
+            EnsureScreenMaterial();
+            if(screenSurfaceMaterial==null)return;
+            screenSurfaceMaterial.SetFloat("_Intensity",screenSurfaceIntensity);
+            screenSurfaceMaterial.SetFloat("_Pitch",screenPixelPitch);
+            screenSurfaceMaterial.SetVector("_DisplaySize",new Vector4(Screen.width,Screen.height,0,0));
+            screenSurfaceMaterial.SetFloat("_Clock",Time.unscaledTime);
+            // Runs after labels, treating geometry and text as one display surface. No input capture.
+            Graphics.DrawTexture(new Rect(0,0,Screen.width,Screen.height),Texture2D.whiteTexture,screenSurfaceMaterial,0);
         }
 
         private void DrawBodyLabels()
@@ -895,7 +963,7 @@ namespace ACunicombat.Mechs
                 }
             }
             occupied.Add(rect);
-            GUI.Label(rect, body.Definition.ChineseName,
+            DrawGlowingLabel(rect, body.Definition.ChineseName,
                 selected ? selectedLabelStyle : labelStyle);
             if (selected)
             {

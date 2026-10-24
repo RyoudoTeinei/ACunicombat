@@ -14,43 +14,6 @@ namespace ACunicombat.Mechs
 			AssaultBoostCruise
 		}
 
-		private enum ShoulderLauncherPhase
-		{
-			Stowed,
-			Deploying,
-			Ready,
-			Opening,
-			Firing,
-			Closing,
-			Stowing,
-			FallbackFiring
-		}
-
-		private sealed class ShoulderLauncherState
-		{
-			public MechEquipmentAnimationPlayer Player;
-
-			public GameObject EquipmentInstance;
-
-			public string PartId;
-
-			public MechPartSlot Slot;
-
-			public ShoulderLauncherPhase Phase;
-
-			public bool FireRequested;
-
-			public bool LaunchAuthorizedThisFrame;
-
-			public bool HasCanonicalCycle;
-
-			public bool IsAutomaticPointDefense;
-
-			public string FallbackFireActionId;
-
-			public float FallbackReleaseAt;
-		}
-
 		private const string ForwardQuickBoostActionId = "a000_004240";
 
 		private const string BackwardQuickBoostActionId = "a000_004241";
@@ -70,22 +33,6 @@ namespace ACunicombat.Mechs
 		private const string SpaceFlightCruiseActionId = "a000_100002";
 
 		private const string AssaultBoostCruiseActionId = "a000_120200";
-
-		private const string ShoulderRestActionId = "a000_800000";
-
-		private const string ShoulderDeployActionId = "a000_800110";
-
-		private const string ShoulderOpenActionId = "a000_800120";
-
-		private const string ShoulderFireActionId = "a000_800210";
-
-		private const string ShoulderCloseActionId = "a000_800320";
-
-		private const string ShoulderStowActionId = "a000_800310";
-
-		private const float NonAnimatedLauncherReleaseDelaySeconds = 0.18f;
-
-		private static readonly string[] ShoulderFireSequenceActionIds = new string[5] { "a000_800110", "a000_800120", "a000_800210", "a000_800320", "a000_800310" };
 
 		[SerializeField]
 		private MechPlayerInputAdapter input;
@@ -207,10 +154,6 @@ namespace ACunicombat.Mechs
 
 		private MechCountermeasureController countermeasureController;
 
-		private ShoulderLauncherState leftShoulderLauncher;
-
-		private ShoulderLauncherState rightShoulderLauncher;
-
 		private bool actionPlayerAttached;
 
 		private void Awake()
@@ -240,24 +183,7 @@ namespace ACunicombat.Mechs
 			{
 				orbitalPlanet = UnityEngine.Object.FindAnyObjectByType<MechOrbitalPlanetBackdrop>();
 			}
-			if (thrustVisualizer == null)
-			{
-				thrustVisualizer = GetComponent<MechThrustVisualizer>();
-				if (thrustVisualizer == null)
-				{
-					thrustVisualizer = base.gameObject.AddComponent<MechThrustVisualizer>();
-				}
-			}
-			thrustVisualizer.Configure(motion);
-			if (mainThrusterPlume == null)
-			{
-				mainThrusterPlume = GetComponent<MechMainThrusterPlume>();
-				if (mainThrusterPlume == null)
-				{
-					mainThrusterPlume = base.gameObject.AddComponent<MechMainThrusterPlume>();
-				}
-			}
-			mainThrusterPlume.Configure(motion);
+            PlatformFactory.ConfigurePhysicalPresentation(gameObject,motion,ref thrustVisualizer,ref mainThrusterPlume,ref thermalSignature);
 			if (weaponLayer == null)
 			{
 				weaponLayer = GetComponent<MechWeaponArmLayer>();
@@ -295,12 +221,6 @@ namespace ACunicombat.Mechs
 				}
 			}
 			orbitSynchronizer.Configure(motion, radar);
-			thermalSignature = GetComponent<MechThermalSignature>();
-			if (thermalSignature == null)
-			{
-				thermalSignature = base.gameObject.AddComponent<MechThermalSignature>();
-			}
-			thermalSignature.Configure(motion);
 			if (!aiControlled)
 			{
 				countermeasureController =
@@ -342,10 +262,6 @@ namespace ACunicombat.Mechs
 			{
 				base.gameObject.AddComponent<MechSystemsRadialMenu>();
 			}
-			if (!aiControlled && GetComponent<MechEngineeringStatusPresenter>() == null)
-			{
-				base.gameObject.AddComponent<MechEngineeringStatusPresenter>();
-			}
 			if (!aiControlled && motion != null)
 			{
 				motion.SetVectorThrustEnabled(true);
@@ -384,7 +300,7 @@ namespace ACunicombat.Mechs
 			{
 				actionPlayer = GetComponentInChildren<MechBodyActionPlayer>();
 			}
-			if ((actionPlayer == null || !actionPlayer.IsGraphValid) && !TryCreateActionPlayer())
+			if ((actionPlayer == null || !actionPlayer.IsGraphValid || !actionPlayer.IsBoundTo(runtimeState)) && !TryCreateActionPlayer())
 			{
 				return false;
 			}
@@ -410,17 +326,12 @@ namespace ACunicombat.Mechs
 			{
 				return false;
 			}
-			MechSynchronizedAnimationPlayer legacyPlayer = GetComponent<MechSynchronizedAnimationPlayer>();
-			if (legacyPlayer != null)
-			{
-				legacyPlayer.StopPlayback();
-				legacyPlayer.enabled = false;
-			}
-			if (actionPlayer == null)
-			{
-				actionPlayer = base.gameObject.AddComponent<MechBodyActionPlayer>();
-			}
-			actionPlayer.Configure(actionRegistry, runtimeState, upperBodyBoneNames);
+            string initialAction=actionPlayer!=null?actionPlayer.ActiveFullBodyActionId:null;
+            if(string.IsNullOrEmpty(initialAction)&&graphRunner?.Graph!=null&&graphRunner.CurrentStateIndex>=0)
+                initialAction=graphRunner.Graph.states[graphRunner.CurrentStateIndex].actionId;
+            if(string.IsNullOrEmpty(initialAction)&&actionRegistry.HasAction("a000_000000"))initialAction="a000_000000";
+            actionPlayer=PlatformFactory.ConfigureBodyPlayback(gameObject,actionRegistry,runtimeState,upperBodyBoneNames,initialAction);
+            actionPlayerAttached=false;
 			if (!actionPlayer.IsGraphValid)
 			{
 				return false;
@@ -435,7 +346,7 @@ namespace ACunicombat.Mechs
 			{
 				return;
 			}
-			AC6CombatShowcaseController showcase = UnityEngine.Object.FindAnyObjectByType<AC6CombatShowcaseController>();
+			AC6CombatShowcaseController showcase = GetComponent<AC6CombatShowcaseController>();
 			if (!(showcase == null) && !(showcase.ActionRegistry == null))
 			{
 				actionRegistry = showcase.ActionRegistry;
@@ -506,12 +417,12 @@ namespace ACunicombat.Mechs
 			}
 			float dt = Time.deltaTime;
 			EnsureActionPlayer();
-			TryInitializeShoulderLaunchers();
 			bool hasStt = HasSttTrack();
 			bool interceptorReady = hasStt || HasRwrLockWarning();
-			UpdateShoulderLauncher(leftShoulderLauncher, interceptorReady);
-			UpdateShoulderLauncher(rightShoulderLauncher, hasStt);
 			lastFrame = input.Sample();
+            var playerFleet = !aiControlled ? GetComponent<MechFleetController>() : null;
+            playerFleet?.PreparePlayerAutopilot(ref lastFrame);
+            input.PublishProcessedFrame(in lastFrame);
 			if (!motion.EngineAvailable)
 			{
 				lastFrame.MoveLocal = Vector2.zero;
@@ -541,25 +452,7 @@ namespace ACunicombat.Mechs
 			{
 				countermeasureController?.ReleaseCombinedBurst();
 			}
-			if (thermalSignature != null)
-			{
-				if (lastFrame.PrimaryFireEdge || (lastFrame.LeftShoulderFireEdge && !IsShaoWeiEquipped(MechPartSlot.LeftBackWeapon)))
-				{
-					thermalSignature.NotifyWeaponFired(leftHand: true);
-				}
-				if (lastFrame.SecondaryFireEdge || (lastFrame.RightShoulderFireEdge && !IsShaoWeiEquipped(MechPartSlot.RightBackWeapon)))
-				{
-					thermalSignature.NotifyWeaponFired(leftHand: false);
-				}
-			}
-			if (lastFrame.LeftShoulderFireEdge)
-			{
-				RequestShoulderFire(leftShoulderLauncher);
-			}
-			if (lastFrame.RightShoulderFireEdge)
-			{
-				RequestShoulderFire(rightShoulderLauncher);
-			}
+
 			if (cam != null)
 			{
 				cam.UpdateLook(in lastFrame);
@@ -597,9 +490,10 @@ namespace ACunicombat.Mechs
 					}
 				}
 			}
-			orbitSynchronizer?.Tick(in lastFrame, dt);
+			if(playerFleet==null||!playerFleet.PlayerAutopilotActive)orbitSynchronizer?.Tick(in lastFrame, dt);
+            playerFleet?.ApplyPlayerAutopilotAttitude();
 			MechPlayerInputFrame motionFrame = lastFrame;
-			if (orbitSynchronizer != null && orbitSynchronizer.Active && orbitSynchronizer.RequestsAutomaticDeparture)
+			if ((playerFleet == null || !playerFleet.PlayerAutopilotActive) && orbitSynchronizer != null && orbitSynchronizer.Active && orbitSynchronizer.RequestsAutomaticDeparture)
 			{
 				motionFrame.RiseHeld = true;
 			}
@@ -830,109 +724,6 @@ namespace ACunicombat.Mechs
 			return "a000_122411";
 		}
 
-		public bool ConsumeShoulderMissileLaunch(MechPartSlot slot)
-		{
-			ShoulderLauncherState launcher = slot switch
-			{
-				MechPartSlot.RightBackWeapon => rightShoulderLauncher, 
-				MechPartSlot.LeftBackWeapon => leftShoulderLauncher, 
-				_ => null, 
-			};
-			if (launcher == null || !launcher.LaunchAuthorizedThisFrame)
-			{
-				return false;
-			}
-			if (launcher.IsAutomaticPointDefense)
-			{
-				launcher.LaunchAuthorizedThisFrame = false;
-				return false;
-			}
-			launcher.LaunchAuthorizedThisFrame = false;
-			if (launcher.Player == null)
-			{
-				launcher.FireRequested = false;
-				launcher.Phase = ShoulderLauncherPhase.Stowed;
-			}
-			return true;
-		}
-
-		private void TryInitializeShoulderLaunchers()
-		{
-			RefreshShoulderLauncher(ref leftShoulderLauncher, MechPartSlot.LeftBackWeapon);
-			RefreshShoulderLauncher(ref rightShoulderLauncher, MechPartSlot.RightBackWeapon);
-		}
-
-		private void RefreshShoulderLauncher(ref ShoulderLauncherState launcher, MechPartSlot slot)
-		{
-			if (!TryResolveEquipmentRecord(slot, out MechAssemblyRecord record))
-			{
-				launcher = null;
-				return;
-			}
-
-			bool partDefinesAnimations = record.part != null &&
-				record.part.EquipmentAnimations != null &&
-				record.part.EquipmentAnimations.Count > 0;
-			bool sameInstance = launcher != null && launcher.EquipmentInstance == record.instance;
-			if (sameInstance && (launcher.Player != null || !partDefinesAnimations))
-			{
-				return;
-			}
-
-			launcher = CreateShoulderLauncher(record);
-		}
-
-		private ShoulderLauncherState CreateShoulderLauncher(MechAssemblyRecord record)
-		{
-			MechPartSlot slot = record.slot;
-			MechEquipmentAnimationPlayer equipmentPlayer = ResolveOrRepairEquipmentPlayer(record);
-			if (equipmentPlayer == null)
-			{
-				return new ShoulderLauncherState
-				{
-					EquipmentInstance = record.instance,
-					PartId = record.part != null ? record.part.PartId : string.Empty,
-					Slot = slot,
-					Phase = ShoulderLauncherPhase.Stowed,
-					HasCanonicalCycle = false
-				};
-			}
-			if (IsShaoWeiEquipped(slot))
-			{
-				ApplyShoulderRestPose(equipmentPlayer);
-				return new ShoulderLauncherState
-				{
-					Player = equipmentPlayer,
-					EquipmentInstance = record.instance,
-					PartId = record.part != null ? record.part.PartId : string.Empty,
-					Slot = slot,
-					Phase = ShoulderLauncherPhase.Stowed,
-					IsAutomaticPointDefense = true
-				};
-			}
-			bool hasCanonicalSequence = true;
-			for (int i = 0; i < ShoulderFireSequenceActionIds.Length; i++)
-			{
-				if (!equipmentPlayer.HasAction(ShoulderFireSequenceActionIds[i]))
-				{
-					hasCanonicalSequence = false;
-					break;
-				}
-			}
-			string fallbackActionId = (hasCanonicalSequence ? string.Empty : FirstAvailableAction(equipmentPlayer, "a000_800210", "a000_000100", "a000_800410"));
-			ApplyShoulderRestPose(equipmentPlayer);
-			return new ShoulderLauncherState
-			{
-				Player = equipmentPlayer,
-				EquipmentInstance = record.instance,
-				PartId = record.part != null ? record.part.PartId : string.Empty,
-				Slot = slot,
-				Phase = ShoulderLauncherPhase.Stowed,
-				HasCanonicalCycle = hasCanonicalSequence,
-				FallbackFireActionId = fallbackActionId
-			};
-		}
-
 		private bool HasSttTrack()
 		{
 			if (radar == null)
@@ -959,175 +750,6 @@ namespace ACunicombat.Mechs
 			return false;
 		}
 
-		private void RequestShoulderFire(ShoulderLauncherState launcher)
-		{
-			if (launcher == null)
-			{
-				Debug.LogWarning("[MechPlayerRig] No shoulder launcher state found.", this);
-				return;
-			}
-			if (launcher.IsAutomaticPointDefense)
-			{
-				return;
-			}
-			if (launcher.Player == null)
-			{
-				StartNonAnimatedShoulderFire(launcher);
-				return;
-			}
-			switch (launcher.Phase)
-			{
-			case ShoulderLauncherPhase.Stowed:
-				if (!launcher.HasCanonicalCycle)
-				{
-					StartFallbackShoulderFire(launcher);
-					break;
-				}
-				launcher.FireRequested = true;
-				PlayShoulderAction(launcher, "a000_800110", ShoulderLauncherPhase.Deploying);
-				break;
-			case ShoulderLauncherPhase.Deploying:
-				launcher.FireRequested = true;
-				break;
-			case ShoulderLauncherPhase.Ready:
-				PlayShoulderAction(launcher, "a000_800120", ShoulderLauncherPhase.Opening);
-				break;
-			}
-		}
-
-		private void UpdateShoulderLauncher(ShoulderLauncherState launcher, bool hasStt)
-		{
-			if (launcher == null)
-			{
-				return;
-			}
-			if (launcher.IsAutomaticPointDefense)
-			{
-				launcher.LaunchAuthorizedThisFrame = false;
-				return;
-			}
-			if (launcher.Player == null)
-			{
-				if (launcher.Phase == ShoulderLauncherPhase.FallbackFiring &&
-					launcher.FireRequested &&
-					Time.time >= launcher.FallbackReleaseAt)
-				{
-					launcher.FireRequested = false;
-					launcher.LaunchAuthorizedThisFrame = true;
-				}
-				return;
-			}
-			launcher.LaunchAuthorizedThisFrame = false;
-			if (launcher.Player.IsPlaying)
-			{
-				return;
-			}
-			switch (launcher.Phase)
-			{
-			case ShoulderLauncherPhase.Stowed:
-				if (hasStt && launcher.HasCanonicalCycle)
-				{
-					PlayShoulderAction(launcher, "a000_800110", ShoulderLauncherPhase.Deploying);
-				}
-				break;
-			case ShoulderLauncherPhase.Deploying:
-				launcher.Phase = ShoulderLauncherPhase.Ready;
-				if (launcher.FireRequested)
-				{
-					launcher.FireRequested = false;
-					PlayShoulderAction(launcher, "a000_800120", ShoulderLauncherPhase.Opening);
-				}
-				else if (!hasStt)
-				{
-					PlayShoulderAction(launcher, "a000_800310", ShoulderLauncherPhase.Stowing);
-				}
-				break;
-			case ShoulderLauncherPhase.Ready:
-				if (!hasStt)
-				{
-					PlayShoulderAction(launcher, "a000_800310", ShoulderLauncherPhase.Stowing);
-				}
-				break;
-			case ShoulderLauncherPhase.Opening:
-				launcher.LaunchAuthorizedThisFrame = true;
-				PlayShoulderAction(launcher, "a000_800210", ShoulderLauncherPhase.Firing);
-				break;
-			case ShoulderLauncherPhase.Firing:
-				PlayShoulderAction(launcher, "a000_800320", ShoulderLauncherPhase.Closing);
-				break;
-			case ShoulderLauncherPhase.Closing:
-				if (hasStt)
-				{
-					launcher.Phase = ShoulderLauncherPhase.Ready;
-				}
-				else
-				{
-					PlayShoulderAction(launcher, "a000_800310", ShoulderLauncherPhase.Stowing);
-				}
-				break;
-			case ShoulderLauncherPhase.Stowing:
-				ApplyShoulderRestPose(launcher.Player);
-				launcher.Phase = ShoulderLauncherPhase.Stowed;
-				break;
-			case ShoulderLauncherPhase.FallbackFiring:
-				ApplyShoulderRestPose(launcher.Player);
-				launcher.Phase = ShoulderLauncherPhase.Stowed;
-				break;
-			}
-		}
-
-		private static void StartNonAnimatedShoulderFire(ShoulderLauncherState launcher)
-		{
-			if (launcher.Phase != ShoulderLauncherPhase.Stowed)
-			{
-				return;
-			}
-			launcher.LaunchAuthorizedThisFrame = false;
-			launcher.FireRequested = true;
-			launcher.FallbackReleaseAt = Time.time + NonAnimatedLauncherReleaseDelaySeconds;
-			launcher.Phase = ShoulderLauncherPhase.FallbackFiring;
-		}
-
-		private void StartFallbackShoulderFire(ShoulderLauncherState launcher)
-		{
-			if (string.IsNullOrEmpty(launcher.FallbackFireActionId))
-			{
-				Debug.LogWarning($"[MechPlayerRig] No playable fire action found for {launcher.Slot}.", this);
-			}
-			else if (PlayShoulderAction(launcher, launcher.FallbackFireActionId, ShoulderLauncherPhase.FallbackFiring))
-			{
-				launcher.LaunchAuthorizedThisFrame = true;
-			}
-		}
-
-		private bool PlayShoulderAction(ShoulderLauncherState launcher, string actionId, ShoulderLauncherPhase nextPhase)
-		{
-			if (launcher.Player.PlayActionPreservingPose(actionId))
-			{
-				launcher.Phase = nextPhase;
-				return true;
-			}
-			Debug.LogWarning($"[MechPlayerRig] Failed to play {launcher.Slot} action {actionId}.", this);
-			ApplyShoulderRestPose(launcher.Player);
-			launcher.Phase = ShoulderLauncherPhase.Stowed;
-			launcher.FireRequested = false;
-			return false;
-		}
-
-		private static void ApplyShoulderRestPose(MechEquipmentAnimationPlayer player)
-		{
-			if (!(player == null))
-			{
-				player.StopPlayback();
-				player.SampleActionAtEnd("a000_800320");
-				player.SampleActionAtEnd("a000_800310");
-				if (player.HasAction("a000_800000"))
-				{
-					player.SampleActionAtTime("a000_800000", 0f);
-				}
-			}
-		}
-
 		private bool TryResolveEquipmentRecord(MechPartSlot slot, out MechAssemblyRecord resolvedRecord)
 		{
 			resolvedRecord = null;
@@ -1150,47 +772,6 @@ namespace ACunicombat.Mechs
 				}
 			}
 			return false;
-		}
-
-		private MechEquipmentAnimationPlayer ResolveOrRepairEquipmentPlayer(MechAssemblyRecord record)
-		{
-			if (record == null || record.instance == null)
-			{
-				return null;
-			}
-
-			MechEquipmentAnimationPlayer player = record.instance.GetComponent<MechEquipmentAnimationPlayer>();
-			if (player == null)
-			{
-				player = record.instance.GetComponentInChildren<MechEquipmentAnimationPlayer>(true);
-			}
-
-			MechPartDefinition part = record.part;
-			bool hasDefinedAnimations = part != null &&
-				part.EquipmentAnimations != null &&
-				part.EquipmentAnimations.Count > 0;
-			if (!hasDefinedAnimations)
-			{
-				return player;
-			}
-
-			if (player == null)
-			{
-				player = record.instance.AddComponent<MechEquipmentAnimationPlayer>();
-			}
-			if (player.Actions == null || player.Actions.Count == 0)
-			{
-				player.Configure(
-					part.EquipmentAnimations,
-					part.DefaultEquipmentActionId,
-					part.PlayDefaultEquipmentActionOnAssemble);
-			}
-
-			Debug.Log(
-				$"[MechPlayerRig] Bound {record.slot} launcher animation: " +
-				$"part={part.PartId}, actions={player.Actions.Count}.",
-				this);
-			return player;
 		}
 
 		private bool IsShaoWeiEquipped(MechPartSlot slot)
@@ -1263,7 +844,7 @@ namespace ACunicombat.Mechs
 				sb.AppendLine("矢量推力: " + (motion.VectorThrustEnabled ? "开启" : "关闭") + "  推力显示[2]: " + ((thrustVisualizer != null && thrustVisualizer.Visible) ? "开启" : "关闭") + "  自由视角[F]: " + ((cam != null && cam.FreeLookActive) ? "开启" : "关闭"));
 				if (orbitSynchronizer != null && orbitSynchronizer.Active)
 				{
-					sb.AppendLine($"轨道同步: T{orbitSynchronizer.SynchronizedTrackId.Value.Index:00}  " + $"纵向飞控: {orbitSynchronizer.AutomaticLongitudinalCommand:P0}  " + $"纵向偏置: {orbitSynchronizer.LongitudinalVelocityBias:F1} m/s");
+					sb.AppendLine($"轨道同步: {MechTrackDisplayNames.For(radar).Label(orbitSynchronizer.SynchronizedTrackId)}  " + $"纵向飞控: {orbitSynchronizer.AutomaticLongitudinalCommand:P0}  " + $"纵向偏置: {orbitSynchronizer.LongitudinalVelocityBias:F1} m/s");
 				}
 			}
 			sb.AppendLine($"Input: {lastFrame.MoveLocal}  Position: {base.transform.position}");

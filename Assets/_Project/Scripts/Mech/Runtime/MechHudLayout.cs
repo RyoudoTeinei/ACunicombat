@@ -24,6 +24,11 @@ namespace ACunicombat.Mechs
         public static float Width => Screen.width / Scale;
         public static float Height => Screen.height / Scale;
 
+        // One top-right anchor keeps the part diagram and its defense status together.
+        public static Rect OwnshipDiagramRect => new Rect(Width - 24f - 360f + 52f, 18f, 256f, 256f);
+        public static Rect OwnshipDefenseStatusRect => new Rect(Width - 24f - 360f, OwnshipDiagramRect.yMax + 38f, 360f, 25f);
+
+
         public static Matrix4x4 BeginScaledGui()
         {
             var previous = GUI.matrix;

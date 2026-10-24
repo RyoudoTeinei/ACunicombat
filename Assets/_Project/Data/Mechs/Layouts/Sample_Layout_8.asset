@@ -1,0 +1,153 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66de637b529e42dfb3d3a8dc8b1ccdba, type: 3}
+  m_Name: Sample_Layout_8
+  m_EditorClassIdentifier: Assembly-CSharp::ACunicombat.Mechs.MechPlatformDefinition
+  version: 1
+  platformId: sample.layout.8
+  slots:
+  - id: legacy.10
+    displayName: Slot 10
+    legacyRole: 10
+    category: 0
+    hardpointType: 0
+    required: 1
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.20
+    displayName: Slot 20
+    legacyRole: 20
+    category: 0
+    hardpointType: 0
+    required: 1
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.30
+    displayName: Slot 30
+    legacyRole: 30
+    category: 0
+    hardpointType: 0
+    required: 1
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.40
+    displayName: Slot 40
+    legacyRole: 40
+    category: 0
+    hardpointType: 0
+    required: 1
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.50
+    displayName: Slot 50
+    legacyRole: 50
+    category: 10
+    hardpointType: 0
+    required: 1
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.60
+    displayName: Slot 60
+    legacyRole: 60
+    category: 10
+    hardpointType: 0
+    required: 1
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.70
+    displayName: Slot 70
+    legacyRole: 70
+    category: 10
+    hardpointType: 0
+    required: 1
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.80
+    displayName: Slot 80
+    legacyRole: 80
+    category: 10
+    hardpointType: 50
+    required: 0
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.100
+    displayName: Slot 100
+    legacyRole: 100
+    category: 20
+    hardpointType: 30
+    required: 0
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.101
+    displayName: Slot 101
+    legacyRole: 101
+    category: 20
+    hardpointType: 30
+    required: 0
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.110
+    displayName: Slot 110
+    legacyRole: 110
+    category: 20
+    hardpointType: 40
+    required: 0
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: legacy.111
+    displayName: Slot 111
+    legacyRole: 111
+    category: 20
+    hardpointType: 40
+    required: 0
+    yawLimitDegrees: 180
+    pitchLimitDegrees: 90
+  - id: auxiliary.0
+    displayName: Auxiliary 1
+    legacyRole: 0
+    category: 20
+    hardpointType: 40
+    parentSlotId: legacy.20
+    localPosition: {x: -1.0, y: 0.7, z: -1}
+    maxMassKg: 5000
+    yawLimitDegrees: 90
+    pitchLimitDegrees: 60
+  - id: auxiliary.1
+    displayName: Auxiliary 2
+    legacyRole: 0
+    category: 20
+    hardpointType: 40
+    parentSlotId: legacy.20
+    localPosition: {x: 1.0, y: 0.7, z: -1}
+    maxMassKg: 5000
+    yawLimitDegrees: 90
+    pitchLimitDegrees: 60
+  - id: auxiliary.2
+    displayName: Auxiliary 3
+    legacyRole: 0
+    category: 20
+    hardpointType: 40
+    parentSlotId: legacy.20
+    localPosition: {x: -1.7, y: 0.7, z: -1}
+    maxMassKg: 5000
+    yawLimitDegrees: 90
+    pitchLimitDegrees: 60
+  - id: auxiliary.3
+    displayName: Auxiliary 4
+    legacyRole: 0
+    category: 20
+    hardpointType: 40
+    parentSlotId: legacy.20
+    localPosition: {x: 1.7, y: 0.7, z: -1}
+    maxMassKg: 5000
+    yawLimitDegrees: 90
+    pitchLimitDegrees: 60

@@ -15,6 +15,7 @@ MonoBehaviour:
   partId: AC6_BD_M_1010
   displayName: AC6 Melander Core
   slot: 20
+  extensionSlotCount: 2
   category: 0
   manufacturer: 
   tags:

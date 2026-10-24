@@ -26,6 +26,7 @@ namespace ACunicombat.Sensing.Contracts
         SuspectedClutter = 1 << 1,
         Jammed = 1 << 2,
         Passive = 1 << 3,
+        CloseProtectionReceiver = 1 << 4, // Known receiver mode, never a target truth label.
     }
 
     /// <summary>
@@ -36,6 +37,8 @@ namespace ACunicombat.Sensing.Contracts
     public struct Measurement
     {
         public SensorId SensorId;
+        /// <summary>Receiver-owned dwell provenance; zero means unavailable in legacy observations.</summary>
+        public ulong DwellSequence;
         /// <summary>驻留时刻（由生成快照推得，不是消费帧时刻，见第 7 节）。</summary>
         public double Timestamp;
         /// <summary>米；无测距能力为 NaN。</summary>

@@ -33,10 +33,12 @@ namespace ACunicombat.Mechs
         private struct ObserverRegistration
         {
             public bool Active;
+            public bool RelayOnly;public double LastSourceTime;
             public SimulationDriver Driver;
             public Transform Observer;
             public SensorId SensorId;
             public SimEntityId EntityId;
+            public SceneEntityLease Lease;
             public bool LockModeRegistered;
             public double NextDwellTime;
             public double LastSweepTime;
@@ -46,6 +48,27 @@ namespace ACunicombat.Mechs
 
         private readonly ObserverRegistration[] observers =
             new ObserverRegistration[MaximumObservers];
+        private readonly System.Guid liveEmitterIdentity=System.Guid.NewGuid();
+        private readonly EmissionEvent[] actualEmissions=new EmissionEvent[64];
+        private bool usesRealRadar;
+        private void RelayActualRadar(MechRadarController source)
+        {
+            double sourceTime=source.SimTimeSeconds;int count=source.CopyOwnRadarEmissions(actualEmissions);
+            for(int i=0;i<observers.Length;i++)
+            {
+                ref var receiver=ref observers[i];if(!receiver.Active||receiver.Driver==null||receiver.Observer==null)continue;
+                if(sourceTime<receiver.LastSourceTime)receiver.LastSourceTime=-1;
+                if(sourceTime<=receiver.LastSourceTime)continue;
+                receiver.LastSourceTime=sourceTime;
+                for(int j=0;j<count;j++)
+                {
+                    var emission=actualEmissions[j];double duration=System.Math.Max(0,emission.EndTime-emission.StartTime);
+                    double delay=math.distance(emission.Origin,(double3)(float3)receiver.Observer.position)/299792458.0;
+                    emission.StartTime=receiver.Driver.SimTimeSeconds+delay;emission.EndTime=emission.StartTime+duration;
+                    receiver.Driver.QueueExternalEmission(liveEmitterIdentity,emission);
+                }
+            }
+        }
         private CombatTestTarget target;
         private Vector3 previousPosition;
 
@@ -86,6 +109,7 @@ namespace ACunicombat.Mechs
 
             for (var i = 0; i < observers.Length; i++)
             {
+                if(observers[i].Active && observers[i].Driver==null) ReleaseObserver(i);
                 if (!observers[i].Active ||
                     observers[i].Driver != observerDriver)
                 {
@@ -103,10 +127,18 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                var sensorId = new SensorId(
-                    new Handle(Mathf.Clamp(sensorIndex, 48, 63), 1));
-                var entityId = observerDriver.RegisterEntity(
-                    BuildState(transform.position, Vector3.zero));
+                if(GetComponent<MechRadarController>()!=null)
+                {
+                    usesRealRadar=true;observers[i]=new ObserverRegistration{Active=true,RelayOnly=true,Driver=observerDriver,Observer=observer,LastSourceTime=-1};return;
+                }
+                if (!observerDriver.TryAllocateRadarSensor(out var sensorId))
+                {
+                    Debug.LogWarning("[MechTestRadarEmitter] Radar identity capacity exhausted.", this);
+                    return;
+                }
+                var lease = observerDriver.RegisterSceneEntity(BattlefieldEntityIdentity.GetOrAdd(gameObject),
+                    BuildState(transform.position, Vector3.zero), SceneEntityProjection.RadarMount);
+                var entityId = lease.Entity;
                 observers[i] = new ObserverRegistration
                 {
                     Active = true,
@@ -114,6 +146,7 @@ namespace ACunicombat.Mechs
                     Observer = observer,
                     SensorId = sensorId,
                     EntityId = entityId,
+                    Lease = lease,
                     LastSweepTime = observerDriver.SimTimeSeconds,
                     SweepAzimuthDegrees = sensorIndex * 67f % 360f,
                 };
@@ -139,6 +172,8 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            var realRadar=GetComponent<MechRadarController>();
+            if(realRadar!=null||usesRealRadar){usesRealRadar=true;if(realRadar!=null)RelayActualRadar(realRadar);return;}
             var dt = Mathf.Max(Time.fixedDeltaTime, 1e-4f);
             var position = transform.position;
             var velocity = (position - previousPosition) / dt;
@@ -152,6 +187,14 @@ namespace ACunicombat.Mechs
                 }
 
                 ref var registration = ref observers[i];
+                if (!registration.Driver.IsSceneEntityCurrent(in registration.Lease))
+                {
+                    registration.Driver.ReleaseSceneEntity(in registration.Lease);
+                    registration.Lease = registration.Driver.RegisterSceneEntity(BattlefieldEntityIdentity.GetOrAdd(gameObject),
+                        BuildState(position, velocity), SceneEntityProjection.RadarMount);
+                    registration.EntityId = registration.Lease.Entity;
+                    RegisterSensorProfile(ref registration, registration.LockModeRegistered);
+                }
                 registration.Driver.SetEntityState(
                     registration.EntityId,
                     BuildState(position, velocity));
@@ -279,6 +322,22 @@ namespace ACunicombat.Mechs
             };
         }
 
+        public void UnregisterObserverDriver(SimulationDriver driver)
+        {
+            for(var i=0;i<observers.Length;i++)
+                if(observers[i].Active && observers[i].Driver==driver) ReleaseObserver(i);
+        }
+        private void ReleaseObserver(int index)
+        {
+            var observer=observers[index];
+            if(observer.Driver!=null)
+            {
+                observer.Driver.ReleaseExternalIffEmitter(liveEmitterIdentity);
+                if(!observer.RelayOnly){observer.Driver.UnregisterRadarSensor(observer.SensorId);observer.Driver.ReleaseSceneEntity(in observer.Lease);}
+            }
+            observers[index]=default;
+        }
+        private void OnDisable() { OnDestroy(); }
         private void OnDestroy()
         {
             for (var i = 0; i < observers.Length; i++)
@@ -288,11 +347,7 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                observers[i].Driver.UnregisterRadarSensor(
-                    observers[i].SensorId);
-                observers[i].Driver.UnregisterEntity(
-                    observers[i].EntityId);
-                observers[i] = default;
+                ReleaseObserver(i);
             }
         }
     }

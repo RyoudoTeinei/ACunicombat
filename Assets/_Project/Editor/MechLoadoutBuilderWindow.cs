@@ -37,6 +37,7 @@ public sealed class MechLoadoutBuilderWindow : EditorWindow
     private Vector2 slotScroll;
     private Vector2 detailScroll;
     private string filterText = string.Empty;
+    private string selectedLayoutSlot;
     private MechPartSlot selectedSlot = MechPartSlot.Core;
 
     [MenuItem("Tools/ACunicombat/Mech/Open Loadout Builder")]
@@ -181,6 +182,7 @@ public sealed class MechLoadoutBuilderWindow : EditorWindow
         {
             EditorGUILayout.PropertyField(serializedLoadout.FindProperty("loadoutId"));
             EditorGUILayout.PropertyField(serializedLoadout.FindProperty("displayName"));
+            EditorGUILayout.PropertyField(serializedLoadout.FindProperty("platform"));
         }
 
         serializedLoadout.ApplyModifiedProperties();
@@ -191,6 +193,29 @@ public sealed class MechLoadoutBuilderWindow : EditorWindow
         EditorGUILayout.LabelField("Parts", EditorStyles.boldLabel);
 
         slotScroll = EditorGUILayout.BeginScrollView(slotScroll);
+        if (loadout.Platform != null)
+        {
+            foreach (var slot in loadout.GetSlots())
+            {
+                loadout.TryGetPart(slot.id, out var current);
+                var candidates = allParts.FindAll(p => slot.Accepts(p));
+                var labels = new List<string> { "Empty" };
+                foreach (var part in candidates) labels.Add(part.DisplayName);
+                if (current != null && !candidates.Contains(current)) { candidates.Add(current); labels.Add(current.DisplayName + " (incompatible)"); }
+                if (GUILayout.Button(slot.Label + " [" + slot.id + "]", EditorStyles.miniButton)) selectedLayoutSlot = slot.id;
+                var index = current == null ? 0 : candidates.IndexOf(current) + 1;
+                var selected = EditorGUILayout.Popup(slot.Label + " [" + slot.id + "]", index, labels.ToArray());
+                if (selected != index)
+                {
+                    selectedLayoutSlot = slot.id;
+                    Undo.RecordObject(loadout, "Change slot equipment");
+                    if (!loadout.TrySetPart(slot.id, selected == 0 ? null : candidates[selected - 1], out var error))
+                        EditorUtility.DisplayDialog("Cannot change equipment", error, "OK");
+                    else EditorUtility.SetDirty(loadout);
+                }
+            }
+            EditorGUILayout.EndScrollView(); return;
+        }
         var assignmentMap = BuildAssignmentMap(loadout);
         for (var i = 0; i < EditableSlots.Length; i++)
         {
@@ -308,6 +333,7 @@ public sealed class MechLoadoutBuilderWindow : EditorWindow
     {
         var map = BuildAssignmentMap(loadout);
         map.TryGetValue(selectedSlot, out var part);
+        if (loadout.Platform != null) loadout.TryGetPart(selectedLayoutSlot ?? loadout.GetSlots().Find(x => true)?.id, out part);
 
         using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
         {

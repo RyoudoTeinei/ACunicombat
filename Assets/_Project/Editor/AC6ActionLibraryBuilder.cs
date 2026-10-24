@@ -24,8 +24,6 @@ public static class AC6ActionLibraryBuilder
     private const string FrameSetCode = "1010";
     private const float PositionCurveTolerance = 0.0005f;
     private const float RotationCurveToleranceDegrees = 0.05f;
-    private const float RestPositionTolerance = 0.00001f;
-    private const float RestRotationToleranceDegrees = 0.005f;
 
     private static readonly (MechPartSlot Slot, string Token)[] FrameSlots =
     {
@@ -323,9 +321,7 @@ public static class AC6ActionLibraryBuilder
                     pose,
                     boneIndex,
                     rotDelta,
-                    posDelta,
-                    restPart.localRotation,
-                    restPart.localPosition);
+                    posDelta);
             }
 
             if (mappedBones == 0)
@@ -357,8 +353,7 @@ public static class AC6ActionLibraryBuilder
 
     private static void WriteBoneCurves(
         AnimationClip clip, string path, PoseExport pose, int boneIndex,
-        Quaternion rotDelta, Vector3 posDelta,
-        Quaternion targetRestRotation, Vector3 targetRestPosition)
+        Quaternion rotDelta, Vector3 posDelta)
     {
         var n = pose.Frames.Length;
         if (n == 0)
@@ -369,8 +364,8 @@ public static class AC6ActionLibraryBuilder
         var times = new float[n];
         var rotations = new Quaternion[n];
         var positions = new Vector3[n];
-        var writesRotation = false;
-        var writesPosition = false;
+        // Rest channels must remain explicit: runtime transitions otherwise retain old poses.
+        // Constant channels are still compressed to endpoints by key reduction.
         for (var f = 0; f < n; f++)
         {
             var frame = pose.Frames[f];
@@ -385,11 +380,9 @@ public static class AC6ActionLibraryBuilder
             times[f] = frame.Time;
             rotations[f] = q;
             positions[f] = p;
-            writesRotation |= Quaternion.Angle(q, targetRestRotation) > RestRotationToleranceDegrees;
-            writesPosition |= Vector3.Distance(p, targetRestPosition) > RestPositionTolerance;
+
         }
 
-        if (writesRotation)
         {
             var indices = ReduceQuaternionKeys(times, rotations, RotationCurveToleranceDegrees);
             clip.SetCurve(path, typeof(Transform), "m_LocalRotation.x", BuildLinearCurve(indices, times, i => rotations[i].x));
@@ -398,7 +391,6 @@ public static class AC6ActionLibraryBuilder
             clip.SetCurve(path, typeof(Transform), "m_LocalRotation.w", BuildLinearCurve(indices, times, i => rotations[i].w));
         }
 
-        if (writesPosition)
         {
             var indices = ReduceVectorKeys(times, positions, PositionCurveTolerance);
             clip.SetCurve(path, typeof(Transform), "m_LocalPosition.x", BuildLinearCurve(indices, times, i => positions[i].x));

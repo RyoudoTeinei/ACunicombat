@@ -81,7 +81,7 @@ namespace ACunicombat.Mechs
         [Tooltip("供普通推进、制动、轨道同步、AB 与 QB 共用的储能容量（MJ）。有效装配中由发电机决定。")]
         [SerializeField, Min(1f)] private float maximumManeuverEnergy =
             DefaultManeuverEnergyCapacity;
-        [Tooltip("没有有效部件功耗数据时，普通机动每秒消耗的回退能量（MJ/s）。")]
+        [Tooltip("兼容旧配置：仅在 AB 激活且缺少部件数据时参与功耗下限计算。普通推进不消耗 EN。")]
         [SerializeField, Min(0f)] private float movementEnergyDrainPerSecond =
             DefaultMovementEnergyDrainPerSecond;
         [Tooltip("没有有效主推进器功耗数据时，AB 每秒消耗的回退能量（MJ/s）。")]
@@ -240,6 +240,8 @@ namespace ACunicombat.Mechs
         public float CurrentMomentumWheelTorqueNewtonMeters => currentMomentumWheelTorqueNewtonMeters;
 
         public Vector3 Velocity => velocity;
+        public bool HasKinematicSample {get;private set;}
+        public double KinematicSampleTime {get;private set;}
 
         public bool EngineAvailable => engineAvailable;
 
@@ -471,6 +473,25 @@ namespace ACunicombat.Mechs
             }
 
             AddPhysicalAuxiliaryThrusterChannels(previousHealth);
+        }
+
+        private MechPartDamageController partDamage;
+        private float ResolveThrusterEfficiency(MechThrusterChannelState channel)
+        {
+            if(partDamage==null)partDamage=GetComponent<MechPartDamageController>();
+            if(partDamage==null||!partDamage.IsBound)return channel.Health;
+            var side=channel.Side==MechThrusterSide.Left?MechDamageSide.Left:channel.Side==MechThrusterSide.Right?MechDamageSide.Right:MechDamageSide.Center;
+            var owner=channel.Anchor!=null?channel.Anchor.GetComponentInParent<MechAssembledPart>():null;
+            MechPartSlot role=owner!=null?owner.Slot:
+                channel.Role==MechThrusterRole.Main||channel.Role==MechThrusterRole.LegLift||channel.Role==MechThrusterRole.LegRcs?MechPartSlot.Legs:MechPartSlot.Core;
+            if(channel.Anchor!=null&&runtimeState!=null)
+            {
+                float x=transform.InverseTransformPoint(channel.Anchor.position).x*MechDamageGeometry.LeftSign(runtimeState);
+                if(Mathf.Abs(x)>.01f)side=x>=0?MechDamageSide.Left:MechDamageSide.Right;
+            }
+            float factor=partDamage.RoleEfficiency(role,side);
+            if(channel.Role==MechThrusterRole.Main)factor*=partDamage.RoleEfficiency(MechPartSlot.Booster);
+            return channel.Health*factor;
         }
 
         public bool SetThrusterHealth(string channelId, float health)
@@ -961,7 +982,7 @@ namespace ACunicombat.Mechs
                     capacity = auxiliaryNozzleThrustKn * 1000f;
                 }
                 projectedForce += Mathf.Max(0f, Vector3.Dot(direction, nozzleDirection)) *
-                                  Mathf.Max(0f, capacity) * channel.Health;
+                                  Mathf.Max(0f, capacity) * ResolveThrusterEfficiency(channel);
             }
             return projectedForce / Mathf.Max(1f, ResolveMassKg());
         }
@@ -973,6 +994,8 @@ namespace ACunicombat.Mechs
 
         public void Tick(in MechPlayerInputFrame frame, float deltaTime)
         {
+            HasKinematicSample=true;
+            KinematicSampleTime=Time.timeAsDouble;
             currentTranslationInput = new Vector3(
                 Mathf.Clamp(frame.MoveLocal.x, -1f, 1f),
                 (frame.RiseHeld ? 1f : 0f) - (frame.DescendHeld ? 1f : 0f),
@@ -1502,8 +1525,8 @@ namespace ACunicombat.Mechs
                     continue;
                 }
 
-                if (channel.Side == MechThrusterSide.Left) leftHealth += channel.Health;
-                if (channel.Side == MechThrusterSide.Right) rightHealth += channel.Health;
+                if (channel.Side == MechThrusterSide.Left) leftHealth += ResolveThrusterEfficiency(channel);
+                if (channel.Side == MechThrusterSide.Right) rightHealth += ResolveThrusterEfficiency(channel);
             }
 
             var pairedHealth = Mathf.Clamp01(Mathf.Min(leftHealth, rightHealth));
@@ -1595,7 +1618,7 @@ namespace ACunicombat.Mechs
                 var force = forceDirection * forceMagnitude;
                 channel.AddForce(
                     force,
-                    ratedForcePerChannel * channel.Health);
+                    ratedForcePerChannel * ResolveThrusterEfficiency(channel));
                 realizedTorque += Vector3.Dot(
                     Vector3.Cross(radial, force),
                     ReferenceUp);
@@ -1657,15 +1680,15 @@ namespace ACunicombat.Mechs
                 {
                     case MechThrusterSide.Left when leftCount > 0 && rightCount > 0:
                         nominalCapacity = ratedMagnitude * 0.5f / leftCount;
-                        leftCapacity += nominalCapacity * channel.Health;
+                        leftCapacity += nominalCapacity * ResolveThrusterEfficiency(channel);
                         break;
                     case MechThrusterSide.Right when leftCount > 0 && rightCount > 0:
                         nominalCapacity = ratedMagnitude * 0.5f / rightCount;
-                        rightCapacity += nominalCapacity * channel.Health;
+                        rightCapacity += nominalCapacity * ResolveThrusterEfficiency(channel);
                         break;
                     default:
                         nominalCapacity = ratedMagnitude / channelCount;
-                        centerCapacity += nominalCapacity * channel.Health;
+                        centerCapacity += nominalCapacity * ResolveThrusterEfficiency(channel);
                         break;
                 }
             }
@@ -1716,7 +1739,7 @@ namespace ACunicombat.Mechs
                         break;
                 }
 
-                var channelCapacity = nominalCapacity * channel.Health;
+                var channelCapacity = nominalCapacity * ResolveThrusterEfficiency(channel);
                 var allowedSideCapacity = centerCapacity;
                 var rawSideCapacity = centerCapacity;
                 if (channel.Side == MechThrusterSide.Left && leftCount > 0 && rightCount > 0)
@@ -1786,7 +1809,7 @@ namespace ACunicombat.Mechs
                         StringComparison.Ordinal);
                     if (isMain)
                     {
-                        capacity = mainCapacityPerNozzle * channel.Health;
+                        capacity = mainCapacityPerNozzle * ResolveThrusterEfficiency(channel);
                         direction = mainForceDirection;
                     }
                     else if (thrusterPlume != null &&
@@ -1796,14 +1819,14 @@ namespace ACunicombat.Mechs
                                  out var resolvedDirection,
                                  out var ratedThrustKn))
                     {
-                        capacity = ratedThrustKn * 1000f * channel.Health * auxiliaryCapacityScale;
+                        capacity = ratedThrustKn * 1000f * ResolveThrusterEfficiency(channel) * auxiliaryCapacityScale;
                         direction = resolvedDirection;
                     }
                     else
                     {
                         capacity = Mathf.Max(0f, auxiliaryNozzleThrustKn)
                                    * 1000f
-                                   * channel.Health * auxiliaryCapacityScale;
+                                   * ResolveThrusterEfficiency(channel) * auxiliaryCapacityScale;
                         direction = -anchor.forward.normalized;
                     }
                 }
@@ -2160,13 +2183,13 @@ namespace ACunicombat.Mechs
                 switch (channel.Side)
                 {
                     case MechThrusterSide.Left when leftCount > 0 && rightCount > 0:
-                        leftCapacity += ratedMagnitude * 0.5f / leftCount * channel.Health;
+                        leftCapacity += ratedMagnitude * 0.5f / leftCount * ResolveThrusterEfficiency(channel);
                         break;
                     case MechThrusterSide.Right when leftCount > 0 && rightCount > 0:
-                        rightCapacity += ratedMagnitude * 0.5f / rightCount * channel.Health;
+                        rightCapacity += ratedMagnitude * 0.5f / rightCount * ResolveThrusterEfficiency(channel);
                         break;
                     default:
-                        centerCapacity += ratedMagnitude / channelCount * channel.Health;
+                        centerCapacity += ratedMagnitude / channelCount * ResolveThrusterEfficiency(channel);
                         break;
                 }
             }
@@ -3199,7 +3222,7 @@ namespace ACunicombat.Mechs
             currentManeuverEnergy = Mathf.Min(
                 maximumManeuverEnergy,
                 currentManeuverEnergy +
-                maneuverEnergyRechargePerSecond * step);
+                maneuverEnergyRechargePerSecond * (GetComponent<MechPartDamageController>()?.RoleEfficiency(MechPartSlot.Generator) ?? 1f) * step);
             if (maneuverEnergyDepleted &&
                 currentManeuverEnergy >=
                 maximumManeuverEnergy * maneuverEnergyRestartFraction)
@@ -3212,6 +3235,9 @@ namespace ACunicombat.Mechs
             in MechPlayerInputFrame frame,
             float forwardCommand)
         {
+            // Sustained translation does not spend the burst EN reserve, even at zero EN.
+            if (!AssaultBoostActive) return 0f;
+
             // Autonomous input's digital axes are animation/takeoff cues, not
             // extra full-throttle thrusters to bill on top of the world request.
             if (frame.HasAutonomousFlightCommand) forwardCommand = 0f;
@@ -3362,6 +3388,17 @@ namespace ACunicombat.Mechs
             }
 
             return availableFraction;
+        }
+
+        public bool TrySpendEquipmentEnergy(float energyMj)
+        {
+            if (float.IsNaN(energyMj) || float.IsInfinity(energyMj) || energyMj < 0) return false;
+            float available = CurrentManeuverEnergy;
+            if (available + 0.00001f < energyMj) return false;
+            currentManeuverEnergy = Mathf.Max(0, available - energyMj);
+            if (energyMj > 0) maneuverEnergyRechargeDelayRemaining = maneuverEnergyRechargeDelay;
+            if (currentManeuverEnergy <= 0.0001f) { maneuverEnergyDepleted = true; assaultBoostActive = false; }
+            return true;
         }
 
         private bool TrySpendQuickBoostEnergy()

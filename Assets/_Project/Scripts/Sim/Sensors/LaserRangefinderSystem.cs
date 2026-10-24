@@ -56,6 +56,7 @@ namespace ACunicombat.Sensors
         private readonly SimWorld world;
         private readonly LaserRangefinderProfile[] sensors =
             new LaserRangefinderProfile[MaximumSensors];
+        private readonly float[] efficiencies = new float[MaximumSensors];
         private readonly bool[] sensorRegistered =
             new bool[MaximumSensors];
         private readonly LaserRangeTargetProfile[] targets =
@@ -97,10 +98,16 @@ namespace ACunicombat.Sensors
                 throw new ArgumentOutOfRangeException(nameof(profile));
             }
 
+            efficiencies[index]=1f;
             sensors[index] = profile;
             sensorRegistered[index] = true;
         }
 
+        public bool SetSensorEfficiency(SensorId id,float efficiency)
+        {
+            int index=id.Value.Index;if((uint)index>=sensors.Length||!sensorRegistered[index]||!sensors[index].SensorId.Equals(id))return false;
+            efficiencies[index]=float.IsFinite(efficiency)?math.clamp(efficiency,0,1):0;return true;
+        }
         public void UnregisterSensor(SensorId sensorId)
         {
             var index = sensorId.Value.Index;
@@ -179,7 +186,9 @@ namespace ACunicombat.Sensors
                 return;
             }
 
+            float efficiency=efficiencies[sensorIndex];if(efficiency<=0)return;
             var sensor = sensors[sensorIndex];
+            sensor.MaximumRangeMeters*=math.sqrt(efficiency);sensor.BaseRangeSigmaMeters/=math.max(.05f,efficiency);
             if (!sensor.SensorId.Equals(pulse.SensorId) ||
                 !world.IsAlive(sensor.OwnerEntityId))
             {

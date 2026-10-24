@@ -36,7 +36,7 @@ namespace ACunicombat.Tracking
     public static class Cmkf
     {
         /// <summary>常速度模型预测：x' = x + v·dt；P' = FPFᵀ + Q（Q 对角，按机动档位）。</summary>
-        public static void PredictCv(ref FilterState s, double dt, double qPosition, double qVelocity)
+        public static void PredictCv(ref FilterState s, double dt, double qPosition, double qVelocity, bool integrateAccelerationNoise = false)
         {
             s.Position += s.Velocity * dt;
             s.Time += dt;
@@ -64,6 +64,15 @@ namespace ACunicombat.Tracking
             {
                 dst[i, i] += qPosition * dt;
                 dst[i + 3, i + 3] += qVelocity * dt;
+                if(integrateAccelerationNoise)
+                {
+                    // Continuous white acceleration: Qpp=q*dt^3/3, Qpv=q*dt^2/2.
+                    // Injecting unrelated metres of position noise at every short tick
+                    // erases precise range separation between neighbouring salvo rounds.
+                    dst[i,i]+=qVelocity*dt*dt*dt/3;
+                    dst[i,i+3]+=qVelocity*dt*dt/2;
+                    dst[i+3,i]+=qVelocity*dt*dt/2;
+                }
             }
 
             s.P = dst;
@@ -73,33 +82,89 @@ namespace ACunicombat.Tracking
         /// <summary>
         /// 球→笛卡尔转换测量（14.1）：z = p_sensor + r·d̂；
         /// R_cart = σr²·d̂d̂ᵀ + r²σθ²·(I − d̂d̂ᵀ)（各向同性角误差的精确形式）。
-        /// TODO(阶段 1)：大角度误差时的标准 CMKF 去偏均值/协方差修正项。
+        /// 使用二阶角度去偏和正半定外积构造；关联/递推更新使用预测视线坐标的新息。
         /// </summary>
         public static void ConvertMeasurement(
             double3 sensorPosition, float range, float3 direction, float rangeVar, float angleVar,
             out double3 zCartesian, out Matrix6 rCartesian3x3)
         {
-            double3 d = direction;
-            zCartesian = sensorPosition + d * range;
-
-            var cross = (double)range * range * angleVar;
+            // float-normalized LOS is not exactly unit length in double precision.
+            // Construct R from positive outer products, not I-ddT cancellation.
+            double3 d = math.normalizesafe((double3)direction, new double3(0,0,1));
+            double angular=math.max(0.0,(double)angleVar);
+            double correctedRange=range*(1.0+angular);
+            zCartesian = sensorPosition + d * correctedRange;
+            double radial=math.max(1e-9,(double)rangeVar)+(double)range*range*angular*angular;
+            var tangent=math.normalizesafe(math.cross(d,math.abs(d.y)<.9?new double3(0,1,0):new double3(1,0,0)));
+            var bitangent=math.cross(d,tangent);
+            var cross = correctedRange*correctedRange*angular;
             rCartesian3x3 = default;
             for (var i = 0; i < 3; i++)
             {
                 for (var j = 0; j < 3; j++)
                 {
                     var outer = d[i] * d[j];
-                    rCartesian3x3[i, j] = rangeVar * outer + cross * ((i == j ? 1.0 : 0.0) - outer);
+                    rCartesian3x3[i, j] = radial * outer + cross * (tangent[i]*tangent[j]+bitangent[i]*bitangent[j]);
                 }
             }
         }
 
         /// <summary>
         /// 位置伪测量 3D 更新，Joseph 形式：P = (I−KH)P(I−KH)ᵀ + KRKᵀ。
-        /// TODO(阶段 1)：3×3 新息协方差求逆（对称正定，Cholesky）+ 增益与 Joseph 展开。
+        /// 3×3 新息协方差采用缩放 Cholesky 求解；非正定输入拒绝更新。
         /// 实现时必须以 NEES/NIS（22.2）作为验收，不得用目测代替。
         /// </summary>
         public static void UpdatePosition(ref FilterState s, double3 z, in Matrix6 r3x3)
+        {
+            TryUpdatePosition(ref s,z,r3x3);
+        }
+        public static bool TryUpdatePosition(ref FilterState s,double3 z,in Matrix6 r3x3)
+        {
+            if(!math.all(math.isfinite(z))||!ValidCovariance(r3x3,3)||!Healthy(s))return false;
+            var candidate=s;
+            UpdatePositionCandidate(ref candidate,z,r3x3);
+            if(!Healthy(candidate))return false;
+            s=candidate;return true;
+        }
+        public static bool TryUpdateRadarPosition(ref FilterState state,double3 observer,float range,float3 direction,float rangeVariance,float angleVariance)
+        {
+            // Relinearize the curved range/bearing observation after a large angular
+            // correction. Every candidate starts from the SAME prior: this is one
+            // observation, not six independent hits or repeated covariance shrinkage.
+            var prior=state;var linearization=state;var result=state;
+            var priorLos=math.normalizesafe(state.Position-observer,new double3(0,0,1));
+            var observedLos=math.normalizesafe((double3)direction,priorLos);
+            double positionVariance=state.P[0,0]+state.P[1,1]+state.P[2,2];
+            // The tangent-plane approximation is not valid across the sensor origin or
+            // over a large bearing rotation. Use the unbiased converted observation there.
+            if(math.dot(priorLos,observedLos)<math.cos(.35)||positionVariance>.25*range*range)
+            {
+                ConvertMeasurement(observer,range,direction,rangeVariance,angleVariance,out var observed,out var noise);
+                return TryUpdatePosition(ref state,observed,noise);
+            }
+            for(int iteration=0;iteration<6;iteration++)
+            {
+                BuildSphericalInnovation(linearization,observer,range,direction,rangeVariance,angleVariance,out var position,out var covariance);
+                var candidate=prior;
+                if(!TryUpdatePosition(ref candidate,position,covariance))return false;
+                double change=math.distance(candidate.Position,linearization.Position);
+                result=candidate;linearization=candidate;
+                if(change<1e-5)break;
+            }
+            state=result;return true;
+        }
+
+        public static bool TryUpdateRadarMeasurement(ref FilterState state,double3 observer,double3 observerVelocity,
+            float range,float3 direction,float rangeVariance,float angleVariance,float radialVelocity,float velocityVariance)
+        {
+            var candidate=state;
+            if(!TryUpdateRadarPosition(ref candidate,observer,range,direction,rangeVariance,angleVariance))return false;
+            if(float.IsFinite(radialVelocity) && !TryUpdateRadarDoppler(ref candidate,observer,observerVelocity,
+                radialVelocity,math.max(velocityVariance,1e-3f)))return false;
+            state=candidate;return true;
+        }
+
+        private static void UpdatePositionCandidate(ref FilterState s, double3 z, in Matrix6 r3x3)
         {
             var innovation = z - s.Position;
 
@@ -196,7 +261,7 @@ namespace ACunicombat.Tracking
 
             s.P = next;
             Symmetrize(ref s.P);
-            AssertDiagonal(in s.P);
+            // Commit only after full finite/PSD validation in the public wrapper.
         }
 
         /// <summary>
@@ -249,34 +314,37 @@ namespace ACunicombat.Tracking
                    nis >= 0.0;
         }
 
+        // -2 log likelihood (up to a common constant). NIS alone rewards stale,
+        // diffuse tracks for having a huge gate and lets them steal precise returns.
+        public static double PositionAssociationCost(in FilterState prior,in Matrix6 noise,double nis)
+        {
+            double a=prior.P[0,0]+noise[0,0];if(a<=0)return double.PositiveInfinity;
+            double l00=Math.Sqrt(a),l10=(prior.P[1,0]+noise[1,0])/l00,l20=(prior.P[2,0]+noise[2,0])/l00;
+            double b=prior.P[1,1]+noise[1,1]-l10*l10;if(b<=0)return double.PositiveInfinity;
+            double l11=Math.Sqrt(b),l21=(prior.P[2,1]+noise[2,1]-l20*l10)/l11;
+            double c=prior.P[2,2]+noise[2,2]-l20*l20-l21*l21;if(c<=0)return double.PositiveInfinity;
+            return nis+2*(Math.Log(l00)+Math.Log(l11))+Math.Log(c);
+        }
+
         private static bool TryInvertSymmetric3(ReadOnlySpan<double> m, Span<double> inverse)
         {
-            var a = m[0];
-            var b = m[1];
-            var c = m[2];
-            var d = m[4];
-            var e = m[5];
-            var f = m[8];
-
-            var cofactor00 = d * f - e * e;
-            var cofactor01 = c * e - b * f;
-            var cofactor02 = b * e - c * d;
-            var cofactor11 = a * f - c * c;
-            var cofactor12 = b * c - a * e;
-            var cofactor22 = a * d - b * b;
-            var determinant = a * cofactor00 + b * cofactor01 + c * cofactor02;
-            if (double.IsNaN(determinant) || double.IsInfinity(determinant) || Math.Abs(determinant) < 1e-18)
+            double scale=math.max(m[0],math.max(m[4],m[8]));
+            if(!double.IsFinite(scale)||scale<=0)return false;
+            Span<double> l=stackalloc double[9];l.Clear();
+            for(int i=0;i<3;i++)for(int j=0;j<=i;j++)
             {
-                return false;
+                double value=(m[i*3+j]+m[j*3+i])*.5/scale;
+                for(int k=0;k<j;k++)value-=l[i*3+k]*l[j*3+k];
+                if(!double.IsFinite(value))return false;
+                if(i==j){if(value<=0)return false;l[i*3+j]=Math.Sqrt(value);}
+                else l[i*3+j]=value/l[j*3+j];
             }
-
-            var scale = 1.0 / determinant;
-            inverse[0] = cofactor00 * scale;
-            inverse[1] = inverse[3] = cofactor01 * scale;
-            inverse[2] = inverse[6] = cofactor02 * scale;
-            inverse[4] = cofactor11 * scale;
-            inverse[5] = inverse[7] = cofactor12 * scale;
-            inverse[8] = cofactor22 * scale;
+            for(int col=0;col<3;col++)
+            {
+                Span<double> y=stackalloc double[3];Span<double> x=stackalloc double[3];
+                for(int i=0;i<3;i++){double v=i==col?1:0;for(int k=0;k<i;k++)v-=l[i*3+k]*y[k];y[i]=v/l[i*3+i];}
+                for(int i=2;i>=0;i--){double v=y[i];for(int k=i+1;k<3;k++)v-=l[k*3+i]*x[k];x[i]=v/l[i*3+i];inverse[i*3+col]=x[i]/scale;}
+            }
             return true;
         }
 
@@ -287,7 +355,39 @@ namespace ACunicombat.Tracking
         public static void UpdateRadialVelocity(
             ref FilterState s, float3 direction, float measuredRadialVelocity, float velocityVar)
         {
-            double3 d = direction;
+            if(!math.all(math.isfinite(direction))||math.lengthsq(direction)<1e-12f||!float.IsFinite(measuredRadialVelocity)||!float.IsFinite(velocityVar)||velocityVar<=0)return;
+            var candidate=s;
+            UpdateRadialVelocityCandidate(ref candidate,direction,measuredRadialVelocity,velocityVar);
+            if(Healthy(candidate))s=candidate;
+        }
+        // Radar Doppler is h(p,v) = dot(v-v_sensor, normalize(p-p_sensor)).
+        // Its LOS is uncertain STATE, not an exact axis supplied by a noisy angle measurement.
+        public static void UpdateRadarDoppler(ref FilterState state,double3 observerPosition,double3 observerVelocity,float measured,float variance)
+            =>TryUpdateRadarDoppler(ref state,observerPosition,observerVelocity,measured,variance);
+
+        public static bool TryUpdateRadarDoppler(ref FilterState state,double3 observerPosition,double3 observerVelocity,float measured,float variance)
+        {
+            if(!float.IsFinite(measured)||!float.IsFinite(variance)||variance<=0)return false;
+            var relative=state.Position-observerPosition;double range=math.length(relative);if(range<1)return false;
+            var los=relative/range;var velocity=state.Velocity-observerVelocity;double predicted=math.dot(velocity,los);
+            var angularDerivative=(velocity-los*predicted)/range;
+            Span<double> h=stackalloc double[6]{angularDerivative.x,angularDerivative.y,angularDerivative.z,los.x,los.y,los.z};
+            double innovation=measured-predicted,innovationVariance=variance;
+            for(int row=0;row<6;row++)for(int col=0;col<6;col++)innovationVariance+=h[row]*state.P[row,col]*h[col];
+            if(!double.IsFinite(innovationVariance)||innovationVariance<=0||innovation*innovation/innovationVariance>25)return false;
+            Span<double> gain=stackalloc double[6];
+            for(int row=0;row<6;row++){double value=0;for(int col=0;col<6;col++)value+=state.P[row,col]*h[col];gain[row]=value/innovationVariance;}
+            var next=state;next.Position+=new double3(gain[0],gain[1],gain[2])*innovation;next.Velocity+=new double3(gain[3],gain[4],gain[5])*innovation;
+            Matrix6 a=default,ap=default,covariance=default;
+            for(int row=0;row<6;row++)for(int col=0;col<6;col++)a[row,col]=(row==col?1:0)-gain[row]*h[col];
+            for(int row=0;row<6;row++)for(int col=0;col<6;col++)for(int k=0;k<6;k++)ap[row,col]+=a[row,k]*state.P[k,col];
+            for(int row=0;row<6;row++)for(int col=0;col<6;col++){for(int k=0;k<6;k++)covariance[row,col]+=ap[row,k]*a[col,k];covariance[row,col]+=gain[row]*variance*gain[col];}
+            next.P=covariance;Symmetrize(ref next.P);if(!Healthy(next))return false;state=next;return true;
+        }
+        private static void UpdateRadialVelocityCandidate(
+            ref FilterState s, float3 direction, float measuredRadialVelocity, float velocityVar)
+        {
+            double3 d = math.normalize((double3)direction);
 
             // 新息与新息方差 S = HPHᵀ + R（H 只作用于速度块）。
             var predicted = math.dot(d, s.Velocity);
@@ -367,7 +467,47 @@ namespace ACunicombat.Tracking
 
             s.P = next;
             Symmetrize(ref s.P);
-            AssertDiagonal(in s.P);
+            // Commit only after full finite/PSD validation in the public wrapper.
+        }
+
+        /// <summary>Range/angle innovation about the predicted LOS. Avoids treating a curved range shell as a flat ellipsoid.</summary>
+        public static void BuildSphericalInnovation(in FilterState state,double3 observer,float range,float3 direction,
+            float rangeVar,float angleVar,out double3 pseudoPosition,out Matrix6 covariance)
+        {
+            var relative=state.Position-observer;double predictedRange=math.max(1,math.length(relative));
+            var n=math.normalizesafe(relative,new double3(0,0,1));var d=math.normalizesafe((double3)direction,n);
+            var t=math.normalizesafe(math.cross(n,math.abs(n.y)<.9?new double3(0,1,0):new double3(1,0,0)));
+            var b=math.cross(n,t);double forward=math.dot(d,n);
+            double a=math.atan2(math.dot(d,t),forward),e=math.atan2(math.dot(d,b),forward);
+            pseudoPosition=state.Position+n*(range-predictedRange)+predictedRange*(t*a+b*e);
+            covariance=default;double angular=predictedRange*predictedRange*math.max(1e-12,angleVar);
+            double radialPrediction=0;for(int i=0;i<3;i++)for(int j=0;j<3;j++)radialPrediction+=n[i]*state.P[i,j]*n[j];
+            double transversePrediction=math.max(0,state.P[0,0]+state.P[1,1]+state.P[2,2]-radialPrediction);
+            double angularLinearization=math.max(0,angleVar)+transversePrediction/(2*predictedRange*predictedRange);
+            // Second-order shell curvature prevents coarse-only updates from manufacturing
+            // precise angular constraints through successive, rotating range Jacobians.
+            double radial=math.max(1e-9,rangeVar)+predictedRange*predictedRange*angularLinearization*angularLinearization;
+            for(int i=0;i<3;i++)for(int j=0;j<3;j++)
+                covariance[i,j]=radial*n[i]*n[j]+angular*(t[i]*t[j]+b[i]*b[j]);
+        }
+
+        public static bool Healthy(in FilterState state) => math.all(math.isfinite(state.Position)) &&
+            math.all(math.isfinite(state.Velocity)) && double.IsFinite(state.Time) && ValidCovariance(state.P,6);
+        private static bool ValidCovariance(in Matrix6 p,int size)
+        {
+            double scale=1;
+            for(int i=0;i<size;i++){if(!double.IsFinite(p[i,i])||p[i,i]<0)return false;scale=math.max(scale,p[i,i]);}
+            Span<double> l=stackalloc double[36];l.Clear();
+            for(int i=0;i<size;i++)for(int j=0;j<=i;j++)
+            {
+                double value=(p[i,j]+p[j,i])*.5/scale;
+                if(!double.IsFinite(value))return false;
+                if(i==j)value+=1e-14; // Validation tolerance only; never mutate or clamp published covariance.
+                for(int k=0;k<j;k++)value-=l[i*6+k]*l[j*6+k];
+                if(i==j){if(value<=0)return false;l[i*6+j]=Math.Sqrt(value);}
+                else l[i*6+j]=value/l[j*6+j];
+            }
+            return true;
         }
 
         public static void Symmetrize(ref Matrix6 p)

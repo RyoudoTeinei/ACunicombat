@@ -17,6 +17,11 @@ namespace ACunicombat.Sensing.Contracts
         public ushort FrequencyBand;
         /// <summary>到达受害接收机的干扰功率（dB，已含传播衰减）。</summary>
         public float PowerDb;
+        /// <summary>True: boresight-equivalent receiver-input dBW, integrated over BandwidthHz.
+        /// False: legacy noise-normalized contribution, converted explicitly by a physical receiver.</summary>
+        public bool PowerIsDbw;
+        public float CenterFrequencyHz;
+        public float BandwidthHz;
     }
 
     /// <summary>

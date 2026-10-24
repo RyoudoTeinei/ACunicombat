@@ -71,6 +71,20 @@ namespace ACunicombat.Mechs
         public bool IsGraphValid => graph.IsValid();
         public double GraphTime => clock;
         public int PartCount => parts.Count;
+        public bool IsBoundTo(MechRuntimeState state)
+        {
+            if(state==null||!graph.IsValid())return false;
+            int index=0;
+            foreach(var record in state.AssembledParts)
+            {
+                if(record?.part==null||record.instance==null||!record.part.UsesSynchronizedSkinnedRig||
+                    record.instance.GetComponentInChildren<SkinnedMeshRenderer>(true)==null)continue;
+                if(index>=parts.Count||parts[index].Source.PartRoot!=record.instance)return false;
+                index++;
+            }
+            return index==parts.Count&&index>0;
+        }
+
         public int SharedBoneBindingCount => sharedBoneBindings.Count;
         public string ActiveFullBodyActionId =>
             layers[FullBodyLayerIndex].Active?.actionId ?? string.Empty;

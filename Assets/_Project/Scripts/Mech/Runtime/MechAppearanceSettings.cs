@@ -126,6 +126,14 @@ namespace ACunicombat.Mechs
 
     public static class MechAppearanceApplicator
     {
+        // Surface correctness is shared by player and NPCs; paint selection is not.
+        public static void PrepareSurfaces(GameObject root)
+        {
+            if (root == null) return;
+            var adapter=root.GetComponent<MechAppearanceMaterialAdapter>();
+            if(adapter==null)adapter=root.AddComponent<MechAppearanceMaterialAdapter>();
+            adapter.Synchronize(root, false);
+        }
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         private static readonly int BaseColorFactorId = Shader.PropertyToID("_BaseColorFactor");
         private static readonly int ColorId = Shader.PropertyToID("_Color");
@@ -349,7 +357,7 @@ namespace ACunicombat.Mechs
         private readonly List<Material> ownedMaterials = new List<Material>();
         private Material hiddenOverlayMaterial;
 
-        public void Synchronize(GameObject root)
+        public void Synchronize(GameObject root, bool convertImportedPaint = true)
         {
             if (root == null)
             {
@@ -388,7 +396,23 @@ namespace ACunicombat.Mechs
                         continue;
                     }
 
-                    if (appearanceShader == null || !ShouldConvert(source, appearanceShader))
+                    if (appearanceShader != null && source != null && source.shader == appearanceShader)
+                    {
+                        var oldNormal=source.GetTexture("_BumpMap");
+                        var restored=MechSurfaceNormalTextures.FindRestored(oldNormal);
+                        if(restored!=null && (oldNormal!=restored || source.GetFloat("_NormalEncoding")!=1))
+                        {
+                            if(!convertedMaterials.TryGetValue(source,out var corrected)||corrected==null)
+                            {
+                                corrected=new Material(source){name=source.name+"_Surface",hideFlags=HideFlags.DontSave};
+                                corrected.SetTexture("_BumpMap",restored);corrected.SetFloat("_NormalEncoding",1);
+                                convertedMaterials[source]=corrected;ownedMaterials.Add(corrected);
+                            }
+                            materials[materialIndex]=corrected;changed=true;
+                        }
+                        continue;
+                    }
+                    if (!convertImportedPaint || appearanceShader == null || !ShouldConvert(source, appearanceShader))
                     {
                         continue;
                     }
@@ -477,14 +501,17 @@ namespace ACunicombat.Mechs
             converted.SetTextureScale("_BaseMap", source.GetTextureScale(baseTextureProperty));
             converted.SetTextureOffset("_BaseMap", source.GetTextureOffset(baseTextureProperty));
 
-            if (TryGetTexture(source, NormalTextureNames, out var normalTexture, out _))
+            if (TryGetTexture(source, NormalTextureNames, out var normalTexture, out var normalProperty))
             {
-                converted.SetTexture("_BumpMap", normalTexture);
+                var restored=MechSurfaceNormalTextures.FindRestored(normalTexture);
+                converted.SetTexture("_BumpMap", restored!=null?restored:normalTexture);
+                converted.SetFloat("_NormalEncoding",restored!=null?1:normalProperty=="_BumpMap"?2:3);
                 converted.SetFloat("_BumpScale", ReadNormalScale(source));
                 converted.EnableKeyword("_NORMALMAP");
             }
 
-            if (TryGetTexture(source, EmissionTextureNames, out var emissionTexture, out _))
+            if ((source.IsKeywordEnabled("_EMISSION") || source.IsKeywordEnabled("_EMISSIVE")) &&
+                TryGetTexture(source, EmissionTextureNames, out var emissionTexture, out _))
             {
                 converted.SetTexture("_EmissionMap", emissionTexture);
                 converted.SetColor("_EmissionColor", Color.white);

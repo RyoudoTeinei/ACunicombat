@@ -101,6 +101,7 @@ namespace ACunicombat.Mechs
             target.momentumWheelTurnRateDegPerSecond = source.momentumWheelTurnRateDegPerSecond;
             target.radarPerformance.CopyFrom(source.radarPerformance);
             target.fireControlPerformance.CopyFrom(source.fireControlPerformance);
+            target.dataLinkPerformance = source.dataLinkPerformance?.Clone() ?? MechDataLinkPerformance.CreateStandardFallback();
             target.headSensorPerformance = source.headSensorPerformance?.Clone() ?? new MechHeadSensorPerformance();
             target.armPerformance = source.armPerformance?.Clone() ?? new MechArmPerformance();
             target.corePerformance = source.corePerformance?.Clone() ?? new MechCorePerformance();

@@ -4,7 +4,7 @@ using UnityEngine;
 namespace ACunicombat.Mechs
 {
     /// <summary>
-    /// RWR 告警显示（左下方位环）+ 分级音频。只消费 ThreatSnapshot——方位、级别、
+    /// RWR/来袭告警显示（左下方位环）+ 分级音频。消费 ThreatSnapshot 和融合导弹航迹——方位、级别、
     /// 波形类、照射间隔，全部来自被动接收统计，无任何真值。
     /// 方位基准与战术图一致：飞控逻辑航向（07-24 参考系决议），机头朝上。
     /// 音频为占位：四个 AudioClip 槽位为空时静默，资产到位后在 Inspector 拖入即可。
@@ -14,7 +14,8 @@ namespace ACunicombat.Mechs
     {
         private const float PanelSize = 420f;
         private const float PanelMargin = 18f;
-        private const float RingRadius = 176f;
+        private const float WarningRingScale = .85f;
+        private const float RingRadius = 176f * WarningRingScale;
         private const int RingTextureSize = 512;
         private const int SectorCount = 12;
         private const float SectorDegrees = 360f / SectorCount;
@@ -45,7 +46,7 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0f)] private float trackedCyclePauseSeconds = 0.75f;
         [Tooltip("被 STT 锁定时播放的长接触音（循环）。")]
         [SerializeField] private AudioClip lockLoopClip;
-        [Tooltip("导弹主动雷达开机时播放的锁定音（循环，最高优先级）。")]
+        [Tooltip("有效来袭导弹或相关导引头告警的提示音（最高优先级）。")]
         [SerializeField] private AudioClip missileLoopClip;
         [Tooltip("Seconds before the missile warning clip ends to start its next repeat.")]
         [SerializeField, Min(0f)] private float missileRepeatOverlapSeconds = 0.05f;
@@ -62,6 +63,8 @@ namespace ACunicombat.Mechs
         private int threatCount;
         private int missileTrackCount;
         private EsmThreatLevel previousHighestLevel;
+        private readonly MechMissileWarningState warningState = new MechMissileWarningState();
+        public EsmThreatLevel CurrentWarningLevel => warningState.Level;
         private float nextTrackedPulseTime = -1f;
         private int trackedPulseIndex;
         private float nextMissileRepeatTime = -1f;
@@ -153,8 +156,25 @@ namespace ACunicombat.Mechs
 
             threatCount = radar.CopyThreats(threatScratch);
             missileTrackCount = radar.CopyMissileTracks(missileTrackScratch);
+            RefreshWarningState();
             UpdateAudio();
         }
+
+        private void RefreshWarningState()
+        {
+            var receiverLevel=EsmThreatLevel.None;
+            for(int i=0;i<threatCount;i++)
+            {
+                var level=ResolveAlertLevel(in threatScratch[i]);
+                if(level>receiverLevel)receiverLevel=level;
+            }
+            var before=warningState.Level;
+            var now=radar!=null?radar.SimTimeSeconds:Time.timeAsDouble;
+            warningState.Evaluate(missileTrackScratch,missileTrackCount,now,receiverLevel);
+            if(before!=warningState.Level)
+                Debug.Log($"[ThreatWarning] {before} -> {warningState.Level}; receiver={receiverLevel}; heldIncomingTracks={warningState.HeldIncomingTrackCount}; fusedMissileTracks={missileTrackCount}; simTime={now:F3}",this);
+        }
+        private void OnDisable() { warningState.Reset(); oneShotSource?.Stop(); loopSource?.Stop(); }
 
         private void UpdateAudio()
         {
@@ -171,15 +191,7 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            var highest = EsmThreatLevel.None;
-            for (var i = 0; i < threatCount; i++)
-            {
-                var alertLevel = ResolveAlertLevel(in threatScratch[i]);
-                if (alertLevel > highest)
-                {
-                    highest = alertLevel;
-                }
-            }
+            var highest = warningState.Level;
 
             var enteredSpiked =
                 highest == EsmThreatLevel.Spiked &&
@@ -316,7 +328,8 @@ namespace ACunicombat.Mechs
                 : transform.forward;
             var headingDegrees = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
 
-            CollectSectorThreats(headingDegrees, out var highestLevel, out var closeMissile);
+            CollectSectorThreats(headingDegrees, out _, out var closeMissile);
+            var highestLevel = warningState.Level;
             var pulse = 0.78f + Mathf.Sin(Time.unscaledTime * 8f) * 0.22f;
             if (closeMissile)
             {
@@ -348,7 +361,7 @@ namespace ACunicombat.Mechs
                 DrawSectorLabels(center);
             }
 
-            var status = closeMissile
+            var status = highestLevel == EsmThreatLevel.MissileActive
                 ? "敌导弹"
                 : HighestStatus(highestLevel);
             if (!string.IsNullOrEmpty(status))
@@ -462,7 +475,7 @@ namespace ACunicombat.Mechs
 
         private void DrawSectorLabels(Vector2 center)
         {
-            const float labelRadius = 130f;
+            const float labelRadius = 130f * WarningRingScale;
             for (var sector = 0; sector < SectorCount; sector++)
             {
                 if (!sectorOccupied[sector])
@@ -554,7 +567,7 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < missileTrackCount; i++)
             {
                 var track = missileTrackScratch[i];
-                if (!track.IsWarning || track.IsFriendly ||
+                if (!MechMissileWarningState.IsIncomingEvidence(in track,now) ||
                     (missileSeeker
                         ? !track.IsLikelyTargetingOwnship
                         : !track.Incoming))

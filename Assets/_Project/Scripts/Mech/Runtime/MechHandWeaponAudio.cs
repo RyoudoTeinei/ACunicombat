@@ -146,8 +146,7 @@ namespace ACunicombat.Mechs
         private float lastRifleShotTime = float.NegativeInfinity;
         private bool gau8BurstActive;
         private float lastGau8ShotTime = float.NegativeInfinity;
-        private bool gau8LeftRotorRequested;
-        private bool gau8RightRotorRequested;
+        private readonly System.Collections.Generic.HashSet<MechEquipmentSlot> gau8RotorRequests = new System.Collections.Generic.HashSet<MechEquipmentSlot>();
         private bool gau8RotorActive;
         private MechAudioVariantSet rifleFirstCloseVariants;
         private MechAudioVariantSet rifleShotVariants;
@@ -230,29 +229,19 @@ namespace ACunicombat.Mechs
         }
 
         public void SetGau8RotorState(
-            MechPartSlot slot,
+            MechEquipmentSlot slot,
             bool shouldSpin,
             Vector3 weaponPosition)
         {
-            var wasActive = gau8LeftRotorRequested || gau8RightRotorRequested;
-            switch (slot)
-            {
-                case MechPartSlot.LeftHandWeapon:
-                    gau8LeftRotorRequested = shouldSpin;
-                    break;
-                case MechPartSlot.RightHandWeapon:
-                    gau8RightRotorRequested = shouldSpin;
-                    break;
-                default:
-                    return;
-            }
+            var wasActive = gau8RotorRequests.Count > 0;
+            if (shouldSpin) gau8RotorRequests.Add(slot); else gau8RotorRequests.Remove(slot);
 
             if (shouldSpin)
             {
                 MoveGau8Sources(weaponPosition);
             }
 
-            var isActive = gau8LeftRotorRequested || gau8RightRotorRequested;
+            var isActive = gau8RotorRequests.Count > 0;
             if (wasActive == isActive)
             {
                 gau8RotorActive = isActive;
@@ -771,8 +760,8 @@ namespace ACunicombat.Mechs
             rifleTriggerHeld = false;
             rifleBurstOwnship = false;
             gau8BurstActive = false;
-            gau8LeftRotorRequested = false;
-            gau8RightRotorRequested = false;
+            gau8RotorRequests.Clear();
+
             gau8RotorActive = false;
         }
 
@@ -1096,6 +1085,7 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0f)] private float loopFadeOutSeconds = 0.08f;
         [SerializeField, Min(0.05f)] private float minimumShotLoopHoldSeconds = 0.12f;
 
+        private readonly System.Collections.Generic.Dictionary<MechEquipmentSlot, ShoulderChannel> extraChannels = new System.Collections.Generic.Dictionary<MechEquipmentSlot, ShoulderChannel>();
         private ShoulderChannel leftChannel;
         private ShoulderChannel rightChannel;
         private MechAudioVariantSet shotGrainVariants;
@@ -1136,7 +1126,7 @@ namespace ACunicombat.Mechs
         }
 
         public void SetRotorState(
-            MechPartSlot slot,
+            MechEquipmentSlot slot,
             bool shouldSpin,
             Transform anchor,
             float roundsPerMinute)
@@ -1176,7 +1166,7 @@ namespace ACunicombat.Mechs
         }
 
         public void PlayShot(
-            MechPartSlot slot,
+            MechEquipmentSlot slot,
             Transform anchor,
             float roundsPerMinute)
         {
@@ -1207,12 +1197,14 @@ namespace ACunicombat.Mechs
             var deltaTime = Time.unscaledDeltaTime;
             UpdateChannel(leftChannel, now, deltaTime);
             UpdateChannel(rightChannel, now, deltaTime);
+            foreach (var channel in extraChannels.Values) UpdateChannel(channel, now, deltaTime);
         }
 
         private void OnDisable()
         {
             StopChannel(leftChannel);
             StopChannel(rightChannel);
+            foreach (var channel in extraChannels.Values) StopChannel(channel);
         }
 
         private void UpdateChannel(
@@ -1225,6 +1217,8 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            if (channel.Anchor == null || !channel.Anchor.gameObject.activeInHierarchy)
+            { StopChannel(channel); return; }
             FollowAnchor(channel);
             var cycleSeconds = 60f / Mathf.Max(60f, channel.RoundsPerMinute);
             var holdSeconds = Mathf.Max(
@@ -1263,14 +1257,14 @@ namespace ACunicombat.Mechs
                 deltaTime);
         }
 
-        private ShoulderChannel ResolveChannel(MechPartSlot slot)
+        private ShoulderChannel ResolveChannel(MechEquipmentSlot slot)
         {
-            return slot switch
-            {
-                MechPartSlot.LeftBackWeapon => leftChannel,
-                MechPartSlot.RightBackWeapon => rightChannel,
-                _ => null,
-            };
+            if (slot == MechPartSlot.LeftBackWeapon) return leftChannel;
+            if (slot == MechPartSlot.RightBackWeapon) return rightChannel;
+            if (string.IsNullOrEmpty(slot.Id)) return null;
+            if (!extraChannels.TryGetValue(slot, out var channel))
+            { channel = CreateChannel(slot.Id + " M134 Audio"); extraChannels.Add(slot, channel); }
+            return channel;
         }
 
         private ShoulderChannel CreateChannel(string name)

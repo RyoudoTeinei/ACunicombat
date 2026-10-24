@@ -22,7 +22,7 @@ namespace ACunicombat.Tests.EditMode
         };
 
         [TestCaseSource(nameof(DesignedRangesMeters))]
-        public void ProductionMainRadar_CenteredDwellDetectsTargetAcrossEnvelope(
+        public void LegacyNormalizedRadar_CenteredDwellDetectsTargetAcrossEnvelope(
             double rangeMeters)
         {
             using var world = new SimWorld();
@@ -39,7 +39,7 @@ namespace ACunicombat.Tests.EditMode
                 new double3(0.0, 0.0, rangeMeters),
                 new double3(150.0, 0.0, 0.0)));
             var sensorId = new SensorId(new Handle(0, 1));
-            radar.RegisterSensor(MainRadarProfile(sensorId, sensorEntity));
+            radar.RegisterSensor(LegacyNormalizedRadarProfile(sensorId, sensorEntity));
             radar.RegisterTarget(new RadarTargetProfile
             {
                 EntityId = targetEntity,
@@ -67,9 +67,9 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
-        public void ProductionMainRadar_DetectionProbabilityIsNotTheFiveKilometerLimit()
+        public void LegacyNormalizedRadar_DetectionProbabilityIsNotTheFiveKilometerLimit()
         {
-            var profile = MainRadarProfile(
+            var profile = LegacyNormalizedRadarProfile(
                 new SensorId(new Handle(0, 1)),
                 new SimEntityId(new Handle(0, 1)));
             var rcsDbsm = 10f * math.log10(18f);
@@ -99,7 +99,7 @@ namespace ACunicombat.Tests.EditMode
         [Test]
         public void HighSnrDopplerPrecision_DoesNotBecomeEffectivelyInfinite()
         {
-            var profile = MainRadarProfile(
+            var profile = LegacyNormalizedRadarProfile(
                 new SensorId(new Handle(0, 1)),
                 new SimEntityId(new Handle(0, 1)));
 
@@ -132,7 +132,7 @@ namespace ACunicombat.Tests.EditMode
                 new double3(0.0, 100.0, initialRangeMeters),
                 targetVelocity));
             var sensorId = new SensorId(new Handle(0, 1));
-            radar.RegisterSensor(MainRadarProfile(sensorId, sensorEntity));
+            radar.RegisterSensor(LegacyNormalizedRadarProfile(sensorId, sensorEntity));
             radar.RegisterTarget(new RadarTargetProfile
             {
                 EntityId = targetEntity,
@@ -189,7 +189,7 @@ namespace ACunicombat.Tests.EditMode
                 Is.LessThan(30.0));
         }
 
-        private static RadarSensorProfile MainRadarProfile(
+        private static RadarSensorProfile LegacyNormalizedRadarProfile(
             SensorId sensorId,
             SimEntityId owner)
         {

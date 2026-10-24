@@ -25,6 +25,52 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            MechSpecialistKits.Validate(loadout,result);
+            if (loadout.Platform != null)
+            {
+                if (loadout.SchemaVersion != 1) result.Add(MechValidationSeverity.Error, MechPartSlot.None, "LOADOUT_VERSION", "Unsupported loadout schema version.");
+                var slots = MechSlotGraph.Resolve(loadout, result);
+                var roles = new Dictionary<MechPartSlot, MechPartDefinition>();
+                var tags = loadout.BuildLoadoutTagSet();
+                foreach (var slot in slots)
+                {
+                    loadout.TryGetPart(slot.id, out var part);
+                    if (part == null)
+                    {
+                        if (slot.required) result.Add(MechValidationSeverity.Error, slot.legacyRole, "REQUIRED_SLOT_EMPTY", "Required slot is empty: " + slot.id);
+                        continue;
+                    }
+                    if (!slot.Accepts(part)) result.Add(MechValidationSeverity.Error, slot.legacyRole, "SLOT_INCOMPATIBLE", "Part does not fit slot: " + slot.id);
+                    if (slot.legacyRole != MechPartSlot.None)
+                    {
+                        if (roles.ContainsKey(slot.legacyRole)) result.Add(MechValidationSeverity.Error, slot.legacyRole, "DUPLICATE_ROLE", "Compatibility role must be unique: " + slot.id);
+                        else roles.Add(slot.legacyRole, part);
+                    }
+                }
+                var installedMass = new Dictionary<string, float>();
+                for (int i = slots.Count - 1; i >= 0; i--)
+                {
+                    var slot = slots[i]; loadout.TryGetPart(slot.id, out var part);
+                    installedMass.TryGetValue(slot.id, out var mass); mass += part != null ? part.Stats.massKg : 0;
+                    if (slot.maxMassKg > 0 && mass > slot.maxMassKg)
+                        result.Add(MechValidationSeverity.Error, slot.legacyRole, "MOUNT_PAYLOAD_EXCEEDED", "Equipment and children exceed payload at " + slot.id);
+                    if (!string.IsNullOrEmpty(slot.parentSlotId))
+                    { installedMass.TryGetValue(slot.parentSlotId, out var parentMass); installedMass[slot.parentSlotId] = parentMass + mass; }
+                }
+                var legacyRoles = new Dictionary<MechPartSlot, MechPartDefinition>();
+                var legacyMounts = new Dictionary<MechPartSlot, List<MechMountPointDefinition>>();
+                foreach (var a in loadout.EnumerateEnabledAssignments())
+                {
+                    if (a.part == null) continue;
+                    ValidatePartDependencies(a.part, roles, tags, result);
+                    RegisterMounts(a.part, legacyMounts);
+                    if (a.SlotId == MechSlotGraph.LegacyId(a.slot)) legacyRoles[a.slot] = a.part;
+                }
+                ValidateHardpoints(legacyRoles, legacyMounts, options, result);
+                ValidateBudgets(MechStatsCalculator.Calculate(loadout), options, result);
+                return;
+            }
+
             var assignedSlots = new Dictionary<MechPartSlot, MechPartDefinition>();
             var availableMounts = new Dictionary<MechPartSlot, List<MechMountPointDefinition>>();
             var loadoutTags = loadout.BuildLoadoutTagSet();
@@ -96,7 +142,7 @@ namespace ACunicombat.Mechs
                     assignment.part.Slot == MechPartSlot.Arms &&
                     MechSlotRules.IsMirroredArmSlot(assignment.slot);
 
-                if (!compatibleMirroredArm)
+                if (!compatibleMirroredArm && !(assignment.slot==MechPartSlot.Extension2&&assignment.part.Slot==MechPartSlot.Extension))
                 {
                     result.Add(
                         MechValidationSeverity.Error,

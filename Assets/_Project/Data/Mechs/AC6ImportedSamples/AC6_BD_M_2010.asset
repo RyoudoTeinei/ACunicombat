@@ -15,6 +15,7 @@ MonoBehaviour:
   partId: AC6_BD_M_2010
   displayName: AC6 Nacht Core
   slot: 20
+  extensionSlotCount: 2
   category: 0
   manufacturer: 
   tags:

@@ -30,11 +30,18 @@ namespace ACunicombat.Mechs
 
         public static int GetVariantCount(string launcherPartId, MechWeaponPerformance performance)
         {
+            if(MechMissileLauncherCatalog.UsesAmmoSelection(launcherPartId))return MechMissileLauncherCatalog.Find(launcherPartId).CompatibleAmmo.Length;
+            if(MechMissileLauncherCatalog.IsJianwei(launcherPartId))return MechMissileLauncherCatalog.Find(launcherPartId).Number=="4251"?1:2;
             return IsAam4290(launcherPartId, performance) ? 3 : 1;
         }
 
         public static string GetDefaultVariantId(string launcherPartId, MechWeaponPerformance performance)
         {
+            var d=MechMissileLauncherCatalog.Find(launcherPartId);
+            if(MechMissileLauncherCatalog.UsesAmmoSelection(launcherPartId))return d.DefaultAmmo;
+            if(d?.Number=="4250")return "jw7-er";
+            if(d?.Number=="4251")return "jw7";
+            if(d?.Number=="4252")return "jw7-mixed";
             return StandardVariantId;
         }
 
@@ -48,11 +55,32 @@ namespace ACunicombat.Mechs
                 return default;
             }
 
+            var launcher=MechMissileLauncherCatalog.Find(launcherPartId);
+            if(MechMissileLauncherCatalog.UsesAmmoSelection(launcherPartId))
+            {
+                string ammo=launcher.CompatibleAmmo[Math.Max(0,Math.Min(index,launcher.CompatibleAmmo.Length-1))];
+                var p=MechMissileLauncherCatalog.Compose(launcher,ammo);
+                return new MechMissileVariant(ammo,ammo,p.missileDisplayName,p);
+            }
+            if(MechMissileLauncherCatalog.IsJianwei(launcherPartId))
+            {
+                bool er=launcher.Number=="4250"&&index==0;
+                bool mixed=launcher.Number=="4252"&&index==0;
+                var p=MechMissileLauncherCatalog.Compose(launcher,er||mixed?"JW7-ER":"JW7");
+                return new MechMissileVariant(mixed?"jw7-mixed":er?"jw7-er":"jw7",er||mixed?"JW7-ER":"JW7",
+                    mixed?"剑卫7C×4＋剑卫7×8（双4发组）":p.missileDisplayName,p);
+            }
+
             if (!IsAam4290(launcherPartId, basePerformance))
             {
                 return BuildStandard(basePerformance);
             }
 
+            return CreateLegacy4290Variant(basePerformance,index);
+        }
+
+        public static MechMissileVariant CreateLegacy4290Variant(MechWeaponPerformance basePerformance,int index)
+        {
             return index switch
             {
                 1 => BuildDogfight(basePerformance),
@@ -66,6 +94,13 @@ namespace ACunicombat.Mechs
             MechWeaponPerformance basePerformance,
             string variantId)
         {
+            var launcher=MechMissileLauncherCatalog.Find(launcherPartId);
+            if(MechMissileLauncherCatalog.UsesAmmoSelection(launcherPartId))
+            {
+                if(variantId==StandardVariantId)variantId=launcher.DefaultAmmo;
+                if(launcher.Number.StartsWith("429"))
+                {if(variantId==DogfightVariantId)variantId="SIM-29M";if(variantId==LongRangeVariantId)variantId="SIM-57R";}
+            }
             int count = GetVariantCount(launcherPartId, basePerformance);
             for (int i = 0; i < count; i++)
             {
@@ -119,6 +154,7 @@ namespace ACunicombat.Mechs
         private static MechMissileVariant BuildDogfight(MechWeaponPerformance source)
         {
             MechWeaponPerformance performance = source.Clone();
+            performance.missileDisplayName="AAM-4290C";
             MissileFlightProfile profile = ResolveBaseProfile(source);
             profile.DryMassKg = 108f;
             profile.MainPropellantMassKg = 58f;
@@ -149,6 +185,7 @@ namespace ACunicombat.Mechs
         private static MechMissileVariant BuildLongRange(MechWeaponPerformance source)
         {
             MechWeaponPerformance performance = source.Clone();
+            performance.missileDisplayName="AAM-4290R";
             MissileFlightProfile profile = ResolveBaseProfile(source);
             profile.DryMassKg = 120f;
             profile.MainPropellantMassKg = 145f;

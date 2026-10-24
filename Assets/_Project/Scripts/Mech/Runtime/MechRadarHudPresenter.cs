@@ -9,8 +9,18 @@ namespace ACunicombat.Mechs
 {
 	[DefaultExecutionOrder(400)]
 	[DisallowMultipleComponent]
-	public sealed class MechRadarHudPresenter : MonoBehaviour
+	public sealed partial class MechRadarHudPresenter : MonoBehaviour
 	{
+        // Optional review telemetry emitted by the actual Repaint path, not a parallel UI approximation.
+        private readonly MechMissileMarkerPresentation missilePresentation=new MechMissileMarkerPresentation();
+        private double MissileDisplayTime => radar.SimTimeSeconds-Time.fixedDeltaTime+Math.Max(0,Time.timeAsDouble-Time.fixedTimeAsDouble);
+        public event Action<MechMissileMarkerObservation> MissileMarkerDrawn;
+        public event Action<int> HudRepainted;
+        private void ObserveMissileMarker(uint trackId,string localId,string source,string style,Vector3 world,Vector2 hud)
+        {
+            if(MissileMarkerDrawn==null||Event.current.type!=EventType.Repaint)return;
+            MissileMarkerDrawn(new MechMissileMarkerObservation{frame=Time.frameCount,time=MissileDisplayTime,trackId=trackId,localProjectileId=localId,source=source,style=style,worldPosition=world,hudPosition=hud});
+        }
 		private const float TacticalPlotWidth = 420f;
 
 		private const float TacticalPlotHeight = 420f;
@@ -268,6 +278,12 @@ namespace ACunicombat.Mechs
 		private AudioSource radarOperatorAudioSource;
 
 		private Texture2D operationRingTexture;
+        private Texture2D centerReticleTexture;
+        private Texture2D crossReticleTexture;
+        private float reticlePixelScale;
+        private Vector3 operationDisplayDirection;
+        private bool operationDisplayReady;
+        private const float OperationInnerRadiusRatio = .74f;
 
 		private Texture2D tacticalBackgroundTexture;
 
@@ -417,6 +433,9 @@ namespace ACunicombat.Mechs
                 else DestroyImmediate(directionArrowMaterial);
                 directionArrowMaterial = null;
             }
+            if(tacticalSectorTexture!=null){UnityEngine.Object.Destroy(tacticalSectorTexture);tacticalSectorTexture=null;}
+            if(centerReticleTexture!=null){UnityEngine.Object.Destroy(centerReticleTexture);centerReticleTexture=null;}
+            if(crossReticleTexture!=null){UnityEngine.Object.Destroy(crossReticleTexture);crossReticleTexture=null;}
 			if (operationRingTexture != null)
 			{
 				UnityEngine.Object.Destroy(operationRingTexture);
@@ -461,10 +480,20 @@ namespace ACunicombat.Mechs
 			{
 				radar.UpdateDesignation(viewCamera, GetAimViewportPoint(), Time.unscaledDeltaTime);
 			}
+            int presentationCount=radar.CopyMissileTracks(missileTracks);
+            for(int p=0;p<presentationCount;p++)missilePresentation.Sample(in missileTracks[p],MissileDisplayTime);
 			trackCount = radar.CopyTracks(tracks);
 			displayTrackCount = CountDisplayTracks();
 			echoCount = radar.CopyEchoes(echoes);
 			radarStatus = radar.GetStatusSnapshot();
+            if(!radar.TrackOperationMode)operationDisplayReady=false;
+            else
+            {
+                var direction=radar.OperationReferenceDirection;
+                operationDisplayDirection=operationDisplayReady?SmoothOperationDirection(operationDisplayDirection,direction,Time.deltaTime):direction;
+                operationDisplayReady=true;
+            }
+            UpdateCombinedTacticalState();
 			UpdateRadarSweepVisual();
 			UpdateRadarOperatorAudio();
 		}
@@ -511,6 +540,7 @@ namespace ACunicombat.Mechs
 
 		private void OnGUI()
 		{
+            if(Event.current.type==EventType.Repaint)HudRepainted?.Invoke(Time.frameCount);
 			if (MechSolarSystemMap.IsAnyMapVisible ||
 				MechAssemblyMenu.IsAnyMenuVisible || radar == null || viewCamera == null)
 			{
@@ -524,13 +554,8 @@ namespace ACunicombat.Mechs
 			DrawMissileAttackLinks();
 			GUI.color = previousColor;
 			SetStartupGuiAlpha(MechStartupHudModule.TacticalDisplay);
-			DrawTacticalPlot(IsStartupModuleOnline(MechStartupHudModule.TrackData));
-			GUI.color = previousColor;
-			SetStartupGuiAlpha(MechStartupHudModule.RadarStatus);
-			DrawRadarStatus(
-				radar.RadarPowerEnabled && IsStartupModuleOnline(MechStartupHudModule.RadarScan),
-				IsStartupModuleOnline(MechStartupHudModule.TrackData));
-			GUI.color = previousColor;
+            DrawCombinedTacticalRadar(IsStartupModuleOnline(MechStartupHudModule.TrackData),radar.RadarPowerEnabled&&IsStartupModuleOnline(MechStartupHudModule.RadarScan));
+            GUI.color=previousColor;
 			SetStartupGuiAlpha(MechStartupHudModule.TrackData);
 			DrawFriendlyMissileMarkers();
 			GUI.color = previousColor;
@@ -602,14 +627,14 @@ namespace ACunicombat.Mechs
 					targetDestroyedConfirmationVolume);
 			}
 
-			hitConfirmationStartedAt = Time.unscaledTime;
+			if(Time.unscaledTime>=hitConfirmationUntil)hitConfirmationStartedAt = Time.unscaledTime;
 			float confirmationDuration = targetDestroyed
 				? targetDestroyedConfirmationDurationSeconds
 				: missileHit
 					? missileHitConfirmationDurationSeconds
 					: hitConfirmationDurationSeconds;
 			hitConfirmationUntil =
-				hitConfirmationStartedAt + Mathf.Max(0.1f, confirmationDuration);
+				Mathf.Max(hitConfirmationUntil, Time.unscaledTime + Mathf.Max(0.1f, confirmationDuration));
 			hitConfirmationText = targetDestroyed
 				? "目标击毁"
 				: missileHit
@@ -740,12 +765,31 @@ namespace ACunicombat.Mechs
 			}
 		}
 
+        private GUIStyle missileBankStatusStyle;
 		private void DrawWeaponSlotAmmo(Rect bounds, MechPartSlot slot, string sideLabel)
 		{
 			if (weaponSystem == null || !weaponSystem.TryGetWeaponHudState(slot, out var state))
 			{
 				return;
 			}
+            if(weaponSystem.IsBeltFed(slot))
+            {
+                weaponSystem.TryGetEquipmentHeatFraction(MechSlotGraph.LegacyId(slot),out float heat);
+                bool overheated=weaponSystem.IsEquipmentOverheated(slot);
+                weaponStatusStyle.normal.textColor=overheated?HudAmber:state.RoundsRemaining>0?HudGreen:HudRed;
+                GUI.Label(bounds,$"{sideLabel} {state.Label} 弹链 {state.RoundsRemaining}  热{heat:P0} {(overheated?"过热":"")}",weaponStatusStyle);return;
+            }
+            string bankStatus=weaponSystem.GetMissileBankStatus(slot);
+            if(bankStatus!=null)
+            {
+                missileBankStatusStyle??=new GUIStyle(weaponStatusStyle){fontSize=12,alignment=TextAnchor.MiddleCenter};
+                weaponStatusStyle.alignment=TextAnchor.MiddleCenter;
+                weaponStatusStyle.normal.textColor=state.RoundsRemaining>0?HudGreen:state.MagazinesRemaining>0?HudAmber:HudRed;
+                GUI.Label(new Rect(bounds.x,bounds.y,bounds.width,24),$"{sideLabel} INT [{state.RoundsRemaining:00}/{state.MagazineCapacity:00}]",weaponStatusStyle);
+                missileBankStatusStyle.normal.textColor=HudGreen;
+                GUI.Label(new Rect(bounds.x,bounds.y+22,bounds.width,17),bankStatus,missileBankStatusStyle);
+                return;
+            }
 			DrawWeaponAmmoEntry(
 				bounds,
 				$"{sideLabel} {state.Label}",
@@ -868,7 +912,7 @@ namespace ACunicombat.Mechs
 					float normalizedRange = Mathf.Clamp01(horizontal.magnitude / range);
 					Vector2 point = center + new Vector2(horizontal.x, 0f - horizontal.y).normalized * radius * normalizedRange;
 					float alpha = GetLifecycleAlpha(in track);
-					Color color = (track.TrackId.Equals(radar.SttTrackId) ? new Color(HudRed.r, HudRed.g, HudRed.b, alpha) : (track.TrackId.Equals(radar.CandidateTrackId) ? new Color(HudAmber.r, HudAmber.g, HudAmber.b, alpha) : new Color(HudCyan.r, HudCyan.g, HudCyan.b, alpha)));
+					Color color = (IsPlayerDesignated(in track) ? new Color(HudRed.r, HudRed.g, HudRed.b, alpha) : new Color(HudCyan.r, HudCyan.g, HudCyan.b, alpha));
 					bool dashed = track.Lifecycle == TrackLifecycle.Coasting || track.Lifecycle == TrackLifecycle.Degraded;
 					DrawTrackSymbol(point, 6f, color, dashed, track.Affiliation);
 					Vector3 velocityLocal = ToHeadingLocal(ToVector3(track.Velocity));
@@ -888,7 +932,7 @@ namespace ACunicombat.Mechs
 					float altitudeDelta = relativeLocal.y;
 					Vector2 labelOffset = ((point.x > center.x) ? new Vector2(9f, -12f) : new Vector2(-76f, -12f));
 					smallStyle.normal.textColor = color;
-					GUI.Label(ClampToRect(new Rect(point.x + labelOffset.x, point.y + labelOffset.y, 70f, 34f), plot, 5f), TrackLabel(track.TrackId) + " " + SourceLabel(track.SourceMask) + "\n" + $"{rangeKilometers:0.0}K {altitudeDelta:+0;-0;0}", microStyle);
+					GUI.Label(ClampToRect(new Rect(point.x + labelOffset.x, point.y + labelOffset.y, 70f, 34f), plot, 5f), TrackLabel(track) + " " + SourceLabel(track.SourceMask) + "\n" + $"{rangeKilometers:0.0}K {altitudeDelta:+0;-0;0}", microStyle);
 				}
 			}
 			DrawTacticalMissiles(center, radius, range);
@@ -897,18 +941,6 @@ namespace ACunicombat.Mechs
 		private void DrawTacticalMissiles(Vector2 center, float radius, float displayRange)
 		{
 			int missileTrackCount = radar.CopyMissileTracks(missileTracks);
-			IReadOnlyList<MechTestProjectile> projectiles = MechTestProjectile.Registry;
-			for (int i = 0; i < projectiles.Count; i++)
-			{
-				MechTestProjectile projectile = projectiles[i];
-				if (IsFriendlyEngagementMissile(projectile) &&
-					!HasFriendlyMissileTrackNear(
-						projectile.transform.position,
-						missileTrackCount))
-				{
-					DrawTacticalMissile(center, radius, displayRange, projectile.transform.position, projectile.Velocity, HudBrightGreen, false, false);
-				}
-			}
 			for (int j = 0; j < missileTrackCount; j++)
 			{
 				MissileTrackSnapshot track = missileTracks[j];
@@ -1037,8 +1069,8 @@ namespace ACunicombat.Mechs
 			}
 			statusStyle.normal.textColor = HudGreen;
 			string radarStatusText = !radar.RadarPowerEnabled
-				? $"航迹 {(showTrackData ? displayTrackCount : 0)}/{radarStatus.TrackCapacity}\nSTT OFF\n\n雷达 OFF\n被动接收"
-				: ((!showScan) ? "航迹 --/--\nSTT OFF\n\n发射机 BIT\n制导 OFF" : ((!showTrackData) ? "航迹 --/--\nSTT OFF\n\n扫描 ON\n处理器 BIT" : ($"航迹 {displayTrackCount}/{radarStatus.TrackCapacity}\n" + "STT " + sttText + "\n\n" + $"负载 {radarStatus.DwellLoad * 100f:0}%\n" + $"制导 {radarStatus.GuidanceChannelsUsed}/" + $"{radarStatus.GuidanceChannelCapacity}")));
+				? $"航迹 {(showTrackData ? displayTrackCount : 0)}/{radarStatus.TrackCapacity}\n跟踪 --\n\n雷达 OFF\n被动接收"
+				: ((!showScan) ? "航迹 --/--\n跟踪 --\n\n发射机 BIT\n制导 OFF" : ((!showTrackData) ? "航迹 --/--\n跟踪 --\n\n扫描 ON\n处理器 BIT" : ($"航迹 {displayTrackCount}/{radarStatus.TrackCapacity}\n" + "跟踪 " + sttText + "\n\n" + $"负载 {radarStatus.DwellLoad * 100f:0}%\n" + $"制导 {radarStatus.GuidanceChannelsUsed}/" + $"{radarStatus.GuidanceChannelCapacity}\n上行 {radar.GuidanceUplinksUsed}/{radar.GuidanceUplinkCapacity}")));
 			GUI.Label(new Rect(rect.x + 458f, rect.y + 66f, 92f, 220f), radarStatusText, statusStyle);
 		}
 
@@ -1134,12 +1166,12 @@ namespace ACunicombat.Mechs
 					{
 						Vector2 point = apex + RadarDirection(azimuth) * radius * Mathf.Clamp01(horizontal.magnitude / range);
 						float alpha = GetLifecycleAlpha(in track);
-						Color color = (track.TrackId.Equals(radar.SttTrackId) ? new Color(HudRed.r, HudRed.g, HudRed.b, alpha) : (track.TrackId.Equals(radar.CandidateTrackId) ? new Color(HudAmber.r, HudAmber.g, HudAmber.b, alpha) : new Color(HudCyan.r, HudCyan.g, HudCyan.b, alpha)));
+						Color color = (IsPlayerDesignated(in track) ? new Color(HudRed.r, HudRed.g, HudRed.b, alpha) : new Color(HudCyan.r, HudCyan.g, HudCyan.b, alpha));
 						DrawTrackSymbol(point, 6f, color, track.Lifecycle == TrackLifecycle.Coasting || track.Lifecycle == TrackLifecycle.Degraded, track.Affiliation);
 						bool labelOnLeft = point.x > apex.x + radius * 0.25f;
 						microStyle.alignment = (labelOnLeft ? TextAnchor.UpperRight : TextAnchor.UpperLeft);
 						microStyle.normal.textColor = color;
-						GUI.Label(new Rect(labelOnLeft ? (point.x - 96f) : (point.x + 8f), point.y - 14f, 88f, 34f), TrackLabel(track.TrackId) + "\n" + $"{horizontal.magnitude / 1000f:0.0} 公里", microStyle);
+						GUI.Label(new Rect(labelOnLeft ? (point.x - 96f) : (point.x + 8f), point.y - 14f, 88f, 34f), TrackLabel(track) + "\n" + $"{horizontal.magnitude / 1000f:0.0} 公里", microStyle);
 					}
 				}
 			}
@@ -1159,46 +1191,13 @@ namespace ACunicombat.Mechs
 			Vector2 center = GetReticleGuiPosition();
 			float ringRadius = Mathf.Clamp(MechHudLayout.Height * 0.75f, 320f, MechHudLayout.Height * 0.8f) * 0.5f;
 			Vector2 ringCenter = GetBodyForwardGuiPosition(ringRadius);
-			DrawSmoothTrackOperationRing(ringCenter, ringRadius);
-			for (int i = 0; i < 4; i++)
-			{
-				float angle = (float)i * MathF.PI * 0.5f;
-				Vector2 direction = new Vector2(Mathf.Sin(angle), 0f - Mathf.Cos(angle));
-				if (!(Mathf.Abs(direction.x) > 0.5f))
-				{
-					Vector2 vector = ringCenter + direction * (ringRadius + 10f);
-					Vector2 tickEnd = vector + direction * 18f;
-					DrawLine(vector, tickEnd, new Color(0f, 0.08f, 0.025f, 0.8f), 4.2f);
-					DrawLine(vector, tickEnd, HudBrightGreen, 2.1f);
-				}
-			}
+            bool showInner=TryGetOperationInnerCenter(out var innerCenter);
+            DrawOperationFrames(ringCenter,ringRadius,innerCenter,showInner);
 			DrawSightElevationLadder(ringCenter, ringRadius);
+            DrawSightHeadingScale(ringRadius);
 			DrawZoomMagnification(ringCenter, ringRadius);
-			Vector2 snappedCenter = center;
-			if (radar.CandidateTrackId.IsValid && TryGetTrackScreenPoint(radar.CandidateTrackId, out var candidateCenter))
-			{
-				snappedCenter = Vector2.Lerp(center, candidateCenter, 0.08f);
-				float maxOffset = 6f;
-				Vector2 offset = snappedCenter - center;
-				if (offset.magnitude > maxOffset)
-				{
-					snappedCenter = center + offset.normalized * maxOffset;
-				}
-			}
-			DrawCircle(snappedCenter, 16f, HudBrightGreen, 1.4f, dashed: false);
-			DrawLine(snappedCenter + new Vector2(-22f, 0f), snappedCenter + new Vector2(-11f, 0f), HudBrightGreen, 1.3f);
-			DrawLine(snappedCenter + new Vector2(22f, 0f), snappedCenter + new Vector2(11f, 0f), HudBrightGreen, 1.3f);
-			DrawLine(snappedCenter + new Vector2(0f, -22f), snappedCenter + new Vector2(0f, -11f), HudBrightGreen, 1.3f);
-			DrawLine(snappedCenter + new Vector2(0f, 22f), snappedCenter + new Vector2(0f, 11f), HudBrightGreen, 1.3f);
-			if (radar.CandidateTrackId.IsValid && !radar.HasStt)
-			{
-				float progressWidth = 86f * radar.DesignationProgress;
-				DrawLine(center + new Vector2(-43f, 31f), center + new Vector2(-43f + progressWidth, 31f), HudBrightGreen, 2f);
-				smallStyle.alignment = TextAnchor.MiddleCenter;
-				smallStyle.normal.textColor = HudBrightGreen;
-				GUI.Label(new Rect(center.x - 70f, center.y + 36f, 140f, 20f), "DESIGNATE", smallStyle);
-			}
-		}
+            DrawCenterReticle(center,true);
+        }
 
 		private void DrawSightElevationLadder(Vector2 center, float radius)
 		{
@@ -1212,7 +1211,7 @@ namespace ACunicombat.Mechs
 			float verticalFovRadians = Mathf.Clamp(viewCamera.fieldOfView, 1f, 179f) * (MathF.PI / 180f);
 			float focalPixels = MechHudLayout.Height * 0.5f / Mathf.Tan(verticalFovRadians * 0.5f);
 			Matrix4x4 previousGuiMatrix = GUI.matrix;
-			GUIUtility.RotateAroundPivot(ResolvePitchLadderRollDegrees(sightForward, referenceUp), center);
+            // Fixed left/right pitch scale: bank changes readings, not the orientation of the scale or text.
 			DrawMirroredPitchTick(center, radius, 0f, 10f, 44f, HudBrightGreen, 2.1f, null);
 			for (int pitchDegrees = -80; pitchDegrees <= 80; pitchDegrees += 5)
 			{
@@ -1234,6 +1233,31 @@ namespace ACunicombat.Mechs
 			GUI.matrix = previousGuiMatrix;
             GUI.color = previousTint;
 		}
+
+        private void DrawSightHeadingScale(float radius)
+        {
+            if(viewCamera==null)return;
+            var local=Quaternion.Inverse(motion!=null?motion.ReferenceRotation:Quaternion.identity)*viewCamera.transform.forward;
+            // Azimuth is undefined when looking straight along the reference up axis.
+            if(new Vector2(local.x,local.z).sqrMagnitude<.0025f)return;
+            float heading=Mathf.Repeat(Mathf.Atan2(local.x,local.z)*Mathf.Rad2Deg,360);
+            float centerX=MechHudLayout.Width*.5f;
+            float y=Mathf.Max(40,MechHudLayout.Height*.09f);
+            float halfWidth=radius*.8f;
+            var alignment=pitchStyle.alignment;var color=pitchStyle.normal.textColor;
+            pitchStyle.alignment=TextAnchor.MiddleCenter;pitchStyle.normal.textColor=HudBrightGreen;
+            for(int angle=0;angle<360;angle+=5)
+            {
+                float relative=Mathf.DeltaAngle(heading,angle);if(Mathf.Abs(relative)>45)continue;
+                float x=centerX+relative/45*halfWidth;bool major=angle%10==0;
+                DrawLine(new Vector2(x,y),new Vector2(x,y+(major?12:7)),major?HudBrightGreen:HudDimGreen,major?1.5f:1);
+                if(major)GUI.Label(new Rect(x-25,y+14,50,22),angle.ToString("000"),pitchStyle);
+            }
+            DrawLine(new Vector2(centerX,y-8),new Vector2(centerX-5,y-15),HudBrightGreen,1.5f);
+            DrawLine(new Vector2(centerX,y-8),new Vector2(centerX+5,y-15),HudBrightGreen,1.5f);
+            GUI.Label(new Rect(centerX-35,y-40,70,22),FormatHeading(heading)+"°",pitchStyle);
+            pitchStyle.alignment=alignment;pitchStyle.normal.textColor=color;
+        }
 
         // At a navigation pole the projected horizon has no stable direction.
         // Fade the ladder there; never turn this display ambiguity into camera rotation.
@@ -1268,21 +1292,16 @@ namespace ACunicombat.Mechs
 
 		private void DrawMirroredPitchTick(Vector2 center, float radius, float yOffset, float gap, float length, Color color, float thickness, string label)
 		{
-			float halfChord = Mathf.Sqrt(Mathf.Max(0f, radius * radius - yOffset * yOffset));
+			float halfChord = radius; // Fixed side columns; pitch changes vertical placement only.
 			float y = center.y + yOffset;
 			Vector2 leftStart = new Vector2(center.x - halfChord - gap, y);
 			Vector2 leftEnd = leftStart + Vector2.left * length;
-			Vector2 vector = new Vector2(center.x + halfChord + gap, y);
-			Vector2 rightEnd = vector + Vector2.right * length;
 			DrawLine(leftStart, leftEnd, color, thickness);
-			DrawLine(vector, rightEnd, color, thickness);
 			if (!string.IsNullOrEmpty(label))
 			{
 				pitchStyle.normal.textColor = color;
 				pitchStyle.alignment = TextAnchor.MiddleRight;
 				GUI.Label(new Rect(leftEnd.x - 56f, y - 11f, 48f, 22f), label, pitchStyle);
-				pitchStyle.alignment = TextAnchor.MiddleLeft;
-				GUI.Label(new Rect(rightEnd.x + 8f, y - 11f, 48f, 22f), label, pitchStyle);
 			}
 		}
 
@@ -1466,7 +1485,7 @@ namespace ACunicombat.Mechs
                 if (state == null || state.BoxVisible) continue;
                 var track = tracks[i];
                 var stale = track.Lifecycle == TrackLifecycle.Coasting || track.Lifecycle == TrackLifecycle.Degraded;
-                var color = HudGreen;
+                var color = track.Affiliation==TrackAffiliation.Friendly?MechBattlefieldMap.FriendlyColor:IsPlayerDesignated(in track)?HudRed:HudGreen;
                 color.a = stale ? Mathf.Min(0.55f, GetLifecycleAlpha(in track)) : GetLifecycleAlpha(in track);
                 var tint = color; tint.a *= GUI.color.a;
                 BuildDirectionArrow(state.Orientation);
@@ -1482,7 +1501,7 @@ namespace ACunicombat.Mechs
                 state.Edge == 1 ? TextAnchor.MiddleRight : TextAnchor.MiddleCenter;
             if (!state.FullDetails)
             {
-                GUI.Label(state.InfoRect, TrackLabel(track.TrackId), smallStyle);
+                GUI.Label(state.InfoRect, TrackLabel(track), smallStyle);
                 return;
             }
             var relative = radar.PredictTrackPosition(in track) - transform.position;
@@ -1491,11 +1510,9 @@ namespace ACunicombat.Mechs
             GetTrackReadout(in track, closing, out var displayedClosing);
             var first = state.InfoRect; first.height = 22f;
             GUI.Label(first, $"{relative.magnitude / 1000f:0.00} km  {displayedClosing:+0;-0;0} m/s", smallStyle);
-            var lifecycle = track.TrackId.Equals(radar.SttTrackId) ? "STT" : LifecycleLabel(track.Lifecycle);
-            var classification = track.Classification >= 0.72f && track.IdentityConfidence >= 0.7f
-                ? AffiliationLabel(track.Affiliation) : "UNK";
+            var lifecycle = TargetModeLabel(in track);
             first.y += 22f;
-            GUI.Label(first, TrackLabel(track.TrackId) + "  " + lifecycle + "  " + classification, smallStyle);
+            GUI.Label(first, TrackLabel(track) + "  " + lifecycle, smallStyle);
         }
 
         private void BuildDirectionArrow(Quaternion rotation)
@@ -1560,6 +1577,20 @@ namespace ACunicombat.Mechs
             GL.PopMatrix();
         }
 
+        private readonly System.Collections.Generic.Dictionary<TrackId,(int frame,bool ready,MechTargetTrackingMode mode)> releaseDisplays=new();
+        private string TargetModeLabel(in TrackSnapshot track)
+        {
+            if(!releaseDisplays.TryGetValue(track.TrackId,out var display)||display.frame!=Time.frameCount)
+            {
+                if(releaseDisplays.Count>256)releaseDisplays.Clear();
+                var mode=MechTargetTrackingMode.Search;
+                bool ready=weaponSystem!=null&&weaponSystem.CanReleaseMissileAt(track.TrackId,out mode);
+                display=(Time.frameCount,ready,mode);releaseDisplays[track.TrackId]=display;
+            }
+            return MechMissileLaunchSource.Label(display.mode,display.ready);
+        }
+        private bool IsPlayerDesignated(in TrackSnapshot track)
+        {return radar != null && track.TrackId.IsValid && track.TrackId.Equals(radar.CandidateTrackId);}
 		private void DrawWorldTrackMarkers()
 		{
 			for (int i = 0; i < trackCount; i++)
@@ -1581,7 +1612,15 @@ namespace ACunicombat.Mechs
 					bool isStt = track.TrackId.Equals(radar.SttTrackId);
 					bool isTentative = track.Lifecycle == TrackLifecycle.Tentative;
 					bool num = !isTentative || isCandidate || isStt || Mathf.Repeat(Time.unscaledTime * 3f, 1f) <= 0.55f;
-					Color color = (isStt ? new Color(HudRed.r, HudRed.g, HudRed.b, alpha) : (isCandidate ? new Color(HudAmber.r, HudAmber.g, HudAmber.b, alpha) : new Color(HudGreen.r, HudGreen.g, HudGreen.b, alpha)));
+					Color color = (IsPlayerDesignated(in track) ? new Color(HudRed.r, HudRed.g, HudRed.b, alpha) : new Color(HudGreen.r, HudGreen.g, HudGreen.b, alpha));
+                    // Share the map palette and the resolved affiliation; sensor detection alone is not friendly identification.
+                    if (track.Affiliation == TrackAffiliation.Friendly)
+                    {
+                        color = MechBattlefieldMap.FriendlyColor;
+                        if (track.Lifecycle == TrackLifecycle.Coasting || track.Lifecycle == TrackLifecycle.Degraded)
+                            color.a = alpha;
+                    }
+
 					bool dashed = track.Lifecycle == TrackLifecycle.Coasting || track.Lifecycle == TrackLifecycle.Degraded;
 					float size = ((isCandidate || isStt) ? 66f : 54f);
 					if (num)
@@ -1600,13 +1639,12 @@ namespace ACunicombat.Mechs
 					Vector3 relative = position - base.transform.position;
 					Vector3 lineOfSight = ((relative.sqrMagnitude > 0.01f) ? relative.normalized : base.transform.forward);
 					float closing = 0f - Vector3.Dot(ToVector3(track.Velocity - radarStatus.OwnshipVelocity), lineOfSight);
-					string lifecycle = (isStt ? "STT" : LifecycleLabel(track.Lifecycle));
-					string classification = ((track.Classification >= 0.72f && track.IdentityConfidence >= 0.7f) ? AffiliationLabel(track.Affiliation) : "UNK");
+					string lifecycle = TargetModeLabel(in track);
 					GetTrackReadout(in track, closing, out var displayedClosing);
 					smallStyle.normal.textColor = color;
 					smallStyle.alignment = TextAnchor.MiddleCenter;
 					GUI.Label(ClampToScreen(new Rect(center.x - 105f, center.y - size * 0.5f - 25f, 210f, 22f), 8f), $"{relative.magnitude / 1000f:0.00} km  " + $"{displayedClosing:+0;-0;0} m/s", smallStyle);
-					GUI.Label(ClampToScreen(new Rect(center.x - 100f, center.y + size * 0.5f + 4f, 200f, 22f), 8f), TrackLabel(track.TrackId) + "  " + lifecycle + "  " + classification, smallStyle);
+					GUI.Label(ClampToScreen(new Rect(center.x - 100f, center.y + size * 0.5f + 4f, 200f, 22f), 8f), TrackLabel(track) + "  " + lifecycle, smallStyle);
 					if (track.ObjectClass == TrackObjectClass.AirVehicle &&
 						track.Lifecycle != TrackLifecycle.Dropped)
 					{
@@ -1728,24 +1766,7 @@ namespace ACunicombat.Mechs
 		private void DrawFriendlyMissileMarkers()
 		{
 			int missileTrackCount = radar.CopyMissileTracks(missileTracks);
-			IReadOnlyList<MechTestProjectile> projectiles = MechTestProjectile.Registry;
 			float radius = Mathf.Max(3f, friendlyMissileMarkerRadius);
-			for (int i = 0; i < projectiles.Count; i++)
-			{
-				MechTestProjectile projectile = projectiles[i];
-				if (IsFriendlyEngagementMissile(projectile) &&
-					!HasFriendlyMissileTrackNear(
-						projectile.transform.position,
-						missileTrackCount))
-				{
-					Vector3 screen = viewCamera.WorldToScreenPoint(projectile.transform.position);
-					Vector2 point = MechHudLayout.ScreenToHudPoint(screen);
-					if (!(screen.z <= 0f) && IsInsideScreen(point, radius))
-					{
-						DrawDiamond(point, radius, HudBrightGreen, dashed: false, 1.4f);
-					}
-				}
-			}
 
 			for (int i = 0; i < missileTrackCount; i++)
 			{
@@ -1755,8 +1776,7 @@ namespace ACunicombat.Mechs
 					continue;
 				}
 
-				Vector3 position = ToVector3(
-					track.PredictPosition(radar.SimTimeSeconds));
+				Vector3 position = missilePresentation.Sample(in track,MissileDisplayTime).Position;
 				Vector3 screen = viewCamera.WorldToScreenPoint(position);
 				Vector2 point = MechHudLayout.ScreenToHudPoint(screen);
 				if (screen.z <= 0f || !IsInsideScreen(point, radius))
@@ -1764,6 +1784,7 @@ namespace ACunicombat.Mechs
 					continue;
 				}
 
+				ObserveMissileMarker(track.TrackId.Packed,null,"fused_friendly","green",position,point);
 				DrawDiamond(
 					point,
 					radius,
@@ -1772,6 +1793,8 @@ namespace ACunicombat.Mechs
 					1.4f);
 			}
 		}
+
+
 
 		private bool HasFriendlyMissileTrackNear(
 			Vector3 position,
@@ -1818,10 +1841,11 @@ namespace ACunicombat.Mechs
 				{
 					continue;
 				}
-				Vector3 position = ToVector3(track.PredictPosition(radar.SimTimeSeconds));
+				var presentation=missilePresentation.Sample(in track,MissileDisplayTime);
+                Vector3 position = presentation.Position;
 				bool confirmedOwnshipThreat =
-					track.IsLikelyTargetingOwnship;
-				bool identifiedAirToAir = track.IsLikelyAirToAir;
+					presentation.OwnshipThreat;
+				bool identifiedAirToAir = presentation.AirToAir;
 				bool emphasizedThreat =
 					confirmedOwnshipThreat || identifiedAirToAir;
 				bool inferredInterceptor = IsInferredInterceptor(in track);
@@ -1835,12 +1859,14 @@ namespace ACunicombat.Mechs
 				Color markerColor = emphasizedThreat
 					? HudRed
 					: HudAmber;
-				Vector3 screen = viewCamera.WorldToScreenPoint(position);
+				markerColor.a *= MechMissileDisplayPolicy.Opacity(in track,radar.SimTimeSeconds);
+                Vector3 screen = viewCamera.WorldToScreenPoint(position);
 				Vector2 markerCenter = MechHudLayout.ScreenToHudPoint(screen);
 				if (screen.z <= 0f || !IsInsideScreen(markerCenter, markerRadius))
 				{
 					continue;
 				}
+				ObserveMissileMarker(track.TrackId.Packed,null,"fused_nonfriendly",emphasizedThreat?"red":"amber",position,markerCenter);
 				DrawDiamond(
 					markerCenter,
 					markerRadius,
@@ -1865,6 +1891,18 @@ namespace ACunicombat.Mechs
 					float lockExtent = markerRadius + 13f;
 					DrawCornerFrame(new Rect(markerCenter.x - lockExtent, markerCenter.y - lockExtent, lockExtent * 2f, lockExtent * 2f), pointDefenseColor, 8f, 1.8f, dashed: false);
 				}
+                // Use the same predicted sensor-track position as the marker, relative to ownship.
+                float distanceKm = Vector3.Distance(position, transform.position) / 1000f;
+                float distanceExtent = markerRadius +
+                    (interceptorAssigned ? 9f : interceptorSolutionAvailable ? 8f :
+                        shaoWeiTrackSelected || handPointDefenseTrackSelected ? 13f : 0f);
+                smallStyle.alignment = TextAnchor.MiddleCenter;
+                smallStyle.normal.textColor = markerColor;
+                string distanceLabel = distanceKm.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " km";
+                float distanceWidth = Mathf.Min(smallStyle.CalcSize(new GUIContent(distanceLabel)).x + 12f,
+                    Mathf.Max(1f, MechHudLayout.Width - 8f));
+                GUI.Label(ClampToScreen(new Rect(markerCenter.x - distanceWidth * .5f,
+                    markerCenter.y - distanceExtent - 26f, distanceWidth, 22f), 4f), distanceLabel, smallStyle);
 				string missileLabel = confirmedOwnshipThreat
 					? "导弹来袭"
 					: identifiedAirToAir
@@ -1895,16 +1933,16 @@ namespace ACunicombat.Mechs
 
 		private void DrawMissileAttackLinks()
 		{
-			IReadOnlyList<MechTestProjectile> projectiles = MechTestProjectile.Registry;
+			int count=radar.CopyMissileTracks(missileTracks);
 			float missileRadius = Mathf.Max(3f, friendlyMissileMarkerRadius);
-			for (int i = 0; i < projectiles.Count; i++)
+			for (int i = 0; i < count; i++)
 			{
-				MechTestProjectile projectile = projectiles[i];
-				if (!IsFriendlyEngagementMissile(projectile) || !TryGetTrackScreenPoint(projectile.GuidanceTrackId, out var targetPoint))
+				var contact=missileTracks[i];
+				if (contact.OwnLaunchIdentity==Guid.Empty || !ShouldDisplayFriendlyMissile(in contact) || !TryGetTrackScreenPoint(contact.AssignedTargetTrackId, out var targetPoint))
 				{
 					continue;
 				}
-				Vector3 missileScreen = viewCamera.WorldToScreenPoint(projectile.transform.position);
+				Vector3 missileScreen = viewCamera.WorldToScreenPoint(missilePresentation.Sample(in contact,MissileDisplayTime).Position);
 				Vector2 missilePoint = MechHudLayout.ScreenToHudPoint(missileScreen);
 				if (!(missileScreen.z <= 0f) && IsInsideScreen(missilePoint, missileRadius) && IsInsideScreen(targetPoint, 31f))
 				{
@@ -1919,28 +1957,17 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private bool IsFriendlyEngagementMissile(MechTestProjectile projectile)
-		{
-			if (projectile != null && projectile.IsMissile && projectile.IsEngagementActive)
-			{
-				return projectile.IsOwnedBy(base.transform);
-			}
-			return false;
-		}
+
 
 		private bool ShouldDisplayFriendlyMissile(in MissileTrackSnapshot track)
 		{
-			return track.IsFriendly && !radar.IsRetiredFriendlyMissileTrack(track.TrackId);
+			return track.IsFriendly && MechMissileDisplayPolicy.ShouldDisplay(in track, radar.SimTimeSeconds, radar.IsRetiredFriendlyMissileTrack(track.TrackId));
 		}
 
 		private bool ShouldDisplayIncomingMissile(in MissileTrackSnapshot track)
 		{
-			if (!track.IsWarning || track.IsFriendly ||
-				radar.IsRetiredFriendlyMissileTrack(track.TrackId))
-			{
-				return false;
-			}
-			return IsFreshMissileEvidence(in track);
+            return !track.IsFriendly && MechMissileDisplayPolicy.ShouldDisplay(
+                in track, radar.SimTimeSeconds, radar.IsRetiredFriendlyMissileTrack(track.TrackId));
 		}
 
 		private bool ShouldDisplayWorldMissileMarker(
@@ -1955,35 +1982,17 @@ namespace ACunicombat.Mechs
             return track.IsLikelyInterceptor;
         }
 
-		private bool HasFriendlyInterceptorAssigned(TrackId trackId)
-		{
-			if (!trackId.IsValid)
-			{
-				return false;
-			}
-
-			IReadOnlyList<MechTestProjectile> projectiles =
-				MechTestProjectile.Registry;
-			for (int i = 0; i < projectiles.Count; i++)
-			{
-				MechTestProjectile projectile = projectiles[i];
-				if (projectile != null &&
-					projectile.IsInterceptorMissile &&
-					projectile.IsEngagementActive &&
-					projectile.IsOwnedBy(base.transform) &&
-					projectile.GuidanceTrackId.Equals(trackId))
-				{
-					return true;
-				}
-			}
-
-			return false;
-		}
+        private bool HasFriendlyInterceptorAssigned(TrackId trackId)
+        {
+            if(!trackId.IsValid)return false;
+            int count=radar.CopyMissileTracks(missileTracks);
+            for(int i=0;i<count;i++)if(missileTracks[i].OwnLaunchIdentity!=Guid.Empty&&missileTracks[i].MissionRole==MissileMissionRole.Interceptor&&missileTracks[i].AssignedTargetTrackId.Equals(trackId))return true;
+            return false;
+        }
 
 		private bool IsFreshMissileEvidence(in MissileTrackSnapshot track)
 		{
-			double evidenceAge = radar.SimTimeSeconds - track.LastEvidenceTime;
-			return evidenceAge >= -0.05 && evidenceAge <= 0.6;
+			return MechMissileDisplayPolicy.IsFresh(in track, radar.SimTimeSeconds);
 		}
 
 		private static bool IsInsideScreen(Vector2 point, float margin)
@@ -1995,8 +2004,10 @@ namespace ACunicombat.Mechs
 			return false;
 		}
 
+        [SerializeField] private bool showRawRadarEchoDiagnostics;
 		private void DrawTransientEchoes()
 		{
+            if(!showRawRadarEchoDiagnostics)return;
 			double now = radar.SimTimeSeconds;
 			for (int i = 0; i < echoCount; i++)
 			{
@@ -2176,7 +2187,7 @@ namespace ACunicombat.Mechs
 					}
 				}
 			}
-			float maximumRange = Mathf.Max(5000f, radarStatus.RangeMeters);
+			float maximumRange = Mathf.Max(5000f, radarStatus.RangeMeters, farthest * 1.15f);
 			radarDisplayRangeMeters = Mathf.Clamp(radarDisplayRangeMeters, 5000f, maximumRange);
 			if (farthest <= 0f)
 			{
@@ -2273,14 +2284,49 @@ namespace ACunicombat.Mechs
 			return $"{rangeMeters / 1000f:0.0}K";
 		}
 
-		private void DrawLegacyReticle()
-		{
-			Vector2 center = GetReticleGuiPosition();
-			DrawLine(center + new Vector2(-11f, 0f), center + new Vector2(-3f, 0f), HudGreen, 1.4f);
-			DrawLine(center + new Vector2(11f, 0f), center + new Vector2(3f, 0f), HudGreen, 1.4f);
-			DrawLine(center + new Vector2(0f, -11f), center + new Vector2(0f, -3f), HudGreen, 1.4f);
-			DrawLine(center + new Vector2(0f, 11f), center + new Vector2(0f, 3f), HudGreen, 1.4f);
-		}
+        private void DrawLegacyReticle() => DrawCenterReticle(GetReticleGuiPosition(),false);
+
+        private void DrawCenterReticle(Vector2 center,bool radarOperation)
+        {
+            float scale=MechHudLayout.Scale;
+            if(centerReticleTexture==null||crossReticleTexture==null||Mathf.Abs(reticlePixelScale-scale)>.001f)
+            {
+                if(centerReticleTexture!=null)UnityEngine.Object.Destroy(centerReticleTexture);
+                if(crossReticleTexture!=null)UnityEngine.Object.Destroy(crossReticleTexture);
+                reticlePixelScale=scale;
+                centerReticleTexture=BuildReticleTexture(scale,true);
+                crossReticleTexture=BuildReticleTexture(scale,false);
+            }
+            var texture=radarOperation?centerReticleTexture:crossReticleTexture;
+            // One texture texel per final screen pixel. Snap the origin to avoid an extra filtering pass.
+            float size=texture.width/scale;
+            float x=Mathf.Round(center.x*scale-texture.width*.5f)/scale;
+            float y=Mathf.Round(center.y*scale-texture.height*.5f)/scale;
+            var previous=GUI.color;GUI.color=MultiplyGuiTint(HudGreen,previous);
+            GUI.DrawTexture(new Rect(x,y,size,size),texture,ScaleMode.StretchToFill,true);GUI.color=previous;
+        }
+        private static Texture2D BuildReticleTexture(float scale,bool circle)
+        {
+            int size=Mathf.CeilToInt(56*scale);var pixels=new Color32[size*size];
+            float halfWidth=Mathf.Max(1.5f,2.4f*scale)*.5f;
+            // Integrate coverage within each output pixel, rather than shrinking a hard-edged large texture.
+            const int samples=4;
+            for(int y=0;y<size;y++)for(int x=0;x<size;x++)
+            {
+                int covered=0;
+                for(int sy=0;sy<samples;sy++)for(int sx=0;sx<samples;sx++)
+                {
+                    float dx=x+(sx+.5f)/samples-size*.5f,dy=y+(sy+.5f)/samples-size*.5f;
+                    float ax=Mathf.Abs(dx),ay=Mathf.Abs(dy);
+                    bool inside=circle?Mathf.Abs(Mathf.Sqrt(dx*dx+dy*dy)-25*scale)<=halfWidth:
+                        (ax>=9*scale&&ax<=22.5f*scale&&ay<=halfWidth)||(ay>=9*scale&&ay<=22.5f*scale&&ax<=halfWidth);
+                    if(inside)covered++;
+                }
+                pixels[y*size+x]=new Color(1,1,1,covered/(float)(samples*samples));
+            }
+            var result=new Texture2D(size,size,TextureFormat.RGBA32,false,true){name=circle?"Pixel Coverage Circle Reticle":"Pixel Coverage Cross Reticle",filterMode=FilterMode.Bilinear,wrapMode=TextureWrapMode.Clamp,hideFlags=HideFlags.HideAndDontSave};
+            result.SetPixels32(pixels);result.Apply(false,true);return result;
+        }
 
 		private Vector2 GetReticleGuiPosition()
 		{
@@ -2369,7 +2415,7 @@ namespace ACunicombat.Mechs
 			return lifecycle switch
 			{
 				TrackLifecycle.Tentative => "INIT", 
-				TrackLifecycle.Confirmed => "TWS", 
+				TrackLifecycle.Confirmed => "搜索", 
 				TrackLifecycle.Coasting => "COAST", 
 				TrackLifecycle.Degraded => "DEGRADED", 
 				_ => "LOST", 
@@ -2409,9 +2455,11 @@ namespace ACunicombat.Mechs
 			};
 		}
 
-		private static string TrackLabel(TrackId id)
+		private string TrackLabel(in TrackSnapshot track)=>radar!=null?MechTrackDisplayNames.HighlightHostile(MechTrackDisplayNames.For(radar).Label(track)):"UNK-—";
+        private string TrackLabel(in MissileTrackSnapshot track)=>track.KnownModel.IsEmpty?"unknown":track.KnownModel.ToString();
+        private string TrackLabel(TrackId id)
 		{
-			return $"T{id.Value.Index:00}";
+			return radar!=null?MechTrackDisplayNames.HighlightHostile(MechTrackDisplayNames.For(radar).Label(id)):"UNK-—";
 		}
 
 		private void EnsureStyles()
@@ -2424,7 +2472,7 @@ namespace ACunicombat.Mechs
 					fontStyle = FontStyle.Bold,
 					alignment = TextAnchor.UpperLeft,
 					wordWrap = false,
-					richText = false
+					richText = true
 				};
 			}
 			if (weaponStatusStyle == null)
@@ -2435,7 +2483,7 @@ namespace ACunicombat.Mechs
 					fontStyle = FontStyle.Bold,
 					alignment = TextAnchor.MiddleLeft,
 					wordWrap = false,
-					richText = false
+					richText = true
 				};
 			}
 			if (statusStyle == null)
@@ -2454,6 +2502,7 @@ namespace ACunicombat.Mechs
 					fontSize = 11,
 					fontStyle = FontStyle.Bold,
 					alignment = TextAnchor.UpperLeft,
+                    richText = true,
 					wordWrap = false
 				};
 			}
@@ -2495,7 +2544,7 @@ namespace ACunicombat.Mechs
 					fontStyle = FontStyle.Bold,
 					alignment = TextAnchor.MiddleCenter,
 					wordWrap = false,
-					richText = false
+					richText = true
 				};
 			}
 		}
@@ -2597,6 +2646,34 @@ namespace ACunicombat.Mechs
 			}
 		}
 
+        public static Vector3 SmoothOperationDirection(Vector3 previous,Vector3 target,float deltaTime)
+        {
+            // World-space presentation damping: camera free-look does not manufacture antenna lag.
+            return Vector3.Slerp(previous.normalized,target.normalized,1-Mathf.Exp(-Mathf.Max(0,deltaTime)/.14f)).normalized;
+        }
+        private bool TryGetOperationInnerCenter(out Vector2 center)
+        {
+            center=default;
+            if(viewCamera==null||radar==null)return false;
+            Vector3 world;
+            if(radar.HasStt&&radar.TryGetTrack(radar.SttTrackId,out var track))
+                world=radar.PredictTrackPosition(in track);
+            else
+            {
+                var direction=operationDisplayReady?operationDisplayDirection:radar.OperationReferenceDirection;
+                world=viewCamera.transform.position+direction*1000;
+            }
+            var screen=viewCamera.WorldToScreenPoint(world);
+            // A target behind the camera has no forward-screen projection. Never pin it to the outer ring.
+            if(screen.z<=0||!float.IsFinite(screen.x)||!float.IsFinite(screen.y))return false;
+            center=MechHudLayout.ScreenToHudPoint(screen);
+            return true;
+        }
+        private void DrawOperationFrames(Vector2 outer,float radius,Vector2 inner,bool showInner=true)
+        {
+            if(showInner)DrawSmoothTrackOperationRing(inner,radius*OperationInnerRadiusRatio);
+        }
+
 		private void DrawSmoothTrackOperationRing(Vector2 center, float radius)
 		{
 			EnsureOperationRingTexture();
@@ -2666,27 +2743,35 @@ namespace ACunicombat.Mechs
 			{
 				return;
 			}
-			Color32[] pixels = new Color32[4194304];
-			float center = 1023.5f;
-			for (int y = 0; y < 2048; y++)
-			{
-				float dy = (float)y - center;
-				for (int x = 0; x < 2048; x++)
-				{
-					float dx = (float)x - center;
-					float radialDistance = Mathf.Abs(Mathf.Sqrt(dx * dx + dy * dy) - 942.08f);
-					if (!(radialDistance > 6.7f) && !(Mathf.Abs(Mathf.Repeat(Mathf.Repeat(Mathf.Atan2(dx, 0f - dy) / (MathF.PI * 2f), 1f) * 32f + 0.5f, 1f) - 0.5f) > 0.31f))
-					{
-						float num = Mathf.Clamp01(6.2f - radialDistance) * 0.26f;
-						float coreAlpha = Mathf.Clamp01(3.1f - radialDistance);
-						float alpha = Mathf.Clamp01(num + coreAlpha * 0.92f);
-						pixels[y * 2048 + x] = new Color(0.36f, 1f, 0.55f, alpha);
-					}
-				}
-			}
+            // Four 70-degree arcs centred on the cardinal directions, with clear diagonal gaps.
+            // Stamp round, antialiased dots into the cached texture; no per-frame geometry allocation.
+            var pixels = new Color32[OperationRingTextureSize * OperationRingTextureSize];
+            float center = (OperationRingTextureSize - 1) * .5f;
+            float ringRadius = OperationRingTextureSize * OperationRingTextureRadiusFraction;
+            const float dotRadius = 3.6f;
+            const float haloRadius = 6f;
+            for (int arc = 0; arc < 4; arc++)
+            {
+                for (int dot = 0; dot <= 70; dot++)
+                {
+                    float angle = (arc * 90f - 35f + dot) * Mathf.Deg2Rad;
+                    float cx = center + Mathf.Sin(angle) * ringRadius;
+                    float cy = center - Mathf.Cos(angle) * ringRadius;
+                    for (int y = Mathf.FloorToInt(cy - haloRadius); y <= Mathf.CeilToInt(cy + haloRadius); y++)
+                    for (int x = Mathf.FloorToInt(cx - haloRadius); x <= Mathf.CeilToInt(cx + haloRadius); x++)
+                    {
+                        if (x < 0 || y < 0 || x >= OperationRingTextureSize || y >= OperationRingTextureSize) continue;
+                        float distance = Vector2.Distance(new Vector2(x, y), new Vector2(cx, cy));
+                        float core = Mathf.SmoothStep(0, 1, Mathf.Clamp01(dotRadius + .6f - distance));
+                        float halo = .12f * Mathf.Clamp01(1 - distance / haloRadius);
+                        float alpha = Mathf.Clamp01(core * .95f + halo);
+                        pixels[y * OperationRingTextureSize + x] = new Color(55f / 255f, 164f / 255f, 199f / 255f, alpha);
+                    }
+                }
+            }
 			operationRingTexture = new Texture2D(2048, 2048, TextureFormat.RGBA32, mipChain: false, linear: true)
 			{
-				name = "RadarOperationRing_AA",
+				name = "RadarOperationRing_FourBlueDottedArcs",
 				filterMode = FilterMode.Bilinear,
 				wrapMode = TextureWrapMode.Clamp,
 				hideFlags = HideFlags.HideAndDontSave

@@ -8,22 +8,6 @@ namespace ACunicombat.Mechs
     {
         private const string AudioRoot = "Audio/Countermeasures/";
 
-        private sealed class RadarDecoy
-        {
-            public Vector3 Position;
-            public Vector3 Velocity;
-            public float Age;
-            public float Lifetime;
-            public float InitialRcs;
-            public readonly List<Registration> Registrations = new();
-        }
-
-        private struct Registration
-        {
-            public MechRadarController Controller;
-            public MechRadarController.RadarDecoyHandle Handle;
-        }
-
         [Header("Countermeasure dispenser")]
         [SerializeField, Min(1)] private int burstCapacity = 24;
         [SerializeField, Min(0.05f)] private float releaseCooldownSeconds = 0.35f;
@@ -58,7 +42,6 @@ namespace ACunicombat.Mechs
         [SerializeField, Range(0f, 1f)] private float farReleaseVolume = 0.29f;
         [SerializeField, Range(0f, 1f)] private float interiorReleaseVolume = 0.32f;
 
-        private readonly List<RadarDecoy> activeRadarDecoys = new();
         private MechFlightMotionController motion;
         private MechRadarController ownRadar;
         private CombatTestTarget ownTarget;
@@ -162,92 +145,13 @@ namespace ACunicombat.Mechs
                 : fallbackWorldDirection.normalized;
         }
 
-        private void Update()
-        {
-            var dt = Time.deltaTime;
-            for (var index = activeRadarDecoys.Count - 1; index >= 0; index--)
-            {
-                var decoy = activeRadarDecoys[index];
-                decoy.Age += dt;
-                decoy.Position += decoy.Velocity * dt;
-                if (decoy.Age >= decoy.Lifetime)
-                {
-                    Unregister(decoy);
-                    activeRadarDecoys.RemoveAt(index);
-                    continue;
-                }
-
-                var normalizedAge = Mathf.Clamp01(decoy.Age / decoy.Lifetime);
-                var rcs = Mathf.Lerp(
-                    decoy.InitialRcs,
-                    0.01f,
-                    normalizedAge * normalizedAge);
-                for (var registrationIndex = 0;
-                     registrationIndex < decoy.Registrations.Count;
-                     registrationIndex++)
-                {
-                    var registration = decoy.Registrations[registrationIndex];
-                    if (registration.Controller == null)
-                    {
-                        continue;
-                    }
-                    registration.Controller.UpdateRadarDecoy(
-                        in registration.Handle,
-                        decoy.Position,
-                        decoy.Velocity,
-                        rcs);
-                }
-            }
-        }
-
         private void RegisterChaffCloud(Vector3 position, Vector3 velocity)
         {
-            var decoy = new RadarDecoy
-            {
-                Position = position,
-                Velocity = velocity,
-                Lifetime = Mathf.Max(0.5f, chaffLifetimeSeconds),
-                InitialRcs = Mathf.Max(0.01f, chaffInitialRcsSquareMeters),
-            };
-
-            var controllers = MechRadarController.ActiveControllers;
-            for (var index = 0; index < controllers.Count; index++)
-            {
-                var controller = controllers[index];
-                if (!IsHostileObserver(controller) ||
-                    !controller.TryRegisterRadarDecoy(
-                        position,
-                        velocity,
-                        decoy.InitialRcs,
-                        out var handle))
-                {
-                    continue;
-                }
-
-                decoy.Registrations.Add(new Registration
-                {
-                    Controller = controller,
-                    Handle = handle,
-                });
-            }
-
-            activeRadarDecoys.Add(decoy);
+            var signalObject=new GameObject("Radar chaff signal");
+            signalObject.AddComponent<MechRadarDecoySignal>().Launch(position,velocity,
+                Mathf.Max(.01f,chaffInitialRcsSquareMeters),chaffLifetimeSeconds,
+                ownTarget!=null?(int?)ownTarget.TeamId:null,ownRadar);
         }
-
-        private bool IsHostileObserver(MechRadarController controller)
-        {
-            if (controller == null || controller == ownRadar ||
-                !controller.isActiveAndEnabled)
-            {
-                return false;
-            }
-
-            var observerTarget =
-                controller.GetComponentInParent<CombatTestTarget>();
-            return ownTarget == null || observerTarget == null ||
-                   ownTarget.TeamId != observerTarget.TeamId;
-        }
-
         private void SpawnFlareVisual(Vector3 position, Vector3 velocity)
         {
             var root = new GameObject("Flare Countermeasure");
@@ -452,27 +356,5 @@ namespace ACunicombat.Mechs
                 new Keyframe(1f, 0f));
         }
 
-        private void Unregister(RadarDecoy decoy)
-        {
-            for (var index = 0; index < decoy.Registrations.Count; index++)
-            {
-                var registration = decoy.Registrations[index];
-                if (registration.Controller != null)
-                {
-                    registration.Controller.UnregisterRadarDecoy(
-                        in registration.Handle);
-                }
-            }
-            decoy.Registrations.Clear();
-        }
-
-        private void OnDestroy()
-        {
-            for (var index = 0; index < activeRadarDecoys.Count; index++)
-            {
-                Unregister(activeRadarDecoys[index]);
-            }
-            activeRadarDecoys.Clear();
-        }
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using ACunicombat.Sensing.Contracts;
 using Unity.Mathematics;
+using ACunicombat.Tracking;
 
 namespace ACunicombat.FireControl
 {
@@ -94,6 +95,7 @@ namespace ACunicombat.FireControl
             public MissileTrackSourceMask CorroboratingSources;
             public double3 PreviousVelocity;
             public double PreviousVelocityTime;
+            public double PreviousVelocityVariance;
             public double3 FilteredAcceleration;
             public double3 FilteredJerk;
             public double3 PreviousRawAcceleration;
@@ -174,6 +176,11 @@ namespace ACunicombat.FireControl
     /// </summary>
     public static class MissileTrackFusion
     {
+        private static double3x3 PropagatedPositionCovariance(in TrackSnapshot track,double age)
+        {
+            return track.PredictPositionCovariance(track.LastPredictTime+math.max(0,age));
+        }
+
         public static bool TryScoreFriendlyDataLinkAssociation(
             in MissileTrackSnapshot track,
             double3 reportPosition,
@@ -187,7 +194,11 @@ namespace ACunicombat.FireControl
         {
             score = double.PositiveInfinity;
             var age = math.max(0.0, now - reportTimestamp);
-            if (age > retentionSeconds)
+            // A fresh report cannot authenticate a stale, diffuse radar hypothesis.
+            // LastUpdateTime is the prediction epoch; use the actual kinematic evidence.
+            var trackEvidenceTime = track.KinematicUpdateTime > 0 ? track.KinematicUpdateTime
+                : track.LastEvidenceTime > 0 ? track.LastEvidenceTime : track.LastUpdateTime;
+            if (age > retentionSeconds || now - trackEvidenceTime > retentionSeconds)
             {
                 return false;
             }
@@ -201,22 +212,39 @@ namespace ACunicombat.FireControl
                 maximumPositionGateMeters,
                 math.max(
                     12.0,
-                    track.PositionUncertaintyMeters * 3.0 + age * 20.0));
-            if (positionError > positionGate)
+                    5.0 * math.sqrt(track.PositionUncertaintyMeters * track.PositionUncertaintyMeters + math.pow(3.0 + 300.0 * age * age, 2.0))));
+            double positionScore=positionError/positionGate;
+            if(track.HasPositionCovariance)
             {
-                return false;
+                // A large bearing error is not a large range error. Preserve the ellipse
+                // so telemetry can distinguish adjacent salvo rounds by measured range.
+                var prior=new FilterState{Position=track.PredictPosition(now)};
+                Matrix6 observationCovariance=default;
+                double reportSigma=3.0+300.0*age*age;
+                for(int row=0;row<3;row++)for(int col=0;col<3;col++)prior.P[row,col]=track.PositionCovariance[col][row];
+                for(int axis=0;axis<3;axis++)observationCovariance[axis,axis]=reportSigma*reportSigma/3.0;
+                if(!Cmkf.TryCalculatePositionInnovationNis(prior,predictedReportPosition,observationCovariance,out var nis)||nis>25)return false;
+                positionScore=math.sqrt(nis/25.0);
             }
+            else if(positionError>positionGate)return false;
 
             var velocityError = math.distance(
                 reportVelocity,
                 track.PredictVelocity(now));
-            if (velocityError > velocityGateMetersPerSecond)
+            if(math.lengthsq(track.ObserverLineOfSight)>.5f)
+            {
+                double radialError=math.abs(math.dot(reportVelocity-track.PredictVelocity(now),(double3)track.ObserverLineOfSight));
+                double radialGate=math.max(velocityGateMetersPerSecond,5*track.RadialVelocityUncertaintyMetersPerSecond+1500*age);
+                if(radialError>radialGate)return false;
+            }
+            var effectiveVelocityGate=math.max(velocityGateMetersPerSecond,3*track.VelocityUncertaintyMetersPerSecond);
+            if (velocityError > effectiveVelocityGate)
             {
                 return false;
             }
 
-            score = positionError / positionGate +
-                    velocityError / velocityGateMetersPerSecond;
+            score = positionScore +
+                    velocityError / effectiveVelocityGate;
             return true;
         }
 
@@ -452,6 +480,16 @@ namespace ACunicombat.FireControl
                         ? FriendlyIdentityResolution.Coasting
                         : FriendlyIdentityResolution.Ambiguous;
                 }
+            }
+
+            // Carry identity through radio silence only while the same radar track
+            // is continuously observed. Fresh contradictory reports do NOT renew it.
+            double lastSupport=math.max(association.LastAuthenticatedTime,association.LastSupportedTime);
+            if(reportAge>reportFreshnessSeconds && association.HasTrack && now-lastSupport<=identityCoastSeconds)
+            {
+                int supported=FindAssociatedTrack(in association,tracks,trackCount,trackAlreadyMatched);
+                if(supported>=0 && tracks[supported].KinematicUpdateTime>0 && now-tracks[supported].KinematicUpdateTime<=.25)
+                    association.LastSupportedTime=now;
             }
 
             if (TryCoastAuthenticatedIdentity(
@@ -803,7 +841,14 @@ namespace ACunicombat.FireControl
                 var confidence = math.saturate(
                     track.Confidence * 0.55f +
                     track.Classification * 0.45f);
-                var lastEvidenceTime = track.LastUpdateTime;
+                // A radio refinement changes this same kinematic estimate without
+                // creating a radar hit. Preserve both clocks: radar freshness still
+                // uses LastUpdateTime, while position/association freshness includes
+                // the authenticated telemetry that actually updated the filter.
+                double kinematicEvidenceTime=track.LastUpdateTime;
+                if(track.SourceEvidence.DataLink.Valid && track.SourceEvidence.DataLink.Timestamp<=now)
+                    kinematicEvidenceTime=math.max(kinematicEvidenceTime,track.SourceEvidence.DataLink.Timestamp);
+                var lastEvidenceTime = kinematicEvidenceTime;
                 var sensorMissionRole = MissileMissionRole.Unknown;
                 var sensorMissionRoleConfidence = 0f;
                 var seekerOwnshipEvidence = 0f;
@@ -854,6 +899,7 @@ namespace ACunicombat.FireControl
                         in config,
                         ownshipPosition,
                         ref estimatedPosition,
+                        in track,
                         laserRangeObservations,
                         laserRangeCount,
                         now,
@@ -867,9 +913,11 @@ namespace ACunicombat.FireControl
                     relativePosition =
                         estimatedPosition - ownshipPosition;
                 }
-                var corroborated =
-                    (sourceMask &
-                     ~MissileTrackSourceMask.Radar) != 0;
+                // Independent short-range panels provide repeated, precise local range/Doppler observations.
+                var closeProtectionConfirmed=(track.SourceMask&TrackSourceMask.CloseProtectionRadar)!=0 &&
+                    now-track.LastCloseProtectionTime<=.15 && track.HitCount>=3 && radarMissileClassified;
+                var corroborated = closeProtectionConfirmed ||
+                    (sourceMask & ~MissileTrackSourceMask.Radar) != 0;
                 var radarClassCanBeMissile =
                     track.ObjectClass ==
                         TrackObjectClass.Missile ||
@@ -890,8 +938,7 @@ namespace ACunicombat.FireControl
                 var cpaUncertainty =
                     CalculateCpaPositionUncertainty(
                         in track,
-                        timeToClosestApproach) *
-                    (opticalConfirmed ? 0.7f : 1f);
+                        timeToClosestApproach + (float)math.max(0, now - track.LastPredictTime));
                 var relativeVelocity =
                     track.Velocity - ownshipVelocity;
                 var range = math.length(relativePosition);
@@ -966,7 +1013,9 @@ namespace ACunicombat.FireControl
                         in config,
                         entry,
                         track.Velocity,
-                        track.LastUpdateTime);
+                        kinematicEvidenceTime,
+                        track.GetCovariance(3,3)+track.GetCovariance(4,4)+track.GetCovariance(5,5),
+                        closeProtectionConfirmed);
                     entry.LastSeenTime = now;
                     entry.LastEvidenceTime = math.max(
                         entry.LastEvidenceTime,
@@ -1098,31 +1147,42 @@ namespace ACunicombat.FireControl
                 // HUD 的红/琥珀分级也变得诚实。
                 var propagationAge = (float)math.max(
                     0.0,
-                    now - track.LastUpdateTime);
+                    now - track.LastPredictTime);
                 var propagatedPositionUncertainty =
                     CalculateCpaPositionUncertainty(
                         in track,
                         propagationAge);
+                // Publish every derivative at the same epoch as Position. Rebasing
+                // only position to 'now' silently discarded the acceleration accrued
+                // since the filter epoch and made short-fuse interception lag turns.
+                double poseAge=propagationAge;
+                estimatedPosition+=.5*estimatedAcceleration*poseAge*poseAge
+                    +(1.0/6.0)*estimatedJerk*poseAge*poseAge*poseAge;
+                var estimatedVelocity=track.Velocity+estimatedAcceleration*poseAge
+                    +.5*estimatedJerk*poseAge*poseAge;
+                estimatedAcceleration+=estimatedJerk*poseAge;
 
                 var candidate =
                     new MissileTrackSnapshot
                     {
                         TrackId = track.TrackId,
+                        HasPositionCovariance=true,
+                        PositionCovariance=PropagatedPositionCovariance(in track,propagationAge),
                         Position = estimatedPosition,
-                        Velocity = track.Velocity,
+                        ObserverLineOfSight=math.normalizesafe((float3)relativePosition,new float3(0,0,1)),
+                        RadialVelocityUncertaintyMetersPerSecond=RadialVelocitySigma(track,relativePosition),
+                        VelocityUncertaintyMetersPerSecond=(float)math.sqrt(math.max(0,track.GetCovariance(3,3)+track.GetCovariance(4,4)+track.GetCovariance(5,5))),
+                        Velocity = estimatedVelocity,
                         Acceleration = estimatedAcceleration,
                         Jerk = estimatedJerk,
                         PositionUncertaintyMeters =
                             laserConfirmed
                                 ? math.min(
-                                    propagatedPositionUncertainty *
-                                    (opticalConfirmed ? 0.7f : 1f),
+                                    propagatedPositionUncertainty,
                                     laserPositionUncertainty)
-                                : propagatedPositionUncertainty *
-                                  (opticalConfirmed ? 0.7f : 1f),
+                                : propagatedPositionUncertainty,
                         CpaUncertaintyMeters =
-                            cpaUncertainty *
-                            (laserConfirmed ? 0.8f : 1f),
+                            cpaUncertainty,
                         Confidence = confidence,
                         MissionRole = sensorMissionRole,
                         MissionRoleConfidence =
@@ -1147,8 +1207,10 @@ namespace ACunicombat.FireControl
                             timeToClosestApproach,
                         ClosestApproachDistanceMeters =
                             closestApproachDistance,
-                        LastEvidenceTime = lastEvidenceTime,
-                        KinematicUpdateTime = track.LastUpdateTime,
+                        // Bearing-only corroboration cannot refresh the age of a 3D position.
+                        FirstObservationTime = track.FirstObservationTime,
+                        LastEvidenceTime = kinematicEvidenceTime,
+                        KinematicUpdateTime = kinematicEvidenceTime,
                         // Position has already been propagated to now. Its
                         // epoch must therefore also be now; retaining the
                         // sensor timestamp caused every consumer to apply the
@@ -1181,12 +1243,15 @@ namespace ACunicombat.FireControl
             in MissileTrackFusionConfig config,
             MissileTrackFusionState.Entry entry,
             double3 velocity,
-            double sampleTime)
+            double sampleTime,
+            double velocityVariance,
+            bool preciseLocalVelocity)
         {
             if (!entry.HasVelocitySample)
             {
                 entry.PreviousVelocity = velocity;
                 entry.PreviousVelocityTime = sampleTime;
+                entry.PreviousVelocityVariance = velocityVariance;
                 entry.HasVelocitySample = true;
                 return;
             }
@@ -1215,6 +1280,11 @@ namespace ACunicombat.FireControl
             var blend = filterTime <= 1e-4
                 ? 1.0
                 : 1.0 - math.exp(-elapsed / filterTime);
+            // Resolved local LOS-rate/Doppler changes should not incur the same lag
+            // as noisy distant velocity estimates. Require a statistically resolved
+            // change; keep the configured physical acceleration bound in either case.
+            if(preciseLocalVelocity && math.lengthsq(velocity-entry.PreviousVelocity)>
+                9*math.max(1e-6,velocityVariance+entry.PreviousVelocityVariance))blend=1;
             entry.FilteredAcceleration = math.lerp(
                 entry.FilteredAcceleration,
                 rawAcceleration,
@@ -1254,8 +1324,15 @@ namespace ACunicombat.FireControl
             entry.PreviousRawAcceleration = rawAcceleration;
             entry.PreviousVelocity = velocity;
             entry.PreviousVelocityTime = sampleTime;
+            entry.PreviousVelocityVariance = velocityVariance;
         }
 
+        private static float RadialVelocitySigma(in TrackSnapshot track,double3 relativePosition)
+        {
+            var los=math.normalizesafe(relativePosition,new double3(0,0,1));double variance=0;
+            for(int row=0;row<3;row++)for(int col=0;col<3;col++)variance+=los[row]*track.GetCovariance(row+3,col+3)*los[col];
+            return (float)math.sqrt(math.max(0,variance));
+        }
         private static int FindDuplicate(
             in MissileTrackFusionConfig config,
             MissileTrackSnapshot[] tracks,
@@ -1699,20 +1776,9 @@ namespace ACunicombat.FireControl
             }
 
             var best = observations[bestIndex];
-            var opticalDirection = math.normalizesafe(
-                best.Direction,
-                radarDirection);
-            var opticalWeight = math.saturate(
-                best.ClassificationConfidence * 0.45f);
-            var fusedDirection = math.normalizesafe(
-                math.lerp(
-                    radarDirection,
-                    opticalDirection,
-                    opticalWeight),
-                radarDirection);
-            estimatedPosition =
-                ownshipPosition +
-                (double3)fusedDirection * range;
+            // A monocular bearing corroborates classification; it is not a new Cartesian
+            // position fix. Never rotate the radar state by a fixed confidence weight:
+            // that discards its covariance and alternates positions at the EO sample rate.
             confidence = math.saturate(
                 confidence + 0.1f +
                 best.ClassificationConfidence * 0.08f);
@@ -1725,6 +1791,7 @@ namespace ACunicombat.FireControl
             in MissileTrackFusionConfig config,
             double3 ownshipPosition,
             ref double3 estimatedPosition,
+            in TrackSnapshot track,
             LaserRangeObservation[] observations,
             int observationCount,
             double now,
@@ -1757,7 +1824,8 @@ namespace ACunicombat.FireControl
             for (var i = 0; i < count; i++)
             {
                 var observation = observations[i];
-                if (observation.ObjectClass !=
+                if ((observation.CuedTrackId.IsValid && !observation.CuedTrackId.Equals(track.TrackId)) ||
+                    observation.ObjectClass !=
                         TrackObjectClass.Missile ||
                     observation.ClassificationConfidence < 0.25f ||
                     now - observation.Timestamp >
@@ -1808,6 +1876,13 @@ namespace ACunicombat.FireControl
             }
 
             var best = observations[bestIndex];
+            // The tracking filter already assimilates cued laser returns. Reapplying
+            // an old return here would undo prediction and count the same evidence twice.
+            if (track.SourceEvidence.Laser.Valid && track.SourceEvidence.Laser.Timestamp >= best.Timestamp)
+            {
+                lastUpdate = math.max(lastUpdate, best.Timestamp);
+                return true;
+            }
             var measuredDirection = math.normalizesafe(
                 best.Direction,
                 expectedDirection);

@@ -101,6 +101,7 @@ namespace ACunicombat.Mechs
         private Vector3 compositionLocalOffset;
         private Vector3 compositionLocalOffsetVelocity;
         private TrackId compositionTrackId;
+        private readonly MechCompositionTargetScheduler compositionScheduler = new MechCompositionTargetScheduler();
         private float shoulderSign = 1f;
         private float shoulderBiasUntil;
         private MechTrackControlFilter zoomTrackControlFilter;
@@ -118,6 +119,8 @@ namespace ACunicombat.Mechs
         private float pendingEscapeSign;
         private float pendingEscapeSince;
         private bool freeLookActive;
+        private bool autopilotRadarView;
+        private Quaternion autopilotRadarViewRotation;
         private float freeLookYawDegrees;
         private float freeLookPitchDegrees;
         private float freeLookYawVelocity;
@@ -134,7 +137,7 @@ namespace ACunicombat.Mechs
             }
         }
 
-        public Quaternion AimRotation => ComputeAimRotation();
+        public Quaternion AimRotation => autopilotRadarView?autopilotRadarViewRotation:ComputeAimRotation();
         public bool FreeLookActive => freeLookActive;
         public bool FreeLookViewOffsetActive => HasFreeLookOffset;
         public bool IsZoomActive
@@ -304,6 +307,37 @@ namespace ACunicombat.Mechs
 
             motion.EnableLocalAttitudeControl(pitchDegrees);
             EnsureAimCursorInitialized();
+            radar??=followTarget.GetComponent<MechRadarController>();
+            var fleet=followTarget.GetComponent<MechFleetController>();
+            bool radarTakeover=fleet!=null&&fleet.PlayerAutopilotActive&&radar!=null&&radar.TrackOperationMode;
+            if(radarTakeover)
+            {
+                if(!autopilotRadarView)
+                {
+                    // Capture what the player is actually looking at before releasing free look.
+                    autopilotRadarViewRotation=transform.rotation;
+                    autopilotRadarView=true;
+                    aimViewportPoint=aimViewportCenter;
+                    zoomTrackControlFilter.Reset();
+                }
+                freeLookActive=false;freeLookYawDegrees=freeLookPitchDegrees=0;
+                freeLookYawVelocity=freeLookPitchVelocity=0;
+                float sensitivity=freeLookDegreesPerPixel*GetZoomAimSensitivityMultiplier();
+                autopilotRadarViewRotation=autopilotRadarViewRotation*
+                    Quaternion.AngleAxis(frame.MouseDelta.x*sensitivity,Vector3.up)*
+                    Quaternion.AngleAxis(-frame.MouseDelta.y*sensitivity,Vector3.right);
+                SteerLocallyToward(autopilotRadarViewRotation*Vector3.forward);
+                return;
+            }
+            if(autopilotRadarView)
+            {
+                // Re-enter ordinary free look without snapping to the body's forward axis.
+                var local=Quaternion.Inverse(ComputeAimRotation())*(autopilotRadarViewRotation*Vector3.forward);
+                freeLookYawDegrees=Mathf.Atan2(local.x,local.z)*Mathf.Rad2Deg;
+                freeLookPitchDegrees=-Mathf.Atan2(local.y,new Vector2(local.x,local.z).magnitude)*Mathf.Rad2Deg;
+                freeLookYawVelocity=freeLookPitchVelocity=0;
+                autopilotRadarView=false;
+            }
             if (frame.FreeLookHeld)
             {
                 UpdateFreeLook(in frame);
@@ -515,6 +549,7 @@ namespace ACunicombat.Mechs
 
         private Quaternion ComputeViewRotation()
         {
+            if(autopilotRadarView)return autopilotRadarViewRotation;
             return ComputeAimRotation() *
                    Quaternion.AngleAxis(freeLookYawDegrees, Vector3.up) *
                    Quaternion.AngleAxis(freeLookPitchDegrees, Vector3.right);
@@ -602,11 +637,14 @@ namespace ACunicombat.Mechs
             }
             compositionTrackId = trackId;
             compositionTrackControlFilter.Reset();
-            ResetOcclusionEscape();
+            // New attention must not cancel an established shoulder or its switch cooldown.
+            occlusionSafeSince = float.NaN;
+            pendingEscapeAxis = -1;
         }
 
         private void ClearCompositionTarget()
         {
+            compositionScheduler.Reset();
             compositionTrackId = default;
             compositionTrackControlFilter.Reset();
             ResetOcclusionEscape();
@@ -628,8 +666,19 @@ namespace ACunicombat.Mechs
                 hasStt = radar.TryGetTrack(radar.SttTrackId, out sttTrack);
             }
 
-            if (hasStt)
+            if (!TryResolveOcclusionTarget(hasStt, sttTrack, out var avoidTrack))
             {
+                // Do not reset the pending candidate dwell while waiting to acquire it.
+                compositionTrackId = default;
+                compositionTrackControlFilter.Reset();
+                ResetOcclusionEscape();
+                return targetOffset;
+            }
+
+            if (hasStt || compositionScheduler.ProtectingLock)
+            {
+                if(occlusionEscapeAxis==0&&Mathf.Abs(occlusionEscapeCoordinate)>.1f)
+                    shoulderSign=Mathf.Sign(occlusionEscapeCoordinate);
                 shoulderBiasUntil = now + Mathf.Max(0.5f, shoulderReleaseSeconds);
                 targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
             }
@@ -639,12 +688,6 @@ namespace ACunicombat.Mechs
                 {
                     targetOffset.x = shoulderSign * sttCruiseShoulderOffset;
                 }
-            }
-
-            if (!TryResolveOcclusionTarget(hasStt, sttTrack, out var avoidTrack))
-            {
-                ClearCompositionTarget();
-                return targetOffset;
             }
 
             SetCompositionTarget(avoidTrack.TrackId);
@@ -661,33 +704,26 @@ namespace ACunicombat.Mechs
         }
 
         /// <summary>
-        /// 遮挡避让的目标：STT → 准星候选 → 最优航迹兜底。
-        /// 基础肩位只由 STT 决定，避让也可保护未锁定的准星候选或最佳航迹。
+        /// Locked attention is immediate; candidate handoff needs persistent evidence.
+        /// Other tracks cannot steal attention merely by changing ranking this frame.
         /// </summary>
         private bool TryResolveOcclusionTarget(
             bool hasStt,
             in TrackSnapshot sttTrack,
             out TrackSnapshot track)
         {
-            if (hasStt)
-            {
-                track = sttTrack;
-                return true;
-            }
-
             track = default;
             if (radar == null)
             {
                 return false;
             }
 
-            if (radar.CandidateTrackId.IsValid &&
-                radar.TryGetTrack(radar.CandidateTrackId, out track))
-            {
-                return true;
-            }
-
-            return radar.TryGetBestTrack(out track);
+            radar.TryGetTrack(radar.CandidateTrackId,out var candidate);
+            radar.TryGetTrack(compositionScheduler.CurrentId,out var current);
+            var fallback=default(TrackSnapshot);
+            if(!current.TrackId.IsValid&&!candidate.TrackId.IsValid)radar.TryGetBestTrack(out fallback);
+            return compositionScheduler.Select(Time.unscaledTime,
+                hasStt?sttTrack:default,candidate,fallback,current,out track);
         }
 
         private void ApplyOcclusionEscape(

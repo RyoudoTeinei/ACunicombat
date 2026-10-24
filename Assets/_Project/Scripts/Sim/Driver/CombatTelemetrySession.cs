@@ -14,6 +14,18 @@ using UnityEngine.SceneManagement;
 
 namespace ACunicombat.Simulation.Driver
 {
+    // Decision evidence contains observer estimates; outcome fields are physical post-event results.
+    public struct ApsTelemetryData
+    {
+        public string SlotId,EquipmentId,ActionId,ProjectileId,Reason,ObserverScope,Phase,TrackQuality,Detail;
+        public uint TargetTrackId;
+        public int Ammunition,ActiveShots,Hits,Kills;
+        public bool Pending,HasTrack,Incoming,TranslationInput;
+        public double ReactionRemaining,PreparationProgress,CooldownRemaining,TrackTime,StateSampleTime;
+        public float Uncertainty,TimeToCpa,FlightSeconds,OwnerDistance;
+        public Vector3 OwnPosition,OwnVelocity,OwnAcceleration,TrackPosition,TrackVelocity,BurstPosition,FragmentDirection;
+    }
+
     /// <summary>
     /// Shared JSONL writer for one Play session. Every line is independently
     /// parseable so a crash or forced editor stop does not invalidate earlier data.
@@ -94,6 +106,10 @@ namespace ACunicombat.Simulation.Driver
                         : Path.Combine(
                             Application.persistentDataPath,
                             "CombatTelemetry");
+                    // Batch runners may collocate diagnostics with a review on another
+                    // volume. Ordinary play keeps the existing project/persistent path.
+                    var outputOverride=Environment.GetEnvironmentVariable("ACUNICOMBAT_COMBAT_TELEMETRY_OUTPUT");
+                    if(!string.IsNullOrWhiteSpace(outputOverride))root=Path.GetFullPath(outputOverride);
                     var scene = SceneManager.GetActiveScene().name;
                     var stamp = DateTime.UtcNow.ToString(
                         "yyyyMMdd_HHmmss_fff",
@@ -133,6 +149,32 @@ namespace ACunicombat.Simulation.Driver
                     shared = null;
                 }
             }
+        }
+
+        public static void RecordApsEvent(double time,string source,string eventName,in ApsTelemetryData data)
+        {
+            lock(SharedLock){shared?.RecordAps(time,source,eventName,in data);}
+        }
+
+        public void RecordAps(double time,string source,string eventName,in ApsTelemetryData data)
+        {
+            Begin(time,source,"aps",eventName);
+            String("slotId",data.SlotId);String("equipmentId",data.EquipmentId);String("actionId",data.ActionId);
+            String("projectileId",data.ProjectileId);String("reason",data.Reason);String("observerScope",data.ObserverScope);String("phase",data.Phase);
+            Number("stateSampleTime",data.StateSampleTime);Number("targetTrackId",data.TargetTrackId);Number("ammunition",data.Ammunition);Number("activeShots",data.ActiveShots);
+            Boolean("pending",data.Pending);Number("reactionRemainingSeconds",data.ReactionRemaining);Number("preparationProgress",data.PreparationProgress);Number("cooldownRemainingSeconds",data.CooldownRemaining);
+            Boolean("translationInput",data.TranslationInput);
+            Vector("ownPosition",new double3(data.OwnPosition.x,data.OwnPosition.y,data.OwnPosition.z));
+            Vector("ownVelocity",new double3(data.OwnVelocity.x,data.OwnVelocity.y,data.OwnVelocity.z));
+            Vector("ownAcceleration",new double3(data.OwnAcceleration.x,data.OwnAcceleration.y,data.OwnAcceleration.z));
+            Boolean("hasTrack",data.HasTrack);Number("trackSampleTime",data.TrackTime);String("trackQuality",data.TrackQuality);Boolean("incoming",data.Incoming);
+            Vector("trackPosition",new double3(data.TrackPosition.x,data.TrackPosition.y,data.TrackPosition.z));
+            Vector("trackVelocity",new double3(data.TrackVelocity.x,data.TrackVelocity.y,data.TrackVelocity.z));
+            Number("positionUncertaintyMeters",data.Uncertainty);Number("timeToCpaSeconds",data.TimeToCpa);
+            Number("flightSeconds",data.FlightSeconds);Vector("burstPosition",new double3(data.BurstPosition.x,data.BurstPosition.y,data.BurstPosition.z));
+            Vector("fragmentDirection",new double3(data.FragmentDirection.x,data.FragmentDirection.y,data.FragmentDirection.z));
+            Number("ownerDistanceMeters",data.OwnerDistance);Number("hits",data.Hits);Number("kills",data.Kills);String("detail",data.Detail);
+            End();
         }
 
         public static void RecordMissileProjectileEvent(
@@ -430,6 +472,7 @@ namespace ACunicombat.Simulation.Driver
             Number("hitCount", track.HitCount);
             Number("coastCount", track.CoastCount);
             String("sourceMask", track.SourceMask.ToString());
+            Number("firstObservationTime", track.FirstObservationTime);
             Number("lastUpdateTime", track.LastUpdateTime);
             Number("lastPredictTime", track.LastPredictTime);
             Number("consistencyScore", track.ConsistencyScore);
@@ -580,6 +623,8 @@ namespace ACunicombat.Simulation.Driver
             Number("deliveryTime", message.DeliveryTime);
             Number("deliveredMarginDb", message.DeliveredMarginDb);
             Number("payloadTrackId", message.TrackPayload.TrackId.Packed);
+            if(message.TrackPayload.HasMissileLaunchTime)
+                Number("missileLaunchTime", message.TrackPayload.MissileLaunchTime);
             End();
         }
 

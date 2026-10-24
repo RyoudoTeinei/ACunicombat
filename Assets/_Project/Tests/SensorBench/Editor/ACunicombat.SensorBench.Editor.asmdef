@@ -1,0 +1,22 @@
+{
+  "autoReferenced": false,
+  "references": [
+    "ACunicombat.Simulation.Core",
+    "ACunicombat.Sensing.Contracts",
+    "ACunicombat.Simulation.Kinematics",
+    "ACunicombat.Simulation.World",
+    "ACunicombat.Sensors",
+    "ACunicombat.Tracking",
+    "ACunicombat.FireControl",
+    "ACunicombat.Simulation.Driver",
+    "Unity.Mathematics",
+    "Unity.Collections"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "name": "ACunicombat.SensorBench.Editor"
+}

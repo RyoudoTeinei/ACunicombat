@@ -13,11 +13,12 @@ namespace ACunicombat.Mechs
 {
 	[DefaultExecutionOrder(200)]
 	[DisallowMultipleComponent]
-	public sealed class MechTestWeaponSystem : MonoBehaviour
+	public sealed partial class MechTestWeaponSystem : MonoBehaviour
 	{
 		private sealed class HandWeaponState
 		{
 			public string PartId;
+            public MechEquipmentSlot Slot;
 
 			public MechWeaponRole Role;
 
@@ -30,6 +31,9 @@ namespace ACunicombat.Mechs
 			public int MagazinesRemaining;
 
 			public bool Reloading;
+            public bool ArbitratedReload;
+            public float HeatMj, LastHeatTime;
+            public bool Overheated;
 
 			public float ReloadCompleteTime = float.NegativeInfinity;
 
@@ -422,7 +426,7 @@ namespace ACunicombat.Mechs
 		[Min(0f)]
 		private float missileLaunchClearanceMeters = 0.8f;
 
-		private readonly Dictionary<MechPartSlot, Transform[]> muzzlesBySlot = new Dictionary<MechPartSlot, Transform[]>();
+		private readonly Dictionary<MechEquipmentSlot, Transform[]> muzzlesBySlot = new Dictionary<MechEquipmentSlot, Transform[]>();
 
 		private readonly Dictionary<string, MechPartDefinition> weaponDefinitionCache = new Dictionary<string, MechPartDefinition>(StringComparer.OrdinalIgnoreCase);
 
@@ -436,25 +440,25 @@ namespace ACunicombat.Mechs
 
 		private int rightBackMuzzleIndex;
 
-		private readonly HandWeaponState leftHandWeaponState = new HandWeaponState();
+		private HandWeaponState leftHandWeaponState => GetHandState(MechPartSlot.LeftHandWeapon);
 
-		private readonly HandWeaponState rightHandWeaponState = new HandWeaponState();
+		private HandWeaponState rightHandWeaponState => GetHandState(MechPartSlot.RightHandWeapon);
 
-		private int leftMissileRoundsRemaining;
+		private int leftMissileRoundsRemaining { get => GetInstanceState(MechPartSlot.LeftBackWeapon).Rounds; set => GetInstanceState(MechPartSlot.LeftBackWeapon).Rounds = value; }
 
-		private int leftMissileMagazinesRemaining;
+		private int leftMissileMagazinesRemaining { get => GetInstanceState(MechPartSlot.LeftBackWeapon).Magazines; set => GetInstanceState(MechPartSlot.LeftBackWeapon).Magazines = value; }
 
-		private int rightMissileRoundsRemaining;
+		private int rightMissileRoundsRemaining { get => GetInstanceState(MechPartSlot.RightBackWeapon).Rounds; set => GetInstanceState(MechPartSlot.RightBackWeapon).Rounds = value; }
 
-		private int rightMissileMagazinesRemaining;
+		private int rightMissileMagazinesRemaining { get => GetInstanceState(MechPartSlot.RightBackWeapon).Magazines; set => GetInstanceState(MechPartSlot.RightBackWeapon).Magazines = value; }
 
-		private string leftShoulderPartId;
+		private string leftShoulderPartId { get => GetInstanceState(MechPartSlot.LeftBackWeapon).PartId; set => GetInstanceState(MechPartSlot.LeftBackWeapon).PartId = value; }
 
-		private string rightShoulderPartId;
+		private string rightShoulderPartId { get => GetInstanceState(MechPartSlot.RightBackWeapon).PartId; set => GetInstanceState(MechPartSlot.RightBackWeapon).PartId = value; }
 
-		private readonly ShaoWeiWeaponState leftShaoWeiState = new ShaoWeiWeaponState();
+		private ShaoWeiWeaponState leftShaoWeiState => GetShaoWeiState(MechPartSlot.LeftBackWeapon);
 
-		private readonly ShaoWeiWeaponState rightShaoWeiState = new ShaoWeiWeaponState();
+		private ShaoWeiWeaponState rightShaoWeiState => GetShaoWeiState(MechPartSlot.RightBackWeapon);
 
 		private bool ammunitionInitialized;
 
@@ -481,7 +485,7 @@ namespace ACunicombat.Mechs
 
 		private PointDefenseWithholdReason shaoWeiPointDefenseWithholdReason;
 
-		private float shaoWeiPointDefenseLockUntil;
+
 
 		private MissileTrackSnapshot interceptorTarget;
 
@@ -775,6 +779,7 @@ namespace ACunicombat.Mechs
 			performance = new MechWeaponPerformanceSnapshot
 			{
 				WeaponType = profile.weaponType,
+                AmmunitionGroupCapacity = profile.missileGroupCapacity,
 				IsAutomatic = profile.IsAutomatic,
 				IsGuidedMissile = profile.IsGuidedMissile,
 				IsPointDefense = profile.role == MechWeaponRole.PointDefenseCannon,
@@ -837,7 +842,7 @@ namespace ACunicombat.Mechs
 			{
 				return part != null;
 			}
-			foreach (MechPartSlot slot in new[]
+			foreach (MechEquipmentSlot slot in new[]
 			{
 				MechPartSlot.LeftHandWeapon,
 				MechPartSlot.RightHandWeapon,
@@ -863,12 +868,12 @@ namespace ACunicombat.Mechs
 			return part != null;
 		}
 
-		private bool IsShaoWeiEquipped(MechPartSlot slot)
+		private bool IsShaoWeiEquipped(MechEquipmentSlot slot)
 		{
 			return GetEquippedWeaponRole(slot) == MechWeaponRole.PointDefenseCannon;
 		}
 
-		public MechWeaponRole GetEquippedWeaponRole(MechPartSlot slot)
+		public MechWeaponRole GetEquippedWeaponRole(MechEquipmentSlot slot)
 		{
 			return MechWeaponRoleResolver.Resolve(GetEquippedPartDefinition(slot));
 		}
@@ -952,48 +957,35 @@ namespace ACunicombat.Mechs
 			return Mathf.Min(Mathf.Max(0f, maximumRangeMeters), effectiveRangeMeters);
 		}
 
-		private MechPartDefinition GetEquippedPartDefinition(MechPartSlot slot)
+		private MechPartDefinition GetEquippedPartDefinition(MechEquipmentSlot slot)
 		{
-			if (assembler == null)
-			{
-				assembler = GetComponent<MechAssembler>();
-			}
-			if (assembler != null && assembler.Loadout != null && assembler.Loadout.TryGetPart(slot, out var loadoutPart) && loadoutPart != null)
-			{
-				return loadoutPart;
-			}
-			if (runtimeState == null)
-			{
-				runtimeState = GetComponent<MechRuntimeState>();
-			}
-			if (runtimeState != null)
-			{
-				IReadOnlyList<MechAssemblyRecord> parts = runtimeState.AssembledParts;
-				for (int i = 0; i < parts.Count; i++)
-				{
-					MechAssemblyRecord record = parts[i];
-					if (record != null && record.slot == slot && record.part != null)
-					{
-						return record.part;
-					}
-				}
-			}
-			return null;
+            var record = FindEquipmentRecord(slot);
+            if (record != null) return record.part;
+            var loadout = assembler != null ? assembler.Loadout : runtimeState?.CurrentLoadout;
+            if (loadout != null)
+            {
+                if (loadout.TryGetPart(slot.Id, out var part)) return part;
+                if (slot.LegacyRole != MechPartSlot.None && loadout.TryGetPart(slot.LegacyRole, out part)) return part;
+            }
+            return null;
 		}
 
-		private string GetEquippedPartId(MechPartSlot slot)
+		private string GetEquippedPartId(MechEquipmentSlot slot)
 		{
 			return GetEquippedPartDefinition(slot)?.PartId ?? string.Empty;
 		}
 
-		private MechWeaponPerformance GetEquippedWeaponPerformance(MechPartSlot slot)
+		private MechWeaponPerformance GetEquippedWeaponPerformance(MechEquipmentSlot slot)
 		{
 			MechPartDefinition part = GetEquippedPartDefinition(slot);
-			MechWeaponPerformance performance = part?.WeaponPerformance;
+			MechWeaponPerformance performance = part==null?null:MechMissileLauncherCatalog.CreateDefaultPerformance(part.PartId)??part.WeaponPerformance;
 			if (performance == null || !performance.IsConfigured)
 			{
 				return null;
 			}
+            if(MechMissileLauncherCatalog.IsJianwei(part.PartId))return BankPerformance(slot);
+            if(MechMissileLauncherCatalog.UsesAmmoSelection(part.PartId))
+                return MechMissileVariantCatalog.ResolveSelectedPerformance(part.PartId,performance,SelectedMissileVariant(slot,part));
 
 			if (!performance.IsGuidedMissile || !MechLoadoutSelectionStore.IsPlayerMech(gameObject))
 			{
@@ -1002,7 +994,7 @@ namespace ACunicombat.Mechs
 
 			string defaultVariantId = MechMissileVariantCatalog.GetDefaultVariantId(part.PartId, performance);
 			string selectedVariantId = MechLoadoutSelectionStore.LoadMissileVariantId(
-				slot,
+				slot.LegacyRole,
 				part.PartId,
 				defaultVariantId);
 			return MechMissileVariantCatalog.ResolveSelectedPerformance(
@@ -1011,7 +1003,7 @@ namespace ACunicombat.Mechs
 				selectedVariantId);
 		}
 
-		private MissileFlightProfile GetEquippedMissileProfile(MechPartSlot slot, MissileFlightProfile fallback)
+		private MissileFlightProfile GetEquippedMissileProfile(MechEquipmentSlot slot, MissileFlightProfile fallback)
 		{
 			MechWeaponPerformance performance = GetEquippedWeaponPerformance(slot);
 			return performance != null && performance.IsGuidedMissile && performance.missileFlightProfile.IsConfigured
@@ -1021,7 +1013,7 @@ namespace ACunicombat.Mechs
 
 		private MissileFlightProfile GetInstalledMissileProfile(MechWeaponRole role, MissileFlightProfile fallback)
 		{
-			return TryGetWeaponSlot(role, out MechPartSlot slot)
+			return TryGetInstalledWeaponSlot(role, out var slot)
 				? GetEquippedMissileProfile(slot, fallback)
 				: fallback.Sanitized();
 		}
@@ -1061,61 +1053,51 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private void InitializeShoulderAmmunition(MechPartSlot slot)
+		private void InitializeShoulderAmmunition(MechEquipmentSlot slot)
 		{
-			string partId = GetEquippedPartId(slot) ?? string.Empty;
-			int capacity = GetShoulderMagazineCapacity(slot);
-			int count = GetShoulderMagazineCount(slot);
-			if (slot == MechPartSlot.LeftBackWeapon)
-			{
-				leftShoulderPartId = partId;
-				leftMissileRoundsRemaining = capacity;
-				leftMissileMagazinesRemaining = count;
-			}
-			else
-			{
-				rightShoulderPartId = partId;
-				rightMissileRoundsRemaining = capacity;
-				rightMissileMagazinesRemaining = count;
-			}
+            var state = GetInstanceState(slot);
+            state.PartId = GetEquippedPartId(slot) ?? string.Empty;
+            state.Rounds = GetShoulderMagazineCapacity(slot);
+            state.Magazines = GetShoulderMagazineCount(slot);
+            var record = FindEquipmentRecord(slot);
+            if (record?.instance != null && record.part.WeaponPerformance.IsGuidedMissile && state.Deployment == null)
+                state.Deployment = new MechWeaponDeployment(record);
 		}
 
-		private int GetShoulderMagazineCapacity(MechPartSlot slot)
+		private int GetShoulderMagazineCapacity(MechEquipmentSlot slot)
 		{
 			return Mathf.Max(0, GetEquippedWeaponPerformance(slot)?.magazineCapacity ?? 0);
 		}
 
-		private int GetShoulderMagazineCount(MechPartSlot slot)
+		private int GetShoulderMagazineCount(MechEquipmentSlot slot)
 		{
 			return Mathf.Max(0, GetEquippedWeaponPerformance(slot)?.magazineCount ?? 0);
 		}
 
-		private int GetShoulderRoundsRemaining(MechPartSlot slot)
+		private int GetShoulderRoundsRemaining(MechEquipmentSlot slot)
 		{
-			return slot == MechPartSlot.LeftBackWeapon ? leftMissileRoundsRemaining : rightMissileRoundsRemaining;
+            return GetInstanceState(slot).Rounds;
 		}
 
-		private int GetShoulderMagazinesRemaining(MechPartSlot slot)
+		private int GetShoulderMagazinesRemaining(MechEquipmentSlot slot)
 		{
-			return slot == MechPartSlot.LeftBackWeapon ? leftMissileMagazinesRemaining : rightMissileMagazinesRemaining;
+            return GetInstanceState(slot).Magazines;
 		}
 
-		private bool HasShoulderMissileAmmunition(MechPartSlot slot)
+		private bool HasShoulderMissileAmmunition(MechEquipmentSlot slot)
 		{
 			return GetShoulderRoundsRemaining(slot) > 0 && GetShoulderMagazinesRemaining(slot) > 0;
 		}
 
-		private void ConsumeShoulderMissileRound(MechPartSlot slot)
+		private void ConsumeShoulderMissileRound(MechEquipmentSlot slot)
 		{
-			int capacity = GetShoulderMagazineCapacity(slot);
-			if (slot == MechPartSlot.LeftBackWeapon)
-			{
-				ConsumeMissileRound(ref leftMissileRoundsRemaining, capacity, ref leftMissileMagazinesRemaining);
-			}
-			else
-			{
-				ConsumeMissileRound(ref rightMissileRoundsRemaining, capacity, ref rightMissileMagazinesRemaining);
-			}
+            var state = GetInstanceState(slot);
+            if(state.MissileBanks!=null)
+            {
+                if(!state.MissileBanks.Consume(state.ActiveMissileBank,Time.timeAsDouble))throw new InvalidOperationException("Committed missile bank has no round.");
+                SyncMissileBankCounts(state);return;
+            }
+            ConsumeMissileRound(ref state.Rounds, GetShoulderMagazineCapacity(slot), ref state.Magazines);
 		}
 
 		public bool RequestRifleReload()
@@ -1138,7 +1120,7 @@ namespace ACunicombat.Mechs
 		{
 			if (!AreWeaponsOperational() ||
 				radarController == null ||
-				!radarController.TryAssignFireControlTrack(trackId) ||
+				!radarController.TryGetTrack(trackId, out _) ||
 				!TryGetHandSlot(kind, out var slot))
 			{
 				return false;
@@ -1148,12 +1130,12 @@ namespace ACunicombat.Mechs
 		}
 
 		public bool CommandFireWeaponAtTrack(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			TrackId trackId)
 		{
 			if (!AreWeaponsOperational() ||
 				radarController == null ||
-				!radarController.TryAssignFireControlTrack(trackId))
+				!radarController.TryGetTrack(trackId, out _))
 			{
 				return false;
 			}
@@ -1164,13 +1146,13 @@ namespace ACunicombat.Mechs
 			case MechWeaponRole.AutomaticCannon:
 				return TryFireEquippedHandWeapon(slot, requiredTrackId: trackId);
 			case MechWeaponRole.AirToAirMissile:
-				return CommandFireMissile(slot);
+				return QueueEquipmentAction(slot, MechActionKind.Fire, DefaultCommandSource, radarController.Reference(trackId));
 			default:
 				return false;
 			}
 		}
 
-		public bool CommandFireMissile(MechPartSlot slot)
+		public bool CommandFireMissile(MechEquipmentSlot slot)
 		{
 			if (!AreWeaponsOperational())
 			{
@@ -1268,31 +1250,13 @@ namespace ACunicombat.Mechs
 
 		private void InhibitWeaponsDuringStartup()
 		{
-			ResetTriggerSequence(leftHandWeaponState);
-			ResetTriggerSequence(rightHandWeaponState);
-			UpdateHuBenAnimation(MechPartSlot.LeftHandWeapon, triggerHeld: false);
-			UpdateHuBenAnimation(MechPartSlot.RightHandWeapon, triggerHeld: false);
-			handWeaponAudio?.SetRifleTriggerHeld(false);
-
-			if (leftShaoWeiState.Performance != null)
-			{
-				SetShaoWeiSpinning(
-					MechPartSlot.LeftBackWeapon,
-					leftShaoWeiState,
-					shouldDeploy: false,
-					shouldSpin: false);
-			}
-			if (rightShaoWeiState.Performance != null)
-			{
-				SetShaoWeiSpinning(
-					MechPartSlot.RightBackWeapon,
-					rightShaoWeiState,
-					shouldDeploy: false,
-					shouldSpin: false);
-			}
-
-			playerRig?.ConsumeShoulderMissileLaunch(MechPartSlot.LeftBackWeapon);
-			playerRig?.ConsumeShoulderMissileLaunch(MechPartSlot.RightBackWeapon);
+            actionArbiter?.CancelAll(Time.timeAsDouble);
+            foreach (var slot in InstalledWeaponSlots())
+            {
+                UpdateHuBenAnimation(slot, false);
+                var state = GetShaoWeiState(slot);
+                if (state.Performance != null) SetShaoWeiSpinning(slot, state, false, false);
+            }
 		}
 
 		private static void ResetTriggerSequence(HandWeaponState state)
@@ -1315,15 +1279,13 @@ namespace ACunicombat.Mechs
 				InhibitWeaponsDuringStartup();
 				return;
 			}
-			if (input == null)
-			{
-				return;
-			}
-			UpdateInterceptorTarget();
-			UpdatePointDefenseTarget();
-			UpdateShaoWeiPointDefenseTarget();
-			UpdateShaoWeiPointDefense();
+            UpdateShaoWeiPointDefenseTarget();
+            UpdateShaoWeiPointDefense();
+            if (input == null) return;
+            UpdateInterceptorTarget();
+            UpdatePointDefenseTarget();
 			MechPlayerInputFrame frame = input.Current;
+            UpdateExtraEquipmentInput(frame);
 			if (frame.PrimaryReloadEdge)
 			{
 				RequestHandReload(MechPartSlot.LeftHandWeapon);
@@ -1338,12 +1300,14 @@ namespace ACunicombat.Mechs
 			UpdateHuBenAnimation(MechPartSlot.RightHandWeapon, frame.SecondaryFireHeld);
 			bool rifleTriggerHeld = IsAutomaticTriggerActive(MechPartSlot.LeftHandWeapon, frame.PrimaryFireHeld) ||
 				IsAutomaticTriggerActive(MechPartSlot.RightHandWeapon, frame.SecondaryFireHeld);
-			handWeaponAudio?.SetRifleTriggerHeld(rifleTriggerHeld);
-			if (playerRig != null && playerRig.ConsumeShoulderMissileLaunch(MechPartSlot.LeftBackWeapon))
+			foreach (var equippedSlot in InstalledWeaponSlots())
+                rifleTriggerHeld |= IsAutomaticTriggerActive(equippedSlot, IsHandFireHeld(equippedSlot));
+            handWeaponAudio?.SetRifleTriggerHeld(rifleTriggerHeld);
+			if (frame.LeftShoulderFireEdge)
 			{
 				CommandFireMissile(MechPartSlot.LeftBackWeapon);
 			}
-			if (playerRig != null && playerRig.ConsumeShoulderMissileLaunch(MechPartSlot.RightBackWeapon))
+			if (frame.RightShoulderFireEdge)
 			{
 				CommandFireMissile(MechPartSlot.RightBackWeapon);
 			}
@@ -1351,11 +1315,11 @@ namespace ACunicombat.Mechs
 
 		private void LateUpdate()
 		{
-			ApplyShaoWeiVisual(MechPartSlot.LeftBackWeapon, leftShaoWeiState);
-			ApplyShaoWeiVisual(MechPartSlot.RightBackWeapon, rightShaoWeiState);
+            TickEquipmentActions();
+            foreach (var slot in InstalledWeaponSlots()) ApplyShaoWeiVisual(slot, GetShaoWeiState(slot));
 		}
 
-		private void UpdateShaoWeiServo(MechPartSlot slot, ShaoWeiWeaponState state, float deltaTime)
+		private void UpdateShaoWeiServo(MechEquipmentSlot slot, ShaoWeiWeaponState state, float deltaTime)
 		{
 			MechWeaponPerformance performance = state.Performance;
 			if (performance == null || !IsShaoWeiEquipped(slot) || !state.Spinning || !state.HasAimPoint || state.AimPivot == null)
@@ -1436,7 +1400,7 @@ namespace ACunicombat.Mechs
 			ApplyShaoWeiVisual(slot, state);
 		}
 
-		private void ApplyShaoWeiVisual(MechPartSlot slot, ShaoWeiWeaponState state)
+		private void ApplyShaoWeiVisual(MechEquipmentSlot slot, ShaoWeiWeaponState state)
 		{
 			if (!IsShaoWeiEquipped(slot) || !state.Spinning || !state.HasSlewedDirection || state.AimPivot == null)
 			{
@@ -1471,7 +1435,7 @@ namespace ACunicombat.Mechs
 			for (int i = 0; i < runtimeState.AssembledParts.Count; i++)
 			{
 				MechAssemblyRecord record = runtimeState.AssembledParts[i];
-				if (record?.instance == null || !MechSlotRules.IsWeaponSlot(record.slot))
+				if (record?.instance == null || record.part == null || record.part.Category != MechPartCategory.Weapon)
 				{
 					continue;
 				}
@@ -1480,7 +1444,7 @@ namespace ACunicombat.Mechs
 				Transform[] candidates = transforms.Where(isShaoWei ? new Func<Transform, bool>(IsShaoWeiMuzzleTransform) : new Func<Transform, bool>(IsMuzzleTransform)).OrderBy<Transform, string>((Transform candidate) => candidate.name, StringComparer.OrdinalIgnoreCase).ToArray();
 				if (isShaoWei && candidates.Length == 0)
 				{
-					muzzlesBySlot[record.slot] = Array.Empty<Transform>();
+					muzzlesBySlot[new MechEquipmentSlot(record.SlotId, record.slot)] = Array.Empty<Transform>();
 					string partId = record.part.PartId;
 					if (shaoWeiMuzzleWarnings.Add(partId))
 					{
@@ -1489,17 +1453,17 @@ namespace ACunicombat.Mechs
 				}
 				else
 				{
-					muzzlesBySlot[record.slot] = ((candidates.Length != 0) ? candidates : new Transform[1] { record.instance.transform });
+					muzzlesBySlot[new MechEquipmentSlot(record.SlotId, record.slot)] = ((candidates.Length != 0) ? candidates : new Transform[1] { record.instance.transform });
 				}
-				if (record.slot == MechPartSlot.LeftHandWeapon || record.slot == MechPartSlot.RightHandWeapon)
+				if (record.part.WeaponPerformance.role == MechWeaponRole.HandCannon || record.part.WeaponPerformance.role == MechWeaponRole.AutomaticCannon)
 				{
-					BindHandEquipmentAnimation(record.slot, record.part?.PartId, record.instance);
+					BindHandEquipmentAnimation(new MechEquipmentSlot(record.SlotId, record.slot), record.part?.PartId, record.instance);
 				}
 				if (!isShaoWei)
 				{
 					continue;
 				}
-				ShaoWeiWeaponState state = GetShaoWeiState(record.slot);
+				ShaoWeiWeaponState state = GetShaoWeiState(new MechEquipmentSlot(record.SlotId, record.slot));
 				if (state != null)
 				{
 					MechEquipmentAnimationPlayer animationPlayer = record.instance.GetComponent<MechEquipmentAnimationPlayer>();
@@ -1517,13 +1481,13 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private Vector3 GetWeaponPosition(MechPartSlot slot)
+		private Vector3 GetWeaponPosition(MechEquipmentSlot slot)
 		{
-			if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out var muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				ResolveMuzzles();
 			}
-			if (!muzzlesBySlot.TryGetValue(slot, out muzzles) || muzzles.Length == 0 || !(muzzles[0] != null))
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out muzzles) || muzzles.Length == 0 || !(muzzles[0] != null))
 			{
 				return base.transform.position;
 			}
@@ -1531,7 +1495,7 @@ namespace ACunicombat.Mechs
 		}
 
 		private bool TryFireEquippedHandWeapon(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			bool hasExternalTrack = false,
 			Vector3 externalTrackPosition = default(Vector3),
 			Vector3 externalTrackVelocity = default(Vector3),
@@ -1544,6 +1508,7 @@ namespace ACunicombat.Mechs
 
 			RefreshHandWeaponState(slot);
 			HandWeaponState state = GetHandState(slot);
+            if(state.Overheated)return false;
 			MechWeaponPerformance weaponPerformance = state.Performance;
 			if (weaponPerformance == null || !weaponPerformance.IsConfigured)
 			{
@@ -1562,7 +1527,7 @@ namespace ACunicombat.Mechs
 		}
 
 		private bool TryFireHandWeapon(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			TestWeaponKind kind,
 			ref int muzzleIndex,
 			bool hasExternalTrack = false,
@@ -1570,6 +1535,11 @@ namespace ACunicombat.Mechs
 			Vector3 externalTrackVelocity = default(Vector3),
 			TrackId requiredTrackId = default(TrackId))
 		{
+            if (!committingAction)
+                return QueueEquipmentAction(slot, MechActionKind.Fire, hasExternalTrack ? MechActionSource.AutomaticDefense : DefaultCommandSource,
+                    radarController != null && requiredTrackId.IsValid ? radarController.Reference(requiredTrackId) : default,
+                    hasExternalTrack, externalTrackPosition, externalTrackVelocity);
+
 			if (!AreWeaponsOperational())
 			{
 				return false;
@@ -1579,6 +1549,7 @@ namespace ACunicombat.Mechs
 			RefreshHandWeaponState(slot);
 			UpdateReloadState();
 			HandWeaponState state = GetHandState(slot);
+            if(state.Overheated)return false;
 			MechWeaponPerformance weaponPerformance = state.Performance;
 			if (weaponPerformance == null || !weaponPerformance.IsConfigured)
 			{
@@ -1683,7 +1654,8 @@ namespace ACunicombat.Mechs
 			{
 				direction = GetAimRay().direction;
 			}
-			direction = ApplyArmAiming(state, direction, weaponPerformance);
+			if (!IsWithinEquipmentArc(slot, direction)) return false;
+            direction = ApplyArmAiming(state, direction, weaponPerformance);
 			if (kind == TestWeaponKind.Rifle)
 			{
 				direction = ApplyRifleDispersion(direction, state, in rifleProfile);
@@ -1703,7 +1675,8 @@ namespace ACunicombat.Mechs
 				SpawnProjectile(position, direction2, kind, rifleProfile.MuzzleVelocityMetersPerSecond, rifleProfile.DirectHitDamage, 0.08f, rifleProfile.ProjectileLifetimeSeconds, default(TrackId), 0f, 0f, 0f, 6011100, 6013101, 6011101, launchAnchor, weaponPerformance.maximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, rifleProfile.ProximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, rifleProfile.WarheadLethalRadiusMeters, inheritedVelocity2, null, MechPartSlot.None, interceptorMissile: false, default(MissileFlightProfile), hasInitialGuidanceEstimate: false, default(Vector3), default(Vector3), 0f, default(Vector3), coldLaunch: false, 0f, 0f, 8f, 0.6f, interceptorRoundLethalRadius, 0f, 0f, targetProximityFuseEnabled, rifleProfile.RoundsPerMinute, weaponPerformance.projectileCaliberMillimeters);
 				PlayHandWeaponAudio(kind, slot, muzzle);
 				RegisterRifleRecoil(state, in rifleProfile, Time.time);
-				state.NextFireTime = Time.time + 60f / Mathf.Max(rifleProfile.RoundsPerMinute, 1f);
+                if(weaponPerformance.beltFed){state.HeatMj=Mathf.Min(weaponPerformance.heatCapacityMj,state.HeatMj+weaponPerformance.heatPerShotMj);state.Overheated=state.HeatMj>=weaponPerformance.heatCapacityMj-.0001f;}
+				state.NextFireTime = Time.time + 60f / Mathf.Max(rifleProfile.RoundsPerMinute * GetEquipmentEfficiency(slot), 1f);
 				state.RoundsRemaining = Mathf.Max(0, state.RoundsRemaining - 1);
 				if (state.RoundsRemaining == 0)
 				{
@@ -1740,7 +1713,7 @@ namespace ACunicombat.Mechs
 			return true;
 		}
 
-		private void UpdateHandWeaponInput(MechPartSlot slot, bool fireHeld, bool fireEdge)
+		private void UpdateHandWeaponInput(MechEquipmentSlot slot, bool fireHeld, bool fireEdge)
 		{
 			RefreshHandWeaponState(slot);
 			HandWeaponState state = GetHandState(slot);
@@ -1774,17 +1747,7 @@ namespace ACunicombat.Mechs
 					shouldFire = heldBurstShotCount <= 0 || Time.time >= state.NextHeldBurstTime;
 				}
 
-				if (shouldFire && TryFireEquippedHandWeapon(slot))
-				{
-					state.TriggerSequenceShotCount++;
-					state.QueuedTriggerShots = Mathf.Max(0, state.QueuedTriggerShots - 1);
-					if (heldBurstShotCount > 0 &&
-						state.TriggerSequenceShotCount % heldBurstShotCount == 0)
-					{
-						state.NextHeldBurstTime = Mathf.Max(Time.time, state.NextFireTime) +
-							Mathf.Max(0f, performance.heldBurstPauseSeconds);
-					}
-				}
+                if (shouldFire) TryFireEquippedHandWeapon(slot);
 
 				if (!fireHeld && state.QueuedTriggerShots <= 0)
 				{
@@ -1797,14 +1760,14 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private bool IsAutomaticTriggerActive(MechPartSlot slot, bool fireHeld)
+		private bool IsAutomaticTriggerActive(MechEquipmentSlot slot, bool fireHeld)
 		{
 			HandWeaponState state = GetHandState(slot);
 			return fireHeld && state.Role == MechWeaponRole.AutomaticCannon &&
 				!IsReloading(state) && state.RoundsRemaining > 0;
 		}
 
-		private void BindHandEquipmentAnimation(MechPartSlot slot, string partId, GameObject instance)
+		private void BindHandEquipmentAnimation(MechEquipmentSlot slot, string partId, GameObject instance)
 		{
 			HandWeaponState state = GetHandState(slot);
 			bool isHuBen = !string.IsNullOrWhiteSpace(partId) &&
@@ -1820,7 +1783,7 @@ namespace ACunicombat.Mechs
 			state.AnimationPlayer = player;
 		}
 
-		private void UpdateHuBenAnimation(MechPartSlot slot, bool triggerHeld)
+		private void UpdateHuBenAnimation(MechEquipmentSlot slot, bool triggerHeld)
 		{
 			HandWeaponState state = GetHandState(slot);
 			MechEquipmentAnimationPlayer player = state.AnimationPlayer;
@@ -1906,19 +1869,19 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private bool IsHandFireHeld(MechPartSlot slot)
+		private bool IsHandFireHeld(MechEquipmentSlot slot)
 		{
-			if (input == null)
-			{
-				return false;
-			}
-			return slot == MechPartSlot.LeftHandWeapon
-				? input.Current.PrimaryFireHeld
-				: input.Current.SecondaryFireHeld;
+            if (input == null) return false;
+            if (slot == MechPartSlot.LeftHandWeapon) return input.Current.PrimaryFireHeld;
+            if (slot == MechPartSlot.RightHandWeapon) return input.Current.SecondaryFireHeld;
+            var group = runtimeState?.CurrentLoadout?.GetSlots().Find(x => x.id == slot.Id)?.weaponGroup;
+            return group == "primary" ? input.Current.PrimaryFireHeld : group == "secondary" && input.Current.SecondaryFireHeld;
 		}
 
-		public bool RequestHandReload(MechPartSlot slot)
+		public bool RequestHandReload(MechEquipmentSlot slot)
 		{
+            if (!committingAction) return QueueEquipmentAction(slot, MechActionKind.Reload, DefaultCommandSource);
+
 			if (!AreWeaponsOperational())
 			{
 				return false;
@@ -1939,17 +1902,17 @@ namespace ACunicombat.Mechs
 			return true;
 		}
 
-		public bool IsHandWeaponReloading(MechPartSlot slot)
+		public bool IsHandWeaponReloading(MechEquipmentSlot slot)
 		{
 			return IsReloading(GetHandState(slot));
 		}
 
-		public bool TryGetWeaponHudState(MechPartSlot slot, out MechWeaponHudState hudState)
+		public bool TryGetWeaponHudState(MechEquipmentSlot slot, out MechWeaponHudState hudState)
 		{
 			InitializeAmmunition();
 			RefreshEquippedWeaponStates();
 			MechWeaponRole role = GetEquippedWeaponRole(slot);
-			if (slot == MechPartSlot.LeftHandWeapon || slot == MechPartSlot.RightHandWeapon)
+			if (role == MechWeaponRole.AutomaticCannon || role == MechWeaponRole.HandCannon)
 			{
 				HandWeaponState state = GetHandState(slot);
 				if (role != MechWeaponRole.HandCannon && role != MechWeaponRole.AutomaticCannon)
@@ -2013,9 +1976,10 @@ namespace ACunicombat.Mechs
 		}
 
 		public bool TryGetWeaponSlotStatus(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			out MechWeaponSlotStatus status)
 		{
+            slot=ResolveEquipmentSlot(slot);
 			InitializeAmmunition();
 			RefreshEquippedWeaponStates();
 			MechWeaponPerformance performance =
@@ -2031,12 +1995,11 @@ namespace ACunicombat.Mechs
 				? Mathf.Min(performance.effectiveRangeMeters, maximumRange)
 				: maximumRange;
 			float minimumRange = ResolveMinimumEngagementRange(performance);
-			if (slot == MechPartSlot.LeftHandWeapon ||
-				slot == MechPartSlot.RightHandWeapon)
+			if (performance.role == MechWeaponRole.AutomaticCannon || performance.role == MechWeaponRole.HandCannon)
 			{
 				HandWeaponState handState = GetHandState(slot);
 				status = new MechWeaponSlotStatus(
-					slot,
+					slot.LegacyRole,
 					performance.role,
 					handState.RoundsRemaining,
 					GetHandMagazineCapacity(handState),
@@ -2059,11 +2022,10 @@ namespace ACunicombat.Mechs
 				return true;
 			}
 
-			if (slot == MechPartSlot.LeftBackWeapon ||
-				slot == MechPartSlot.RightBackWeapon)
+			if (performance.IsGuidedMissile)
 			{
 				status = new MechWeaponSlotStatus(
-					slot,
+					slot.LegacyRole,
 					performance.role,
 					GetShoulderRoundsRemaining(slot),
 					GetShoulderMagazineCapacity(slot),
@@ -2152,9 +2114,9 @@ namespace ACunicombat.Mechs
 			return false;
 		}
 
-		private HandWeaponState GetHandState(MechPartSlot slot)
+		private HandWeaponState GetHandState(MechEquipmentSlot slot)
 		{
-			return slot == MechPartSlot.LeftHandWeapon ? leftHandWeaponState : rightHandWeaponState;
+            return GetInstanceState(slot).Hand;
 		}
 
 		private HandWeaponState FindHandState(MechWeaponRole role)
@@ -2169,16 +2131,25 @@ namespace ACunicombat.Mechs
 
 		private void RefreshEquippedWeaponStates()
 		{
-			RefreshHandWeaponState(MechPartSlot.LeftHandWeapon);
-			RefreshHandWeaponState(MechPartSlot.RightHandWeapon);
-			RefreshShoulderAmmunition(MechPartSlot.LeftBackWeapon);
-			RefreshShoulderAmmunition(MechPartSlot.RightBackWeapon);
+            if (runtimeState != null)
+                foreach (var record in runtimeState.AssembledParts)
+                {
+                    if (record?.part == null || record.part.Category != MechPartCategory.Weapon) continue;
+                    var slot = new MechEquipmentSlot(record.SlotId, record.slot);
+                    RefreshHandWeaponState(slot);
+                    RefreshShoulderAmmunition(slot);
+                }
+            else
+            {
+                RefreshHandWeaponState(MechPartSlot.LeftHandWeapon); RefreshHandWeaponState(MechPartSlot.RightHandWeapon);
+                RefreshShoulderAmmunition(MechPartSlot.LeftBackWeapon); RefreshShoulderAmmunition(MechPartSlot.RightBackWeapon);
+            }
 		}
 
-		private void RefreshShoulderAmmunition(MechPartSlot slot)
+		private void RefreshShoulderAmmunition(MechEquipmentSlot slot)
 		{
 			string partId = GetEquippedPartId(slot) ?? string.Empty;
-			string previousPartId = slot == MechPartSlot.LeftBackWeapon ? leftShoulderPartId : rightShoulderPartId;
+			string previousPartId = GetInstanceState(slot).PartId;
 			if (!string.Equals(previousPartId, partId, StringComparison.OrdinalIgnoreCase))
 			{
 				InitializeShoulderAmmunition(slot);
@@ -2189,7 +2160,7 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private void RefreshHandWeaponState(MechPartSlot slot)
+		private void RefreshHandWeaponState(MechEquipmentSlot slot)
 		{
 			HandWeaponState state = GetHandState(slot);
 			string partId = GetEquippedPartId(slot) ?? string.Empty;
@@ -2200,10 +2171,11 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private void InitializeHandWeaponState(MechPartSlot slot, HandWeaponState state)
+		private void InitializeHandWeaponState(MechEquipmentSlot slot, HandWeaponState state)
 		{
 			var part = GetEquippedPartDefinition(slot);
-			state.PartId = part?.PartId ?? string.Empty;
+			state.Slot = ResolveEquipmentSlot(slot);
+            state.PartId = part?.PartId ?? string.Empty;
 			state.Performance = part?.WeaponPerformance;
 			state.WeaponMassKg = Mathf.Max(0f, part?.Stats?.massKg ?? 0f);
 			state.Role = state.Performance != null && state.Performance.IsConfigured
@@ -2218,6 +2190,7 @@ namespace ACunicombat.Mechs
 			state.LastSpinRequestTime = float.NegativeInfinity;
 			state.RecoilDispersionMilliradians = 0f;
 			state.LastDispersionUpdateTime = Time.time;
+            state.HeatMj=0;state.Overheated=false;state.LastHeatTime=Time.time;
 			state.LastShotTime = float.NegativeInfinity;
 			state.BurstShotCount = 0;
 			state.TriggerSequenceActive = false;
@@ -2282,7 +2255,7 @@ namespace ACunicombat.Mechs
 		private float GetHandReloadDuration(HandWeaponState state)
 		{
 			float duration = state.Performance?.reloadSeconds ?? 0f;
-			return Mathf.Max(0.1f, duration);
+			return Mathf.Max(0.1f, duration) / Mathf.Max(.05f,GetEquipmentEfficiency(state.Slot));
 		}
 
 		private static bool IsReloading(HandWeaponState state)
@@ -2295,22 +2268,14 @@ namespace ACunicombat.Mechs
 			return IsReloading(state) ? Mathf.Max(0f, state.ReloadCompleteTime - Time.time) : 0f;
 		}
 
-		private ref int GetHandMuzzleIndex(MechPartSlot slot)
+		private ref int GetHandMuzzleIndex(MechEquipmentSlot slot)
 		{
-			if (slot == MechPartSlot.LeftHandWeapon)
-			{
-				return ref leftHandMuzzleIndex;
-			}
-			return ref rightHandMuzzleIndex;
+            return ref GetInstanceState(slot).MuzzleIndex;
 		}
 
-		private ref int GetShoulderMuzzleIndex(MechPartSlot slot)
+		private ref int GetShoulderMuzzleIndex(MechEquipmentSlot slot)
 		{
-			if (slot == MechPartSlot.LeftBackWeapon)
-			{
-				return ref leftBackMuzzleIndex;
-			}
-			return ref rightBackMuzzleIndex;
+            return ref GetInstanceState(slot).MuzzleIndex;
 		}
 
 		private void InitializeAmmunition()
@@ -2347,10 +2312,11 @@ namespace ACunicombat.Mechs
 					rifleDispersionRandomState = 1u;
 				}
 				ammunitionInitialized = true;
+                RefreshEquippedWeaponStates();
 			}
 		}
 
-		private void InitializeShaoWeiState(MechPartSlot slot, ShaoWeiWeaponState state, uint randomSeed)
+		private void InitializeShaoWeiState(MechEquipmentSlot slot, ShaoWeiWeaponState state, uint randomSeed)
 		{
 			state.Performance = GetEquippedWeaponRole(slot) == MechWeaponRole.PointDefenseCannon
 				? GetEquippedWeaponPerformance(slot)
@@ -2383,8 +2349,7 @@ namespace ACunicombat.Mechs
 
 		private void UpdateShaoWeiReloadAndHeat(float deltaTime)
 		{
-			UpdateShaoWeiState(leftShaoWeiState, deltaTime);
-			UpdateShaoWeiState(rightShaoWeiState, deltaTime);
+            foreach (var state in new List<InstanceWeaponState>(instanceStates.Values)) UpdateShaoWeiState(state.Defense, deltaTime);
 		}
 
 		private void UpdateShaoWeiState(ShaoWeiWeaponState state, float deltaTime)
@@ -2394,7 +2359,7 @@ namespace ACunicombat.Mechs
 			{
 				return;
 			}
-			state.HeatMj = Mathf.Max(0f, state.HeatMj - Mathf.Max(0f, performance.coolingMw) * Mathf.Max(0f, deltaTime));
+			state.HeatMj = Mathf.Max(0f, state.HeatMj - Mathf.Max(0f, performance.coolingMw) * RadiatorEfficiency * Mathf.Max(0f, deltaTime));
 			if (state.Overheated && state.HeatMj <= performance.resumeThresholdMj)
 			{
 				state.Overheated = false;
@@ -2411,7 +2376,7 @@ namespace ACunicombat.Mechs
 
 		private void BeginShaoWeiReload(ShaoWeiWeaponState state)
 		{
-			if (!state.Reloading && state.MagazinesRemaining > 0)
+			if (state.Performance?.beltFed!=true && !state.Reloading && state.MagazinesRemaining > 0)
 			{
 				state.Reloading = true;
 				state.ReloadCompleteTime = Time.time + Mathf.Max(0.1f, state.Performance?.reloadSeconds ?? 0f);
@@ -2701,13 +2666,18 @@ namespace ACunicombat.Mechs
 
 		private void UpdateReloadState()
 		{
-			UpdateHandReloadState(leftHandWeaponState);
-			UpdateHandReloadState(rightHandWeaponState);
+            foreach (var state in new List<InstanceWeaponState>(instanceStates.Values)) UpdateHandReloadState(state.Hand);
 		}
 
 		private void UpdateHandReloadState(HandWeaponState state)
-		{
-			if (state.Reloading && Time.time >= state.ReloadCompleteTime)
+        {
+            if(state.Performance?.beltFed==true)
+            {
+                float dt=Mathf.Max(0,Time.time-state.LastHeatTime);state.LastHeatTime=Time.time;
+                state.HeatMj=Mathf.Max(0,state.HeatMj-state.Performance.coolingMw*RadiatorEfficiency*dt);
+                if(state.Overheated&&state.HeatMj<=state.Performance.resumeThresholdMj)state.Overheated=false;
+            }
+			if (!state.ArbitratedReload && state.Reloading && Time.time >= state.ReloadCompleteTime)
 			{
 				state.Reloading = false;
 				if (state.RoundsRemaining == 0 && state.MagazinesRemaining > 0)
@@ -2717,9 +2687,9 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private void BeginHandReload(MechPartSlot slot, HandWeaponState state, Vector3 weaponPosition)
+		private void BeginHandReload(MechEquipmentSlot slot, HandWeaponState state, Vector3 weaponPosition)
 		{
-			if (state.Reloading || state.MagazinesRemaining <= 0)
+			if (state.Performance?.beltFed==true || state.Reloading || state.MagazinesRemaining <= 0)
 			{
 				return;
 			}
@@ -2745,7 +2715,7 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private void PlayHandWeaponAudio(TestWeaponKind kind, MechPartSlot slot, Transform muzzle)
+		private void PlayHandWeaponAudio(TestWeaponKind kind, MechEquipmentSlot slot, Transform muzzle)
 		{
 			MechHandWeaponAudio audio = EnsureHandWeaponAudio();
 			bool ownship = IsOwnship();
@@ -2764,13 +2734,13 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private AutomaticCannonAudioProfile ResolveRifleAudioProfile(MechPartSlot slot)
+		private AutomaticCannonAudioProfile ResolveRifleAudioProfile(MechEquipmentSlot slot)
 		{
 			return GetEquippedWeaponPerformance(slot)?.automaticCannonAudioProfile ??
 				AutomaticCannonAudioProfile.Flak38;
 		}
 
-		private CannonAudioProfile ResolveCannonAudioProfile(MechPartSlot slot)
+		private CannonAudioProfile ResolveCannonAudioProfile(MechEquipmentSlot slot)
 		{
 			return GetEquippedWeaponPerformance(slot)?.cannonAudioProfile ??
 				CannonAudioProfile.Cannon57Mm;
@@ -2824,8 +2794,10 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private bool FireInterceptorMissile(MechPartSlot slot, ref int muzzleIndex)
+		private bool FireInterceptorMissile(MechEquipmentSlot slot, ref int muzzleIndex)
 		{
+            if (!committingAction) return QueueEquipmentAction(slot, MechActionKind.Fire, DefaultCommandSource);
+
 			if (!AreWeaponsOperational() ||
 				GetEquippedWeaponRole(slot) != MechWeaponRole.InterceptorMissile)
 			{
@@ -2844,26 +2816,31 @@ namespace ACunicombat.Mechs
 			}
 			UpdateInterceptorTarget();
 			MissileTrackSnapshot incomingTrack = interceptorTarget;
+            if(currentCommit!=null&&!radarController.TryGetMissileTrack(currentCommit.Target.TrackId,out incomingTrack))return false;
 			if (!incomingTrack.TrackId.IsValid ||
 				!incomingTrack.IsWeaponsQuality ||
 				incomingTrack.IsFriendly ||
 				(!interceptorTargetManuallyDesignated &&
-				 !incomingTrack.Incoming))
+				 !IsFleetDefenseThreat(incomingTrack)))
 			{
 				Debug.LogWarning("[MechTestWeaponSystem] Interceptor launch inhibited: no sensor-confirmed incoming missile track.", this);
 				return false;
 			}
-			if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out var muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				ResolveMuzzles();
 			}
-			if (!muzzlesBySlot.TryGetValue(slot, out muzzles) || muzzles.Length == 0)
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				Debug.LogWarning("[MechTestWeaponSystem] No interceptor muzzle.", this);
 				return false;
 			}
-			Transform muzzle = muzzles[muzzleIndex % muzzles.Length];
-			if (!TrySolveInterceptorEngagement(in incomingTrack, muzzle, out var launchSolution))
+            var bankState=GetInstanceState(slot);
+            int launchMuzzle=muzzleIndex % muzzles.Length;
+            if(bankState.MissileBanks?.Banks.Length==2&&muzzles.Length>=2)
+            {int groupWidth=muzzles.Length/2;launchMuzzle=Mathf.Max(0,bankState.ActiveMissileBank)*groupWidth+muzzleIndex%groupWidth;}
+			Transform muzzle = muzzles[launchMuzzle];
+			if (!TrySolveInterceptorEngagement(in incomingTrack, muzzle, out var launchSolution, slot))
 			{
 				Debug.LogWarning("[MechTestWeaponSystem] Interceptor launch inhibited: the current threat geometry is outside the dynamic interceptor reachability zone.", this);
 				return false;
@@ -2872,7 +2849,7 @@ namespace ACunicombat.Mechs
 			Vector3 launchDirection = ResolveInterceptorColdLaunchDirection(muzzle);
 			Vector3 launchPosition = muzzle.position + launchDirection * missileLaunchClearanceMeters;
 			Vector3 inheritedVelocity = ((flightMotion != null) ? flightMotion.Velocity : Vector3.zero);
-			InterceptorEngagementSolution refinedSolution = SolveInterceptorEngagement(in incomingTrack, launchPosition, inheritedVelocity, launchDirection, radarController.SimTimeSeconds);
+			InterceptorEngagementSolution refinedSolution = SolveInterceptorEngagement(in incomingTrack, launchPosition, inheritedVelocity, launchDirection, radarController.SimTimeSeconds, launchProfile);
 			if (refinedSolution.Reachable)
 			{
 				launchSolution = refinedSolution;
@@ -2880,7 +2857,7 @@ namespace ACunicombat.Mechs
 			}
 			SpawnProjectile(launchPosition, launchDirection, TestWeaponKind.Missile, launchProfile.EjectionSpeedMps, weaponPerformance.directHitDamage, 0.22f, launchProfile.MaximumFlightTimeSeconds, incomingTrack.TrackId, 0f, 0f, 0f, 0, 6082101, 0, muzzle, launchProfile.MaximumRangeMeters, 0, 2.1f, 2.5f, 8000f, 35f, 60f, 75f, 180f, 0f, 0f, weaponPerformance.proximityFuseRadiusMeters, weaponPerformance.proximityFuseArmSeconds, weaponPerformance.proximityFuseSafeDistanceMeters, weaponPerformance.warheadLethalRadiusMeters, inheritedVelocity, radarController, slot, interceptorMissile: true, launchProfile, hasInitialGuidanceEstimate: true, ToVector3(incomingTrack.PredictPosition(radarController.SimTimeSeconds)), ToVector3(incomingTrack.Velocity), incomingTrack.PositionUncertaintyMeters, ToVector3(launchSolution.InterceptPoint), coldLaunch: true, interceptorSafeSeparationSeconds, interceptorSafeSeparationMeters, interceptorIgnitionAlignmentDegrees, interceptorAlignmentTimeoutSeconds);
 			ConsumeShoulderMissileRound(slot);
-			Debug.Log("[MechTestWeaponSystem] Interceptor launched at " + $"{incomingTrack.TrackId}, sources=" + $"{incomingTrack.SourceMask}, confidence=" + $"{incomingTrack.Confidence:0.00}, TOF=" + $"{launchSolution.FlightTimeSeconds:0.00}s, margin=" + $"{launchSolution.ThreatTimeMarginSeconds:0.00}s.", this);
+			Debug.Log("[MechTestWeaponSystem] Interceptor launched at " + $"{incomingTrack.TrackId}, ammo={weaponPerformance.missileDisplayName}, bank={bankState.ActiveMissileBank}, sources=" + $"{incomingTrack.SourceMask}, confidence=" + $"{incomingTrack.Confidence:0.00}, TOF=" + $"{launchSolution.FlightTimeSeconds:0.00}s, margin=" + $"{launchSolution.ThreatTimeMarginSeconds:0.00}s.", this);
 			muzzleIndex = (muzzleIndex + 1) % muzzles.Length;
 			interceptorTarget = default(MissileTrackSnapshot);
 			interceptorSolution = default(InterceptorEngagementSolution);
@@ -2889,8 +2866,10 @@ namespace ACunicombat.Mechs
 			return true;
 		}
 
-		private bool FireMissileSalvo(MechPartSlot slot, ref int muzzleIndex)
+		private bool FireMissileSalvo(MechEquipmentSlot slot, ref int muzzleIndex)
 		{
+            if (!committingAction) return QueueEquipmentAction(slot, MechActionKind.Fire, DefaultCommandSource);
+
 			if (!AreWeaponsOperational() ||
 				GetEquippedWeaponRole(slot) != MechWeaponRole.AirToAirMissile)
 			{
@@ -2907,17 +2886,17 @@ namespace ACunicombat.Mechs
 			{
 				return false;
 			}
-			if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out var muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				ResolveMuzzles();
 			}
-			if (!muzzlesBySlot.TryGetValue(slot, out muzzles) || muzzles.Length == 0)
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				Debug.LogWarning($"[MechTestWeaponSystem] No missile muzzle for {slot}.", this);
 				return false;
 			}
 			MissileKinematicProfile missileKinematics = BuildMissileKinematics(launchProfile);
-			if (radarController == null || !radarController.TryAuthorizeMissileLaunch(MissileGuidanceMode.ActiveRadar, in missileKinematics, TrackObjectClass.AirVehicle, out var track, out var solution, out var guidanceToken))
+			if (radarController == null || !radarController.AuthorizeMissileRelease(currentCommit.Target.TrackId, in missileKinematics, weaponPerformance.supportsPassiveRfHoming, out var track, out var solution, out var guidanceToken, out var releaseMode, PreferPassiveRelease(weaponPerformance)))
 			{
 				Debug.LogWarning($"[MechTestWeaponSystem] {slot} launch inhibited: no authorized radar track, " + "weapon-envelope solution, seeker handoff, or free guidance channel.", this);
 				return false;
@@ -2936,7 +2915,7 @@ namespace ACunicombat.Mechs
 			int launchedCount = 0;
 			for (int i = 0; i < 1; i++)
 			{
-				if (i > 0 && !radarController.RetainGuidanceChannel(guidanceToken))
+				if (i > 0 && guidanceToken > 0 && !radarController.RetainGuidanceChannel(guidanceToken))
 				{
 					Debug.LogWarning($"[MechTestWeaponSystem] {slot} salvo truncated: guidance channel was released.", this);
 					break;
@@ -2953,14 +2932,18 @@ namespace ACunicombat.Mechs
 			return launchedCount > 0;
 		}
 
+        private float DefenseThreatTime(MissileTrackSnapshot t)=>GetComponent<MechFleetController>()?.ProtectedThreatTime(t) ?? t.TimeToClosestApproachSeconds;
+        private bool IsFleetDefenseThreat(MissileTrackSnapshot t)=>t.Incoming || GetComponent<MechFleetController>()?.IsFleetThreat(t)==true;
 		private void UpdateInterceptorTarget()
 		{
+            if(committingAction && currentCommit!=null && currentCommit.Target.IsValid)
+            { if(radarController.TryGetMissileTrack(currentCommit.Target.TrackId,out var exact))interceptorTarget=exact; else interceptorTarget=default; return; }
 			MissileTrackSnapshot candidate;
 			InterceptorEngagementSolution candidateSolution;
 			MissileTrackSnapshot retainedTrack;
 			Transform retainedMuzzle;
 			InterceptorEngagementSolution retainedSolution;
-			if (!TryGetWeaponSlot(MechWeaponRole.InterceptorMissile, out _))
+			if (!TryGetInstalledWeaponSlot(MechWeaponRole.InterceptorMissile, out _))
 			{
 				interceptorTarget = default(MissileTrackSnapshot);
 				interceptorSolution = default(InterceptorEngagementSolution);
@@ -3035,13 +3018,13 @@ namespace ACunicombat.Mechs
 				out solution);
 		}
 
-		private static bool IsAutomaticInterceptorTargetEligible(
+		private bool IsAutomaticInterceptorTargetEligible(
 			in MissileTrackSnapshot candidate)
 		{
 			return candidate.TrackId.IsValid &&
 				candidate.IsWeaponsQuality &&
 				!candidate.IsFriendly &&
-				candidate.Incoming &&
+				IsFleetDefenseThreat(candidate) &&
 				!candidate.IsLikelyInterceptor;
 		}
 
@@ -3058,7 +3041,7 @@ namespace ACunicombat.Mechs
 			for (int i = 0; i < trackCount; i++)
 			{
 				MissileTrackSnapshot candidate = interceptorTrackScratch[i];
-				if (IsAutomaticInterceptorTargetEligible(in candidate) && MissileEngagementMath.IntersectsProtectedCpaWindow(candidate.TimeToClosestApproachSeconds, candidate.ClosestApproachDistanceMeters, candidate.CpaUncertaintyMeters, interceptorPredictionHorizonSeconds, interceptorProtectedRadiusMeters) && TrySolveInterceptorEngagement(in candidate, muzzle, out var solution))
+				if (IsAutomaticInterceptorTargetEligible(in candidate) && (GetComponent<MechFleetController>()?.IsFleetThreat(candidate)==true || MissileEngagementMath.IntersectsProtectedCpaWindow(candidate.TimeToClosestApproachSeconds, candidate.ClosestApproachDistanceMeters, candidate.CpaUncertaintyMeters, interceptorPredictionHorizonSeconds, interceptorProtectedRadiusMeters)) && TrySolveInterceptorEngagement(in candidate, muzzle, out var solution))
 				{
 					float score = solution.FlightTimeSeconds + candidate.ClosestApproachDistanceMeters / Mathf.Max(interceptorProtectedRadiusMeters, 1f) + candidate.PositionUncertaintyMeters / 1000f - candidate.Confidence * 0.5f - Mathf.Clamp(solution.ThreatTimeMarginSeconds, 0f, 10f) * 0.05f;
 					if (score < bestScore)
@@ -3072,18 +3055,17 @@ namespace ACunicombat.Mechs
 			return best.TrackId.IsValid;
 		}
 
-		private bool TryPeekInterceptorMuzzle(out Transform muzzle)
-		{
-			if (!TryGetWeaponSlot(MechWeaponRole.InterceptorMissile, out var slot))
-			{
-				muzzle = null;
-				return false;
-			}
-			if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
+        private bool TryGetInstalledWeaponSlot(MechWeaponRole role,out MechEquipmentSlot slot)
+        {foreach(var installed in InstalledWeaponSlots())if(GetEquippedWeaponRole(installed)==role){slot=installed;return true;}slot=default;return false;}
+        private bool TryPeekInterceptorMuzzle(out Transform muzzle)
+        {if(!TryGetInstalledWeaponSlot(MechWeaponRole.InterceptorMissile,out var slot)){muzzle=null;return false;}return TryPeekInterceptorMuzzle(slot,out muzzle);}
+        private bool TryPeekInterceptorMuzzle(MechEquipmentSlot slot,out Transform muzzle)
+        {
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out var muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				ResolveMuzzles();
 			}
-			if (!muzzlesBySlot.TryGetValue(slot, out muzzles) || muzzles.Length == 0)
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				muzzle = null;
 				return false;
@@ -3092,9 +3074,10 @@ namespace ACunicombat.Mechs
 			return muzzle != null;
 		}
 
-		private bool TrySolveInterceptorEngagement(in MissileTrackSnapshot track, Transform muzzle, out InterceptorEngagementSolution solution)
+		private bool TrySolveInterceptorEngagement(in MissileTrackSnapshot track, Transform muzzle, out InterceptorEngagementSolution solution, MechEquipmentSlot? installedSlot=null)
 		{
 			solution = default(InterceptorEngagementSolution);
+            if(!installedSlot.HasValue&&TryGetInstalledWeaponSlot(MechWeaponRole.InterceptorMissile,out var defaultSlot))installedSlot=defaultSlot;
 			if (radarController == null || muzzle == null)
 			{
 				return false;
@@ -3102,15 +3085,17 @@ namespace ACunicombat.Mechs
 			Vector3 launchDirection = ResolveInterceptorColdLaunchDirection(muzzle);
 			Vector3 launchPosition = muzzle.position + launchDirection * missileLaunchClearanceMeters;
 			Vector3 ownshipVelocity = ((flightMotion != null) ? flightMotion.Velocity : Vector3.zero);
-			solution = SolveInterceptorEngagement(in track, launchPosition, ownshipVelocity, launchDirection, radarController.SimTimeSeconds);
+            if(installedSlot.HasValue&&!BankCanRelease(installedSlot.Value,track.TrackId))return false;
+            var bankPerformance=installedSlot.HasValue?BankPerformance(installedSlot.Value,track.TrackId):null;
+			solution = SolveInterceptorEngagement(in track, launchPosition, ownshipVelocity, launchDirection, radarController.SimTimeSeconds, bankPerformance!=null?bankPerformance.missileFlightProfile:installedSlot.HasValue?GetEquippedMissileProfile(installedSlot.Value,interceptorMissileProfile):(MissileFlightProfile?)null);
 			return solution.Reachable;
 		}
 
-		private InterceptorEngagementSolution SolveInterceptorEngagement(in MissileTrackSnapshot track, Vector3 launchPosition, Vector3 ownshipVelocity, Vector3 launchDirection, double requestTime)
+		private InterceptorEngagementSolution SolveInterceptorEngagement(in MissileTrackSnapshot track, Vector3 launchPosition, Vector3 ownshipVelocity, Vector3 launchDirection, double requestTime, MissileFlightProfile? installedProfile=null)
 		{
-			MissileFlightProfile profile = GetInstalledMissileProfile(MechWeaponRole.InterceptorMissile, interceptorMissileProfile);
+			MissileFlightProfile profile = installedProfile ?? GetInstalledMissileProfile(MechWeaponRole.InterceptorMissile, interceptorMissileProfile);
 			MissileKinematicProfile kinematics = BuildInterceptorKinematics(profile);
-			return FireSolutionSolver.SolveInterceptor(in track, ToDouble3(launchPosition), ToDouble3(ownshipVelocity), new float3(launchDirection.x, launchDirection.y, launchDirection.z), in kinematics, requestTime, profile.MaximumAngularRateDegreesPerSecond, profile.MaximumFlightTimeSeconds, profile.MaximumRangeMeters, interceptorResponseReserveSeconds, EstimateInterceptorColdLaunchDelaySeconds(profile));
+			return FireSolutionSolver.SolveInterceptor(in track, ToDouble3(launchPosition), ToDouble3(ownshipVelocity), new float3(launchDirection.x, launchDirection.y, launchDirection.z), in kinematics, requestTime, profile.MaximumAngularRateDegreesPerSecond, profile.MaximumFlightTimeSeconds, profile.MaximumRangeMeters, interceptorResponseReserveSeconds, EstimateInterceptorColdLaunchDelaySeconds(profile), GetComponent<MechFleetController>()?.ProtectedThreatTime(track) ?? -1);
 		}
 
 		private Vector3 ResolveMissileLaunchDirection(Transform muzzle)
@@ -3219,13 +3204,13 @@ namespace ACunicombat.Mechs
 			return Vector3.RotateTowards(clearanceDirection, toIntercept.normalized, Mathf.Max(0f, maximumDeflectionDegrees) * (MathF.PI / 180f), 0f).normalized;
 		}
 
-		private Transform GetNextMuzzle(MechPartSlot slot, ref int index)
+		private Transform GetNextMuzzle(MechEquipmentSlot slot, ref int index)
 		{
-			if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out var muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				ResolveMuzzles();
 			}
-			if (!muzzlesBySlot.TryGetValue(slot, out muzzles) || muzzles.Length == 0)
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				return null;
 			}
@@ -3234,8 +3219,15 @@ namespace ACunicombat.Mechs
 			return result;
 		}
 
-		private void SpawnProjectile(Vector3 position, Vector3 direction, TestWeaponKind kind, float speed, float damage, float radius, float lifetime, TrackId homingTrack = default(TrackId), float launchDelay = 0f, float acceleration = 0f, float turnRateDegrees = 0f, int launchFfxId = 0, int projectileFfxId = 0, int impactFfxId = 0, Transform launchAnchor = null, float maximumTravelDistance = 0f, int guidanceChannelToken = 0, float motorBurnDuration = 2.1f, float seekerActivationDelay = 2.5f, float seekerMaximumRange = 8000f, float seekerHalfAngleDegrees = 35f, float seekerGimbalDegrees = 60f, float maximumLateralAcceleration = 75f, float maneuverDeltaV = 180f, float rcsLateralAcceleration = 0f, float rcsDeltaV = 0f, float proximityFuseRadius = 12f, float proximityFuseArmTime = 0.75f, float proximityFuseSafeDistance = 20f, float warheadLethalRadius = 18f, Vector3 inheritedVelocity = default(Vector3), MechRadarController simulationRadarController = null, MechPartSlot missileSourceSlot = MechPartSlot.None, bool interceptorMissile = false, MissileFlightProfile missileProfile = default(MissileFlightProfile), bool hasInitialGuidanceEstimate = false, Vector3 initialGuidancePosition = default(Vector3), Vector3 initialGuidanceVelocity = default(Vector3), float initialGuidanceUncertaintyMeters = 0f, Vector3 prelaunchInterceptPoint = default(Vector3), bool coldLaunch = false, float coldLaunchSafeSeparationSeconds = 0f, float coldLaunchSafeSeparationMeters = 0f, float coldLaunchIgnitionAlignmentDegrees = 8f, float coldLaunchAlignmentTimeoutSeconds = 0.6f, float interceptorRoundLethalRadius = 0f, float interceptorRoundArmSeconds = 0f, float interceptorRoundSafeDistance = 0f, bool cannonProximityFuseEnabled = false, float automaticRoundsPerMinute = 0f, float projectileCaliberMillimeters = 0f)
+		private void SpawnProjectile(Vector3 position, Vector3 direction, TestWeaponKind kind, float speed, float damage, float radius, float lifetime, TrackId homingTrack = default(TrackId), float launchDelay = 0f, float acceleration = 0f, float turnRateDegrees = 0f, int launchFfxId = 0, int projectileFfxId = 0, int impactFfxId = 0, Transform launchAnchor = null, float maximumTravelDistance = 0f, int guidanceChannelToken = 0, float motorBurnDuration = 2.1f, float seekerActivationDelay = 2.5f, float seekerMaximumRange = 8000f, float seekerHalfAngleDegrees = 35f, float seekerGimbalDegrees = 60f, float maximumLateralAcceleration = 75f, float maneuverDeltaV = 180f, float rcsLateralAcceleration = 0f, float rcsDeltaV = 0f, float proximityFuseRadius = 12f, float proximityFuseArmTime = 0.75f, float proximityFuseSafeDistance = 20f, float warheadLethalRadius = 18f, Vector3 inheritedVelocity = default(Vector3), MechRadarController simulationRadarController = null, MechEquipmentSlot missileSourceSlot = default(MechEquipmentSlot), bool interceptorMissile = false, MissileFlightProfile missileProfile = default(MissileFlightProfile), bool hasInitialGuidanceEstimate = false, Vector3 initialGuidancePosition = default(Vector3), Vector3 initialGuidanceVelocity = default(Vector3), float initialGuidanceUncertaintyMeters = 0f, Vector3 prelaunchInterceptPoint = default(Vector3), bool coldLaunch = false, float coldLaunchSafeSeparationSeconds = 0f, float coldLaunchSafeSeparationMeters = 0f, float coldLaunchIgnitionAlignmentDegrees = 8f, float coldLaunchAlignmentTimeoutSeconds = 0.6f, float interceptorRoundLethalRadius = 0f, float interceptorRoundArmSeconds = 0f, float interceptorRoundSafeDistance = 0f, bool cannonProximityFuseEnabled = false, float automaticRoundsPerMinute = 0f, float projectileCaliberMillimeters = 0f)
 		{
+            GameObject projectile = null;
+            Transform missilePresentationRoot = null;
+            try
+            {
+
+            if (!committingAction || currentCommit == null) throw new InvalidOperationException("Projectile creation requires an accepted equipment action.");
+
 			EnsureMaterials();
 			bool ownshipMissileAudio = kind == TestWeaponKind.Missile && input != null && GetComponent<MechAiTargetController>() == null;
 			if (ownshipMissileAudio)
@@ -3251,17 +3243,17 @@ namespace ACunicombat.Mechs
 				missileLaunchAudio.PlayRelease(coldLaunch);
 			}
 			SpawnNativeOneShot(launchFfxId, launchAnchor, (launchAnchor != null) ? launchAnchor.position : position, direction, kind != TestWeaponKind.Missile, ResolveMuzzleFlashVisibleSeconds(kind, automaticRoundsPerMinute));
-			GameObject projectile = GameObject.CreatePrimitive((kind == TestWeaponKind.Missile) ? PrimitiveType.Cube : PrimitiveType.Sphere);
+			projectile = GameObject.CreatePrimitive((kind == TestWeaponKind.Missile) ? PrimitiveType.Cube : PrimitiveType.Sphere);
 			projectile.name = $"Test_{kind}_Projectile";
 			Vector3 upReference = ((Mathf.Abs(Vector3.Dot(direction.normalized, Vector3.up)) > 0.95f) ? Vector3.forward : Vector3.up);
 			projectile.transform.SetPositionAndRotation(position, Quaternion.LookRotation(direction, upReference));
 			Transform transform = projectile.transform;
 			transform.localScale = kind switch
 			{
-				TestWeaponKind.Rifle => Vector3.one * 0.12f, 
+				TestWeaponKind.Rifle => Vector3.one * 0.12f,
 				TestWeaponKind.PointDefenseCannon => Vector3.one * 0.12f,
-				TestWeaponKind.Cannon => Vector3.one * 0.32f, 
-				_ => new Vector3(0.18f, 0.18f, 0.8f), 
+				TestWeaponKind.Cannon => Vector3.one * 0.32f,
+				_ => new Vector3(0.18f, 0.18f, 0.8f),
 			};
 			Collider collider = projectile.GetComponent<Collider>();
 			if (kind == TestWeaponKind.Missile)
@@ -3274,7 +3266,7 @@ namespace ACunicombat.Mechs
 			}
 			Renderer placeholderRenderer = projectile.GetComponent<Renderer>();
 			placeholderRenderer.sharedMaterial = GetProjectileMaterial(kind);
-			Transform missilePresentationRoot = null;
+
 			if (kind == TestWeaponKind.Missile)
 			{
 				var presentation = new GameObject("Missile_PresentationRoot");
@@ -3330,6 +3322,8 @@ namespace ACunicombat.Mechs
 				break;
 			}
 			MechTestProjectile projectileBehaviour = projectile.AddComponent<MechTestProjectile>();
+            projectileBehaviour.SetLaunchIdentity(currentCommit.Slot.Id, currentCommit.InstanceId, currentCommit.Id.Sequence);
+
 			if (missilePresentationRoot != null)
 			{
 				projectileBehaviour.ConfigureMissilePresentation(missilePresentationRoot);
@@ -3338,12 +3332,27 @@ namespace ACunicombat.Mechs
 			{
 				projectileBehaviour.ConfigureInterceptorRound(interceptorRoundLethalRadius, interceptorRoundArmSeconds, interceptorRoundSafeDistance);
 			}
-			projectileBehaviour.Configure(base.transform, (simulationRadarController != null) ? simulationRadarController : radarController, homingTrack, kind, inheritedVelocity + direction * speed, damage, radius, lifetime, launchDelay, acceleration, turnRateDegrees, nativeEffectLibrary, impactFfxId, maximumTravelDistance, guidanceChannelToken, motorBurnDuration, seekerActivationDelay, seekerMaximumRange, seekerHalfAngleDegrees, seekerGimbalDegrees, maximumLateralAcceleration, maneuverDeltaV, rcsLateralAcceleration, rcsDeltaV, proximityFuseRadius, proximityFuseArmTime, proximityFuseSafeDistance, warheadLethalRadius, interceptorMissile, missileProfile, hasInitialGuidanceEstimate, initialGuidancePosition, initialGuidanceVelocity, initialGuidanceUncertaintyMeters, prelaunchInterceptPoint, coldLaunch, inheritedVelocity, coldLaunchSafeSeparationSeconds, coldLaunchSafeSeparationMeters, coldLaunchIgnitionAlignmentDegrees, coldLaunchAlignmentTimeoutSeconds, ownshipMissileAudio);
-			if ((kind == TestWeaponKind.Cannon || kind == TestWeaponKind.Rifle) && cannonProximityFuseEnabled)
+			projectileBehaviour.Configure(base.transform, (simulationRadarController != null) ? simulationRadarController : radarController, homingTrack, kind, inheritedVelocity + direction * speed, damage, radius, lifetime, launchDelay, acceleration, turnRateDegrees, nativeEffectLibrary, impactFfxId, maximumTravelDistance, guidanceChannelToken, motorBurnDuration, seekerActivationDelay, seekerMaximumRange, seekerHalfAngleDegrees, seekerGimbalDegrees, maximumLateralAcceleration, maneuverDeltaV, rcsLateralAcceleration, rcsDeltaV, proximityFuseRadius, proximityFuseArmTime, proximityFuseSafeDistance, warheadLethalRadius, interceptorMissile, missileProfile, hasInitialGuidanceEstimate, initialGuidancePosition, initialGuidanceVelocity, initialGuidanceUncertaintyMeters, prelaunchInterceptPoint, coldLaunch, inheritedVelocity, coldLaunchSafeSeparationSeconds, coldLaunchSafeSeparationMeters, coldLaunchIgnitionAlignmentDegrees, coldLaunchAlignmentTimeoutSeconds, ownshipMissileAudio, GetEquippedWeaponPerformance(missileSourceSlot)?.missileDisplayName);
+            if(kind==TestWeaponKind.Missile&&!interceptorMissile&&GetEquippedWeaponPerformance(missileSourceSlot)?.supportsPassiveRfHoming==true&&guidanceChannelToken==0)
+                projectileBehaviour.EnablePassiveRfHoming();
+            if (guidanceChannelToken > 0) supportedMissiles.Add(new SupportedMissile { Projectile = projectileBehaviour, Launch = currentCommit });
+            if ((kind == TestWeaponKind.Cannon || kind == TestWeaponKind.Rifle) && cannonProximityFuseEnabled)
 			{
 				projectileBehaviour.ConfigureCannonProximityFuse(proximityFuseRadius, proximityFuseArmTime, proximityFuseSafeDistance, warheadLethalRadius);
 			}
-		}
+
+                committedProjectileCount++;
+            }
+            catch
+            {
+                bool projectileOwnsGuidance = projectile != null && projectile.GetComponent<MechTestProjectile>() != null &&
+                    projectile.GetComponent<MechTestProjectile>().HasExternalGuidanceSupport;
+                if (projectile != null) { projectile.SetActive(false); UnityEngine.Object.Destroy(projectile); }
+                if (missilePresentationRoot != null) UnityEngine.Object.Destroy(missilePresentationRoot.gameObject);
+                if (!projectileOwnsGuidance && guidanceChannelToken > 0) radarController?.ReleaseGuidanceChannel(guidanceChannelToken);
+                throw;
+            }
+        }
 
 		private bool TryGetAimPoint(float coneDegrees, float projectileSpeed, float maximumFlightTimeSeconds, out Vector3 aimPoint, out TrackId trackId)
 		{
@@ -3390,76 +3399,26 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private void UpdateShaoWeiPointDefenseTarget()
-		{
-			MechWeaponPerformance performance = GetShaoWeiReferencePerformance();
-			if (performance == null || !IsShaoWeiPlatformOperational() || !enableShaoWeiPointDefense || (!LeftShaoWeiInstalled && !RightShaoWeiInstalled))
-			{
-				shaoWeiPointDefenseTarget = default(MissileTrackSnapshot);
-				shaoWeiPointDefenseHitProbability = 0f;
-				shaoWeiPointDefenseWithholdReason = PointDefenseWithholdReason.None;
-				return;
-			}
-			Vector3 origin = base.transform.position + Vector3.up * 2f;
-			MissileTrackSnapshot retainedTrack = default(MissileTrackSnapshot);
-			bool canRetainCurrent = shaoWeiPointDefenseTarget.TrackId.IsValid
-				&& radarController != null
-				&& radarController.TryGetMissileTrack(shaoWeiPointDefenseTarget.TrackId, out retainedTrack)
-				&& IsShaoWeiThreatEligible(in retainedTrack, origin);
-			if (canRetainCurrent && Time.unscaledTime < shaoWeiPointDefenseLockUntil)
-			{
-				shaoWeiPointDefenseTarget = retainedTrack;
-			}
-			else if (TryFindBestShaoWeiPointDefenseTarget(origin, out var candidate))
-			{
-				shaoWeiPointDefenseTarget = candidate;
-				shaoWeiPointDefenseLockUntil = Time.unscaledTime + performance.trackHoldSeconds;
-			}
-			else if (!canRetainCurrent)
-			{
-				shaoWeiPointDefenseTarget = default(MissileTrackSnapshot);
-				shaoWeiPointDefenseHitProbability = 0f;
-				shaoWeiPointDefenseWithholdReason = PointDefenseWithholdReason.None;
-			}
-			else
-			{
-				shaoWeiPointDefenseTarget = retainedTrack;
-			}
-		}
-
-		private bool TryFindBestShaoWeiPointDefenseTarget(Vector3 origin, out MissileTrackSnapshot best)
-		{
-			best = default(MissileTrackSnapshot);
-			MechWeaponPerformance performance = GetShaoWeiReferencePerformance();
-			if (radarController == null || performance == null)
-			{
-				return false;
-			}
-			int trackCount = radarController.CopyMissileTracks(interceptorTrackScratch);
-			float bestScore = float.MaxValue;
-			for (int i = 0; i < trackCount; i++)
-			{
-				MissileTrackSnapshot candidate = interceptorTrackScratch[i];
-				if (IsShaoWeiThreatEligible(in candidate, origin))
-				{
-					double3 predictedPosition = candidate.PredictPosition(radarController.SimTimeSeconds);
-					Vector3 position = new Vector3((float)predictedPosition.x, (float)predictedPosition.y, (float)predictedPosition.z);
-					float range = Vector3.Distance(origin, position);
-					float score = Mathf.Max(0f, candidate.TimeToClosestApproachSeconds) + Mathf.Max(0f, candidate.ClosestApproachDistanceMeters) / 1000f + Mathf.Max(0f, candidate.CpaUncertaintyMeters) / 500f + range / Mathf.Max(1f, performance.maximumRangeMeters) * 0.25f - candidate.Confidence * 0.1f;
-					if (score < bestScore)
-					{
-						best = candidate;
-						bestScore = score;
-					}
-				}
-			}
-			return best.TrackId.IsValid;
-		}
+        [SerializeField] private MechActiveDefenseModule activeDefense = new MechActiveDefenseModule();
+        public MechActiveDefenseModule ActiveDefense => activeDefense ?? (activeDefense=new MechActiveDefenseModule());
+        private void UpdateShaoWeiPointDefenseTarget()
+        {
+            var performance=GetShaoWeiReferencePerformance();
+            if(performance==null||radarController==null||!IsShaoWeiPlatformOperational()||!enableShaoWeiPointDefense)
+            {ActiveDefense.Clear();shaoWeiPointDefenseTarget=default;shaoWeiPointDefenseHitProbability=0;return;}
+            ActiveDefense.FleetThreat=track=>GetComponent<MechFleetController>()?.IsFleetThreat(track)==true;
+            var origin=transform.position+Vector3.up*2;
+            int count=radarController.CopyMissileTracks(interceptorTrackScratch);
+            shaoWeiPointDefenseTarget=ActiveDefense.Select(interceptorTrackScratch,count,radarController.SimTimeSeconds,performance.trackHoldSeconds,
+                candidate=>IsShaoWeiThreatEligible(in candidate,origin),
+                candidate=>Mathf.Max(0,candidate.TimeToClosestApproachSeconds)+Mathf.Max(0,candidate.ClosestApproachDistanceMeters)/1000+
+                    Mathf.Max(0,candidate.CpaUncertaintyMeters)/500-candidate.Confidence*.1f);
+        }
 
 		private bool IsShaoWeiThreatEligible(in MissileTrackSnapshot candidate, Vector3 origin)
 		{
 			MechWeaponPerformance performance = GetShaoWeiReferencePerformance();
-			if (performance == null || !candidate.TrackId.IsValid || (performance.requiresWeaponsQualityTrack && !candidate.IsWeaponsQuality) || candidate.IsFriendly || (performance.incomingTargetsOnly && !candidate.Incoming) || candidate.TimeToClosestApproachSeconds < 0f || candidate.TimeToClosestApproachSeconds > performance.maximumThreatTimeSeconds)
+			if (performance == null || !candidate.TrackId.IsValid || (performance.requiresWeaponsQualityTrack && !candidate.IsWeaponsQuality) || candidate.IsFriendly || (performance.incomingTargetsOnly && !IsFleetDefenseThreat(candidate)) || DefenseThreatTime(candidate) < 0f || DefenseThreatTime(candidate) > performance.maximumThreatTimeSeconds)
 			{
 				return false;
 			}
@@ -3476,12 +3435,12 @@ namespace ACunicombat.Mechs
 
 		private bool CanAnyShaoWeiReachPoint(Vector3 worldPoint)
 		{
-			return CanShaoWeiSlotReachPoint(MechPartSlot.LeftBackWeapon, leftShaoWeiState, worldPoint) ||
-				CanShaoWeiSlotReachPoint(MechPartSlot.RightBackWeapon, rightShaoWeiState, worldPoint);
+            foreach (var slot in InstalledWeaponSlots()) if (CanShaoWeiSlotReachPoint(slot, GetShaoWeiState(slot), worldPoint)) return true;
+            return false;
 		}
 
 		private bool CanShaoWeiSlotReachPoint(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			ShaoWeiWeaponState state,
 			Vector3 worldPoint)
 		{
@@ -3497,7 +3456,7 @@ namespace ACunicombat.Mechs
 		}
 
 		private bool IsShaoWeiPointWithinMechanicalArc(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			Vector3 origin,
 			Vector3 worldPoint,
 			MechWeaponPerformance performance)
@@ -3508,7 +3467,7 @@ namespace ACunicombat.Mechs
 		}
 
 		private bool IsShaoWeiDirectionWithinMechanicalArc(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			Vector3 worldDirection,
 			MechWeaponPerformance performance)
 		{
@@ -3526,7 +3485,7 @@ namespace ACunicombat.Mechs
 		}
 
 		private Vector3 ClampShaoWeiDirectionToMechanicalArc(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			Vector3 worldDirection,
 			MechWeaponPerformance performance)
 		{
@@ -3572,7 +3531,7 @@ namespace ACunicombat.Mechs
 		}
 
 		private static void ResolveShaoWeiYawLimits(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			MechWeaponPerformance performance,
 			out float minimumYaw,
 			out float maximumYaw)
@@ -3592,7 +3551,10 @@ namespace ACunicombat.Mechs
 
 		private MechWeaponPerformance GetShaoWeiReferencePerformance()
 		{
-			return leftShaoWeiState.Performance ?? rightShaoWeiState.Performance;
+            MechWeaponPerformance best = null;
+            foreach (var slot in InstalledWeaponSlots())
+            { var p = GetShaoWeiState(slot).Performance; if (p != null && (best == null || p.maximumRangeMeters > best.maximumRangeMeters)) best = p; }
+            return best;
 		}
 
 		private bool IsShaoWeiPlatformOperational()
@@ -3615,15 +3577,14 @@ namespace ACunicombat.Mechs
 
 		private void UpdateShaoWeiPointDefense()
 		{
-			shaoWeiPointDefenseHitProbability = 0f;
-			shaoWeiPointDefenseWithholdReason = PointDefenseWithholdReason.None;
-			bool hasRwrLockWarning = HasShaoWeiPredeploymentWarning();
-			UpdateShaoWeiPointDefenseSlot(MechPartSlot.LeftBackWeapon, leftShaoWeiState, hasRwrLockWarning);
-			UpdateShaoWeiPointDefenseSlot(MechPartSlot.RightBackWeapon, rightShaoWeiState, hasRwrLockWarning);
+            shaoWeiPointDefenseHitProbability = 0;
+            shaoWeiPointDefenseWithholdReason = PointDefenseWithholdReason.None;
+            bool warning = HasShaoWeiPredeploymentWarning();
+            foreach (var slot in InstalledWeaponSlots()) UpdateShaoWeiPointDefenseSlot(slot, GetShaoWeiState(slot), warning);
 		}
 
 		private void UpdateShaoWeiPointDefenseSlot(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			ShaoWeiWeaponState state,
 			bool hasRwrLockWarning)
 		{
@@ -3631,7 +3592,7 @@ namespace ACunicombat.Mechs
 			bool installed = IsShaoWeiEquipped(slot);
 			bool hasTarget = shaoWeiPointDefenseTarget.TrackId.IsValid;
 			bool platformReady = performance != null &&
-				enableShaoWeiPointDefense &&
+				enableShaoWeiPointDefense && ActiveDefense.Authorized &&
 				IsShaoWeiPlatformOperational() &&
 				installed &&
 				state.RoundsRemaining > 0 &&
@@ -3727,6 +3688,12 @@ namespace ACunicombat.Mechs
 				return;
 			}
 			Vector3 inheritedVelocity = ((flightMotion != null) ? flightMotion.Velocity : Vector3.zero);
+            if (!committingAction)
+            {
+                QueueEquipmentAction(slot, MechActionKind.Fire, MechActionSource.AutomaticDefense,
+                    radarController.Reference(shaoWeiPointDefenseTarget.TrackId));
+                return;
+            }
 			Vector3 firingDirection = ApplyShaoWeiDispersion(actualDirection, dispersion, state);
 			Vector3 position = muzzle.position;
 			float speed = performance.muzzleVelocityMetersPerSecond;
@@ -3742,10 +3709,10 @@ namespace ACunicombat.Mechs
 				slot,
 				muzzle,
 				performance.roundsPerMinute);
-			playerRig?.NotifyShoulderWeaponFired(slot);
+
 			state.RoundsRemaining = Mathf.Max(0, state.RoundsRemaining - 1);
 			state.HeatMj = Mathf.Min(performance.heatCapacityMj, state.HeatMj + performance.heatPerShotMj);
-			state.NextFireTime = Time.time + 60f / Mathf.Max(60f, performance.roundsPerMinute);
+			state.NextFireTime = Time.time + 60f / Mathf.Max(1f, performance.roundsPerMinute*GetEquipmentEfficiency(slot));
 			if (state.RoundsRemaining == 0)
 			{
 				state.MagazinesRemaining = Mathf.Max(0, state.MagazinesRemaining - 1);
@@ -3769,7 +3736,7 @@ namespace ACunicombat.Mechs
 		}
 
 		private void SetShaoWeiSpinning(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			ShaoWeiWeaponState state,
 			bool shouldDeploy,
 			bool shouldSpin)
@@ -3865,7 +3832,7 @@ namespace ACunicombat.Mechs
 		}
 
 		private void BeginShaoWeiRotor(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			ShaoWeiWeaponState state,
 			MechEquipmentAnimationPlayer player,
 			MechWeaponPerformance performance)
@@ -3899,7 +3866,7 @@ namespace ACunicombat.Mechs
 		}
 
 		private void UpdateShaoWeiShutdown(
-			MechPartSlot slot,
+			MechEquipmentSlot slot,
 			ShaoWeiWeaponState state,
 			MechEquipmentAnimationPlayer player,
 			bool shouldRemainDeployed)
@@ -4054,9 +4021,9 @@ namespace ACunicombat.Mechs
 				player.PlayActionPreservingPose(actionId);
 		}
 
-		private Transform PeekShaoWeiMuzzle(MechPartSlot slot)
+		private Transform PeekShaoWeiMuzzle(MechEquipmentSlot slot)
 		{
-			if (!muzzlesBySlot.TryGetValue(slot, out var muzzles) || muzzles.Length == 0)
+			if (!muzzlesBySlot.TryGetValue(ResolveEquipmentSlot(slot), out var muzzles) || muzzles.Length == 0 || Array.Exists(muzzles, m => m == null))
 			{
 				return null;
 			}
@@ -4390,9 +4357,9 @@ namespace ACunicombat.Mechs
 		{
 			return kind switch
 			{
-				TestWeaponKind.Missile => 1.4f, 
-				TestWeaponKind.Cannon => 0.85f, 
-				_ => 0.35f, 
+				TestWeaponKind.Missile => 1.4f,
+				TestWeaponKind.Cannon => 0.85f,
+				_ => 0.35f,
 			};
 		}
 
@@ -4533,24 +4500,19 @@ namespace ACunicombat.Mechs
 			return false;
 		}
 
-		private ShaoWeiWeaponState GetShaoWeiState(MechPartSlot slot)
+		private ShaoWeiWeaponState GetShaoWeiState(MechEquipmentSlot slot)
 		{
-			return slot switch
-			{
-				MechPartSlot.RightBackWeapon => rightShaoWeiState, 
-				MechPartSlot.LeftBackWeapon => leftShaoWeiState, 
-				_ => null, 
-			};
+            return GetInstanceState(slot).Defense;
 		}
 
 		private static Color GetWeaponColor(TestWeaponKind kind)
 		{
 			return kind switch
 			{
-				TestWeaponKind.Rifle => new Color(0.25f, 0.85f, 1f, 1f), 
-				TestWeaponKind.Cannon => new Color(1f, 0.52f, 0.08f, 1f), 
+				TestWeaponKind.Rifle => new Color(0.25f, 0.85f, 1f, 1f),
+				TestWeaponKind.Cannon => new Color(1f, 0.52f, 0.08f, 1f),
 				TestWeaponKind.PointDefenseCannon => new Color(1f, 0.82f, 0.42f, 1f),
-				_ => new Color(1f, 0.18f, 0.06f, 1f), 
+				_ => new Color(1f, 0.18f, 0.06f, 1f),
 			};
 		}
 
@@ -4558,10 +4520,10 @@ namespace ACunicombat.Mechs
 		{
 			return kind switch
 			{
-				TestWeaponKind.Rifle => rifleMaterial, 
-				TestWeaponKind.Cannon => cannonMaterial, 
+				TestWeaponKind.Rifle => rifleMaterial,
+				TestWeaponKind.Cannon => cannonMaterial,
 				TestWeaponKind.PointDefenseCannon => rifleMaterial,
-				_ => missileMaterial, 
+				_ => missileMaterial,
 			};
 		}
 
@@ -4899,6 +4861,7 @@ namespace ACunicombat.Mechs
 		public float ResumeThresholdMj;
 		public float SpinUpSeconds;
 
+        public int AmmunitionGroupCapacity;
 		public int TotalAmmunition
 		{
 			get
@@ -4908,7 +4871,7 @@ namespace ACunicombat.Mechs
 					return 0;
 				}
 
-				return MagazineCapacity * MagazineCount;
+				return (AmmunitionGroupCapacity>0?AmmunitionGroupCapacity:MagazineCapacity) * MagazineCount;
 			}
 		}
 	}

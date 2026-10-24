@@ -12,6 +12,7 @@ namespace ACunicombat.Sensing.Contracts
         Laser = 4,
         /// <summary>红外点源（导弹羽焰等）——MAW 通道，不经射频波形库。</summary>
         Infrared = 5,
+        Iff = 6,
     }
 
     /// <summary>

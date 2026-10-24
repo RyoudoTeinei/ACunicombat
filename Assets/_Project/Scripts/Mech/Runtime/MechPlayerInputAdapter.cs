@@ -105,6 +105,8 @@ namespace ACunicombat.Mechs
 
         public MechPlayerInputFrame Current { get; private set; }
 
+        public void PublishProcessedFrame(in MechPlayerInputFrame frame){Current=frame;}
+
         public void SetExternalControl(bool enabled)
         {
             externalControl = enabled;
@@ -124,9 +126,10 @@ namespace ACunicombat.Mechs
         /// <summary>每帧调用（由 MechPlayerRig 驱动，保证与运动层同帧序）。</summary>
         public MechPlayerInputFrame Sample()
         {
-            if (MechSolarSystemMap.IsAnyMapVisible ||
+            // UI captures only human input. AI flight must continue while the live map is open.
+            if (!externalControl && (MechSolarSystemMap.IsAnyMapVisible ||
                 MechAssemblyMenu.IsAnyMenuVisible ||
-                MechSystemsRadialMenu.IsAnyMenuVisible)
+                MechSystemsRadialMenu.IsAnyMenuVisible))
             {
                 ResetMiddleGesture();
                 Current = default;

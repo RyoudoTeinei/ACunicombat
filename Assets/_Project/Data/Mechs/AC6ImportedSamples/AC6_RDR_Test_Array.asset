@@ -60,3 +60,24 @@ MonoBehaviour:
   requiredInstalledSlots: 
   requiredLoadoutTags: []
   blockedLoadoutTags: []
+  radarPerformance:
+    averageTransmitPowerWatts: 250000
+    apertureDiameterMeters: 1.3
+    apertureEfficiency: 0.6
+    frequencyGHz: 10
+    systemNoiseTemperatureKelvin: 600
+    systemLossDb: 6
+    coherentIntegrationEfficiency: 0.5
+    signalBandwidthMHz: 20
+    searchAzimuthDeg: 100
+    searchElevationDeg: 60
+    trackCapacity: 16
+    sttChannelCapacity: 1
+    maximumTrackingRateDegPerSecond: 140
+    trackMemorySeconds: 3
+    rangeAccuracyM: 12
+    angularAccuracyMrad: 26.17994
+    radialVelocityAccuracyMps: 2
+    searchDwellRateHz: 25
+    twsUpdateRateHz: 4.166667
+    sttUpdateRateHz: 28.57143

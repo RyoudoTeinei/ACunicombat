@@ -26,6 +26,7 @@ namespace ACunicombat.Mechs
         [Min(0.001f)] public float SecondStageMassFlowKgPerSecond;
         [Min(0f)] public float SecondStageIgnitionDelaySeconds;
         [Range(0.05f, 1f)] public float SecondStageMinimumThrottle;
+        public bool AdaptiveSecondPulse;
 
         [Header("Reaction control system")]
         [Min(0f)] public float RcsPropellantMassKg;
@@ -43,6 +44,7 @@ namespace ACunicombat.Mechs
         [Min(100f)] public float SeekerRangeMeters;
         [Range(1f, 89f)] public float SeekerSearchHalfAngleDegrees;
         [Range(1f, 89f)] public float SeekerGimbalDegrees;
+        [Min(0f)] public float PassiveMemorySeconds;
 
         [Header("Fuze and warhead")]
         [Min(0.1f)] public float ProximityFuseRadiusMeters;
@@ -84,6 +86,8 @@ namespace ACunicombat.Mechs
         public MissileFlightProfile Sanitized()
         {
             var profile = this;
+            profile.PassiveMemorySeconds = float.IsFinite(profile.PassiveMemorySeconds)
+                ? Mathf.Clamp(profile.PassiveMemorySeconds, 0f, 30f) : 0f;
             profile.DryMassKg = Mathf.Max(0.1f, profile.DryMassKg);
             profile.MainPropellantMassKg =
                 Mathf.Max(0f, profile.MainPropellantMassKg);

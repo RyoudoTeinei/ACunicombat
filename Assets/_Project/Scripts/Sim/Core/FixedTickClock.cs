@@ -32,10 +32,11 @@ namespace ACunicombat.Simulation.Core
         public int Advance(double realDeltaSeconds)
         {
             accumulator += realDeltaSeconds;
-            var due = (int)(accumulator / StepSeconds);
+            var tolerance=System.Math.Min(SimulationTime.DeadlineToleranceSeconds,StepSeconds*1e-4);
+            var due = (int)((accumulator+tolerance) / StepSeconds);
             var run = due <= MaxCatchUpTicks ? due : MaxCatchUpTicks;
             OverrunTicks += due - run;
-            accumulator -= due * StepSeconds;
+            accumulator = System.Math.Max(0,accumulator-due*StepSeconds);
             TickCount += run;
             return run;
         }

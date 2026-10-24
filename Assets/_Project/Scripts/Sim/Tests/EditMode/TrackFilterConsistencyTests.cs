@@ -26,6 +26,22 @@ namespace ACunicombat.Tests.EditMode
     /// </summary>
     public class TrackFilterConsistencyTests
     {
+        [TestCase(100000f)]
+        [TestCase(250000f)]
+        public void CoarseBearingToPreciseReturn_DoesNotKeepTangentPlaneBias(float range)
+        {
+            var direction=math.normalize(new float3(.04f,0,1));
+            Cmkf.ConvertMeasurement(double3.zero,range,direction,1,.0004f,out var initial,out var covariance);
+            for(int axis=3;axis<6;axis++)covariance[axis,axis]=90000;
+            var filter=new FilterState{Position=initial,P=covariance};
+            Assert.That(Cmkf.TryUpdateRadarPosition(ref filter,double3.zero,range,new float3(0,0,1),1,4e-8f),Is.True);
+            double error=math.distance(filter.Position,new double3(0,0,range));
+            double sigma=math.sqrt(filter.P[0,0]+filter.P[1,1]+filter.P[2,2]);
+            Assert.That(error,Is.LessThan(3*sigma),"Posterior precision must cover the geometric correction, not just the linearized residual.");
+            Assert.That(math.abs(math.length(filter.Position)-range),Is.LessThan(3),"Precise range should not retain a hundred-metre tangent-plane bias.");
+            Assert.That(Cmkf.Healthy(filter),Is.True);
+        }
+
         private const int StateDimension = 6;
         private const double StepSeconds = 0.04;
         private const int StepsPerTrial = 80;

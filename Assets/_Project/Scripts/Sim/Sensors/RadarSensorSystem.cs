@@ -36,7 +36,56 @@ namespace ACunicombat.Sensors
         private NativeList<int> candidateScratch;
 
         private readonly RadarSensorProfile[] sensorProfiles = new RadarSensorProfile[64];
+        private sealed class DiagnosticBuffer<T> : System.Collections.Generic.IReadOnlyList<T> where T:struct
+        {
+            private readonly T[] items=new T[512];private int first;
+            public int Count {get;private set;}
+            public T this[int index] {get {if((uint)index>=Count)throw new ArgumentOutOfRangeException(nameof(index));return items[(first+index)%items.Length];}}
+            public void Add(T value)
+            {
+                if(Count<items.Length){items[(first+Count)%items.Length]=value;Count++;}
+                else {items[first]=value;first=(first+1)%items.Length;}
+            }
+            public System.Collections.Generic.IEnumerator<T> GetEnumerator(){for(int i=0;i<Count;i++)yield return this[i];}
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()=>GetEnumerator();
+        }
+
+        public enum DwellResult { Executed, AntennaBudget, Expired, InvalidRequest, QueueFull, Displaced, Unavailable }
+        public struct DwellDiagnostic
+        {
+            public SensorId Sensor; public ulong Sequence; public DwellPriority Priority;
+            public DwellResult Result; public double Time, RequestedTime; public float Duration, CreditSeconds;
+        }
+        private readonly DiagnosticBuffer<DwellDiagnostic> diagnostics=new DiagnosticBuffer<DwellDiagnostic>();
+        public System.Collections.Generic.IReadOnlyList<DwellDiagnostic> Diagnostics => diagnostics;
+        public struct SignalDiagnostic
+        {
+            public SensorId Sensor;public ulong Sequence;
+            public float ReceiverInputPowerDbw,NoisePowerDbw,InterferencePowerDbw,IntegrationGainDb,SnrDb,DetectionProbability;
+            public bool Detected;
+        }
+        private readonly DiagnosticBuffer<SignalDiagnostic> signalDiagnostics=new DiagnosticBuffer<SignalDiagnostic>();
+        public System.Collections.Generic.IReadOnlyList<SignalDiagnostic> SignalDiagnostics => signalDiagnostics;
+        public long ExecutedPhysicalDwells { get; private set; }
+        public double TotalPhysicalDwellSeconds { get; private set; }
+        public long BudgetDeferredCount { get; private set; }
+        public long ExpiredDwellCount { get; private set; }
+        public long RejectedDwellCount { get; private set; }
+        private readonly double[] budgetTimes=new double[64];
+        private readonly float[] budgetCredits=new float[64];
+        private readonly bool[] budgetBlocked=new bool[64];
+        private const int PendingPerPhysicalSensor=16;
+        private const float MaximumPhysicalDwellSeconds=.1f;
+        private const double MaximumQueueAgeSeconds=.5;
+        private void Diagnose(in Dwell dwell,DwellResult result)
+        {
+            int index=dwell.SensorId.Value.Index;
+            diagnostics.Add(new DwellDiagnostic{Sensor=dwell.SensorId,Sequence=dwell.Sequence,Priority=dwell.Priority,
+                Result=result,Time=world.SnapshotTime,RequestedTime=dwell.DueTime,Duration=dwell.DwellTimeSeconds,
+                CreditSeconds=(uint)index<budgetCredits.Length?budgetCredits[index]:0});
+        }
         private readonly bool[] sensorRegistered = new bool[64];
+        private readonly float[] sensorEfficiency = new float[64];
         private readonly RadarTargetProfile[] targetProfiles = new RadarTargetProfile[SimWorld.MaxEntities];
         private readonly bool[] targetRegistered = new bool[SimWorld.MaxEntities];
 
@@ -69,8 +118,18 @@ namespace ACunicombat.Sensors
                 throw new ArgumentOutOfRangeException(nameof(profile), "SensorId is invalid or exceeds radar capacity.");
             }
 
+            sensorEfficiency[index] = 1f;
+            budgetCredits[index]=0;budgetTimes[index]=world.SnapshotTime;
             sensorProfiles[index] = profile;
             sensorRegistered[index] = true;
+        }
+
+        public bool SetSensorEfficiency(SensorId sensorId, float efficiency)
+        {
+            int index=sensorId.Value.Index;
+            if((uint)index>=sensorProfiles.Length||!sensorRegistered[index]||!sensorProfiles[index].SensorId.Equals(sensorId))return false;
+            sensorEfficiency[index]=float.IsFinite(efficiency)?math.clamp(efficiency,0f,1f):0;
+            return true;
         }
 
         public void UnregisterSensor(SensorId sensorId)
@@ -98,13 +157,25 @@ namespace ACunicombat.Sensors
         public void UnregisterTarget(SimEntityId entityId)
         {
             var index = entityId.Value.Index;
-            if ((uint)index < targetRegistered.Length)
+            if ((uint)index < targetRegistered.Length && targetProfiles[index].EntityId.Equals(entityId))
             {
                 targetRegistered[index] = false;
             }
         }
 
-        public void ScheduleDwell(in Dwell dwell) => scheduler.Schedule(dwell);
+        public void ScheduleDwell(in Dwell dwell)
+        {
+            int index=dwell.SensorId.Value.Index;
+            if((uint)index>=sensorProfiles.Length||!sensorRegistered[index]||!sensorProfiles[index].SensorId.Equals(dwell.SensorId))
+            {RejectedDwellCount++;Diagnose(dwell,DwellResult.Unavailable);return;}
+            if(!sensorProfiles[index].Physical.IsValid){scheduler.Schedule(dwell);return;}
+            if(!float.IsFinite(dwell.DwellTimeSeconds)||dwell.DwellTimeSeconds<=0||dwell.DwellTimeSeconds>MaximumPhysicalDwellSeconds||
+                !double.IsFinite(dwell.DueTime)||!math.all(math.isfinite(dwell.BeamDirection))||math.lengthsq(dwell.BeamDirection)<1e-8f)
+            {RejectedDwellCount++;Diagnose(dwell,DwellResult.InvalidRequest);return;}
+            if(!scheduler.TryScheduleBounded(dwell,PendingPerPhysicalSensor,out bool displaced))
+            {RejectedDwellCount++;Diagnose(dwell,DwellResult.QueueFull);}
+            else if(displaced){RejectedDwellCount++;Diagnose(dwell,DwellResult.Displaced);}
+        }
 
         public void Tick(double simTime)
         {
@@ -113,11 +184,37 @@ namespace ACunicombat.Sensors
             world.SwapSnapshots(simTime);
             grid.Rebuild(world.ReadSnapshot, world.AliveMask, world.EntityCapacityInUse);
 
+            for(int index=0;index<sensorProfiles.Length;index++)
+            {
+                budgetBlocked[index]=false;
+                if(!sensorRegistered[index]||!sensorProfiles[index].Physical.IsValid)continue;
+                float duty=sensorProfiles[index].Physical.AntennaDutyCycle;
+                if(duty<=0)duty=1f;
+                budgetCredits[index]=math.min(MaximumPhysicalDwellSeconds,budgetCredits[index]+(float)math.max(0,simTime-budgetTimes[index])*math.min(1f,duty));
+                budgetTimes[index]=simTime;
+            }
             dueDwells.Clear();
             scheduler.ConsumeDue(simTime, DwellBudgetPerTick, dueDwells);
             for (var i = 0; i < dueDwells.Length; i++)
             {
-                ProcessDwell(dueDwells[i]);
+                var dwell=dueDwells[i];int index=dwell.SensorId.Value.Index;
+                if((uint)index>=sensorProfiles.Length||!sensorRegistered[index]||!sensorProfiles[index].SensorId.Equals(dwell.SensorId))
+                {Diagnose(dwell,DwellResult.Unavailable);continue;}
+                if(sensorProfiles[index].Physical.IsValid)
+                {
+                    if(simTime-dwell.DueTime>MaximumQueueAgeSeconds){ExpiredDwellCount++;Diagnose(dwell,DwellResult.Expired);continue;}
+                    if(sensorEfficiency[index]<=0){Diagnose(dwell,DwellResult.Unavailable);continue;}
+                    if(budgetBlocked[index]||budgetCredits[index]+1e-7f<dwell.DwellTimeSeconds)
+                    {
+                        budgetBlocked[index]=true;BudgetDeferredCount++;Diagnose(dwell,DwellResult.AntennaBudget);
+                        // Requests removed from the scheduler above leave room for their own deferral.
+                        scheduler.Schedule(dwell);continue;
+                    }
+                    budgetCredits[index]=math.max(0,budgetCredits[index]-dwell.DwellTimeSeconds);
+                    ExecutedPhysicalDwells++;TotalPhysicalDwellSeconds+=dwell.DwellTimeSeconds;
+                    Diagnose(dwell,DwellResult.Executed);
+                }
+                ProcessDwell(dwell);
             }
 
             jamInbox.Clear();
@@ -132,7 +229,9 @@ namespace ACunicombat.Sensors
                 return;
             }
 
+            float efficiency=sensorEfficiency[sensorIndex];if(efficiency<=0)return;
             var profile = sensorProfiles[sensorIndex];
+            profile.MaxRangeMeters *= profile.Physical.IsValid ? math.pow(efficiency,.25f) : math.sqrt(efficiency);
             if (!profile.SensorId.Equals(dwell.SensorId)
                 || !TryGetSnapshot(profile.OwnerEntityId, out var sensorState))
             {
@@ -145,6 +244,12 @@ namespace ACunicombat.Sensors
                 : profile.DwellConfig.BeamWidthRadians;
             var measurementConfig = profile.DwellConfig;
             measurementConfig.BeamWidthRadians = beamWidth;
+            if(profile.Physical.IsValid)
+            {
+                measurementConfig=profile.Physical.BuildDwell(dwell.DwellTimeSeconds,beamWidth,efficiency);
+                profile.DwellConfig=measurementConfig;
+                beamWidth=measurementConfig.BeamWidthRadians;
+            }
             emissionRing.Add(new EmissionEvent
             {
                 EmitterId = profile.EmitterId,
@@ -157,15 +262,26 @@ namespace ACunicombat.Sensors
                 FrequencyBand = profile.FrequencyBand,
                 WaveformId = profile.WaveformId,
                 EmissionType = profile.EmissionType,
-                MainlobePowerDb = profile.MainlobePowerDb,
+                MainlobePowerDb = profile.Physical.IsValid
+                    ? RadarMath.DbFromLinear(profile.Physical.AverageTransmitPowerWatts * efficiency * profile.Physical.GainLinear *
+                        math.pow(profile.Physical.BeamWidthRadians / measurementConfig.BeamWidthRadians,2f))
+                    : profile.MainlobePowerDb,
                 SidelobeLevelDb = profile.SidelobeLevelDb,
             });
 
-            var jamPowerDb = AggregateJamPower(profile.SensorId, profile.FrequencyBand);
+            var jamPowerDb = AggregateJamPower(profile,beamDirection,measurementConfig);
+            float clutterDb=profile.ClutterPowerDb;
+            if(profile.Physical.IsValid&&!profile.ClutterPowerIsDbw)clutterDb+=measurementConfig.NoisePowerDb;
             var halfBeamCos = math.cos(beamWidth * 0.5f);
             var count = 0;
             candidateScratch.Clear();
-            grid.QueryBeamBroadphase(
+            if(profile.Physical.IsValid)
+            {
+                // Bounded by registered scene entities, not empty space or an arbitrary radar range.
+                for(int index=0;index<world.EntityCapacityInUse;index++)
+                    if(targetRegistered[index] && world.AliveMask[index]) candidateScratch.Add(index);
+            }
+            else grid.QueryBeamBroadphase(
                 sensorState.PositionWorld, beamDirection, profile.MaxRangeMeters,
                 beamWidth * 0.5f, candidateScratch);
             for (var i = 0; i < candidateScratch.Length && count < dwellScratch.Length; i++)
@@ -187,23 +303,26 @@ namespace ACunicombat.Sensors
 
                 var relativePosition = targetState.PositionWorld - sensorState.PositionWorld;
                 var range = math.length(relativePosition);
-                if (range < 1.0 || range > profile.MaxRangeMeters)
+                if (range < 1.0 || (!profile.Physical.IsValid && range > profile.MaxRangeMeters))
                 {
                     continue;
                 }
 
                 var trueDirection = (float3)(relativePosition / range);
-                if (math.dot(beamDirection, trueDirection) < halfBeamCos)
+                if (!profile.Physical.IsValid && math.dot(beamDirection, trueDirection) < halfBeamCos)
                 {
                     continue;
                 }
 
                 var rcsDbsm = 10f * math.log10(math.max(targetProfile.RadarCrossSectionSquareMeters, 1e-6f));
                 var receivedPowerDb = RadarMath.ReceivedPowerDb(profile.DwellConfig, rcsDbsm, range);
+                if(profile.Physical.IsValid)
+                    receivedPowerDb+=2f*RadarMath.AntennaResponseDb(math.dot(beamDirection,trueDirection),measurementConfig.BeamWidthRadians,
+                        profile.SidelobeLevelDb<0?profile.SidelobeLevelDb:-25f);
                 var snrDb = RadarMath.SnrDb(
                     receivedPowerDb,
                     profile.DwellConfig.NoisePowerDb,
-                    profile.ClutterPowerDb,
+                    clutterDb,
                     jamPowerDb);
                 var probability = RadarMath.DetectionProbability(profile.DwellConfig, snrDb);
                 var seed = SimHash.Chain(
@@ -211,7 +330,15 @@ namespace ACunicombat.Sensors
                     profile.SensorId.Packed,
                     (uint)dwell.Sequence,
                     currentEntityId.Packed);
-                if (!RadarMath.RollDetection(probability, seed))
+                bool detected=RadarMath.RollDetection(probability,seed);
+                if(profile.Physical.IsValid)
+                {
+                    signalDiagnostics.Add(new SignalDiagnostic{Sensor=profile.SensorId,Sequence=dwell.Sequence,
+                        ReceiverInputPowerDbw=receivedPowerDb-measurementConfig.IntegrationGainDb,NoisePowerDbw=measurementConfig.NoisePowerDb,
+                        InterferencePowerDbw=jamPowerDb,IntegrationGainDb=measurementConfig.IntegrationGainDb,SnrDb=snrDb,
+                        DetectionProbability=probability,Detected=detected});
+                }
+                if (!detected)
                 {
                     continue;
                 }
@@ -224,6 +351,9 @@ namespace ACunicombat.Sensors
                 var sigmaAngle = RadarMath.SigmaAngle(
                     measurementConfig,
                     snrLinear);
+                // A sidelobe return does not provide mainlobe-quality angular localization.
+                if(profile.Physical.IsValid && math.dot(beamDirection,trueDirection)<halfBeamCos)
+                    sigmaAngle=math.max(sigmaAngle,measurementConfig.BeamWidthRadians);
                 var sigmaVelocity = RadarMath.SigmaVelocity(
                     measurementConfig,
                     snrLinear);
@@ -300,7 +430,7 @@ namespace ACunicombat.Sensors
             var writable = math.min(mergedCount, DetectionRingCapacity - detectionRing.Length);
             for (var i = 0; i < writable; i++)
             {
-                detectionRing.Add(dwellScratch[i]);
+                var resolved=dwellScratch[i];resolved.DwellSequence=dwell.Sequence;detectionRing.Add(resolved);
             }
         }
 
@@ -316,16 +446,29 @@ namespace ACunicombat.Sensors
             return true;
         }
 
-        private float AggregateJamPower(SensorId sensorId, ushort frequencyBand)
+        private float AggregateJamPower(in RadarSensorProfile profile, float3 beamDirection, in RadarDwellConfig config)
         {
             var linear = 0f;
             for (var i = 0; i < jamInbox.Length; i++)
             {
                 var jam = jamInbox[i];
-                if (jam.VictimSensorId.Equals(sensorId) && jam.FrequencyBand == frequencyBand)
+                if (!jam.VictimSensorId.Equals(profile.SensorId) || !float.IsFinite(jam.PowerDb))continue;
+                float contribution=jam.PowerDb;
+                if(profile.Physical.IsValid)
                 {
-                    linear += RadarMath.LinearFromDb(jam.PowerDb);
+                    float overlap;
+                    if(jam.CenterFrequencyHz>0 && jam.BandwidthHz>0)
+                        overlap=RadarMath.SpectralOverlap(profile.Physical.FrequencyHz,profile.Physical.SignalBandwidthHz,jam.CenterFrequencyHz,jam.BandwidthHz);
+                    else overlap=jam.FrequencyBand==profile.FrequencyBand?1f:0f;
+                    if(overlap<=0)continue;
+                    if(!jam.PowerIsDbw)contribution+=config.NoisePowerDb;
+                    contribution+=10f*math.log10(overlap);
+                    if(math.lengthsq(jam.ArrivalDirection)>1e-8f)
+                        contribution+=RadarMath.AntennaResponseDb(math.dot(beamDirection,math.normalize(jam.ArrivalDirection)),config.BeamWidthRadians,
+                            profile.SidelobeLevelDb<0?profile.SidelobeLevelDb:-25f);
                 }
+                else if(jam.FrequencyBand!=profile.FrequencyBand || jam.PowerIsDbw)continue;
+                linear += RadarMath.LinearFromDb(contribution);
             }
 
             return linear > 0f ? RadarMath.DbFromLinear(linear) : -300f;

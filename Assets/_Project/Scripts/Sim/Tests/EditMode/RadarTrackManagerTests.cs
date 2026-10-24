@@ -10,6 +10,55 @@ namespace ACunicombat.Tests.EditMode
     public class RadarTrackManagerTests
     {
         [Test]
+        public void IndependentTelemetryRefinesStateOnceWithoutInventingRadarHits()
+        {
+            var manager=new RadarTrackManager();using var measurements=new NativeList<Measurement>(1,Allocator.Temp);
+            var m=MeasurementAt(.04);m.ObjectClass=TrackObjectClass.Missile;m.ClassificationConfidence=.9f;measurements.Add(m);manager.Process(measurements,double3.zero,.04);
+            Assert.That(manager.TryGetBestTrack(out var before),Is.True);
+            Assert.That(manager.TryRefineMissileTelemetry(before.TrackId,new double3(0,0,1000),new double3(100,0,0),.04,.08),Is.True);
+            manager.TryGetTrack(before.TrackId,out var after);
+            Assert.That(after.HitCount,Is.EqualTo(before.HitCount));Assert.That(after.LastUpdateTime,Is.EqualTo(before.LastUpdateTime));
+            Assert.That(after.SourceEvidence.DataLink.Valid,Is.True);Assert.That(after.Velocity.x,Is.GreaterThan(90));
+            Assert.That(manager.TryRefineMissileTelemetry(before.TrackId,new double3(0,0,1000),new double3(100,0,0),.04,.08),Is.False);
+            manager.TryGetTrack(before.TrackId,out var repeated);Assert.That(repeated.GetCovariance(0,0),Is.EqualTo(after.GetCovariance(0,0)));
+            Assert.That(manager.TryRefineMissileTelemetry(before.TrackId,new double3(100000,0,0),double3.zero,.08,.08),Is.False);
+            manager.TryGetTrack(before.TrackId,out var rejected);Assert.That(rejected.Position,Is.EqualTo(after.Position));
+        }
+
+        [Test]
+        public void DenseVolley_CannotReplaceFreshTentativeTrackInSameTick()
+        {
+            var manager=new RadarTrackManager();manager.ConfigureLimits(1,3);
+            using var measurements=new NativeList<Measurement>(16,Allocator.Temp);
+            for(int tick=1;tick<=3;tick++)
+            {
+                measurements.Clear();double time=tick*.04;
+                for(int i=0;i<12;i++){var m=MeasurementAt(time);m.Range=1000+i*5000;m.ObjectClass=TrackObjectClass.Missile;m.ClassificationConfidence=.9f;measurements.Add(m);}
+                manager.Process(measurements,double3.zero,time);
+                Assert.That(manager.TryGetBestTrack(out var track),Is.True);
+                Assert.That(track.TrackId.Value.Generation,Is.EqualTo(1));
+                Assert.That(track.Position.z,Is.EqualTo(1000).Within(2));
+                Assert.That(track.HitCount,Is.EqualTo(tick));
+            }
+        }
+
+        [Test]
+        public void RapidRetirement_CannotWrapIdOntoCachedPreviousMissile()
+        {
+            var manager=new RadarTrackManager();manager.ConfigureLimits(1,3);
+            var ids=new System.Collections.Generic.HashSet<uint>();
+            using var measurements=new NativeList<Measurement>(1,Allocator.Temp);
+            for(int i=0;i<300;i++)
+            {
+                double time=i*.01;var m=MeasurementAt(time);m.ObjectClass=TrackObjectClass.Missile;m.ClassificationConfidence=.9f;
+                measurements.Clear();measurements.Add(m);manager.Process(measurements,double3.zero,time);
+                if(manager.TryGetBestTrack(out var track))
+                {Assert.That(ids.Add(track.TrackId.Packed),Is.True,"An old handle must never refer to a different missile while cached.");manager.CloseMissileAssociation(track.TrackId,time);}
+            }
+            Assert.That(ids.Count,Is.EqualTo(255));
+        }
+
+        [Test]
         public void FirstMeasurement_CountsAsSingleTentativeHit()
         {
             var manager = new RadarTrackManager();
@@ -44,6 +93,11 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(track.Lifecycle, Is.EqualTo(TrackLifecycle.Confirmed));
             Assert.That(track.Position.z, Is.EqualTo(1_000.0).Within(2.0));
             Assert.That(track.SourceMask, Is.EqualTo(TrackSourceMask.Radar));
+            Assert.That(track.SourceEvidence.Radar.Valid, Is.True);
+            Assert.That(track.SourceEvidence.Radar.Timestamp, Is.EqualTo(.12).Within(.00001));
+            Assert.That(track.SourceEvidence.Radar.Confidence, Is.EqualTo(track.Confidence));
+            Assert.That(track.SourceEvidence.ElectroOptical.Valid, Is.False);
+            Assert.That(track.IsIdentifiedMech, Is.False);
             Assert.That(track.Affiliation, Is.EqualTo(TrackAffiliation.Unknown));
             Assert.That(track.Classification, Is.Zero);
             Assert.That(track.IdentityConfidence, Is.Zero);
@@ -623,7 +677,7 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
-        public void StaleTrack_DoesNotAbsorbNewSameClassReturn()
+        public void StaleTrack_DoesNotAbsorbKinematicallyDistinctReturn()
         {
             var manager = new RadarTrackManager();
             using var measurements = new NativeList<Measurement>(4, Allocator.Temp);
@@ -643,8 +697,8 @@ namespace ACunicombat.Tests.EditMode
 
             var newMissile = MeasurementAtPosition(
                 1.24,
-                new double3(0.0, 0.0, 1_050.0),
-                double3.zero);
+                new double3(0.0, 0.0, 5_000.0),
+                new double3(0.0, 0.0, -2000.0));
             newMissile.ObjectClass = TrackObjectClass.Missile;
             newMissile.ClassificationConfidence = 0.9f;
             measurements.Add(newMissile);
@@ -653,6 +707,26 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(manager.Count, Is.EqualTo(2));
         }
 
+        [Test]
+        public void LongRangeMissileRevisitAfterGapPreservesIdentity()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(4, Allocator.Temp);
+            TrackId identity = default;
+            foreach (double time in new[] { .04, .08, .12, 1.52, 1.56 })
+            {
+                var measurement = MeasurementAtPosition(time,
+                    new double3(0, 0, 300000 - 2200 * time), new double3(0, 0, -2200));
+                measurement.ObjectClass = TrackObjectClass.Missile;
+                measurement.ClassificationConfidence = .9f;
+                measurements.Clear(); measurements.Add(measurement);
+                manager.Process(measurements, double3.zero, time);
+                Assert.That(manager.Count, Is.EqualTo(1));
+                Assert.That(manager.TryGetBestTrack(out var track), Is.True);
+                if (!identity.IsValid) identity = track.TrackId;
+                Assert.That(track.TrackId, Is.EqualTo(identity));
+            }
+        }
         [Test]
         public void LongSessionTimestamp_StillConfirmsAndMaintainsOneTrack()
         {
@@ -828,6 +902,25 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(track.Lifecycle, Is.EqualTo(TrackLifecycle.Confirmed));
             Assert.That(track.Position.z, Is.EqualTo(targetPosition.z).Within(10.0));
             Assert.That(math.length(track.Velocity), Is.LessThan(20.0));
+        }
+
+        [Test]
+        public void CloseProtectionLosRateResolvesTransverseMotionInWorldFrame()
+        {
+            var manager=new RadarTrackManager();
+            using var measurements=new NativeList<Measurement>(4,Allocator.Temp);
+            var sensorVelocity=new double3(200,0,0);var targetVelocity=new double3(120,30,-100);
+            for(int i=1;i<=3;i++)
+            {
+                double time=i*.04;var sensorPosition=sensorVelocity*time;var targetPosition=new double3(0,0,300)+targetVelocity*time;
+                var m=MeasurementFromMovingSensor(time,sensorPosition,sensorVelocity,targetPosition,targetVelocity);
+                var relative=targetPosition-sensorPosition;
+                m.Flags=MeasurementFlags.CloseProtectionReceiver;m.ObjectClass=TrackObjectClass.Missile;m.ClassificationConfidence=1;
+                m.LosRate=(float3)(math.cross(relative,targetVelocity-sensorVelocity)/math.lengthsq(relative));m.LosRateVar=1e-6f;
+                measurements.Clear();measurements.Add(m);manager.Process(measurements,sensorPosition,sensorVelocity,time);
+            }
+            Assert.That(manager.TryGetBestTrack(out var track),Is.True);
+            Assert.That(math.distance(track.Velocity,targetVelocity),Is.LessThan(3),"LOS rate must include observer motion compensation");
         }
 
         private static Measurement MeasurementAt(double timestamp)

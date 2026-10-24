@@ -11,6 +11,7 @@ namespace ACunicombat.Mechs
     [Serializable]
     public sealed class MechSlotRootOverride
     {
+        public string slotId;
         public MechPartSlot slot = MechPartSlot.None;
         public Transform root;
     }
@@ -69,7 +70,7 @@ namespace ACunicombat.Mechs
         private void Awake()
         {
             ApplyWorldScaleToExistingAssembly();
-            var resolvedLoadout = MechLoadoutSelectionStore.ResolvePlayerLoadout(gameObject, loadout);
+            var resolvedLoadout = MechScenarioStore.ApplySpawn(this,out var scenarioLoadout) ? scenarioLoadout : MechLoadoutSelectionStore.ResolvePlayerLoadout(gameObject, loadout);
             var selectionChanged = resolvedLoadout != loadout;
             loadout = resolvedLoadout;
             if (assembleOnAwake || selectionChanged)
@@ -102,8 +103,9 @@ namespace ACunicombat.Mechs
 
             RegisterSlotOverrides(mountRegistry);
 
-            if (loadout != null)
+            if (loadout != null && (loadout.Platform == null || validation.IsValid))
             {
+                var layoutSlots = loadout.GetSlots();
                 var sortedAssignments = loadout.CreateSortedAssignmentList();
                 for (var i = 0; i < sortedAssignments.Count; i++)
                 {
@@ -113,7 +115,10 @@ namespace ACunicombat.Mechs
                         continue;
                     }
 
-                    var parentMounts = ResolveParentMounts(assignment.slot, assignment.part, mountRegistry, assemblyRoot);
+                    var parentMounts = loadout.Platform == null
+                        ? ResolveParentMounts(assignment.slot, assignment.part, mountRegistry, assemblyRoot)
+                        : ResolveLayoutMounts(layoutSlots.Find(x => x.id == assignment.SlotId), assignment.part, records, mountRegistry, assemblyRoot, validation);
+                    if (parentMounts.Count == 0) continue;
                     var parentMount = parentMounts[0];
                     var instance = CreatePartInstance(assignment.slot, assignment.part, parentMount);
                     var assembledPart = instance.GetComponent<MechAssembledPart>();
@@ -123,6 +128,7 @@ namespace ACunicombat.Mechs
                     }
 
                     assembledPart.Configure(assignment.slot, assignment.part);
+                    assembledPart.SetSlotId(assignment.SlotId);
                     ApplyMaterialOverrides(instance, assignment.part);
                     CreateMountPoints(instance.transform, assignment.part, mountRegistry, mountPoints);
 
@@ -138,6 +144,7 @@ namespace ACunicombat.Mechs
 
                     records.Add(new MechAssemblyRecord
                     {
+                        slotId = assignment.SlotId,
                         slot = assignment.slot,
                         part = assignment.part,
                         instance = instance,
@@ -147,6 +154,8 @@ namespace ACunicombat.Mechs
             }
 
             ConfigureSynchronizedSkinnedParts(records);
+
+            MechAppearanceApplicator.PrepareSurfaces(assemblyRoot.gameObject);
 
             if (IsPlayerAppearanceTarget(gameObject))
             {
@@ -241,6 +250,33 @@ namespace ACunicombat.Mechs
 
                 RegisterMount(mountRegistry, slotRoot.slot, slotRoot.root);
             }
+        }
+
+        private List<Transform> ResolveLayoutMounts(MechSlotDefinition slot, MechPartDefinition part,
+            List<MechAssemblyRecord> records, Dictionary<MechPartSlot, List<Transform>> legacyMounts,
+            Transform root, MechValidationResult validation)
+        {
+            foreach (var binding in slotRootOverrides)
+                if (binding != null && binding.slotId == slot.id && binding.root != null)
+                    return new List<Transform> { binding.root };
+            // Migrated body layouts retain their explicit old mount adapter, including animated dummy matching.
+            if (slot.id == MechSlotGraph.LegacyId(slot.legacyRole) && slot.legacyRole != MechPartSlot.None &&
+                string.IsNullOrEmpty(slot.parentSlotId) && string.IsNullOrEmpty(slot.mountPath))
+                return ResolveParentMounts(slot.legacyRole, part, legacyMounts, root);
+            Transform owner = root;
+            if (!string.IsNullOrEmpty(slot.parentSlotId))
+                owner = records.Find(x => x.SlotId == slot.parentSlotId)?.instance?.transform;
+            if (owner != null && !string.IsNullOrEmpty(slot.mountPath)) owner = owner.Find(slot.mountPath);
+            if (owner == null)
+            {
+                validation.Add(MechValidationSeverity.Error, slot.legacyRole, "MOUNT_NOT_FOUND", "Missing mount or parent for " + slot.id + ": " + slot.mountPath);
+                return new List<Transform>();
+            }
+            var mount = new GameObject("Mount_" + slot.id);
+            mount.transform.SetParent(owner, false);
+            mount.transform.localPosition = slot.localPosition;
+            mount.transform.localRotation = Quaternion.Euler(slot.localEulerAngles);
+            return new List<Transform> { mount.transform };
         }
 
         private List<Transform> ResolveParentMounts(
@@ -798,6 +834,13 @@ namespace ACunicombat.Mechs
 
             if (Application.isPlaying)
             {
+                // Retire old assembly geometry immediately; Destroy completes at frame end.
+                // Subsequent component scans must see only the replacement assembly.
+                if (target is GameObject retired)
+                {
+                    retired.SetActive(false);
+                    retired.transform.SetParent(null, true);
+                }
                 Destroy(target);
             }
             else

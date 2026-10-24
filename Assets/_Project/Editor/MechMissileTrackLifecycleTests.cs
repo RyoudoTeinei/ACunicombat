@@ -23,6 +23,7 @@ public sealed class MechMissileTrackLifecycleTests
     private SimWorld world;
     private DataLinkSystem dataLink;
     private RadarTrackManager trackManager;
+    private PlatformTrackContext trackContext;
 
     [SetUp]
     public void SetUp()
@@ -36,12 +37,14 @@ public sealed class MechMissileTrackLifecycleTests
         hud = fixture.AddComponent<MechRadarHudPresenter>();
         world = new SimWorld();
         dataLink = new DataLinkSystem(world);
-        trackManager = new RadarTrackManager();
+        trackContext = new PlatformTrackContext();
+        trackManager = GetField<RadarTrackManager>(trackContext, "tracks");
         SetField(driver, "world", world);
         SetField(driver, "dataLink", dataLink);
-        SetField(driver, "trackManager", trackManager);
+        SetField(driver, "trackContext", trackContext);
         SetField(driver, "motionClock", new FixedTickClock(0.01, 1000));
         SetField(radar, "driver", driver);
+        typeof(MechRadarController).GetMethod("BindDeviceIdentities",PrivateInstance).Invoke(radar,null);
         SetField(radar, "initialized", true);
         SetField(radar, "dataLinkPerformance", MechDataLinkPerformance.CreateStandardFallback());
         SetField(hud, "radar", radar);
@@ -57,10 +60,25 @@ public sealed class MechMissileTrackLifecycleTests
         {
             SetField(driver, "world", null);
             SetField(driver, "dataLink", null);
+            SetField(driver, "trackContext", null);
         }
         if (fixture != null) UnityEngine.Object.DestroyImmediate(fixture);
+        trackContext?.Dispose();
         dataLink?.Dispose();
         world?.Dispose();
+    }
+
+    [Test]
+    public void OwnMotionInvalidatesRelativeGeometryAtTheSameSensorEpoch()
+    {
+        var track = CreateSensorTrack(1000f);
+        var before = CopyMissileTrack(track.TrackId);
+        fixture.transform.position = new Vector3(300f, 0f, 0f);
+        var after = CopyMissileTrack(track.TrackId);
+        Assert.That(after.LastUpdateTime, Is.EqualTo(before.LastUpdateTime));
+        Assert.That(math.distance(after.Position, before.Position), Is.LessThan(1e-6));
+        Assert.That(after.ObserverLineOfSight.x, Is.LessThan(-0.25f),
+            "A sensor revision does not change when the observer moves later in the same physics tick.");
     }
 
     [Test]
@@ -84,8 +102,8 @@ public sealed class MechMissileTrackLifecycleTests
         Assert.That(Invoke<bool>(hud, "ShouldDisplayFriendlyMissile", cached), Is.False);
         Assert.That(Invoke<bool>(hud, "HasFriendlyMissileTrackNear", Vector3.forward * 1000f, 1), Is.False,
             "An already copied HUD snapshot must stop suppressing a live projectile marker in the same frame.");
-        Assert.That(CopyMissileTrack(track.TrackId).IsFriendly, Is.True,
-            "The retained sensor track must not change to hostile while it coasts.");
+        Assert.That(radar.TryGetMissileTrack(track.TrackId,out _),Is.False,
+            "Ended history must not be published as a live missile.");
     }
 
     [Test]
@@ -187,6 +205,9 @@ public sealed class MechMissileTrackLifecycleTests
         Assert.That(radar.IsRetiredFriendlyMissileTrack(track.TrackId), Is.False);
         Assert.That(Invoke<bool>(hud, "ShouldDisplayIncomingMissile", missile), Is.True);
         SetTime(radar.SimTimeSeconds + 0.7);
+        Assert.That(Invoke<bool>(hud, "ShouldDisplayIncomingMissile", missile), Is.True);
+        Assert.That(MechMissileDisplayPolicy.Opacity(missile,radar.SimTimeSeconds),Is.LessThan(1));
+        SetTime(radar.SimTimeSeconds + 1.0);
         Assert.That(Invoke<bool>(hud, "ShouldDisplayIncomingMissile", missile), Is.False,
             "An unowned missile continues to disappear by evidence age, not local weapon lifecycle.");
         Assert.That(driver.TryGetTrack(track.TrackId, out _), Is.True);
@@ -326,9 +347,129 @@ public sealed class MechMissileTrackLifecycleTests
         var tracks = new MissileTrackSnapshot[32];
         var count = radar.CopyMissileTracks(tracks);
         for (var i = 0; i < count; i++)
-            if (tracks[i].TrackId.Equals(id)) return tracks[i];
+            if (tracks[i].TrackId.Equals(id) || tracks[i].AssociatedSensorTrackId.Equals(id)) return tracks[i];
         Assert.Fail("Expected missile track was absent from the fusion output: " + id);
         return default;
+    }
+
+    [Test]
+    public void LocalLaunchIdentitySurvivesWithoutRadioTerminalAndRetiresOnEnd()
+    {
+        var id=Guid.NewGuid();
+        typeof(MechRadarController).GetMethod("RecordOwnedMissileLaunch",PrivateInstance).Invoke(radar,new object[]{id,new Vector3(0,0,1000),Vector3.zero,MissileMissionRole.AirToAir});
+        var track=CreateSensorTrack(1000f);
+        var missile=CopyMissileTrack(track.TrackId);Assert.That(missile.IsFriendly,Is.True);Assert.That(missile.OwnLaunchIdentity,Is.EqualTo(id));
+        Assert.That((missile.SourceMask&MissileTrackSourceMask.DataLink)==0,Is.True,"Local launch knowledge is not a fabricated radio packet.");
+        typeof(MechRadarController).GetMethod("EndOwnedMissileLaunch",PrivateInstance).Invoke(radar,new object[]{id});
+        Assert.That(radar.IsRetiredFriendlyMissileTrack(track.TrackId),Is.True);
+        Assert.That(Invoke<bool>(hud,"ShouldDisplayFriendlyMissile",missile),Is.False);
+    }
+
+    [Test]
+    public void AuthenticatedTerminalAssociationCarriesOwnLaunchIdentityPastRadioLoss()
+    {
+        var id=Guid.NewGuid();
+        // Deliberately outside the one-shot launch-position gate: the later radio
+        // report must establish the association, not a convenient launch overlap.
+        Invoke(radar,"RecordOwnedMissileLaunch",id,new Vector3(10000,0,1000),Vector3.zero,MissileMissionRole.AirToAir);
+        var track=CreateSensorTrack(1000);var terminal=RegisterFriendlyMissile(track,false);
+        Invoke(radar,"BindOwnedMissileTerminal",id,terminal);
+        Assert.That(CopyMissileTrack(track.TrackId).OwnLaunchIdentity,Is.EqualTo(id));
+        var reports=GetField<Array>(radar,"friendlyMissileReports");
+        reports.SetValue(Activator.CreateInstance(reports.GetType().GetElementType()),terminal.Value.Index);
+        SetField(radar,"missileTrackCacheTime",double.NaN);
+        var retained=CopyMissileTrack(track.TrackId);
+        Assert.That(retained.OwnLaunchIdentity,Is.EqualTo(id));Assert.That(retained.IsFriendly,Is.True);
+    }
+
+    [Test]
+    public void CoastingFriendlyIdentityCannotOverwriteFreshRadarKinematics()
+    {
+        var original=CreateSensorTrack(1000);var terminal=RegisterFriendlyMissile(original,false);SetTime(2);
+        var cache=GetField<MissileTrackSnapshot[]>(radar,"missileTrackCache");
+        cache[0]=new MissileTrackSnapshot{TrackId=original.TrackId,Position=new double3(0,0,5000),Velocity=new double3(0,0,100),PositionUncertaintyMeters=2,LastUpdateTime=2,KinematicUpdateTime=2,LastEvidenceTime=2,Quality=MissileTrackQuality.WeaponsQuality};
+        SetField(radar,"missileTrackCacheCount",1);Invoke(radar,"ApplyFriendlyMissileIdentification",2d);
+        Assert.That(cache[0].IsFriendly,Is.True);Assert.That(cache[0].Position.z,Is.EqualTo(5000));
+        Assert.That(cache[0].Velocity.z,Is.EqualTo(100));Assert.That(cache[0].KinematicUpdateTime,Is.EqualTo(2));
+    }
+
+    [Test]
+    public void LaunchTimestampPreventsNewTelemetryFromClaimingAnOlderRadarIdentity()
+    {
+        var original=CreateSensorTrack(1000);var terminal=RegisterFriendlyMissile(original,false);SetTime(2);SetReport(terminal,original.Position,original.Velocity);
+        var reports=GetField<Array>(radar,"friendlyMissileReports");var report=reports.GetValue(terminal.Value.Index);
+        SetField(report,"HasLaunchTimestamp",true);SetField(report,"LaunchTimestamp",1d);reports.SetValue(report,terminal.Value.Index);
+        var cache=GetField<MissileTrackSnapshot[]>(radar,"missileTrackCache");
+        cache[0]=new MissileTrackSnapshot{TrackId=original.TrackId,FirstObservationTime=.04,Position=original.Position,Velocity=original.Velocity,PositionUncertaintyMeters=20,LastUpdateTime=2,KinematicUpdateTime=2,LastEvidenceTime=2,Quality=MissileTrackQuality.Warning};
+        SetField(radar,"missileTrackCacheCount",1);Invoke(radar,"ApplyFriendlyMissileIdentification",2d);
+        Assert.IsFalse(cache[0].IsFriendly);Assert.IsTrue(cache[1].IsFriendly);Assert.IsFalse(cache[1].AssociatedSensorTrackId.IsValid);
+        Assert.IsFalse(GetField<FriendlyMissileIdentityAssociation[]>(radar,"friendlyMissileIdentityAssociations")[terminal.Value.Index].HasTrack);
+    }
+
+    [Test]
+    public void LocalLaunchCannotClaimATrackObservedBeforeItWasFired()
+    {
+        var old=CreateSensorTrack(1000);var id=Guid.NewGuid();
+        Invoke(radar,"RecordOwnedMissileLaunch",id,Vector3.forward*1000,Vector3.zero,MissileMissionRole.AirToAir);
+        Assert.IsFalse(CopyMissileTrack(old.TrackId).IsFriendly);
+        Invoke(radar,"EndOwnedMissileLaunch",id);Assert.IsFalse(radar.IsRetiredFriendlyMissileTrack(old.TrackId));
+    }
+
+    [Test]
+    public void RemoteTerminalReportCannotInheritAnotherLocalLaunchIdentity()
+    {
+        var original=CreateSensorTrack(1000);RegisterFriendlyMissile(original,false);
+        var cache=GetField<MissileTrackSnapshot[]>(radar,"missileTrackCache");
+        cache[0]=new MissileTrackSnapshot{TrackId=original.TrackId,OwnLaunchIdentity=Guid.NewGuid(),SourceMask=MissileTrackSourceMask.Radar|MissileTrackSourceMask.OwnLaunch,Position=original.Position,Velocity=original.Velocity,PositionUncertaintyMeters=2,LastUpdateTime=radar.SimTimeSeconds,KinematicUpdateTime=radar.SimTimeSeconds,LastEvidenceTime=radar.SimTimeSeconds,Quality=MissileTrackQuality.Warning};
+        SetField(radar,"missileTrackCacheCount",1);Invoke(radar,"ApplyFriendlyMissileIdentification",radar.SimTimeSeconds);
+        Assert.IsTrue(cache[0].IsFriendly);Assert.AreEqual(Guid.Empty,cache[0].OwnLaunchIdentity);
+        Assert.AreEqual(MissileTrackSourceMask.None,cache[0].SourceMask&MissileTrackSourceMask.OwnLaunch);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void NewNearbyReportCannotStealSupportedBindingRegardlessOfTerminalOrder(bool newFirst)
+    {
+        var original=CreateSensorTrack(1000);
+        var first=RegisterFriendlyMissile(original,false);
+        var second=RegisterFriendlyMissile(original,false);
+        var established=newFirst?second:first;
+        var newcomer=newFirst?first:second;
+        var associations=GetField<FriendlyMissileIdentityAssociation[]>(radar,"friendlyMissileIdentityAssociations");
+        associations[newcomer.Value.Index]=default;
+        var cache=GetField<MissileTrackSnapshot[]>(radar,"missileTrackCache");
+        cache[0]=new MissileTrackSnapshot{TrackId=original.TrackId,Position=original.Position,Velocity=original.Velocity,
+            PositionUncertaintyMeters=2,LastUpdateTime=radar.SimTimeSeconds,KinematicUpdateTime=radar.SimTimeSeconds,
+            LastEvidenceTime=radar.SimTimeSeconds,Quality=MissileTrackQuality.Warning};
+        SetField(radar,"missileTrackCacheCount",1);
+        Invoke(radar,"ApplyFriendlyMissileIdentification",radar.SimTimeSeconds);
+        Assert.That(associations[established.Value.Index].TrackId,Is.EqualTo(original.TrackId));
+        Assert.That(associations[newcomer.Value.Index].HasTrack,Is.False);
+        Assert.That(cache[0].ReportingTerminal,Is.EqualTo(established));
+        Assert.That(cache[1].ReportingTerminal,Is.EqualTo(newcomer));
+        Assert.That(cache[1].AssociatedSensorTrackId.IsValid,Is.False,
+            "An independent radio report remains visible, but cannot borrow an occupied radar identity.");
+    }
+
+    [Test]
+    public void EndedMissileKeepsHistoryButCannotAcquireAnotherMissile()
+    {
+        var old=CreateSensorTrack(1000);var terminal=RegisterFriendlyMissile(old);radar.UnregisterMissileLinkTerminal(terminal);
+        Assert.That(driver.TryGetTrack(old.TrackId,out _),Is.True,"Historical sensor state is retained.");
+        var next=CreateSensorTrack(1000);
+        Assert.That(next.TrackId,Is.Not.EqualTo(old.TrackId),"Fresh returns at the same position require a new identity after confirmed end.");
+        Assert.That(radar.IsRetiredFriendlyMissileTrack(next.TrackId),Is.False);
+    }
+
+    [Test]
+    public void PassiveReportSourcesDoNotConsumeControlPeersOrGainGuidanceAuthority()
+    {
+        var profile=MechDataLinkPerformance.CreateStandardFallback();profile.maximumNetworkNodes=2;SetField(radar,"dataLinkPerformance",profile);
+        Assert.That(radar.TryRegisterMissileLinkTerminal(Vector3.forward*1000,Vector3.zero,out var remote,controlMembership:false),Is.True);
+        Assert.That(radar.TryRegisterMissileLinkTerminal(Vector3.forward*1100,Vector3.zero,out _,controlMembership:false),Is.True);
+        Assert.That(radar.TryRegisterMissileLinkTerminal(Vector3.forward*1200,Vector3.zero,out var controlled),Is.True);
+        Assert.That(radar.TryRegisterMissileLinkTerminal(Vector3.forward*1300,Vector3.zero,out _),Is.False,"The equipment's controlled-node limit remains enforced.");
+        Assert.That(radar.BeginGuidanceUplink(remote,new TrackId(new Handle(0,1))),Is.False,"Receiving a report must not authorize control of that remote missile.");
     }
 
     private void SetTime(double time)

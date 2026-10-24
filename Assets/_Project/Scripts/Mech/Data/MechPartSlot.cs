@@ -23,7 +23,8 @@ namespace ACunicombat.Mechs
         RightHandWeapon = 101,
         LeftBackWeapon = 110,
         RightBackWeapon = 111,
-        Extension = 200
+        Extension = 200,
+        Extension2 = 201
     }
 
     public enum MechPartCategory
@@ -72,7 +73,8 @@ namespace ACunicombat.Mechs
             MechPartSlot.RightHandWeapon,
             MechPartSlot.LeftBackWeapon,
             MechPartSlot.RightBackWeapon,
-            MechPartSlot.Extension
+            MechPartSlot.Extension,
+            MechPartSlot.Extension2
         };
 
         public static readonly MechPartSlot[] DefaultRequiredSlots =
@@ -139,6 +141,9 @@ namespace ACunicombat.Mechs
                     return MechHardpointType.BackWeapon;
                 case MechPartSlot.Radar:
                     return MechHardpointType.Sensor;
+                case MechPartSlot.Extension:
+                case MechPartSlot.Extension2:
+                    return MechHardpointType.Utility;
                 default:
                     return MechHardpointType.None;
             }
@@ -154,6 +159,8 @@ namespace ACunicombat.Mechs
                     return "Data Link Terminal";
                 case MechPartSlot.Radiator:
                     return "Radiator";
+                case MechPartSlot.Extension: return "扩展槽 1";
+                case MechPartSlot.Extension2: return "扩展槽 2";
                 case MechPartSlot.LeftHandWeapon:
                     return "Left Hand Weapon";
                 case MechPartSlot.RightHandWeapon:

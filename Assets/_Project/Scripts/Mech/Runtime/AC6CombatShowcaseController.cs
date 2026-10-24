@@ -173,6 +173,8 @@ namespace ACunicombat.Mechs
                 mech = gameObject;
             }
 
+            // Playable rigs own their initialization through PlatformFactory; demo Start must not add graphs or exhausts.
+            if (externalControlMode) return;
             origin = mech.transform.position;
             BindAssembledParts();
             ConfigureBodyActionsRuntime();
@@ -463,18 +465,7 @@ namespace ACunicombat.Mechs
                 bodyPlayer.enabled = false;
             }
 
-            bodyActionPlayer = mech.GetComponent<MechBodyActionPlayer>();
-            if (bodyActionPlayer == null)
-            {
-                bodyActionPlayer = mech.AddComponent<MechBodyActionPlayer>();
-            }
-
-            bodyActionPlayer.Configure(
-                actionRegistry,
-                runtimeState,
-                upperBodyBoneNames,
-                idleBodyActionId,
-                1f);
+            bodyActionPlayer=PlatformFactory.ConfigureBodyPlayback(mech,actionRegistry,runtimeState,upperBodyBoneNames,idleBodyActionId,1f);
 
             if (bodyActionPlayer.IsGraphValid &&
                 string.Equals(
@@ -1046,7 +1037,7 @@ namespace ACunicombat.Mechs
                     }
 
                     materialCount++;
-                    if (material.mainTexture != null ||
+                    if ((material.HasProperty("_MainTex") && material.GetTexture("_MainTex") != null) ||
                         (material.HasProperty("_BaseMap") && material.GetTexture("_BaseMap") != null))
                     {
                         materialsWithBaseMap++;
@@ -1062,7 +1053,7 @@ namespace ACunicombat.Mechs
 
         private void OnGUI()
         {
-            if (MechAssemblyMenu.IsAnyMenuVisible || integratedRadarHudPresent)
+            if (externalControlMode || MechSolarSystemMap.IsAnyMapVisible || MechAssemblyMenu.IsAnyMenuVisible || integratedRadarHudPresent)
             {
                 return;
             }

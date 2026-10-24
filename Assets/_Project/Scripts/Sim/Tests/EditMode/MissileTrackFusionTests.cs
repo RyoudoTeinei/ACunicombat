@@ -9,6 +9,46 @@ namespace ACunicombat.Tests.EditMode
     public class MissileTrackFusionTests
     {
         [Test]
+        public void FreshTelemetryCannotAcquireAStalePredictedRadarTrack()
+        {
+            var track=new MissileTrackSnapshot{Position=new double3(0,0,5000),Velocity=new double3(0,0,-1400),LastUpdateTime=33.1,KinematicUpdateTime=30.48,LastEvidenceTime=30.48,PositionUncertaintyMeters=1300,VelocityUncertaintyMetersPerSecond=900};
+            Assert.IsFalse(MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(track,track.Position,new double3(0,0,450),33.1,33.1,1,2000,180,out _));
+            track.KinematicUpdateTime=33.1;
+            Assert.IsTrue(MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(track,track.Position,new double3(0,0,450),33.1,33.1,1,2000,180,out _));
+        }
+
+        [Test]
+        public void ContinuousRadarSupportPreservesAuthenticatedIdentityDuringRadioSilence()
+        {
+            var id=new TrackId(new Handle(1,1));var tracks=new[]{new MissileTrackSnapshot{TrackId=id,Position=new double3(0,0,5000),LastUpdateTime=10,KinematicUpdateTime=10}};
+            var association=new FriendlyMissileIdentityAssociation{TrackId=id,LastAuthenticatedTime=10,LastSupportedTime=10};
+            for(int i=1;i<=60;i++)
+            {
+                double now=10+i*.1;tracks[0].LastUpdateTime=tracks[0].KinematicUpdateTime=now;
+                var result=MissileTrackFusion.ResolveFriendlyDataLinkIdentity(ref association,tracks,1,new bool[1],double3.zero,double3.zero,8,now,1,2.5,2000,180,.35,out var index,out _);
+                Assert.AreEqual(FriendlyIdentityResolution.Coasting,result);Assert.AreEqual(0,index);
+            }
+            var expired=MissileTrackFusion.ResolveFriendlyDataLinkIdentity(ref association,tracks,1,new bool[1],double3.zero,double3.zero,8,20,1,2.5,2000,180,.35,out _,out _);
+            Assert.AreEqual(FriendlyIdentityResolution.None,expired);
+        }
+
+        [Test]
+        public void TelemetryAssociationUsesRangeBearingCovarianceInsteadOfCircularDistance()
+        {
+            var t=new MissileTrackSnapshot{Position=new double3(4000,0,50000),Velocity=new double3(0,0,1000),LastUpdateTime=10,PositionUncertaintyMeters=2828,HasPositionCovariance=true,PositionCovariance=new double3x3(4000000,0,0,0,4000000,0,0,0,1)};
+            Assert.That(MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(t,new double3(0,0,50000),t.Velocity,10,10,2,2000,400,out _),Is.True,"Large angular uncertainty does not imply an unresolvable range.");
+            Assert.That(MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(t,new double3(4000,0,50100),t.Velocity,10,10,2,2000,400,out _),Is.False,"A nearby salvo round in a different range cell must not inherit identity.");
+        }
+
+        [Test]
+        public void FriendlyReport_AcceptsRadarTailErrorButRejectsCrossingOppositeDoppler()
+        {
+            var t=new MissileTrackSnapshot{Position=new double3(114,0,50000),Velocity=new double3(1000,0,500),LastUpdateTime=10,PositionUncertaintyMeters=31,VelocityUncertaintyMetersPerSecond=500,ObserverLineOfSight=new float3(0,0,1),RadialVelocityUncertaintyMetersPerSecond=1};
+            Assert.That(MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(t,new double3(0,0,50000),new double3(2000,0,500),10,10,2,2000,400,out _),Is.True);
+            Assert.That(MissileTrackFusion.TryScoreFriendlyDataLinkAssociation(t,new double3(0,0,50000),new double3(0,0,-500),10,10,2,2000,400,out _),Is.False);
+        }
+
+        [Test]
         public void AuthenticatedFriendlyReport_MarksMatchingMissileTrackFriendly()
         {
             var track = new MissileTrackSnapshot
@@ -648,6 +688,15 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void FreshBearingWarningDoesNotRefreshAnOldThreeDimensionalPosition()
+        {
+            var track=IncomingRadarTrack();track.LastUpdateTime=8;track.LastPredictTime=10;
+            var threat=Threat(EsmWaveformClass.InterceptorMissileSeeker,.9f);var output=new MissileTrackSnapshot[2];
+            int count=MissileTrackFusion.Fuse(MissileTrackFusionConfig.Default,new[]{track},1,new[]{threat},1,new ElectroOpticalObservation[0],0,double3.zero,double3.zero,10,output);
+            Assert.AreEqual(1,count);Assert.AreEqual(8,output[0].LastEvidenceTime);Assert.AreEqual(8,output[0].KinematicUpdateTime);
+        }
+
+        [Test]
         public void RadarOnlyTrack_IsIncomingButNotFireControlConfirmed()
         {
             var output = new MissileTrackSnapshot[2];
@@ -727,6 +776,30 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(
                 output[0].PositionUncertaintyMeters,
                 Is.GreaterThan(0f));
+        }
+
+        [Test]
+        public void NoisyOpticalBearing_DoesNotMovePreciseRadarOrInventPrecision()
+        {
+            var track=IncomingRadarTrack();track.Position=new double3(0,0,50000);
+            track.LastPredictTime=10;track.LastUpdateTime=9.5;
+            for(int axis=0;axis<3;axis++){track.SetCovariance(axis,axis,3);track.SetCovariance(axis+3,axis+3,90000);}
+            var optical=new[]{new ElectroOpticalObservation{Timestamp=10,Direction=math.normalize(new float3(100,0,50000)),AngleVar=math.pow(math.radians(.1f),2),ObjectClass=TrackObjectClass.Missile,ClassificationConfidence=.9f}};
+            var output=new MissileTrackSnapshot[1];
+            MissileTrackFusion.Fuse(MissileTrackFusionConfig.Default,new[]{track},1,new ThreatSnapshot[0],0,optical,1,double3.zero,double3.zero,10,output);
+            Assert.That(math.distance(output[0].Position,track.Position),Is.LessThan(.001));
+            Assert.That(output[0].PositionUncertaintyMeters,Is.EqualTo(3).Within(.001),"Covariance is already predicted to LastPredictTime; do not propagate twice or multiply by arbitrary EO confidence.");
+        }
+
+        [Test]
+        public void LaserReturnCuedToAnotherTrack_CannotPullThisMissile()
+        {
+            var track=IncomingRadarTrack();
+            var laser=new[]{new LaserRangeObservation{CuedTrackId=new TrackId(new Handle(99,1)),Timestamp=10,RangeMeters=950,RangeVar=1,Direction=new float3(0,0,1),AngleVar=.000001f,ObjectClass=TrackObjectClass.Missile,ClassificationConfidence=.9f}};
+            var output=new MissileTrackSnapshot[1];
+            MissileTrackFusion.Fuse(MissileTrackFusionConfig.Default,new[]{track},1,new ThreatSnapshot[0],0,new ElectroOpticalObservation[0],0,laser,1,double3.zero,double3.zero,10,output);
+            Assert.That(math.distance(output[0].Position,track.PredictPosition(10)),Is.LessThan(.001));
+            Assert.That(output[0].SourceMask & MissileTrackSourceMask.LaserRangefinder,Is.EqualTo(MissileTrackSourceMask.None));
         }
 
         [Test]
@@ -1148,6 +1221,33 @@ namespace ACunicombat.Tests.EditMode
                 output);
             Assert.That(output[0].IsWarning, Is.True);
             Assert.That(output[0].IsWeaponsQuality, Is.False);
+        }
+
+        [TestCase(1.0,true)] [TestCase(10000.0,false)]
+        public void ResolvedLocalTurnRespondsPromptlyWithoutAmplifyingUncertainVelocity(double variance,bool resolved)
+        {
+            var state=new MissileTrackFusionState();var output=new MissileTrackSnapshot[1];var track=IncomingRadarTrack();
+            track.SourceMask|=TrackSourceMask.CloseProtectionRadar;track.LastCloseProtectionTime=10;track.HitCount=5;
+            for(int axis=3;axis<6;axis++)track.SetCovariance(axis,axis,variance);
+            MissileTrackFusion.Fuse(MissileTrackFusionConfig.Default,state,new[]{track},1,new ThreatSnapshot[0],0,new ElectroOpticalObservation[0],0,double3.zero,double3.zero,10,output);
+            track.Velocity.x+=24;track.LastUpdateTime=track.LastPredictTime=track.LastCloseProtectionTime=10.04;
+            MissileTrackFusion.Fuse(MissileTrackFusionConfig.Default,state,new[]{track},1,new ThreatSnapshot[0],0,new ElectroOpticalObservation[0],0,double3.zero,double3.zero,10.04,output);
+            Assert.That(output[0].Acceleration.x,resolved?Is.GreaterThan(500):Is.LessThan(450));
+            Assert.That(math.length(output[0].Acceleration),Is.LessThanOrEqualTo(600.0001));
+        }
+
+        [Test]
+        public void RebasingAcceleratingSnapshotPreservesFuturePrediction()
+        {
+            var config=MissileTrackFusionConfig.Default;config.AccelerationFilterTimeSeconds=0;config.JerkFilterTimeSeconds=0;
+            var state=new MissileTrackFusionState();var output=new MissileTrackSnapshot[1];var track=IncomingRadarTrack();
+            MissileTrackFusion.Fuse(config,state,new[]{track},1,new ThreatSnapshot[0],0,new ElectroOpticalObservation[0],0,double3.zero,double3.zero,10,output);
+            track.Velocity=new double3(0,0,-125);track.LastUpdateTime=track.LastPredictTime=10.1;
+            MissileTrackFusion.Fuse(config,state,new[]{track},1,new ThreatSnapshot[0],0,new ElectroOpticalObservation[0],0,double3.zero,double3.zero,10.1,output);
+            var before=output[0];
+            MissileTrackFusion.Fuse(config,state,new[]{track},1,new ThreatSnapshot[0],0,new ElectroOpticalObservation[0],0,double3.zero,double3.zero,10.15,output);
+            Assert.That(math.distance(before.PredictPosition(10.25),output[0].PredictPosition(10.25)),Is.LessThan(.001));
+            Assert.That(math.distance(before.PredictVelocity(10.25),output[0].PredictVelocity(10.25)),Is.LessThan(.001));
         }
 
         [Test]

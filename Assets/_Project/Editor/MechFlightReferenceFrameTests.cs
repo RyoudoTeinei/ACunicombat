@@ -18,6 +18,21 @@ namespace ACunicombat.Editor.Tests
             motion.ConfigureModelForwardYawOffset(0f);
         }
 
+        private void AddPhysicalTranslationNozzles()
+        {
+            // Translation requires real installed nozzle channels; no hidden fallback thrust.
+            motion.ConfigurePropulsionForceModel(false,false,0f);
+            var channels=(System.Collections.Generic.List<MechThrusterChannelState>)typeof(MechFlightMotionController)
+                .GetField("thrusterChannels",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(motion);
+            var directions=new[]{Vector3.forward,Vector3.back,Vector3.right,Vector3.left};
+            var roles=new[]{MechThrusterRole.Main,MechThrusterRole.Reverse,MechThrusterRole.StrafePositive,MechThrusterRole.StrafeNegative};
+            for(var i=0;i<directions.Length;i++)
+            {
+                var anchor=new GameObject("ReferenceNozzle"+i).transform;anchor.SetParent(mechObject.transform,false);
+                anchor.localRotation=Quaternion.LookRotation(-directions[i],Vector3.up);
+                channels.Add(new MechThrusterChannelState("reference."+i,roles[i],MechThrusterSide.Center,anchor,Vector3.zero,false));
+            }
+        }
         [TearDown]
         public void TearDown()
         {
@@ -123,6 +138,7 @@ namespace ACunicombat.Editor.Tests
         [Test]
         public void EngineAvailability_GatesAllPropulsionCommands()
         {
+            AddPhysicalTranslationNozzles();
             motion.ConfigureGravity(0f);
             motion.SetEngineAvailable(false);
             var forward = new MechPlayerInputFrame { MoveLocal = Vector2.up };
@@ -145,6 +161,7 @@ namespace ACunicombat.Editor.Tests
         [Test]
         public void ForwardThrust_PreservesExistingLateralVelocity()
         {
+            AddPhysicalTranslationNozzles();
             motion.ConfigureGravity(0f);
             var strafe = new MechPlayerInputFrame { MoveLocal = Vector2.right };
             motion.Tick(in strafe, 0.1f);
@@ -161,6 +178,7 @@ namespace ACunicombat.Editor.Tests
         [Test]
         public void LateralThrust_PreservesExistingForwardVelocity()
         {
+            AddPhysicalTranslationNozzles();
             motion.ConfigureGravity(0f);
             var forward = new MechPlayerInputFrame { MoveLocal = Vector2.up };
             motion.Tick(in forward, 0.1f);

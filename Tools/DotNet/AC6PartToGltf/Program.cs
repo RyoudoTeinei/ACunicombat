@@ -109,6 +109,17 @@ static void WriteReport(string path, MergedSkeleton merged, List<PartModel> part
             AveragePositionError = p.AvgPosError,
             MaxRotationErrorDeg = p.MaxRotErrorDeg,
             Worst = p.WorstBones.Take(20).Select(w => new { w.Name, w.PosError, w.RotErrorDeg }),
+            BindTranslations = p.Flver.Nodes.Select((n,index) => {
+                var local=p.FlverGlobals[index];
+                if(merged.ByName.TryGetValue(n.Name,out var b)&&merged.Bones[b].Parent>=0) {
+                    int parent=merged.Bones[b].Parent;
+                    int sourceParent=p.Flver.Nodes.FindIndex(x=>x.Name==merged.Bones[parent].Name);
+                    var parentGlobal=sourceParent>=0?p.FlverGlobals[sourceParent]:merged.ComputeGlobals()[parent];
+                    Matrix4x4.Invert(parentGlobal,out var inverse);local*=inverse;
+                }
+                Matrix4x4.Decompose(local,out var scale,out var q,out var t);
+                return new {n.Name,X=t.X,Y=t.Y,Z=t.Z,Rotation=new {q.X,q.Y,q.Z,q.W}};
+            }),
             Materials = p.Flver.Materials.Select(m => new
             {
                 m.Name,

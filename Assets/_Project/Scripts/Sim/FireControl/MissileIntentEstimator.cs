@@ -10,9 +10,10 @@ namespace ACunicombat.FireControl
         public double3 Position;
         public double3 Velocity;
         public double LastEvidenceTime;
+        public double StateTime;
 
         public readonly double3 PredictPosition(double now) =>
-            Position + Velocity * math.max(0.0, now - LastEvidenceTime);
+            Position + Velocity * math.max(0.0, now - (StateTime>0?StateTime:LastEvidenceTime));
     }
 
     public struct MissileIntentEstimatorConfig

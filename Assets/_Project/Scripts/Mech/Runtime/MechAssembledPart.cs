@@ -4,6 +4,9 @@ namespace ACunicombat.Mechs
 {
     public sealed class MechAssembledPart : MonoBehaviour
     {
+        [SerializeField] private string slotId;
+        public string SlotId => string.IsNullOrEmpty(slotId) ? MechSlotGraph.LegacyId(slot) : slotId;
+        public void SetSlotId(string id) => slotId = id;
         [SerializeField] private MechPartSlot slot;
         [SerializeField] private MechPartDefinition definition;
 

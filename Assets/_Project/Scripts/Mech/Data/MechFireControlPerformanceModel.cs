@@ -28,8 +28,9 @@ namespace ACunicombat.Mechs
 			float twsRevisitIntervalSeconds,
 			float sttRevisitIntervalSeconds,
 			float measurementPrecisionScale,
-			float lockMaintenanceRating)
+			float lockMaintenanceRating, ACunicombat.Sensors.RadarPhysicalParameters hardware = default)
 		{
+			Hardware = hardware;
 			MaximumRangeMeters = maximumRangeMeters;
 			StableTrackRangeMeters = stableTrackRangeMeters;
 			SearchAzimuthDegrees = searchAzimuthDegrees;
@@ -48,6 +49,7 @@ namespace ACunicombat.Mechs
 			LockMaintenanceRating = lockMaintenanceRating;
 		}
 
+		public ACunicombat.Sensors.RadarPhysicalParameters Hardware { get; }
 		public float MaximumRangeMeters { get; }
 		public float StableTrackRangeMeters { get; }
 		public float SearchAzimuthDegrees { get; }
@@ -80,7 +82,7 @@ namespace ACunicombat.Mechs
 			float pointDefenseRating,
 			float trackReacquisitionTimeSeconds,
 			float solutionUpdateRateHz,
-			float solutionLatencyMilliseconds)
+			float solutionLatencyMilliseconds, int missileSupportCapacity = 16)
 		{
 			CovarianceScale = covarianceScale;
 			NominalAngularErrorMilliradians = nominalAngularErrorMilliradians;
@@ -94,6 +96,7 @@ namespace ACunicombat.Mechs
 			TrackReacquisitionTimeSeconds = trackReacquisitionTimeSeconds;
 			SolutionUpdateRateHz = solutionUpdateRateHz;
 			SolutionLatencyMilliseconds = solutionLatencyMilliseconds;
+            MissileSupportCapacity = Mathf.Max(0,missileSupportCapacity);
 		}
 
 		public float CovarianceScale { get; }
@@ -108,6 +111,7 @@ namespace ACunicombat.Mechs
 		public float TrackReacquisitionTimeSeconds { get; }
 		public float SolutionUpdateRateHz { get; }
 		public float SolutionLatencyMilliseconds { get; }
+        public int MissileSupportCapacity { get; }
 	}
 
 	/// <summary>Compatibility view for the existing prediction chart and callers.</summary>
@@ -164,17 +168,41 @@ namespace ACunicombat.Mechs
 			return new MechFireControlPerformanceProfile(radar, fireControl);
 		}
 
+        public static int GuidanceUplinkCapacity(MechDataLinkPerformance link, in MechFireControlComputerProfile fcs, float updateRateHz)
+        {
+            if(link==null || !link.HasData || link.guidanceUpdateRateHz<=0 || updateRateHz<=0 || fcs.GuidanceChannelCapacity<=0 || fcs.SolutionUpdateRateHz<=0)return 0;
+            int bandwidthSlots=Mathf.FloorToInt(link.bandwidthKbps /
+                (ACunicombat.DataLink.DataLinkSystem.EstimatedMessageKilobits*updateRateHz));
+            return Mathf.Max(0,Mathf.Min(Mathf.Min(link.maximumNetworkNodes-1, ACunicombat.DataLink.DataLinkSystem.MaxTerminals-1), fcs.MissileSupportCapacity, bandwidthSlots));
+        }
+
+        public static bool IsTrackPreciseEnoughForLock(in TrackSnapshot track, Vector3 observer, double now,
+            in MechRadarPerformanceProfile radar)
+        {
+            if(track.Lifecycle != TrackLifecycle.Confirmed || now-track.LastUpdateTime > Mathf.Max(.25f,radar.TwsRevisitIntervalSeconds*3f))return false;
+            double range=Unity.Mathematics.math.length(track.PredictPosition(now)-(Unity.Mathematics.double3)(Unity.Mathematics.float3)observer);
+            double variance=track.GetCovariance(0,0)+track.GetCovariance(1,1)+track.GetCovariance(2,2);
+            double dt=System.Math.Max(0,now-track.LastPredictTime);
+            // Include uncertainty growth since the published prediction epoch.
+            for(int axis=0;axis<3;axis++)variance += 2*dt*track.GetCovariance(axis,axis+3)+dt*dt*track.GetCovariance(axis+3,axis+3);
+            if(double.IsNaN(variance)||double.IsInfinity(variance)||variance<0)return false;
+            double beam=radar.Hardware.IsValid?radar.Hardware.BeamWidthRadians:6f*Mathf.Deg2Rad;
+            // 3-sigma uncertainty must fit within the tracking beam, using public measurements only.
+            return 3.0*System.Math.Sqrt(variance) <= System.Math.Max(10.0,range*System.Math.Tan(beam*.5));
+        }
+
 		public static MechRadarPerformanceProfile BuildRadarProfile(MechAggregatedStats stats)
 		{
 			var source = stats?.radarPerformance;
-			if (source != null && source.HasData)
+            var hardware = (source ?? new MechRadarPerformance()).Physical;
+			if (source != null && source.HasData && (source.searchDwellRateHz > 0f || source.rangeAccuracyM > 0f || source.maximumTrackingRateDegPerSecond > 0f))
 			{
 				float angularAccuracy = PositiveOrFallback(
 					source.angularAccuracyMrad,
 					ReferenceAngularAccuracyMilliradians);
 				return new MechRadarPerformanceProfile(
-					PositiveOrFallback(source.referenceDetectionRangeKm, 100f) * 1000f,
-					PositiveOrFallback(source.stableTrackRangeKm, source.referenceDetectionRangeKm) * 1000f,
+					hardware.EstimateRangeMeters(1f,.008f),
+					hardware.EstimateRangeMeters(1f,.028f),
 					PositiveOrFallback(source.searchAzimuthDeg, 100f),
 					PositiveOrFallback(source.searchElevationDeg, 60f),
 					Mathf.Clamp(source.trackCapacity, 1, MechRadarPerformance.RadarTrackManagerSafetyLimit),
@@ -188,7 +216,7 @@ namespace ACunicombat.Mechs
 					ReciprocalOrFallback(source.twsUpdateRateHz, ReferenceTwsRevisitIntervalSeconds),
 					ReciprocalOrFallback(source.sttUpdateRateHz, ReferenceSttRevisitIntervalSeconds),
 					Mathf.Clamp(angularAccuracy / ReferenceAngularAccuracyMilliradians, 0.35f, 2.5f),
-					source.LockMaintenanceRating);
+					source.LockMaintenanceRating, hardware);
 			}
 
 			float precision = PositiveOrFallback(stats?.sensorPrecision ?? 0f, ReferenceSensorPrecision);
@@ -197,12 +225,10 @@ namespace ACunicombat.Mechs
 			float referenceScale = Mathf.Lerp(1.6f, 0.55f, ReferenceSensorPrecision / 100f);
 			float measurementScale = Mathf.Clamp(rawScale / referenceScale, 0.45f, 1.8f);
 			float revisitScale = ReferenceRadarRefreshHz / Mathf.Max(0.25f, refreshHz);
-			float range = stats != null && stats.radarRangeKm > 0f
-				? stats.radarRangeKm * 1000f
-				: DefaultRadarMaximumRangeMeters;
+			float range = hardware.EstimateRangeMeters(1f,.008f);
 			return new MechRadarPerformanceProfile(
 				range,
-				range * 0.75f,
+				hardware.EstimateRangeMeters(1f,.028f),
 				100f,
 				60f,
 				Mathf.Clamp(stats?.trackCapacity ?? 16, 1, MechRadarPerformance.RadarTrackManagerSafetyLimit),
@@ -216,7 +242,7 @@ namespace ACunicombat.Mechs
 				Mathf.Clamp(ReferenceTwsRevisitIntervalSeconds * revisitScale, 0.08f, 0.8f),
 				Mathf.Clamp(ReferenceSttRevisitIntervalSeconds * Mathf.Sqrt(revisitScale), 0.02f, 0.12f),
 				measurementScale,
-				Mathf.Clamp01(refreshHz / 5f) * 100f);
+				Mathf.Clamp01(refreshHz / 5f) * 100f, hardware);
 		}
 
 		public static MechFireControlComputerProfile BuildFireControlProfile(
@@ -243,7 +269,7 @@ namespace ACunicombat.Mechs
 					Mathf.Clamp(source.pointDefenseRating, 0f, 100f),
 					Mathf.Max(0f, source.trackReacquisitionTimeS),
 					updateRate,
-					Mathf.Max(0f, source.solutionLatencyMs));
+					Mathf.Max(0f, source.solutionLatencyMs), source.missileSupportCapacity);
 			}
 
 			float quality = PositiveOrFallback(stats?.fireControlQuality ?? 0f, ReferenceFireControlQuality);
@@ -261,7 +287,7 @@ namespace ACunicombat.Mechs
 				quality,
 				0.6f,
 				30f,
-				35f);
+				35f, source?.missileSupportCapacity ?? 16);
 		}
 
 		public static float EstimatePredictionErrorMeters(

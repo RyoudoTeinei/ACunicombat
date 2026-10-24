@@ -5,6 +5,8 @@ using UnityEngine.Serialization;
 
 namespace ACunicombat.Mechs
 {
+    public enum MechSpecialistKitKind { None, EarlyWarning, Support }
+
     public enum MechVisualRigMode
     {
         MountedPrefab = 0,
@@ -86,6 +88,31 @@ namespace ACunicombat.Mechs
         [SerializeField] private List<MechPartSlot> requiredInstalledSlots = new List<MechPartSlot>();
         [SerializeField] private string[] requiredLoadoutTags = Array.Empty<string>();
         [SerializeField] private string[] blockedLoadoutTags = Array.Empty<string>();
+
+        [Header("Specialist conversion and core expansion")]
+        [SerializeField, Min(0)] private int extensionSlotCount = 2;
+        [SerializeField] private MechSpecialistKitKind specialistKit;
+        [SerializeField, Range(0,3)] private int earlyWarningRadarVariant;
+        [SerializeField] private bool radarDefinitionPending;
+        public int ExtensionSlotCount => slot==MechPartSlot.Core ? Mathf.Max(0,extensionSlotCount) : 0;
+        public MechSpecialistKitKind SpecialistKit => specialistKit;
+        public int EarlyWarningRadarVariant => earlyWarningRadarVariant;
+        public bool RadarDefinitionPending => radarDefinitionPending;
+
+        [Header("Optional defense extension")]
+        [SerializeField] private MechDefenseExtensionProfile defenseExtension = new MechDefenseExtensionProfile();
+        public MechDefenseExtensionProfile DefenseExtension => defenseExtension ?? (defenseExtension=new MechDefenseExtensionProfile());
+        [Header("Functional damage")]
+        [SerializeField] private MechPartDamageProfile damageProfile = new MechPartDamageProfile();
+        public MechPartDamageProfile DamageProfile => damageProfile ?? (damageProfile = new MechPartDamageProfile());
+
+        [Header("Installation interfaces")]
+        [SerializeField] private MechHardpointType mountClass;
+        [SerializeField] private Vector3 installationSizeMeters;
+        [SerializeField] private List<MechSlotDefinition> childSlots = new List<MechSlotDefinition>();
+        public IReadOnlyList<MechSlotDefinition> ChildSlots => childSlots;
+        public Vector3 InstallationSizeMeters => installationSizeMeters;
+        public MechHardpointType MountClass => mountClass != MechHardpointType.None ? mountClass : MechSlotRules.RequiredHardpointType(slot);
 
         public string PartId => string.IsNullOrWhiteSpace(partId) ? name : partId;
         public string DisplayName => string.IsNullOrWhiteSpace(displayName) ? PartId : displayName;

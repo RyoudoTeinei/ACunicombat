@@ -48,7 +48,7 @@ namespace ACunicombat.Mechs
 
 		private static readonly Color ComparisonBaselineColor = new Color(0.44f, 0.56f, 0.65f, 1f);
 
-		private static readonly MechPartSlot[] Slots = new MechPartSlot[15]
+		private static readonly MechPartSlot[] Slots = new MechPartSlot[16]
 		{
 			MechPartSlot.LeftHandWeapon,
 			MechPartSlot.RightHandWeapon,
@@ -64,7 +64,8 @@ namespace ACunicombat.Mechs
 			MechPartSlot.Radiator,
 			MechPartSlot.Radar,
 			MechPartSlot.DataLinkTerminal,
-			MechPartSlot.Extension
+			MechPartSlot.Extension,
+            MechPartSlot.Extension2
 		};
 
 		private static readonly MechPartSlot[] WeaponSlots = new MechPartSlot[4]
@@ -83,7 +84,7 @@ namespace ACunicombat.Mechs
 			MechPartSlot.Legs
 		};
 
-		private static readonly MechPartSlot[] InternalSlots = new MechPartSlot[7]
+		private static readonly MechPartSlot[] InternalSlots = new MechPartSlot[8]
 		{
 			MechPartSlot.Booster,
 			MechPartSlot.FireControlSystem,
@@ -91,7 +92,8 @@ namespace ACunicombat.Mechs
 			MechPartSlot.Radiator,
 			MechPartSlot.Radar,
 			MechPartSlot.DataLinkTerminal,
-			MechPartSlot.Extension
+			MechPartSlot.Extension,
+            MechPartSlot.Extension2
 		};
 
 		private readonly struct MissileOption
@@ -141,6 +143,7 @@ namespace ACunicombat.Mechs
 
 		private readonly Dictionary<MechPartSlot, string> missileVariantSelection = new Dictionary<MechPartSlot, string>();
 
+		private readonly MechLayoutMenu layoutMenu = new MechLayoutMenu();
 		private MechAssembler assembler;
 
 		private MechPartCatalog catalog;
@@ -336,6 +339,22 @@ namespace ACunicombat.Mechs
 			}
 		}
 
+        private void CommitExternalLoadout()
+        {
+            RefreshSummary();var saved=CreateRuntimeLoadout(selection,"scenario-edit","场景配装");
+            try{foreach(var a in saved.Assignments)if(missileVariantSelection.TryGetValue(a.slot,out var variant))a.missileVariantId=variant;externalSave(saved);}
+            finally{Destroy(saved);}
+            SetVisible(false);
+        }
+        private System.Action<MechLoadoutDefinition> externalSave;
+        private System.Action externalClose;
+        public void OpenForEditing(MechLoadoutDefinition source,System.Action<MechLoadoutDefinition> save,System.Action close)
+        {
+            externalSave=save;externalClose=close;assembler.Loadout=source;
+            layoutMenu.Dispose();CopySelection(source.EnumerateEnabledAssignments().Where(a=>a.part!=null).ToDictionary(a=>a.slot,a=>a.part.PartId));
+            foreach(var a in source.EnumerateEnabledAssignments())if(!string.IsNullOrEmpty(a.missileVariantId))missileVariantSelection[a.slot]=a.missileVariantId;
+            appearance=MechAppearanceSelectionStore.Load();previewRenderer.SetAppearance(appearance);SetVisible(true);
+        }
 		private void Awake()
 		{
 			assembler = GetComponent<MechAssembler>();
@@ -355,15 +374,17 @@ namespace ACunicombat.Mechs
 
 		private void Start()
 		{
+            if(externalSave!=null)return;
 			if (assembler == null || catalog == null)
 			{
 				base.enabled = false;
 				return;
 			}
-			CopySelection(MechLoadoutSelectionStore.ReadSelection(assembler.Loadout));
+			if (assembler.Loadout.Platform == null) CopySelection(MechLoadoutSelectionStore.ReadSelection(assembler.Loadout));
 			appearance = MechAppearanceSelectionStore.Load();
 			previewRenderer.SetAppearance(appearance);
-			bool skipMenu = MechLoadoutSelectionStore.ConsumeSkipNextOpen();
+			bool skipMenu = true;
+            MechLoadoutSelectionStore.ConsumeSkipNextOpen();
 			if (skipMenu)
 			{
 				RestoreGameplayState(restoreStalePause: true);
@@ -388,6 +409,7 @@ namespace ACunicombat.Mechs
 
 		private void OnDestroy()
 		{
+            layoutMenu.Dispose();
 			RestoreGameplayState(restoreStalePause: false);
 			IsAnyMenuVisible = false;
 			DestroyTexture(panelTexture);
@@ -422,6 +444,7 @@ namespace ACunicombat.Mechs
 
 		private void Update()
 		{
+            if(externalSave!=null&&!visible)return;
 			Keyboard keyboard = Keyboard.current;
 			if (keyboard == null)
 			{
@@ -468,6 +491,7 @@ namespace ACunicombat.Mechs
 				else
 				{
 					RestoreGameplayState(restoreStalePause: false);
+                    externalClose?.Invoke();
 				}
 			}
 		}
@@ -510,7 +534,13 @@ namespace ACunicombat.Mechs
 		}
 
 		private void OnGUI()
-		{
+        {
+            if (visible && assembler != null && assembler.Loadout != null && assembler.Loadout.Platform != null)
+            {
+                int previousDepth = GUI.depth; GUI.depth = -10000;
+                layoutMenu.Draw(assembler, catalog, () => SetVisible(false), ReloadScene, externalSave);
+                GUI.depth = previousDepth; return;
+            }
 			if (visible)
 			{
 				EnsureStyles();
@@ -880,6 +910,8 @@ namespace ACunicombat.Mechs
 			DrawPartTextRow(view, ref y, "制导方式", missile.Guidance);
 			DrawPartTextRow(view, ref y, "发射位置", SlotName(missileSlot));
 			DrawPartMetric(view, ref y, "单架装填", missile.MagazineCapacity, 12f, missile.MagazineCapacity + " 发");
+            var launcher=MechMissileLauncherCatalog.Find(missileLauncherPartId);
+            if(launcher?.Number=="4252")DrawPartTextRow(view,ref y,"装填结构","2×4发独立弹组＋4发备弹；总12发，C型最多4发");
 			DrawPartMetricGroup(view, ref y, "结构与推进");
 			DrawPartMetric(view, ref y, "发射质量", profile.InitialMassKg, 300f, $"{profile.InitialMassKg:0.0} kg");
 			float propellantMass = profile.MainPropellantMassKg + profile.SecondStagePropellantMassKg + profile.RcsPropellantMassKg;
@@ -891,13 +923,15 @@ namespace ACunicombat.Mechs
 				DrawPartTextRow(view, ref y, "续航动力", profile.PropulsionMode == MissilePropulsionMode.DualPulseSolid ? "第二固体脉冲" : "可调流量固体冲压");
 				DrawPartMetric(view, ref y, "续航段推力", profile.SecondStageThrustNewtons, 80000f, $"{profile.SecondStageThrustNewtons / 1000f:0.0} kN");
 				DrawPartMetric(view, ref y, "续航段燃烧", profile.SecondStageBurnDurationSeconds, 40f, $"{profile.SecondStageBurnDurationSeconds:0.00} s");
-				DrawPartMetric(view, ref y, "再点火延迟", profile.SecondStageIgnitionDelaySeconds, 12f, $"{profile.SecondStageIgnitionDelaySeconds:0.00} s", higherIsBetter: false);
+				DrawPartMetric(view, ref y, profile.AdaptiveSecondPulse ? "最短脉冲间隔" : "再点火延迟", profile.SecondStageIgnitionDelaySeconds, 12f, $"{profile.SecondStageIgnitionDelaySeconds:0.00} s", higherIsBetter: false);
+                if(profile.AdaptiveSecondPulse)DrawPartTextRow(view,ref y,"点火策略","接敌时间 / 闭合速度 / 机动恢复");
 			}
 			DrawPartMetric(view, ref y, "离架速度", profile.EjectionSpeedMps, 100f, $"{profile.EjectionSpeedMps:0} m/s");
 			DrawPartMetric(view, ref y, "RCS 推力", profile.RcsThrustNewtons, 30000f, $"{profile.RcsThrustNewtons / 1000f:0.0} kN");
 			DrawPartMetric(view, ref y, "最大角速度", profile.MaximumAngularRateDegreesPerSecond, 600f, $"{profile.MaximumAngularRateDegreesPerSecond:0} °/s");
 			DrawPartMetricGroup(view, ref y, "射程与导引头");
 			DrawPartMetric(view, ref y, "最大射程", profile.MaximumRangeMeters, 150000f, FormatDistance(profile.MaximumRangeMeters));
+            DrawPartTextRow(view,ref y,"有效交战范围","依据本机与目标的位置、速度及制导条件实时计算");
 			DrawPartMetric(view, ref y, "最大飞行时间", profile.MaximumFlightTimeSeconds, 300f, $"{profile.MaximumFlightTimeSeconds:0.#} s");
 			DrawPartMetric(view, ref y, "导引头作用距离", profile.SeekerRangeMeters, 50000f, FormatDistance(profile.SeekerRangeMeters));
 			DrawPartMetric(view, ref y, "搜索半角", profile.SeekerSearchHalfAngleDegrees, 90f, $"{profile.SeekerSearchHalfAngleDegrees:0}°");
@@ -948,10 +982,12 @@ namespace ACunicombat.Mechs
 		private void DrawPartList(Rect rect)
 		{
 			List<MechPartCatalogEntry> entries = (from mechPartCatalogEntry in catalog.GetEntries(activeSlot)
-				where string.IsNullOrWhiteSpace(search) || mechPartCatalogEntry.DisplayName.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0 || mechPartCatalogEntry.PartId.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0
+				where MechSpecialistKits.CandidateAllowed(activeSlot,mechPartCatalogEntry.LoadPart(),selection,catalog) && (string.IsNullOrWhiteSpace(search) || mechPartCatalogEntry.DisplayName.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0 || mechPartCatalogEntry.PartId.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0)
 				orderby mechPartCatalogEntry.IsTested descending
 				select mechPartCatalogEntry).ThenBy<MechPartCatalogEntry, string>((MechPartCatalogEntry mechPartCatalogEntry) => mechPartCatalogEntry.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
-			Rect view = new Rect(0f, 0f, rect.width - 18f, Mathf.Max(rect.height, (float)entries.Count * 88f));
+			if(entries.Count==0&&(MechSpecialistKits.IsExtension(activeSlot)||MechSpecialistKits.IsShoulder(activeSlot)))
+                GUI.Label(new Rect(rect.x+12,rect.y+12,rect.width-24,65),"当前套件或核心扩展容量限制：没有可安装部件。",noteStyle);
+            Rect view = new Rect(0f, 0f, rect.width - 18f, Mathf.Max(rect.height, (float)entries.Count * 88f));
 			partScroll = GUI.BeginScrollView(rect, partScroll, view);
 			selection.TryGetValue(activeSlot, out var equippedId);
 			for (int i = 0; i < entries.Count; i++)
@@ -1016,7 +1052,7 @@ namespace ACunicombat.Mechs
 			bool hasBoosterData = part.Slot == MechPartSlot.Booster && part.BoosterPerformance != null && part.BoosterPerformance.HasData;
 			bool hasGeneratorData = part.Slot == MechPartSlot.Generator && part.GeneratorPerformance != null && part.GeneratorPerformance.HasData;
 			bool hasRadiatorData = part.Slot == MechPartSlot.Radiator && part.RadiatorPerformance != null && part.RadiatorPerformance.HasData;
-			bool hasRadarData = part.Slot == MechPartSlot.Radar && part.RadarPerformance != null && part.RadarPerformance.HasData;
+			bool hasRadarData = !part.RadarDefinitionPending && part.Slot == MechPartSlot.Radar && part.RadarPerformance != null && part.RadarPerformance.HasData;
 			bool hasFireControlData = part.Slot == MechPartSlot.FireControlSystem && part.FireControlPerformance != null && part.FireControlPerformance.HasData;
 			bool hasDataLinkData = part.Slot == MechPartSlot.DataLinkTerminal && part.DataLinkPerformance != null && part.DataLinkPerformance.HasData;
 			float viewHeight = entry.IsWeapon
@@ -1034,6 +1070,20 @@ namespace ACunicombat.Mechs
 				GUI.Label(new Rect(0f, y, view.width - 8f, 42f), string.IsNullOrWhiteSpace(entry.StatusNote) ? "尚未完成战斗功能验证。" : entry.StatusNote, entry.IsTested ? noteStyle : warningStyle);
 				y += 50f;
 			}
+            if(part.SpecialistKit!=MechSpecialistKitKind.None||part.RadarDefinitionPending)
+            {
+                string detail=part.RadarDefinitionPending?"预警机专用雷达型号占位：性能待讨论，暂不执行主动探测。":part.SpecialistKit==MechSpecialistKitKind.EarlyWarning?"预警机套件：独占全部扩展槽，禁用左右肩武器；仅可选三款预警机雷达（性能待定）。":"支援机套件：独占全部扩展槽，禁用左右肩武器；补给功能尚未接入。";
+                GUI.Label(new Rect(0,y,view.width-8,80),detail,noteStyle);y+=88;
+            }
+            if(part.Slot==MechPartSlot.Core){GUI.Label(new Rect(0,y,view.width-8,28),$"扩展槽数量：{part.ExtensionSlotCount}",noteStyle);y+=32;}
+            if(part.DefenseExtension.kind!=MechDefenseExtensionKind.None)
+            {
+                var defense=part.DefenseExtension;
+                string detail=defense.kind==MechDefenseExtensionKind.ActiveProtection
+                    ? $"主动防御扩展\n弹药 {defense.ammunition} 发 · 反应 {defense.reactionSeconds:0.00}s · 冷却 {defense.cooldownSeconds:0.0}s\n拦截范围 {defense.minimumRangeMeters:0}–{defense.maximumRangeMeters:0}m · 覆盖半角 {defense.coverageHalfAngle:0}°\n弹射速度 {defense.projectileSpeed:0}m/s · 爆炸半径 {defense.blastRadiusMeters:0}m · 安全引爆距 {defense.minimumBurstDistanceMeters:0}m\n需要有效本机威胁航迹；拦截可能失败。"
+                    : $"全身反应装甲扩展\n装备后覆盖全身，每区域 {defense.armor.cells} 个单元\n减伤 {defense.armor.damageReduction:P0}；区域耗尽后该处失去防护。";
+                GUI.Label(new Rect(0,y,view.width-8,120),detail,noteStyle);y+=128;
+            }
 			if (entry.IsWeapon)
 			{
 				DrawWeaponPerformanceStats(view, ref y, entry, part, equippedEntry, equippedPart);
@@ -1103,9 +1153,15 @@ namespace ACunicombat.Mechs
 			DrawPartComparisonMetric(view, ref y, "待机产热", ToKilowatts(stats.idleHeatMw), ToKilowatts(equippedStats?.idleHeatMw), 5000f, "0.#", " kW", higherIsBetter: false);
 			DrawPartComparisonMetric(view, ref y, "工作产热", ToKilowatts(stats.activeHeatMw), ToKilowatts(equippedStats?.activeHeatMw), 10000f, "0.#", " kW", higherIsBetter: false);
 			DrawPartComparisonMetric(view, ref y, "热容量", stats.heatCapacityMj, equippedStats?.heatCapacityMj, 100f, "0.0", " MJ", higherIsBetter: true);
+            DrawPartMetricGroup(view, ref y, "雷达硬件");
+            DrawPartComparisonMetric(view, ref y, "驻留平均射频功率", radar.averageTransmitPowerWatts/1000f, compare ? equippedRadar.averageTransmitPowerWatts/1000f : null, 1000f, "0.0", " kW", higherIsBetter: true);
+            DrawPartComparisonMetric(view, ref y, "天线口径", radar.apertureDiameterMeters, compare ? equippedRadar.apertureDiameterMeters : null, 5f, "0.00", " m", higherIsBetter: true);
+            DrawPartComparisonMetric(view, ref y, "工作频率", radar.frequencyGHz, compare ? equippedRadar.frequencyGHz : null, 40f, "0.0", " GHz", higherIsBetter: true);
+            DrawPartComparisonMetric(view, ref y, "系统噪声温度", radar.systemNoiseTemperatureKelvin, compare ? equippedRadar.systemNoiseTemperatureKelvin : null, 2000f, "0", " K", higherIsBetter: false);
+            DrawPartComparisonMetric(view, ref y, "系统损耗", radar.systemLossDb, compare ? equippedRadar.systemLossDb : null, 20f, "0.0", " dB", higherIsBetter: false);
 			DrawPartMetricGroup(view, ref y, "搜索与跟踪");
-			DrawPartComparisonMetric(view, ref y, "参考探测距离", radar.referenceDetectionRangeKm, compare ? equippedRadar.referenceDetectionRangeKm : null, 100f, "0.0", " km", higherIsBetter: true);
-			DrawPartComparisonMetric(view, ref y, "稳定跟踪距离", radar.stableTrackRangeKm, compare ? equippedRadar.stableTrackRangeKm : null, 100f, "0.0", " km", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "搜索估距（1㎡）", radar.EstimatedSearchRangeKm, compare ? equippedRadar.EstimatedSearchRangeKm : null, 100f, "0.0", " km", higherIsBetter: true);
+			DrawPartComparisonMetric(view, ref y, "STT估距（1㎡）", radar.EstimatedTrackRangeKm, compare ? equippedRadar.EstimatedTrackRangeKm : null, 100f, "0.0", " km", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "水平扫描范围", radar.searchAzimuthDeg, compare ? equippedRadar.searchAzimuthDeg : null, 180f, "0", "°", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "垂直扫描范围", radar.searchElevationDeg, compare ? equippedRadar.searchElevationDeg : null, 120f, "0", "°", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "航迹容量", radar.trackCapacity, compare ? equippedRadar.trackCapacity : null, 32f, "0", string.Empty, higherIsBetter: true);
@@ -1142,6 +1198,7 @@ namespace ACunicombat.Mechs
 			DrawPartComparisonMetric(view, ref y, "并行解算容量", fcs.simultaneousSolutionCapacity, compare ? equippedFcs.simultaneousSolutionCapacity : null, 32f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "武器控制通道", fcs.weaponControlChannels, compare ? equippedFcs.weaponControlChannels : null, 16f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "制导通道", fcs.guidanceChannelCapacity, compare ? equippedFcs.guidanceChannelCapacity : null, 16f, "0", string.Empty, higherIsBetter: true);
+            DrawPartComparisonMetric(view, ref y, "导弹支援容量", fcs.missileSupportCapacity, compare ? equippedFcs.missileSupportCapacity : null, 64f, "0", " 枚", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "多目标交战容量", fcs.multiTargetEngagementCapacity, compare ? equippedFcs.multiTargetEngagementCapacity : null, 16f, "0", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "点防御性能", fcs.pointDefenseRating, compare ? equippedFcs.pointDefenseRating : null, 100f, "0", string.Empty, higherIsBetter: true);
 		}
@@ -1208,6 +1265,18 @@ namespace ACunicombat.Mechs
 
 		private void DrawWeaponPerformanceStats(Rect view, ref float y, MechPartCatalogEntry entry, MechPartDefinition part, MechPartCatalogEntry equippedEntry, MechPartDefinition equippedPart)
 		{
+            var launcher=MechMissileLauncherCatalog.Find(part?.PartId);
+            if(launcher!=null)
+            {
+                DrawPartMetricGroup(view,ref y,"导弹仓规格");
+                DrawPartTextRow(view,ref y,"用途",launcher.Purpose);
+                DrawPartTextRow(view,ref y,"在膛容量",launcher.LoadedCapacity+" 发（"+launcher.LoadedGroups+"组×"+launcher.GroupCapacity+"发）");
+                DrawPartTextRow(view,ref y,"总携弹量",(launcher.GroupCapacity*launcher.TotalGroups)+" 发，含在膛");
+                DrawPartTextRow(view,ref y,"兼容弹种",string.Join(" / ",launcher.CompatibleAmmo.Select(id=>MechMissileAmmunitionCatalog.Create(id)?.missileDisplayName??id)));
+                if(launcher.Number=="4252")DrawPartTextRow(view,ref y,"混装限制","两个独立4发组；C型最多4发；备弹4发");
+                DrawPartTextRow(view,ref y,"弹药性能","进入弹药配置查看对应弹种的射程与推进参数");
+                return;
+            }
 			MechWeaponPerformanceSnapshot weapon = default(MechWeaponPerformanceSnapshot);
 			bool configured = weaponSystem != null && weaponSystem.TryGetWeaponPerformance(part, out weapon);
 			MechWeaponPerformanceSnapshot equippedWeapon = default(MechWeaponPerformanceSnapshot);
@@ -1275,10 +1344,11 @@ namespace ACunicombat.Mechs
 			if (configured)
 			{
 				DrawPartTextRow(view, ref y, "单发后坐冲量", weapon.HasRecoilImpulse ? $"{weapon.RecoilImpulseNewtonSeconds:0.#} N·s" : (weapon.IsGuidedMissile ? "不适用" : "未标定"));
-				DrawPartMetric(view, ref y, "弹匣容量", weapon.MagazineCapacity, 64f, $"{weapon.MagazineCapacity} 发", Compared(equippedConfigured, equippedWeapon.MagazineCapacity), equippedConfigured ? $"{equippedWeapon.MagazineCapacity} 发" : null);
+				if(part.WeaponPerformance.beltFed)DrawPartTextRow(view,ref y,"供弹方式","连续弹链供弹，无换弹；过热停火，冷却恢复");
+                else DrawPartMetric(view, ref y, "弹匣容量", weapon.MagazineCapacity, 64f, $"{weapon.MagazineCapacity} 发", Compared(equippedConfigured, equippedWeapon.MagazineCapacity), equippedConfigured ? $"{equippedWeapon.MagazineCapacity} 发" : null);
 				float totalAmmoScale = weapon.IsPointDefense ? 1000f : 500f;
 				DrawPartMetric(view, ref y, "总弹药量", weapon.TotalAmmunition, totalAmmoScale, $"{weapon.TotalAmmunition} 发", Compared(equippedConfigured, equippedWeapon.TotalAmmunition), equippedConfigured ? $"{equippedWeapon.TotalAmmunition} 发" : null);
-				DrawPartMetric(view, ref y, "装填时间", weapon.ReloadTimeSeconds, 10f, (weapon.ReloadTimeSeconds > 0f) ? $"{weapon.ReloadTimeSeconds:0.00} s" : "即时换架", Compared(equippedConfigured, equippedWeapon.ReloadTimeSeconds), (!equippedConfigured) ? null : ((equippedWeapon.ReloadTimeSeconds > 0f) ? $"{equippedWeapon.ReloadTimeSeconds:0.00} s" : "即时换架"), higherIsBetter: false);
+				if(!part.WeaponPerformance.beltFed)DrawPartMetric(view, ref y, "装填时间", weapon.ReloadTimeSeconds, 10f, (weapon.ReloadTimeSeconds > 0f) ? $"{weapon.ReloadTimeSeconds:0.00} s" : "即时换架", Compared(equippedConfigured, equippedWeapon.ReloadTimeSeconds), (!equippedConfigured) ? null : ((equippedWeapon.ReloadTimeSeconds > 0f) ? $"{equippedWeapon.ReloadTimeSeconds:0.00} s" : "即时换架"), higherIsBetter: false);
 			}
 			else
 			{
@@ -1647,7 +1717,6 @@ namespace ACunicombat.Mechs
 				DrawPartComparisonMetric(view, ref y, "整机承载上限", stats.supportedMassKg, equippedStats?.supportedMassKg, 100000f, "0", " kg", higherIsBetter: true);
 			}
 			DrawPartMetricGroup(view, ref y, "传感器与火控");
-			DrawPartComparisonMetric(view, ref y, "雷达距离", stats.radarRangeKm, equippedStats?.radarRangeKm, 100f, "0.0", " km", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "雷达孔径", stats.radarAperture, equippedStats?.radarAperture, 10f, "0.00", string.Empty, higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "雷达刷新率", stats.radarRefreshHz, equippedStats?.radarRefreshHz, 20f, "0.0", " Hz", higherIsBetter: true);
 			DrawPartComparisonMetric(view, ref y, "传感器精度", stats.sensorPrecision, equippedStats?.sensorPrecision, 100f, "0.0", string.Empty, higherIsBetter: true);
@@ -1719,8 +1788,8 @@ namespace ACunicombat.Mechs
 			DrawAggregateValueRow(row, ref y, "QB 再启动间隔", current.boosterPerformance?.quickBoostRecoveryS ?? 0f, equipped.boosterPerformance?.quickBoostRecoveryS ?? 0f, "0.00", " s", higherIsBetter: false, 2f);
 			DrawAggregateValueRow(row, ref y, "RCS 转向速度", current.rcsTurnRateDegreesPerSecond, equipped.rcsTurnRateDegreesPerSecond, "0.0", " °/s", higherIsBetter: true, 300f);
 			DrawGroup(ref y, row, "雷达");
-			DrawAggregateValueRow(row, ref y, "参考探测距离", current.radarPerformance.referenceDetectionRangeKm, equipped.radarPerformance.referenceDetectionRangeKm, "0.0", " km", higherIsBetter: true, 100f);
-			DrawAggregateValueRow(row, ref y, "稳定跟踪距离", current.radarPerformance.stableTrackRangeKm, equipped.radarPerformance.stableTrackRangeKm, "0.0", " km", higherIsBetter: true, 100f);
+			DrawAggregateValueRow(row, ref y, "搜索估距（1㎡）", current.radarPerformance.EstimatedSearchRangeKm, equipped.radarPerformance.EstimatedSearchRangeKm, "0.0", " km", higherIsBetter: true, 100f);
+			DrawAggregateValueRow(row, ref y, "STT估距（1㎡）", current.radarPerformance.EstimatedTrackRangeKm, equipped.radarPerformance.EstimatedTrackRangeKm, "0.0", " km", higherIsBetter: true, 100f);
 			DrawAggregateValueRow(row, ref y, "航迹容量", current.radarPerformance.trackCapacity, equipped.radarPerformance.trackCapacity, "0", string.Empty, higherIsBetter: true, 32f);
 			DrawAggregateValueRow(row, ref y, "锁定维持能力", current.radarPerformance.LockMaintenanceRating, equipped.radarPerformance.LockMaintenanceRating, "0.0", string.Empty, higherIsBetter: true, 100f);
 			DrawGroup(ref y, row, "火控");
@@ -1728,6 +1797,7 @@ namespace ACunicombat.Mechs
 			DrawAggregateValueRow(row, ref y, "最大预测时间", current.fireControlPerformance.maximumPredictionTimeS, equipped.fireControlPerformance.maximumPredictionTimeS, "0.0", " s", higherIsBetter: true, 12f);
 			DrawAggregateValueRow(row, ref y, "武器控制通道", current.fireControlPerformance.weaponControlChannels, equipped.fireControlPerformance.weaponControlChannels, "0", string.Empty, higherIsBetter: true, 16f);
 			DrawAggregateValueRow(row, ref y, "制导通道", current.fireControlPerformance.guidanceChannelCapacity, equipped.fireControlPerformance.guidanceChannelCapacity, "0", string.Empty, higherIsBetter: true, 16f);
+            DrawAggregateValueRow(row, ref y, "导弹支援容量", current.fireControlPerformance.missileSupportCapacity, equipped.fireControlPerformance.missileSupportCapacity, "0", " 枚", higherIsBetter: true, 64f);
 			DrawGroup(ref y, row, "能源与热量");
 			DrawAggregateValueRow(row, ref y, "发电功率", ToKilowatts(current.powerOutputMw), ToKilowatts(equipped.powerOutputMw), "0.#", " kW", higherIsBetter: true, ToKilowatts(150f));
 			DrawAggregateValueRow(row, ref y, "储能容量", current.energyStorageCapacityMj, equipped.energyStorageCapacityMj, "0.0", " MJ", higherIsBetter: true, 600f);
@@ -1768,14 +1838,17 @@ namespace ACunicombat.Mechs
 					ClosePartSelection();
 				}
 				selection.TryGetValue(activeSlot, out var equippedId);
+                if(MechSpecialistKits.IsExtension(activeSlot)&&!string.IsNullOrWhiteSpace(equippedId)&&GUI.Button(new Rect(232f,y,150f,42f),"卸下扩展",buttonStyle))
+                {selection.Remove(activeSlot);MechSpecialistKits.NormalizeSelection(selection,catalog,activeSlot);ClosePartSelection();}
 				MechPartDefinition pendingPart = catalog.Find(pendingPartId)?.LoadPart();
 				bool referenceOnly = pendingPart != null && pendingPart.HasTag("reference-only");
-				bool num = !string.IsNullOrWhiteSpace(pendingPartId) && pendingPart != null && !referenceOnly;
+				bool num = !string.IsNullOrWhiteSpace(pendingPartId) && pendingPart != null && !referenceOnly && MechSpecialistKits.CandidateAllowed(activeSlot,pendingPart,selection,catalog);
 				bool alreadyEquipped = string.Equals(pendingPartId, equippedId, StringComparison.OrdinalIgnoreCase);
 				GUI.enabled = num && !alreadyEquipped;
 				if (GUI.Button(new Rect((float)Screen.width - 32f - 230f, y, 230f, 42f), referenceOnly ? "尚未接入仿真" : (alreadyEquipped ? "已装备" : "装备"), primaryButtonStyle))
 				{
 					selection[activeSlot] = pendingPartId;
+                    MechSpecialistKits.NormalizeSelection(selection,catalog,activeSlot);
 					missileVariantSelection.Remove(activeSlot);
 					ClosePartSelection();
 				}
@@ -1783,7 +1856,8 @@ namespace ACunicombat.Mechs
 			}
 			else if (GUI.Button(new Rect(32f, y, 190f, 42f), "恢复测试机体", buttonStyle))
 			{
-				MechLoadoutSelectionStore.ResetToDefault();
+				if(externalSave!=null){CopySelection(assembler.Loadout.EnumerateEnabledAssignments().Where(a=>a.part!=null).ToDictionary(a=>a.slot,a=>a.part.PartId));return;}
+                MechLoadoutSelectionStore.ResetToDefault();
 				MechAppearanceSelectionStore.ResetToDefault();
 				ReloadScene();
 			}
@@ -1791,9 +1865,10 @@ namespace ACunicombat.Mechs
 			if (!drawingPartSelection && !drawingMissileSelection)
 			{
 				GUI.enabled = cachedValidation == null || cachedValidation.IsValid;
-				if (GUI.Button(new Rect((float)Screen.width - 32f - 230f, y, 230f, 42f), "应用并进入测试", primaryButtonStyle))
+				if (GUI.Button(new Rect((float)Screen.width - 32f - 230f, y, 230f, 42f), externalSave!=null?"保存配装":"应用并进入测试", primaryButtonStyle))
 				{
-					MechLoadoutSelectionStore.SaveSelection(selection);
+					if(externalSave!=null){CommitExternalLoadout();return;}
+                    MechLoadoutSelectionStore.SaveSelection(selection);
 					MechLoadoutSelectionStore.SaveMissileVariants(selection, missileVariantSelection);
 					MechAppearanceSelectionStore.Save(appearance);
 					ReloadScene();
@@ -1961,10 +2036,16 @@ namespace ACunicombat.Mechs
 		{
 			if (!missileVariantSelection.TryGetValue(slot, out string variantId))
 			{
-				variantId = MechLoadoutSelectionStore.LoadMissileVariantId(slot, launcherPartId, defaultVariantId);
+				variantId = externalSave!=null ? defaultVariantId : MechLoadoutSelectionStore.LoadMissileVariantId(slot, launcherPartId, defaultVariantId);
 				missileVariantSelection[slot] = variantId;
 			}
 
+            var performance=MechMissileLauncherCatalog.CreateDefaultPerformance(launcherPartId);
+            if(performance!=null)
+            {
+                variantId=MechMissileVariantCatalog.ResolveVariant(launcherPartId,performance,variantId).VariantId;
+                missileVariantSelection[slot]=variantId;
+            }
 			return variantId;
 		}
 
@@ -2633,7 +2714,8 @@ namespace ACunicombat.Mechs
 				MechPartSlot.Radiator => "散热",
 				MechPartSlot.Radar => "雷达", 
 				MechPartSlot.DataLinkTerminal => "数据链",
-				MechPartSlot.Extension => "扩展", 
+				MechPartSlot.Extension => "扩展 1",
+                MechPartSlot.Extension2 => "扩展 2",
 				_ => slot.ToString(), 
 			};
 		}
@@ -2652,7 +2734,8 @@ namespace ACunicombat.Mechs
 				MechPartSlot.FireControlSystem => "火控系统", 
 				MechPartSlot.Radar => "雷达", 
 				MechPartSlot.DataLinkTerminal => "数据链终端",
-				MechPartSlot.Extension => "扩展系统", 
+				MechPartSlot.Extension => "扩展系统 1",
+                MechPartSlot.Extension2 => "扩展系统 2",
 				MechPartSlot.LeftHandWeapon => "左手武器", 
 				MechPartSlot.RightHandWeapon => "右手武器", 
 				MechPartSlot.LeftBackWeapon => "左肩武器", 

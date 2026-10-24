@@ -1,0 +1,70 @@
+{
+  "repository": "https://github.com/GaijinEntertainment/fmod_studio_warthunder_for_modders",
+  "revision": "446cd5ec8eddff30bc15477413b7de1b89edcc7e",
+  "files": [
+    {
+      "file": "smoke_grenade_launcher-001.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher-001.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher-002.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher-002.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher-003.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher-003.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher-004.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher-004.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher_far-001.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher_far-001.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher_far-002.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher_far-002.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher_far-003.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher_far-003.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher_far-004.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher_far-004.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher_interior-001.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher_interior-001.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher_interior-002.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher_interior-002.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher_interior-003.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher_interior-003.wav"
+    },
+    {
+      "file": "smoke_grenade_launcher_interior-004.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_launcher_interior-004.wav"
+    },
+    {
+      "file": "smoke_grenade_explosion-001.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_explosion-001.wav"
+    },
+    {
+      "file": "smoke_grenade_explosion-002.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_explosion-002.wav"
+    },
+    {
+      "file": "smoke_grenade_explosion-003.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_explosion-003.wav"
+    },
+    {
+      "file": "smoke_grenade_explosion-004.ogg",
+      "source": "Assets/ath/grenade_launcher/update/smoke_grenade_explosion-004.wav"
+    }
+  ]
+}

@@ -76,7 +76,7 @@ namespace ACunicombat.Sensors
         public void UnregisterTarget(SimEntityId entityId)
         {
             var index = entityId.Value.Index;
-            if ((uint)index < registered.Length)
+            if ((uint)index < registered.Length && targets[index].EntityId.Equals(entityId))
             {
                 registered[index] = false;
             }

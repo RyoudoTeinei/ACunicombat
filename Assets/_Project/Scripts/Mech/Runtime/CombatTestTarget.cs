@@ -67,6 +67,11 @@ namespace ACunicombat.Mechs
         [SerializeField] private bool orientAlongFlightPath = true;
         [SerializeField] private Transform aimPoint;
 
+        [SerializeField] private bool enablePartDamage = true;
+        private bool useUnifiedAP;
+        private MechPartDamageController partDamage;
+        public MechPartDamageController PartDamage => partDamage;
+        public bool UsesUnifiedAP => useUnifiedAP;
         private Renderer[] renderers;
         private Collider[] colliders;
         private BoxCollider damageHitbox;
@@ -85,7 +90,7 @@ namespace ACunicombat.Mechs
 
         public string TargetId => targetId;
         public int TeamId => teamId;
-        public bool IsAlive => structure > 0f;
+        public bool IsAlive => useUnifiedAP ? armor + structure > 0f : structure > 0f;
         public float Armor => armor;
         public float MaxArmor => maxArmor;
         public float Structure => structure;
@@ -94,7 +99,7 @@ namespace ACunicombat.Mechs
         public float MaxHealth => maxArmor + maxStructure;
         public float HealthFraction => MaxHealth > 0f ? Mathf.Clamp01(Health / MaxHealth) : 0f;
         public float RadarCrossSectionSquareMeters => radarCrossSectionSquareMeters;
-        public float ThermalSignature => thermalSignature;
+        public float ThermalSignature => thermalSignature * (GetComponent<MechThermalSignature>()?.InfraredSignatureMultiplier ?? 1);
         public float ElectromagneticSignature => electromagneticSignature;
         public Transform AimPoint => aimPoint != null ? aimPoint : transform;
         public int HitCount => hitCount;
@@ -183,11 +188,12 @@ namespace ACunicombat.Mechs
             armor = maxArmor;
             structure = maxStructure;
             resetAt = -1f;
+            partDamage?.ResetFunctionalDamage();
         }
 
-        public void RefreshGeometry()
+        public void RefreshGeometry(bool includePartDamageInEditor = false)
         {
-            CacheComponents();
+            CacheComponents(includePartDamageInEditor);
         }
 
         public void ConfigureSignatures(
@@ -214,24 +220,26 @@ namespace ACunicombat.Mechs
                 Mathf.Min(Mathf.Max(0f, currentStructure), structureDamage));
         }
 
-        public void ApplyDamage(
-            float damage,
-            Vector3 hitPoint,
-            Vector3 hitDirection,
-            TestWeaponKind weaponKind,
-            MechEffectPrefabLibrary effectLibrary = null,
-            int impactFfxId = 0,
-            Transform damageSource = null)
+        public bool TryApplyDamage(float damage, Vector3 hitPoint, Vector3 hitDirection, TestWeaponKind weaponKind,
+            out CombatDamageBreakdown breakdown, Transform damageSource=null, Collider hitCollider=null, Guid hitEventId=default, Vector3? blastOrigin=null, float blastRadius=0)
         {
-            if (!IsAlive || damage <= 0f)
+            breakdown=default;
+            if (!IsAlive || !float.IsFinite(damage) || damage <= 0f)
             {
-                return;
+                return false;
             }
 
-            CombatDamageBreakdown breakdown = CalculateProtectionDamage(armor, structure, damage);
+            if (partDamage != null && (!partDamage.IsCurrentHitRegion(hitCollider) || !partDamage.TryAcceptHit(hitEventId))) return false;
+            if (blastOrigin.HasValue && blastRadius > 0 && partDamage != null && !partDamage.HasBlastExposure(blastOrigin.Value,blastRadius)) return false;
+            bool armorTriggered=false;
+            float residual=partDamage!=null?partDamage.ResolveReactiveArmor(damage,hitPoint,
+                blastOrigin.HasValue?hitPoint-blastOrigin.Value:hitDirection,weaponKind,hitCollider,out armorTriggered):damage;
+            breakdown = CalculateProtectionDamage(armor, structure, residual);
             armor = Mathf.Max(0f, armor - breakdown.ArmorDamage);
             structure = Mathf.Max(0f, structure - breakdown.StructureDamage);
             bool damageApplied = breakdown.TotalDurabilityDamage > 0f;
+            if(damageApplied)GetComponent<MechIdentityController>()?.ObserveImpact(hitDirection,hitEventId);
+            partDamage?.RecordHit(breakdown.TotalDurabilityDamage, hitPoint, hitCollider, blastOrigin, blastRadius);
             hitCount++;
             lastHitKind = weaponKind;
             DamageApplied?.Invoke(
@@ -243,20 +251,21 @@ namespace ACunicombat.Mechs
             {
                 flashUntil = Time.time + 0.11f;
             }
-            MechTestWeaponSystem.SpawnImpact(
-                hitPoint, -hitDirection, weaponKind, effectLibrary, impactFfxId);
-            if (damageApplied)
-            {
-                EnsureImpactAudio();
-                impactAudio.PlayArmorImpact(
-                    weaponKind, damage, hitPoint, isOwnship);
-            }
-
-            if (structure <= 0f)
+            if (!IsAlive)
             {
                 SetVisibleAndCollidable(false);
-                resetAt = Time.time + resetDelaySeconds;
+                resetAt = isOwnship ? Time.time + resetDelaySeconds : -1f;
             }
+            return damageApplied || armorTriggered;
+        }
+
+        public void ApplyDamage(float damage, Vector3 hitPoint, Vector3 hitDirection, TestWeaponKind weaponKind,
+            MechEffectPrefabLibrary effectLibrary=null, int impactFfxId=0, Transform damageSource=null,
+            Collider hitCollider=null, Guid hitEventId=default, Vector3? blastOrigin=null, float blastRadius=0)
+        {
+            if(!TryApplyDamage(damage,hitPoint,hitDirection,weaponKind,out var breakdown,damageSource,hitCollider,hitEventId,blastOrigin,blastRadius))return;
+            MechTestWeaponSystem.SpawnImpact(hitPoint,-hitDirection,weaponKind,effectLibrary,impactFfxId);
+            EnsureImpactAudio();impactAudio.PlayArmorImpact(weaponKind,damage,hitPoint,isOwnship);
         }
 
         public void PlayNearbyFlakAirburst(
@@ -270,6 +279,7 @@ namespace ACunicombat.Mechs
 
         private void Awake()
         {
+            ACunicombat.Simulation.Driver.BattlefieldEntityIdentity.GetOrAdd(gameObject);
             CacheComponents();
             EnsureImpactAudio();
             origin = transform.position;
@@ -317,7 +327,7 @@ namespace ACunicombat.Mechs
         {
             if (!IsAlive)
             {
-                if (resetAt > 0f && Time.time >= resetAt)
+                if (isOwnship && resetAt > 0f && Time.time >= resetAt)
                 {
                     ResetTarget();
                 }
@@ -356,6 +366,7 @@ namespace ACunicombat.Mechs
 
         private void ResetTarget()
         {
+            ACunicombat.Simulation.Driver.BattlefieldEntityIdentity.GetOrAdd(gameObject).RestartLifetime();
             armor = maxArmor;
             structure = maxStructure;
             resetAt = -1f;
@@ -363,14 +374,27 @@ namespace ACunicombat.Mechs
             motionElapsedSeconds = 0f;
             transform.position = origin;
             transform.rotation = originRotation;
+            partDamage?.ResetFunctionalDamage(true);
             SetVisibleAndCollidable(true);
             ApplyHitFlash(false);
         }
 
-        private void CacheComponents()
+        private void CacheComponents(bool includePartDamageInEditor = false)
         {
             renderers = GetComponentsInChildren<Renderer>(true);
             EnsureDamageHitbox();
+            var runtime = GetComponent<MechRuntimeState>();
+            if (enablePartDamage && runtime != null && runtime.AssembledParts.Count > 0 &&
+                (Application.isPlaying || includePartDamageInEditor || (partDamage != null && partDamage.IsBound)))
+            {
+                if (partDamage == null) partDamage = GetComponent<MechPartDamageController>();
+                if (partDamage == null) partDamage = gameObject.AddComponent<MechPartDamageController>();
+                partDamage.Bind(runtime, MaxHealth);
+                useUnifiedAP = partDamage.IsBound;
+                if (Application.isPlaying && GetComponent<MechPlayerRig>() != null && GetComponent<MechAiTargetController>() == null && GetComponent<MechDamageDiagramHud>() == null)
+                    gameObject.AddComponent<MechDamageDiagramHud>();
+                damageHitbox.enabled = !partDamage.HasHitRegions;
+            }
             colliders = GetComponentsInChildren<Collider>(true);
             propertyBlock ??= new MaterialPropertyBlock();
         }
@@ -480,8 +504,9 @@ namespace ACunicombat.Mechs
             }
             for (var i = 0; i < colliders.Length; i++)
             {
-                if (colliders[i] != null) colliders[i].enabled = value;
+                if (colliders[i] != null) colliders[i].enabled = value && !(colliders[i] == damageHitbox && partDamage != null && partDamage.HasHitRegions);
             }
+            if(value)partDamage?.EnforceRegionColliders();
         }
 
         private void ApplyHitFlash(bool active)

@@ -247,11 +247,12 @@ namespace ACunicombat.FireControl
             float maximumFlightTimeSeconds,
             float maximumTravelDistanceMeters,
             float responseReserveSeconds = 0.2f,
-            float minimumMainEngineIgnitionDelaySeconds = 0f)
+            float minimumMainEngineIgnitionDelaySeconds = 0f,
+            float protectedThreatTimeSeconds = -1f)
         {
             var solution = default(InterceptorEngagementSolution);
             if (!track.IsWeaponsQuality ||
-                !track.Incoming ||
+                (!track.Incoming && protectedThreatTimeSeconds < 0f) ||
                 !kinematics.IsValid ||
                 maximumAngularRateDegreesPerSecond <= 0f ||
                 maximumFlightTimeSeconds <= 0f ||
@@ -270,7 +271,7 @@ namespace ACunicombat.FireControl
                 maximumFlightTimeSeconds,
                 math.max(
                     0f,
-                    track.TimeToClosestApproachSeconds -
+                    (protectedThreatTimeSeconds >= 0f ? protectedThreatTimeSeconds : track.TimeToClosestApproachSeconds) -
                     math.max(0f, responseReserveSeconds)));
             if (timeAvailable <= 0.05f)
             {
@@ -365,7 +366,7 @@ namespace ACunicombat.FireControl
                 currentTargetPosition +
                 track.Velocity * flightTime;
             solution.ThreatTimeMarginSeconds =
-                track.TimeToClosestApproachSeconds -
+                (protectedThreatTimeSeconds >= 0f ? protectedThreatTimeSeconds : track.TimeToClosestApproachSeconds) -
                 (float)flightTime;
             solution.RequiredTurnDegrees =
                 math.degrees(turnRadians);

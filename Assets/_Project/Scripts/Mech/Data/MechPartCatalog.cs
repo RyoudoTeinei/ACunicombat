@@ -68,6 +68,14 @@ namespace ACunicombat.Mechs
 
         public IReadOnlyList<MechPartCatalogEntry> Entries => entries;
 
+        public static MechPartCatalog Combine(MechPartCatalog primary,MechPartCatalog supplement)
+        {
+            if(supplement==null)return primary;
+            var result=CreateInstance<MechPartCatalog>();result.hideFlags=HideFlags.DontSave;
+            if(primary!=null)result.entries.AddRange(primary.entries);
+            foreach(var entry in supplement.entries)if(entry!=null&&result.Find(entry.PartId)==null)result.entries.Add(entry);
+            return result;
+        }
         public MechPartCatalogEntry Find(string partId)
         {
             if (string.IsNullOrWhiteSpace(partId))
@@ -93,7 +101,7 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < entries.Count; i++)
             {
                 var entry = entries[i];
-                if (entry != null && entry.Slot == slot)
+                if (entry != null && (entry.Slot == slot || slot==MechPartSlot.Extension2&&entry.Slot==MechPartSlot.Extension))
                 {
                     result.Add(entry);
                 }

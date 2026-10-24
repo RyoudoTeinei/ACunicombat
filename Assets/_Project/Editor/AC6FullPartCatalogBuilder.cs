@@ -201,6 +201,12 @@ public static class AC6FullPartCatalogBuilder
 		"WP_R_1310",
 		"WP_L_1610",
 		"WP_R_1610",
+		"WP_L_1710",
+		"WP_R_1710",
+		"WP_L_1620",
+		"WP_R_1620",
+		"WP_L_1730",
+		"WP_R_1730",
 		"WP_L_1630",
 		"WP_R_1630",
 		"WP_L_1720",
@@ -217,6 +223,16 @@ public static class AC6FullPartCatalogBuilder
 		"WP_R_2020",
 		"WP_L_4250",
 		"WP_R_4250",
+		"WP_L_4251",
+		"WP_R_4251",
+		"WP_L_4252",
+		"WP_R_4252",
+		"WP_L_4303",
+		"WP_R_4303",
+		"WP_L_4291",
+		"WP_R_4291",
+		"WP_L_4292",
+		"WP_R_4292",
 		"WP_L_4290",
 		"WP_R_4290",
 		"WP_L_4300",
@@ -225,6 +241,10 @@ public static class AC6FullPartCatalogBuilder
 		"WP_R_4301",
 		"WP_L_4302",
 		"WP_R_4302",
+		"WP_L_4310",
+		"WP_R_4310",
+		"WP_L_4230",
+		"WP_R_4230",
 		"WP_L_4340",
 		"WP_R_4340",
 		"WP_L_5110",
@@ -568,6 +588,7 @@ public static class AC6FullPartCatalogBuilder
 		model = null;
 		actions = null;
 		// Prefer the animated native export whenever the pipeline produced one.
+		key = AC6LauncherVisualMapping.SourceKey(key);
 		string path = "Assets/_Project/LocalSamples/AC6SkinnedModular/Raw/NativeEquipment/" +
 			key.ToUpperInvariant() + "_NATIVE.glb";
 		if (!File.Exists(path))
@@ -619,6 +640,7 @@ public static class AC6FullPartCatalogBuilder
 			? factoryPerformance
 			: source.WeaponPerformance;
 		mechPartDefinition.EditorConfigure(source.PartId, source.DisplayName, source.Slot, source.Category, source.ModelPrefab, source.Stats, source.MountPoints, source.Tags, source.MaterialOverrides, source.VisualRigMode, source.SkinnedAnimationClip, source.AncestorDriverSlot, source.AncestorDrivenBoneNames, source.InstantiateVisualAtAllMounts, source.EquipmentAnimations, source.DefaultEquipmentActionId, source.PlayDefaultEquipmentActionOnAssemble, source.LocalPosition, source.LocalEulerAngles, source.LocalScale, source.PreviewModelPrefab, source.PreviewImage, source.InternalPerformance, source.HeadSensorPerformance, source.ArmPerformance, source.CorePerformance, source.LegPerformance, source.BoosterPerformance, source.GeneratorPerformance, source.RadarPerformance, source.FireControlPerformance, weaponPerformance, source.DataLinkPerformance, source.RadiatorPerformance);
+		AC6LauncherVisualMapping.ApplyVisual(mechPartDefinition);
 		EditorUtility.SetDirty(mechPartDefinition);
 		return mechPartDefinition;
 	}
@@ -992,6 +1014,7 @@ public static class AC6FullPartCatalogBuilder
 
 	private static string DisplayName(string key)
 	{
+        if(MechMissileLauncherCatalog.IsJianwei(key)||MechMissileLauncherCatalog.IsAbmOrSim(key)){var d=MechMissileLauncherCatalog.Find(key);return d.Purpose+" "+d.Number;}
 		if (string.Equals(key, "WP_L_1910", StringComparison.OrdinalIgnoreCase)
 			|| string.Equals(key, "WP_R_1910", StringComparison.OrdinalIgnoreCase))
 		{

@@ -38,6 +38,7 @@ namespace ACunicombat.Editor.Tests
 			try
 			{
 				var assembler = owner.AddComponent<MechAssembler>();
+                UnityEngine.TestTools.LogAssert.Expect(LogType.Error, "Mech loadout Error: [LOADOUT_NULL] No loadout assigned.");
 				assembler.Assemble();
 				var root = owner.transform.Find("_AssembledMech");
 
@@ -147,27 +148,27 @@ namespace ACunicombat.Editor.Tests
 			Assert.That(heavy.tapBurstShotCount, Is.EqualTo(3));
 			Assert.That(heavy.heldBurstShotCount, Is.Zero);
 			Assert.That(heavy.roundsPerMinute, Is.EqualTo(960f));
-			Assert.That(heavy.baseDispersionMilliradians, Is.EqualTo(0.24f));
-			Assert.That(heavy.maximumDispersionMilliradians, Is.EqualTo(2.74f));
+			Assert.That(heavy.baseDispersionMilliradians, Is.EqualTo((0.24f * 2f)));
+			Assert.That(heavy.maximumDispersionMilliradians, Is.EqualTo((2.74f * 2f)));
 			Assert.That(heavy.lowRecoilShotCount, Is.EqualTo(3));
 			Assert.That(heavy.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.Mg81));
 			Assert.That(light.muzzleVelocityMetersPerSecond, Is.EqualTo(790f));
 			Assert.That(light.roundsPerMinute, Is.EqualTo(1420f));
-			Assert.That(light.baseDispersionMilliradians, Is.EqualTo(0.37f));
-			Assert.That(light.maximumDispersionMilliradians, Is.EqualTo(2.95f));
+			Assert.That(light.baseDispersionMilliradians, Is.EqualTo((0.37f * 2f)));
+			Assert.That(light.maximumDispersionMilliradians, Is.EqualTo((2.95f * 2f)));
 			Assert.That(light.directHitDamage, Is.LessThan(heavy.directHitDamage));
 			Assert.That(light.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.VickersK));
-			Assert.That(machineGun.roundsPerMinute, Is.EqualTo(700f));
-			Assert.That(machineGun.baseDispersionMilliradians, Is.EqualTo(0.49f));
-			Assert.That(machineGun.maximumDispersionMilliradians, Is.EqualTo(3.82f));
+			Assert.That(machineGun.roundsPerMinute, Is.EqualTo(682f));
+			Assert.That(machineGun.baseDispersionMilliradians, Is.EqualTo((0.49f * 2f)));
+			Assert.That(machineGun.maximumDispersionMilliradians, Is.EqualTo((3.82f * 2f)));
 			Assert.That(machineGun.directHitDamage, Is.GreaterThan(light.directHitDamage));
 			Assert.That(machineGun.maximumDispersionMilliradians, Is.GreaterThan(light.maximumDispersionMilliradians));
 			Assert.That(machineGun.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.Shkas));
 			Assert.That(pistol.tapBurstShotCount, Is.EqualTo(3));
 			Assert.That(pistol.heldBurstShotCount, Is.EqualTo(3));
 			Assert.That(pistol.heldBurstPauseSeconds, Is.EqualTo(0.28f));
-			Assert.That(pistol.baseDispersionMilliradians, Is.EqualTo(0.17f));
-			Assert.That(pistol.maximumDispersionMilliradians, Is.EqualTo(1.72f));
+			Assert.That(pistol.baseDispersionMilliradians, Is.EqualTo((0.17f * 2f)));
+			Assert.That(pistol.maximumDispersionMilliradians, Is.EqualTo((1.72f * 2f)));
 			Assert.That(pistol.maximumDispersionMilliradians, Is.LessThan(heavy.maximumDispersionMilliradians));
 			Assert.That(pistol.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.Mg17));
 		}
@@ -180,9 +181,9 @@ namespace ACunicombat.Editor.Tests
 
 			Assert.That(left.IsConfigured, Is.True);
 			Assert.That(left.role, Is.EqualTo(MechWeaponRole.AutomaticCannon));
-			Assert.That(left.weaponType, Is.EqualTo("20 mm 转轮机枪"));
+			Assert.That(left.weaponType, Is.EqualTo("30 mm 转轮机炮"));
 			Assert.That(left.roundsPerMinute, Is.EqualTo(2400f));
-			Assert.That(left.magazineCapacity, Is.EqualTo(240));
+			Assert.That(left.magazineCapacity, Is.EqualTo(1440));
 			Assert.That(left.spinUpSeconds, Is.EqualTo(0.55f));
 			Assert.That(left.automaticCannonAudioProfile, Is.EqualTo(AutomaticCannonAudioProfile.Gau8A));
 			Assert.That(right.directHitDamage, Is.EqualTo(left.directHitDamage));
@@ -657,23 +658,23 @@ namespace ACunicombat.Editor.Tests
 				Assert.That<float>(rifle.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)95f));
 				Assert.That<float>(rifle.MuzzleVelocityMetersPerSecond, (IResolveConstraint)(object)Is.EqualTo((object)1610f));
 				Assert.That<float>(rifle.FireRateRoundsPerMinute, (IResolveConstraint)(object)Is.EqualTo((object)520f));
-				Assert.That<float>(rifle.BaseDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)0.08f));
+				Assert.That<float>(rifle.BaseDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)(0.08f * 2f)));
 				Assert.That<bool>(rifle.HasSustainedAccuracy, (IResolveConstraint)(object)Is.True);
-				Assert.That<float>(rifle.SustainedDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)0.34f));
+				Assert.That<float>(rifle.SustainedDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)(0.34f * 2f)));
 				Assert.That<bool>(rifle.HasEffectiveRange, (IResolveConstraint)(object)Is.True);
 				Assert.That<float>(rifle.EffectiveRangeMeters, Is.GreaterThan(0f).And.LessThan(rifle.MaximumRangeMeters));
 				Assert.That<float>(rifle.MaximumRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)12880f));
-				Assert.That<int>(rifle.MagazineCapacity, (IResolveConstraint)(object)Is.EqualTo((object)32));
-				Assert.That<int>(rifle.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)384));
+				Assert.That<int>(rifle.MagazineCapacity, (IResolveConstraint)(object)Is.EqualTo((object)38));
+				Assert.That<int>(rifle.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)380));
 				Assert.That<float>(rifle.ReloadTimeSeconds, (IResolveConstraint)(object)Is.EqualTo((object)5.25f));
 
 				Assert.That<bool>(TryGetTestWeaponPerformance(mechTestWeaponSystem, "AC6_FULL_WP_R_1630", out var precisionCannon), (IResolveConstraint)(object)Is.True);
 				Assert.That<float>(precisionCannon.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)132f));
 				Assert.That<float>(precisionCannon.MuzzleVelocityMetersPerSecond, (IResolveConstraint)(object)Is.EqualTo((object)2310f));
 				Assert.That<float>(precisionCannon.FireRateRoundsPerMinute, (IResolveConstraint)(object)Is.EqualTo((object)90f));
-				Assert.That<float>(precisionCannon.BaseDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)0.06f));
-				Assert.That<float>(precisionCannon.SustainedDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)0.09f));
-				Assert.That<int>(precisionCannon.MagazineCapacity, (IResolveConstraint)(object)Is.EqualTo((object)12));
+				Assert.That<float>(precisionCannon.BaseDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)(0.06f * 2f)));
+				Assert.That<float>(precisionCannon.SustainedDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)(0.09f * 2f)));
+				Assert.That<int>(precisionCannon.MagazineCapacity, (IResolveConstraint)(object)Is.EqualTo((object)24));
 				Assert.That<float>(precisionCannon.ReloadTimeSeconds, (IResolveConstraint)(object)Is.EqualTo((object)7f));
 				Assert.That<float>(precisionCannon.ProximityFuseTriggerRadiusMeters, (IResolveConstraint)(object)Is.EqualTo((object)5f));
 				Assert.That<float>(precisionCannon.WarheadDamageRadiusMeters, (IResolveConstraint)(object)Is.EqualTo((object)5f));
@@ -730,9 +731,9 @@ namespace ACunicombat.Editor.Tests
 				Assert.That<bool>(TryGetTestWeaponPerformance(mechTestWeaponSystem, "AC6_NATIVE_WP_L_4250", out var interceptor), (IResolveConstraint)(object)Is.True);
 				Assert.That<bool>(TryGetTestWeaponPerformance(mechTestWeaponSystem, "AC6_NATIVE_WP_R_4250", out var mirroredInterceptor), (IResolveConstraint)(object)Is.True);
 				Assert.That<bool>(interceptor.IsGuidedMissile, (IResolveConstraint)(object)Is.True);
-				Assert.That<float>(interceptor.EffectiveRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)15000f));
-				Assert.That<int>(interceptor.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)32));
-				Assert.That<float>(interceptor.SeekerRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)12000f));
+				Assert.That<float>(interceptor.EffectiveRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)64000f));
+				Assert.That<int>(interceptor.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)24));
+				Assert.That<float>(interceptor.SeekerRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)16000f));
 				Assert.That<bool>(interceptor.HasProximityFuse, (IResolveConstraint)(object)Is.True);
 				Assert.That<float>(interceptor.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)300f));
 				Assert.That<float>(mirroredInterceptor.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)interceptor.DirectHitDamage));
@@ -740,8 +741,8 @@ namespace ACunicombat.Editor.Tests
 				Assert.That<bool>(TryGetTestWeaponPerformance(mechTestWeaponSystem, "AC6_NATIVE_WP_L_4290", out var mirroredAirToAir), (IResolveConstraint)(object)Is.True);
 				Assert.That<float>(airToAir.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)3120f));
 				Assert.That<float>(mirroredAirToAir.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)airToAir.DirectHitDamage));
-				Assert.That<float>(airToAir.EffectiveRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)50000f));
-				Assert.That<int>(airToAir.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)24));
+				Assert.That<float>(airToAir.EffectiveRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)29000f));
+				Assert.That<int>(airToAir.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)12));
 				Assert.That<float>(airToAir.MaximumAngularRateDegreesPerSecond, (IResolveConstraint)(object)Is.EqualTo((object)240f));
 				Assert.That<bool>(TryGetTestWeaponPerformance(mechTestWeaponSystem, "AC6_FULL_WP_R_9999", out var _), (IResolveConstraint)(object)Is.False);
 			}
@@ -764,16 +765,16 @@ namespace ACunicombat.Editor.Tests
 				Assert.That<bool>(right.IsPointDefense, (IResolveConstraint)(object)Is.True);
 				Assert.That<bool>(right.IsAutomatic, (IResolveConstraint)(object)Is.True);
 				Assert.That<float>(right.DirectHitDamage, (IResolveConstraint)(object)Is.EqualTo((object)45f));
-				Assert.That<float>(right.FireRateRoundsPerMinute, (IResolveConstraint)(object)Is.EqualTo((object)858f));
+				Assert.That<float>(right.FireRateRoundsPerMinute, (IResolveConstraint)(object)Is.EqualTo((object)1858f));
 				Assert.That<float>(right.MuzzleVelocityMetersPerSecond, (IResolveConstraint)(object)Is.EqualTo((object)1800f));
 				Assert.That<float>(right.ProjectileLifetimeSeconds, (IResolveConstraint)(object)Is.EqualTo((object)4f));
 				Assert.That<float>(right.EffectiveRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)3000f));
 				Assert.That<float>(right.MaximumRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)6000f));
-				Assert.That<float>(right.BaseDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)0.1f));
-				Assert.That<float>(right.SustainedDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)0.35f));
-				Assert.That<int>(right.MagazineCapacity, (IResolveConstraint)(object)Is.EqualTo((object)200));
-				Assert.That<int>(right.MagazineCount, (IResolveConstraint)(object)Is.EqualTo((object)4));
-				Assert.That<float>(right.ReloadTimeSeconds, (IResolveConstraint)(object)Is.EqualTo((object)4f));
+				Assert.That<float>(right.BaseDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)(0.1f * 2f)));
+				Assert.That<float>(right.SustainedDispersionMilliradians, (IResolveConstraint)(object)Is.EqualTo((object)(0.35f * 2f)));
+				Assert.That<int>(right.MagazineCapacity, (IResolveConstraint)(object)Is.EqualTo((object)1200));
+				Assert.That<int>(right.MagazineCount, (IResolveConstraint)(object)Is.EqualTo((object)1));
+				Assert.That<float>(right.ReloadTimeSeconds, (IResolveConstraint)(object)Is.EqualTo((object)0f));
 				Assert.That<float>(right.PointDefenseMaximumRangeMeters, (IResolveConstraint)(object)Is.EqualTo((object)6000f));
 				Assert.That<float>(right.PointDefenseOutboardYawDegrees, (IResolveConstraint)(object)Is.EqualTo((object)110f));
 				Assert.That<float>(right.PointDefenseInboardYawDegrees, (IResolveConstraint)(object)Is.EqualTo((object)45f));
@@ -786,7 +787,7 @@ namespace ACunicombat.Editor.Tests
 				Assert.That<float>(right.PointDefenseMaximumThreatTimeSeconds, (IResolveConstraint)(object)Is.EqualTo((object)12f));
 				Assert.That<bool>(right.RequiresWeaponsQualityTrack, (IResolveConstraint)(object)Is.True);
 				Assert.That<bool>(right.IncomingTargetsOnly, (IResolveConstraint)(object)Is.True);
-				Assert.That<int>(right.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)800));
+				Assert.That<int>(right.TotalAmmunition, (IResolveConstraint)(object)Is.EqualTo((object)1200));
 				Assert.That<float>(right.ProximityFuseTriggerRadiusMeters, (IResolveConstraint)(object)Is.EqualTo((object)4f));
 				Assert.That<float>(right.ProximityFuseArmSeconds, (IResolveConstraint)(object)Is.EqualTo((object)0.05f));
 				Assert.That<float>(right.ProximityFuseSafeDistanceMeters, (IResolveConstraint)(object)Is.EqualTo((object)90f));
@@ -816,7 +817,7 @@ namespace ACunicombat.Editor.Tests
 			MechWeaponPerformance dualPulse = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_R_4302");
 			MechWeaponPerformance ducted = AC6TestWeaponProfileFactory.Create("AC6_FULL_WP_R_4340");
 
-			Assert.That(baseline.missileDisplayName, Is.EqualTo("AAM-4290"));
+			Assert.That(baseline.missileDisplayName, Is.EqualTo("SIM-29"));
 			Assert.That(baseline.missileVisualResourcePath, Is.EqualTo("Projectiles/aam4290_white_blackband"));
 			Assert.That(dualPulse.IsConfigured, Is.True);
 			Assert.That(dualPulse.effectiveRangeMeters, Is.EqualTo(65_000f));
@@ -827,11 +828,11 @@ namespace ACunicombat.Editor.Tests
 			Assert.That(dualPulse.missileFlightProfile.SecondStageIgnitionDelaySeconds, Is.EqualTo(6f));
 
 			Assert.That(ducted.IsConfigured, Is.True);
-			Assert.That(ducted.effectiveRangeMeters, Is.EqualTo(100_000f));
-			Assert.That(ducted.maximumRangeMeters, Is.EqualTo(140_000f));
+			Assert.That(ducted.effectiveRangeMeters, Is.EqualTo(200_000f));
+			Assert.That(ducted.maximumRangeMeters, Is.EqualTo(300_000f));
 			Assert.That(ducted.missileVisualResourcePath, Is.EqualTo("Projectiles/kh38mt_meteor_proxy"));
 			Assert.That(ducted.missileFlightProfile.PropulsionMode, Is.EqualTo(MissilePropulsionMode.VariableFlowDuctedRocket));
-			Assert.That(ducted.missileFlightProfile.SecondStageBurnDurationSeconds, Is.EqualTo(30f));
+			Assert.That(ducted.missileFlightProfile.SecondStageBurnDurationSeconds, Is.EqualTo(60f).Within(0.0001f));
 			Assert.That(ducted.missileFlightProfile.SecondStageMinimumThrottle, Is.EqualTo(0.42f));
 		}
 
@@ -843,14 +844,14 @@ namespace ACunicombat.Editor.Tests
 
 			Assert.That(interceptor.IsConfigured, Is.True);
 			Assert.That(interceptor.role, Is.EqualTo(MechWeaponRole.InterceptorMissile));
-			Assert.That(interceptor.missileDisplayName, Is.EqualTo("CIM-4300"));
+			Assert.That(interceptor.missileDisplayName, Is.EqualTo("ABM-12"));
 			Assert.That(interceptor.missileVisualResourcePath, Is.EqualTo("Projectiles/wp4300_interceptor_hellfire"));
 			Assert.That(interceptor.missileVisualLengthMeters, Is.EqualTo(1.65f));
 			Assert.That(interceptor.missileFlightProfile.MaximumAngularRateDegreesPerSecond, Is.EqualTo(720f));
 
 			Assert.That(dogfight.IsConfigured, Is.True);
 			Assert.That(dogfight.role, Is.EqualTo(MechWeaponRole.AirToAirMissile));
-			Assert.That(dogfight.missileDisplayName, Is.EqualTo("AAM-4301C"));
+			Assert.That(dogfight.missileDisplayName, Is.EqualTo("天空之手"));
 			Assert.That(dogfight.missileVisualResourcePath, Is.EqualTo("Projectiles/wp4301_dogfight_aim7"));
 			Assert.That(dogfight.missileVisualLengthMeters, Is.EqualTo(2.35f));
 			Assert.That(dogfight.effectiveRangeMeters, Is.EqualTo(16_000f));

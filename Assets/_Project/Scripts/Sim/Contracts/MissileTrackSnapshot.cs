@@ -13,6 +13,7 @@ namespace ACunicombat.Sensing.Contracts
         ElectroOptical = 1 << 3,
         LaserRangefinder = 1 << 4,
         DataLink = 1 << 5,
+        OwnLaunch = 1 << 6,
     }
 
     public enum MissileTrackQuality : byte
@@ -35,6 +36,7 @@ namespace ACunicombat.Sensing.Contracts
         KinematicIntent = 1,
         EsmWaveform = 2,
         AuthenticatedDataLink = 3,
+        OwnLaunch = 4,
     }
 
     /// <summary>
@@ -44,12 +46,22 @@ namespace ACunicombat.Sensing.Contracts
     [Serializable]
     public struct MissileTrackSnapshot
     {
+        public Unity.Collections.FixedString128Bytes KnownModel;
         public TrackId TrackId;
+        public TrackId AssociatedSensorTrackId;
+        public LinkTerminalId ReportingTerminal;
+        public Guid OwnLaunchIdentity;
+        public TrackId AssignedTargetTrackId;
         public double3 Position;
         public double3 Velocity;
         public double3 Acceleration;
         public double3 Jerk;
         public float PositionUncertaintyMeters;
+        public bool HasPositionCovariance;
+        public double3x3 PositionCovariance;
+        public float VelocityUncertaintyMetersPerSecond;
+        public float RadialVelocityUncertaintyMetersPerSecond;
+        public float3 ObserverLineOfSight;
         public float CpaUncertaintyMeters;
         public float Confidence;
         public float IdentityConfidence;
@@ -75,6 +87,7 @@ namespace ACunicombat.Sensing.Contracts
         public bool Incoming;
         public float TimeToClosestApproachSeconds;
         public float ClosestApproachDistanceMeters;
+        public double FirstObservationTime;
         public double LastEvidenceTime;
         public double KinematicUpdateTime;
         public double LastUpdateTime;

@@ -15,6 +15,7 @@ MonoBehaviour:
   partId: AC6_BD_M_3010
   displayName: AC6 Tian-Qiang Core
   slot: 20
+  extensionSlotCount: 2
   category: 0
   manufacturer: 
   tags:

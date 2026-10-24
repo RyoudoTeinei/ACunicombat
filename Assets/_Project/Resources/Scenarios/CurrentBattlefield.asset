@@ -1,0 +1,53 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ab23e06f494a7645a2f6f99db59658c, type: 3}
+  m_Name: CurrentBattlefield
+  m_EditorClassIdentifier: Assembly-CSharp::ACunicombat.Mechs.MechScenarioDefinition
+  scenarioId: current-battlefield
+  displayName: "\u5F53\u524D\u6218\u573A"
+  scenePath: Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Scenes/AC6PlayerControl.unity
+  units:
+  - key: AC6_Combat_Showcase/Player_Melander_1010
+    name: "\u672C\u673A"
+    player: 1
+    team: 1
+    position: {x: 0, y: 0, z: 0}
+    rotation: {x: -0, y: 1, z: -0, w: -0.00000004371139}
+    loadout: {fileID: 11400000, guid: 322a9a11848f46e4786682366c755228, type: 2}
+  - key: AC6_Combat_Showcase/AC6AiCombatMech_A
+    name: AI-MECH-A
+    player: 0
+    team: 2
+    position: {x: 48000, y: 28000, z: 85000}
+    rotation: {x: 0.13464141, y: -0.25173557, z: -0.03538992, w: -0.95773095}
+    loadout: {fileID: 11400000, guid: 136d62c56cfda38408a46fd06f4c7840, type: 2}
+  - key: AC6_Combat_Showcase/AC6AiCombatMech_B
+    name: AI-MECH-B
+    player: 0
+    team: 2
+    position: {x: 45000, y: -20000, z: 45000}
+    rotation: {x: -0.14011616, y: -0.3782568, z: 0.058038007, w: -0.9131927}
+    loadout: {fileID: 11400000, guid: 136d62c56cfda38408a46fd06f4c7840, type: 2}
+  - key: AC6_Combat_Showcase/AC6FriendlyMech_A
+    name: WING-01
+    player: 0
+    team: 1
+    position: {x: -30000, y: 16000, z: 55000}
+    rotation: {x: -0.040336072, y: 0.8222167, z: -0.05873053, w: -0.56469774}
+    loadout: {fileID: 11400000, guid: 136d62c56cfda38408a46fd06f4c7840, type: 2}
+  - key: AC6_Combat_Showcase/AC6FriendlyMech_B
+    name: WING-02
+    player: 0
+    team: 1
+    position: {x: -35000, y: -12000, z: -22000}
+    rotation: {x: 0.016180681, y: 0.9054462, z: 0.034657076, w: -0.4227344}
+    loadout: {fileID: 11400000, guid: 136d62c56cfda38408a46fd06f4c7840, type: 2}

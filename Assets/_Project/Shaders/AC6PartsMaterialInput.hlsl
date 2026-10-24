@@ -1,0 +1,49 @@
+#ifndef AC6_PARTS_MATERIAL_INPUT_INCLUDED
+#define AC6_PARTS_MATERIAL_INPUT_INCLUDED
+CBUFFER_START(UnityPerMaterial)
+            float4 _BaseMap_ST;
+            half4 _BaseColor;
+            half4 _EmissionColor;
+            half4 _PaintColor;
+            half4 _Zone1Color;
+            half4 _Zone2Color;
+            half4 _Zone3Color;
+            half4 _Zone4Color;
+            half4 _Zone5Color;
+            half4 _Zone6Color;
+            half4 _Zone7Color;
+            half4 _WeatheringColor;
+            half _BumpScale;
+            half _NormalEncoding;
+            half _EmissionStrength;
+            half _PaintInfluence;
+            half _UseSourceAlbedo;
+            half _ZoneMode;
+            half _ZoneMaskStrength;
+            half _AlbedoDetailStrength;
+            half _Metallic;
+            half _Smoothness;
+            half _WeatheringAmount;
+            half _UseWeatheringMask;
+            half _WeatheringScale;
+            half _WeatheringSeed;
+            half _Zone1Metallic;
+            half _Zone1Smoothness;
+            half _Zone2Metallic;
+            half _Zone2Smoothness;
+            half _Zone3Metallic;
+            half _Zone3Smoothness;
+            half _Zone4Metallic;
+            half _Zone4Smoothness;
+            half _Zone5Metallic;
+            half _Zone5Smoothness;
+            half _Zone6Metallic;
+            half _Zone6Smoothness;
+            half _Zone7Metallic;
+            half _Zone7Smoothness;
+            half _OcclusionStrength;
+            half _MaskMetallicInfluence;
+            half _MaskSmoothnessInfluence;
+            half _Cutoff;
+            CBUFFER_END
+#endif

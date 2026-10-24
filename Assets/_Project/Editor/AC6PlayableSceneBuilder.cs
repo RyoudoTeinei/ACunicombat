@@ -983,8 +983,8 @@ public static class AC6PlayableSceneBuilder
             {
                 energy.Tick(in forward, dt);
             }
-            var movementEnergyDepleted = energy.ManeuverEnergyDepleted &&
-                                         energy.CurrentManeuverEnergy <= 0.001f;
+            var movementEnergyPreserved = !energy.ManeuverEnergyDepleted &&
+                                         energy.CurrentManeuverEnergy >= 99.999f;
             for (var i = 0; i < 60; i++)
             {
                 energy.Tick(in noInput, dt);
@@ -1013,7 +1013,7 @@ public static class AC6PlayableSceneBuilder
                 thirdQuickBoost &&
                 rejectedQuickBoost &&
                 Mathf.Abs(quickBoostEnergy.CurrentManeuverEnergy - 10f) <= 0.001f;
-            var energyPass = movementEnergyDepleted &&
+            var energyPass = movementEnergyPreserved &&
                              movementEnergyRecovered &&
                              quickBoostEnergyPass;
 
@@ -2356,6 +2356,8 @@ public static class AC6PlayableSceneBuilder
                  {
                      firstTargetName,
                      secondTargetName,
+                     "AC6FriendlyMech_A",
+                     "AC6FriendlyMech_B",
                      "AC6CombatTestTarget",
                      "AC6AirborneCombatTestTarget",
                      "Moving_Target",
@@ -2395,9 +2397,33 @@ public static class AC6PlayableSceneBuilder
             variantA,
             firstTargetName,
             "AI-MECH-A",
-            new Vector3(0f, 11f, 150f),
+            playerMech.transform.position + MechBattlefieldScenario.EnemyA,
             new Color(0.96f, 0.97f, 0.98f, 1f));
+        var second=BuildAiCombatMech(playerMech,playerTarget,variantA,secondTargetName,"AI-MECH-B",
+            playerMech.transform.position+MechBattlefieldScenario.EnemyB,Color.white);
+        var friendlyA=BuildAiCombatMech(playerMech,first,variantA,"AC6FriendlyMech_A","WING-01",
+            playerMech.transform.position+MechBattlefieldScenario.FriendlyA,new Color(.4f,.9f,1));
+        friendlyA.ConfigureIdentity("WING-01",1);
+        var friendlyB=BuildAiCombatMech(playerMech,second,variantA,"AC6FriendlyMech_B","WING-02",
+            playerMech.transform.position+MechBattlefieldScenario.FriendlyB,new Color(.4f,.9f,1));
+        friendlyB.ConfigureIdentity("WING-02",1);
+        second.GetComponent<MechAiTargetController>().Configure(friendlyA,second.GetComponentInChildren<Camera>(true));
         return first;
+    }
+
+    [MenuItem("Tools/ACunicombat/AC6/Update Live Battlefield Scene")]
+    public static void UpdateLiveBattlefieldScene()
+    {
+        if(EditorApplication.isPlaying)throw new InvalidOperationException("Exit Play mode before rebuilding the saved battlefield.");
+        var scene=EditorSceneManager.OpenScene(PlayableScenePath,OpenSceneMode.Single);
+        var player=UnityEngine.Object.FindObjectsByType<MechPlayerRig>(FindObjectsInactive.Include).First(x=>!x.AiControlled);
+        var target=BuildCombatTestTarget(player.gameObject);
+        var weapons=player.GetComponent<MechTestWeaponSystem>();
+        var properties=new SerializedObject(weapons);var targetProperty=properties.FindProperty("target");if(targetProperty!=null)targetProperty.objectReferenceValue=target;properties.ApplyModifiedPropertiesWithoutUndo();
+        player.GetComponent<MechRadarController>()?.Configure(Camera.main,target);
+        AssetDatabase.SaveAssets();
+        EditorSceneManager.MarkSceneDirty(scene);EditorSceneManager.SaveScene(scene);
+        Debug.Log("LIVE_BATTLEFIELD_SCENE_SAVED "+PlayableScenePath);
     }
 
     private static CombatTestTarget BuildAiCombatMech(
@@ -2413,9 +2439,11 @@ public static class AC6PlayableSceneBuilder
             playerMech,
             playerMech.transform.parent);
         root.name = objectName;
+        foreach(var map in root.GetComponents<MechBattlefieldMap>())UnityEngine.Object.DestroyImmediate(map);
+        foreach(var map in root.GetComponents<MechSolarSystemMap>())UnityEngine.Object.DestroyImmediate(map);
         root.transform.position = position;
         var logicalRotation = Quaternion.LookRotation(
-            playerMech.transform.position - position,
+            playerTarget.transform.position - position,
             Vector3.up);
         var motion = root.GetComponent<MechFlightMotionController>();
         root.transform.rotation = logicalRotation * Quaternion.AngleAxis(

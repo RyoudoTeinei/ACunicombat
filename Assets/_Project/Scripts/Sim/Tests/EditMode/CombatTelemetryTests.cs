@@ -15,6 +15,28 @@ namespace ACunicombat.Tests.EditMode
     public class CombatTelemetryTests
     {
         [Test]
+        public void ApsDecisionAndOutcomeArePersistedWithCorrelationAndProgress()
+        {
+            var directory=Path.Combine(Path.GetTempPath(),"aps-telemetry-"+Guid.NewGuid().ToString("N"));
+            try
+            {
+                string file;
+                using(var session=new CombatTelemetrySession(directory,"aps-test"))
+                {
+                    var data=new ApsTelemetryData{SlotId="extension",EquipmentId="equipment-1",ActionId="AutomaticDefense:7",ProjectileId="charge-1",Reason="Reacting",Pending=true,Ammunition=8,ReactionRemaining=.075,PreparationProgress=.5,OwnVelocity=new Vector3(120,0,0),TargetTrackId=17,HasTrack=true};
+                    session.RecordAps(1,"pilot","preparation_started",in data);
+                    data.Pending=false;data.Ammunition=7;data.Reason="Committed";session.RecordAps(1.1,"pilot","countermunition_launched",in data);
+                    data.Hits=1;data.Kills=1;data.Reason="Intercepted";session.RecordAps(1.2,"pilot","airburst",in data);session.Flush();file=session.CurrentFilePath;
+                }
+                var lines=File.ReadAllLines(file);Assert.That(lines.Length,Is.EqualTo(3));
+                Assert.That(lines[0],Does.Contain("\"preparationProgress\":0.5"));Assert.That(lines[0],Does.Contain("\"ammunition\":8"));
+                Assert.That(lines[1],Does.Contain("\"ammunition\":7"));Assert.That(lines[2],Does.Contain("\"kills\":1"));
+                foreach(var line in lines){Assert.That(line,Does.Contain("\"projectileId\":\"charge-1\""));Assert.That(line,Does.Contain("\"targetTrackId\":17"));}
+            }
+            finally{if(Directory.Exists(directory))Directory.Delete(directory,true);}
+        }
+
+        [Test]
         public void Writer_ProducesIndependentJsonLinesAndEscapesStrings()
         {
             var directory = Path.Combine(

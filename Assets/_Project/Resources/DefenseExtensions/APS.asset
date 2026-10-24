@@ -1,0 +1,54 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4db9065a48677dc4c9e9ab2d3c06f4f0, type: 3}
+  m_Name: APS
+  m_EditorClassIdentifier:
+  partId: DEFENSE_APS
+  displayName: 主动防御系统 APS
+  slot: 200
+  category: 30
+  mountClass: 60
+  localPosition: {x: 0, y: 5, z: 0}
+  localScale: {x: 1, y: 1, z: 1}
+  stats:
+    massKg: 120
+    structureMassKg: 120
+  defenseExtension:
+    kind: 1
+    ammunition: 8
+    reactionSeconds: 0.15
+    cooldownSeconds: 1
+    maximumConcurrentShots: 1
+    minimumRangeMeters: 8
+    maximumRangeMeters: 220
+    detectionRangeMeters: 1000
+    scanIntervalSeconds: 0.04
+    fragmentHalfAngle: 60
+    burstLeadMeters: 2
+    localFacing: {x: 0, y: 0, z: 1}
+    coverageHalfAngle: 180
+    projectileSpeed: 900
+    minimumBurstDistanceMeters: 35
+    smokeRingScale: 20
+    maximumFlightSeconds: 1
+    blastRadiusMeters: 8
+    blastDamage: 160
+    energyPerShotMj: 0
+    maximumEvidenceAgeSeconds: 0.5
+    armor:
+      cells: 2
+      protectsMissiles: 1
+      protectsGunfire: 0
+      localFacing: {x: 0, y: 0, z: 1}
+      coverageHalfAngle: 180
+      damageReduction: 0.6
+      minimumTriggerDamage: 1

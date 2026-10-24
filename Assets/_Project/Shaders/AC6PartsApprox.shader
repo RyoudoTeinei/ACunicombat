@@ -6,6 +6,7 @@ Shader "ACunicombat/AC6/Parts Approx"
         [MainColor] _BaseColor("Base Color", Color) = (1, 1, 1, 1)
         [Normal] _BumpMap("Normal Map", 2D) = "bump" {}
         _BumpScale("Normal Scale", Range(0, 2)) = 0.75
+        [Enum(LegacyAc6SrgbRG,0,LinearRG,1,UnityNormal,2,LinearRGB,3)] _NormalEncoding("Normal Encoding", Float) = 0
         _Mask3Map("AC6 3M Mask", 2D) = "white" {}
         _EmissionMap("Emission Map", 2D) = "black" {}
         _EmissionColor("Emission Color", Color) = (0, 0, 0, 1)
@@ -113,6 +114,7 @@ Shader "ACunicombat/AC6/Parts Approx"
             #pragma multi_compile_fog
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "AC6PartsMaterialInput.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/SurfaceInput.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
@@ -123,51 +125,7 @@ Shader "ACunicombat/AC6/Parts Approx"
             TEXTURE2D(_WeatheringMaskMap);
             SAMPLER(sampler_WeatheringMaskMap);
 
-            CBUFFER_START(UnityPerMaterial)
-            float4 _BaseMap_ST;
-            half4 _BaseColor;
-            half4 _EmissionColor;
-            half4 _PaintColor;
-            half4 _Zone1Color;
-            half4 _Zone2Color;
-            half4 _Zone3Color;
-            half4 _Zone4Color;
-            half4 _Zone5Color;
-            half4 _Zone6Color;
-            half4 _Zone7Color;
-            half4 _WeatheringColor;
-            half _BumpScale;
-            half _EmissionStrength;
-            half _PaintInfluence;
-            half _UseSourceAlbedo;
-            half _ZoneMode;
-            half _ZoneMaskStrength;
-            half _AlbedoDetailStrength;
-            half _Metallic;
-            half _Smoothness;
-            half _WeatheringAmount;
-            half _UseWeatheringMask;
-            half _WeatheringScale;
-            half _WeatheringSeed;
-            half _Zone1Metallic;
-            half _Zone1Smoothness;
-            half _Zone2Metallic;
-            half _Zone2Smoothness;
-            half _Zone3Metallic;
-            half _Zone3Smoothness;
-            half _Zone4Metallic;
-            half _Zone4Smoothness;
-            half _Zone5Metallic;
-            half _Zone5Smoothness;
-            half _Zone6Metallic;
-            half _Zone6Smoothness;
-            half _Zone7Metallic;
-            half _Zone7Smoothness;
-            half _OcclusionStrength;
-            half _MaskMetallicInfluence;
-            half _MaskSmoothnessInfluence;
-            half _Cutoff;
-            CBUFFER_END
+            #include "AC6PartsMaterialInput.hlsl"
 
             struct Attributes
             {
@@ -325,9 +283,19 @@ Shader "ACunicombat/AC6/Parts Approx"
             // 退化率 0.7%，即一张正常的切线法线图。
             half3 SampleAc6NormalTS(float2 uv)
             {
+                // The legacy DDS explanation above does not apply to restored linear
+                // normals or Unity-packed normal maps. Encoding is explicit per material.
                 #ifdef _NORMALMAP
                     half4 packed = SAMPLE_TEXTURE2D(_BumpMap, sampler_BumpMap, uv);
-                    half2 encoded = LinearToSRGB(packed.rg);
+                    if (_NormalEncoding > 1.5h && _NormalEncoding < 2.5h)
+                        return UnpackNormalScale(packed, _BumpScale);
+                    if (_NormalEncoding > 2.5h)
+                    {
+                        half3 rgbNormal = packed.xyz * 2.0h - 1.0h;
+                        rgbNormal.xy *= _BumpScale;
+                        return normalize(rgbNormal);
+                    }
+                    half2 encoded = _NormalEncoding > 0.5h ? packed.rg : LinearToSRGB(packed.rg);
                     half3 normalTS;
                     normalTS.xy = encoded * 2.0h - 1.0h;
                     normalTS.z = sqrt(saturate(1.0h - dot(normalTS.xy, normalTS.xy)));
@@ -472,6 +440,7 @@ Shader "ACunicombat/AC6/Parts Approx"
             #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "AC6PartsMaterialInput.hlsl"
 
             struct DepthOnlyAttributes
             {
@@ -518,6 +487,7 @@ Shader "ACunicombat/AC6/Parts Approx"
             #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "AC6PartsMaterialInput.hlsl"
 
             struct DepthNormalsAttributes
             {
@@ -584,55 +554,12 @@ Shader "ACunicombat/AC6/Parts Approx"
             #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "AC6PartsMaterialInput.hlsl"
 
             TEXTURE2D(_BaseMap);
             SAMPLER(sampler_BaseMap);
 
-            CBUFFER_START(UnityPerMaterial)
-            float4 _BaseMap_ST;
-            half4 _BaseColor;
-            half4 _EmissionColor;
-            half4 _PaintColor;
-            half4 _Zone1Color;
-            half4 _Zone2Color;
-            half4 _Zone3Color;
-            half4 _Zone4Color;
-            half4 _Zone5Color;
-            half4 _Zone6Color;
-            half4 _Zone7Color;
-            half4 _WeatheringColor;
-            half _BumpScale;
-            half _EmissionStrength;
-            half _PaintInfluence;
-            half _UseSourceAlbedo;
-            half _ZoneMode;
-            half _ZoneMaskStrength;
-            half _AlbedoDetailStrength;
-            half _Metallic;
-            half _Smoothness;
-            half _WeatheringAmount;
-            half _UseWeatheringMask;
-            half _WeatheringScale;
-            half _WeatheringSeed;
-            half _Zone1Metallic;
-            half _Zone1Smoothness;
-            half _Zone2Metallic;
-            half _Zone2Smoothness;
-            half _Zone3Metallic;
-            half _Zone3Smoothness;
-            half _Zone4Metallic;
-            half _Zone4Smoothness;
-            half _Zone5Metallic;
-            half _Zone5Smoothness;
-            half _Zone6Metallic;
-            half _Zone6Smoothness;
-            half _Zone7Metallic;
-            half _Zone7Smoothness;
-            half _OcclusionStrength;
-            half _MaskMetallicInfluence;
-            half _MaskSmoothnessInfluence;
-            half _Cutoff;
-            CBUFFER_END
+            #include "AC6PartsMaterialInput.hlsl"
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/ShadowCasterPass.hlsl"
             ENDHLSL

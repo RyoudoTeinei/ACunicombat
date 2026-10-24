@@ -275,7 +275,7 @@ public sealed class MechCameraOcclusionTests
     }
 
     [Test]
-    public void ChangingOrClearingTarget_DropsThePreviousEscapeState()
+    public void ChangingTargetRetainsEscapeButClearingDropsIt()
     {
         var first = new TrackId(new Handle(2, 1));
         var second = new TrackId(new Handle(2, 2));
@@ -285,12 +285,35 @@ public sealed class MechCameraOcclusionTests
 
         Invoke("SetCompositionTarget", second);
 
-        AssertEscapeCleared();
+        Assert.That(GetField<int>("occlusionEscapeAxis"), Is.EqualTo(0));
         Assert.That(GetField<TrackId>("compositionTrackId"), Is.EqualTo(second));
         Solve(TargetThroughBodyPlane(new Vector2(4f, 0f)), 0.1f);
         Invoke("ClearCompositionTarget");
         AssertEscapeCleared();
         Assert.That(GetField<TrackId>("compositionTrackId").IsValid, Is.False);
+    }
+
+    [TestCase(30)] [TestCase(60)] [TestCase(144)]
+    public void MultiTargetRankingChangesDoNotReverseTheActualSmoothedCamera(int fps)
+    {
+        var scheduler=new MechCompositionTargetScheduler();
+        var a=new TrackSnapshot{TrackId=new TrackId(new Handle(4,1))};
+        var b=new TrackSnapshot{TrackId=new TrackId(new Handle(5,1))};
+        scheduler.Select(0,a,default,default,default,out _);
+        Vector3 last=Vector3.zero;
+        for(int frame=1;frame<=fps*12;frame++)
+        {
+            float now=(float)frame/fps;var candidate=(frame/(fps/5))%2==0?a:b;
+            Assert.IsTrue(scheduler.Select(now,default,candidate,b,a,out var selected));
+            Invoke("SetCompositionTarget",selected.TrackId);
+            var offset=Solve(TargetThroughBodyPlane(Vector2.zero),now);
+            Invoke("SmoothCompositionOffset",offset,1f/fps);
+            var actual=GetField<Vector3>("compositionLocalOffset");
+            Assert.GreaterOrEqual(actual.x,last.x-0.0001f,"The held primary must not repeatedly send the camera back to centre or the opposite shoulder.");
+            Assert.That(GetField<int>("occlusionEscapeAxis"),Is.EqualTo(0));
+            last=actual;cameraObject.transform.position=FollowPosition+actual;
+        }
+        Assert.IsFalse(IsInsideBodyProjection(TargetThroughBodyPlane(Vector2.zero)));
     }
 
     [Test]

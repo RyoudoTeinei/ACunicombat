@@ -30,6 +30,20 @@ namespace ACunicombat.Mechs
                     target,
                     assignment.part.Stats,
                     assignment.part.Slot);
+                // Extra equipment keeps its own sensor/fire-control capability. It must not
+                // extend the primary adapter's range or invent shared guidance channels.
+                if (loadout.Platform != null && assignment.slot == MechPartSlot.None)
+                {
+                    var individual = assignment.part.Stats;
+                    target.radarRangeKm -= individual.radarRangeKm;
+                    target.radarAperture -= individual.radarAperture;
+                    target.radarRefreshHz -= individual.radarRefreshHz;
+                    target.sensorPrecision -= individual.sensorPrecision;
+                    target.trackCapacity -= individual.trackCapacity;
+                    target.fireControlQuality -= individual.fireControlQuality;
+                    target.guidanceChannels -= individual.guidanceChannels;
+                    continue;
+                }
                 if (assignment.part.Slot == MechPartSlot.Head)
                 {
                     target.AddHeadSensorPerformance(assignment.part.HeadSensorPerformance);
@@ -58,7 +72,7 @@ namespace ACunicombat.Mechs
                 {
                     target.AddRadiatorPerformance(assignment.part.RadiatorPerformance);
                 }
-                else if (assignment.part.Slot == MechPartSlot.Radar)
+                else if (assignment.part.Slot == MechPartSlot.Radar && !assignment.part.RadarDefinitionPending)
                 {
                     target.AddRadarPerformance(assignment.part.RadarPerformance);
                 }

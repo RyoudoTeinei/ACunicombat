@@ -818,6 +818,9 @@ public static class AC6SkinnedModularSampleBuilder
 		Texture emissionMap = FindTexture(source, "_EmissiveTexture", "_EmissionMap") ?? FindEmbeddedTextureByCatalogPath(embeddedTextures, profile?.emissionMap) ?? FindEmbeddedTexture(embeddedTextures, "_em");
 		destination.SetTexture("_BaseMap", baseMap);
 		destination.SetTexture("_BumpMap", normalMap);
+		var restoredNormal = MechSurfaceNormalTextures.FindRestored(normalMap);
+		if (restoredNormal != null) destination.SetTexture("_BumpMap", restoredNormal);
+		destination.SetFloat("_NormalEncoding", restoredNormal != null ? 1f : 0f);
 		destination.SetTexture("_Mask3Map", mask);
 		destination.SetTexture("_EmissionMap", emissionMap);
 		Texture2D weatheringMask = AssetDatabase.LoadAssetAtPath<Texture2D>(WeatheringMaskAssetPath);
@@ -1862,8 +1865,14 @@ public static class AC6SkinnedModularSampleBuilder
 	private static MechRadarPerformance BuildSampleRadarPerformance() =>
 		new MechRadarPerformance
 		{
-			referenceDetectionRangeKm = 42f,
-			stableTrackRangeKm = 30f,
+            averageTransmitPowerWatts = 250000f,
+            apertureDiameterMeters = 1.3f,
+            apertureEfficiency = .6f,
+            frequencyGHz = 10f,
+            systemNoiseTemperatureKelvin = 600f,
+            systemLossDb = 6f,
+            coherentIntegrationEfficiency = .5f,
+            signalBandwidthMHz = 20f,
 			searchAzimuthDeg = 100f,
 			searchElevationDeg = 60f,
 			trackCapacity = 16,
@@ -1886,6 +1895,7 @@ public static class AC6SkinnedModularSampleBuilder
 			simultaneousSolutionCapacity = 8,
 			weaponControlChannels = 4,
 			guidanceChannelCapacity = 3,
+            missileSupportCapacity = 16,
 			multiTargetEngagementCapacity = 3,
 			pointDefenseRating = 65f,
 			trackReacquisitionTimeS = 0.6f,
@@ -1927,7 +1937,7 @@ public static class AC6SkinnedModularSampleBuilder
 
 	private static Dictionary<string, MechPartDefinition> LoadWeaponParts(ICollection<string> missing, PaintPresetRecord paintPreset, MaterialCatalogRecord materialCatalog)
 	{
-		NativeWeaponSpec[] specs = new NativeWeaponSpec[23]
+		NativeWeaponSpec[] specs = new NativeWeaponSpec[38]
 		{
 			new NativeWeaponSpec("WP_L_0010", "Native Pile Bunker ASHMEAD 0010", MechPartSlot.LeftHandWeapon, "a000_000000", 4180f, isMelee: true),
 			new NativeWeaponSpec("WP_L_0230", "Native Left Laser Blade 0230", MechPartSlot.LeftHandWeapon, "a000_000000", 4700f, isMelee: true),
@@ -1938,7 +1948,18 @@ public static class AC6SkinnedModularSampleBuilder
 			new NativeWeaponSpec("WP_L_1410", "Native Left Bazooka 1410", MechPartSlot.LeftHandWeapon, "a000_000000", 4600f),
 			new NativeWeaponSpec("WP_L_4210", "Native Left Plasma Missile 4210", MechPartSlot.LeftBackWeapon, "a000_800000", 4200f),
 			new NativeWeaponSpec("WP_R_4210", "Native Right Plasma Missile 4210", MechPartSlot.RightBackWeapon, "a000_800000", 4200f),
-			new NativeWeaponSpec("WP_L_4250", "BML-G1/P07VTC-12", MechPartSlot.LeftBackWeapon, "a000_800000", 5010f),
+			new NativeWeaponSpec("WP_R_4250", "重型垂直冷发射拦截仓 4250", MechPartSlot.RightBackWeapon, "a000_800000", 5010f),
+			new NativeWeaponSpec("WP_L_4251", "垂直冷发射拦截仓 4251", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_R_4251", "垂直冷发射拦截仓 4251", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_L_4252", "垂直冷发射拦截仓 4252", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_R_4252", "垂直冷发射拦截仓 4252", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_L_4250", "重型垂直冷发射拦截仓 4250", MechPartSlot.LeftBackWeapon, "a000_800000", 5010f),
+			new NativeWeaponSpec("WP_L_4291", "轻型通用导弹仓 4291", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_R_4291", "轻型通用导弹仓 4291", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_L_4292", "重型通用导弹仓 4292", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_R_4292", "重型通用导弹仓 4292", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_L_4303", "轻型近程拦截仓 4303", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_R_4303", "轻型近程拦截仓 4303", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
 			new NativeWeaponSpec("WP_L_4290", "BML-G2/P03MLT-06", MechPartSlot.LeftBackWeapon, "a000_800000", 3840f),
 			new NativeWeaponSpec("WP_R_4290", "BML-G2/P03MLT-06", MechPartSlot.RightBackWeapon, "a000_800000", 3840f),
 			new NativeWeaponSpec("WP_L_4300", "Compact Interceptor Missile Launcher 4300", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
@@ -1947,6 +1968,10 @@ public static class AC6SkinnedModularSampleBuilder
 			new NativeWeaponSpec("WP_R_4301", "Close-Combat Missile Launcher 4301", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
 			new NativeWeaponSpec("WP_L_4302", "Dual-Pulse Missile Launcher 4302", MechPartSlot.LeftBackWeapon, "a000_800000", 4020f),
 			new NativeWeaponSpec("WP_R_4302", "Dual-Pulse Missile Launcher 4302", MechPartSlot.RightBackWeapon, "a000_800000", 4020f),
+			new NativeWeaponSpec("WP_L_4310", "Long Range Missile Launcher 4310", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_R_4310", "Long Range Missile Launcher 4310", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_L_4230", "Long Range Missile Launcher 4230", MechPartSlot.LeftBackWeapon, "a000_800000", 4500f),
+			new NativeWeaponSpec("WP_R_4230", "Long Range Missile Launcher 4230", MechPartSlot.RightBackWeapon, "a000_800000", 4500f),
 			new NativeWeaponSpec("WP_L_4340", "Ducted Missile Launcher 4340", MechPartSlot.LeftBackWeapon, "a000_800000", 4380f),
 			new NativeWeaponSpec("WP_R_4340", "Ducted Missile Launcher 4340", MechPartSlot.RightBackWeapon, "a000_800000", 4380f),
 			new NativeWeaponSpec("WP_R_4410", "Native Right Songbirds 4410", MechPartSlot.RightBackWeapon, "a000_800000", 5500f),
@@ -1956,17 +1981,25 @@ public static class AC6SkinnedModularSampleBuilder
 		Dictionary<string, MechPartDefinition> result = new Dictionary<string, MechPartDefinition>(StringComparer.OrdinalIgnoreCase);
 		foreach (NativeWeaponSpec spec in specs)
 		{
-			string path = "Assets/_Project/LocalSamples/AC6SkinnedModular/Raw/NativeEquipment/" + spec.Key + "_NATIVE.glb";
+			string visualKey = AC6LauncherVisualMapping.SourceKey(spec.Key);
+			string path = "Assets/_Project/LocalSamples/AC6SkinnedModular/Raw/NativeEquipment/" + visualKey + "_NATIVE.glb";
 			if (!TryLoadNativeEquipment(path, loopBoosterAction: false, spec.IsPointDefense, out var model, out var actions))
 			{
 				missing.Add(path + " (native weapon model failed to import)");
 				continue;
 			}
 			string id = "AC6_NATIVE_" + spec.Key;
+            // Adding native animation to an existing full-catalog weapon must
+            // not change the ID referenced by saved loadouts.
+            if(!System.IO.File.Exists("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Parts/"+id+".asset") &&
+                System.IO.File.Exists("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Resources/AC6Parts/AC6_FULL_"+spec.Key+".asset"))
+                id="AC6_FULL_"+spec.Key;
+            var launcherDefinition=MechMissileLauncherCatalog.Find(id);
+            string launcherDisplayName=(MechMissileLauncherCatalog.IsJianwei(id)||MechMissileLauncherCatalog.IsAbmOrSim(id))?launcherDefinition.Purpose+" "+launcherDefinition.Number:spec.DisplayName;
 			MechPartDefinition part = LoadOrCreateAsset<MechPartDefinition>("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Parts/" + id + ".asset");
-			string weaponCode = spec.Key.Substring(spec.Key.LastIndexOf('_') + 1);
+			string weaponCode = visualKey.Substring(visualKey.LastIndexOf('_') + 1);
 			Material[] materialOverrides = BuildWeaponMaterialOverrides(model, weaponCode, paintPreset, materialCatalog);
-			part.EditorConfigure(id, spec.DisplayName, spec.Slot, MechPartCategory.Weapon, model, ApplySignatureDefaults(new MechPartStats
+			part.EditorConfigure(id, launcherDisplayName, spec.Slot, MechPartCategory.Weapon, model, ApplySignatureDefaults(new MechPartStats
 			{
 				massKg = spec.MassKg,
 				idlePowerDrawMw = (spec.IsPointDefense ? 0.6f : 0f),

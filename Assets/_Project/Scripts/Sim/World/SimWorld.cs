@@ -2,6 +2,7 @@ using System;
 using ACunicombat.Simulation.Core;
 using ACunicombat.Simulation.Kinematics;
 using Unity.Collections;
+using Unity.Mathematics;
 
 namespace ACunicombat.Simulation.World
 {
@@ -20,6 +21,11 @@ namespace ACunicombat.Simulation.World
         private NativeArray<bool> alive;
         private bool aIsWrite;
         private int highWater;
+        private readonly double[] sampledAt=new double[MaxEntities];
+        private readonly bool[] timedStates=new bool[MaxEntities];
+        private readonly KinematicState[] previousSamples=new KinematicState[MaxEntities];
+        private readonly double[] previousSampleTimes=new double[MaxEntities];
+        private readonly bool[] hasPreviousSample=new bool[MaxEntities];
 
         /// <summary>读缓冲的生成时刻；所有由该快照生成的测量以驻留时刻为时间戳（第 7 节）。</summary>
         public double SnapshotTime { get; private set; }
@@ -55,7 +61,7 @@ namespace ACunicombat.Simulation.World
             {
                 if (!alive[i])
                 {
-                    alive[i] = true;
+                    alive[i] = true;timedStates[i]=false;hasPreviousSample[i]=false;
                     var buf = WriteBuffer;
                     buf[i] = initial;
                     if (i >= highWater)
@@ -104,10 +110,26 @@ namespace ACunicombat.Simulation.World
             }
 
             var buffer = WriteBuffer;
-            buffer[id.Value.Index] = state;
+            buffer[id.Value.Index] = state;timedStates[id.Value.Index]=false;hasPreviousSample[id.Value.Index]=false;
             return true;
         }
 
+        // External physics poses retain their actual sampling epoch. Pure simulation states remain untimed.
+        public bool TrySetTimedState(SimEntityId id,in KinematicState state,double time)
+        {
+            if(!double.IsFinite(time)||!IsAlive(id))return false;
+            int index=id.Value.Index;var buffer=WriteBuffer;
+            if(timedStates[index])
+            {
+                if(time+SimulationTime.DeadlineToleranceSeconds<sampledAt[index])return false;
+                if(time>sampledAt[index]+SimulationTime.DeadlineToleranceSeconds)
+                {
+                    previousSamples[index]=buffer[index];previousSampleTimes[index]=sampledAt[index];hasPreviousSample[index]=true;
+                }
+                else time=sampledAt[index];
+            }
+            buffer[index]=state;sampledAt[index]=time;timedStates[index]=true;return true;
+        }
         public bool TryGetWriteState(SimEntityId id, out KinematicState state)
         {
             if (!IsAlive(id))
@@ -149,6 +171,39 @@ namespace ACunicombat.Simulation.World
             SnapshotTime = simTime;
             // 新写缓冲以旧状态为基（积分器每 Tick 全量覆写活跃实体，此拷贝保证未覆写槽位一致）。
             ReadSnapshot.CopyTo(WriteBuffer);
+            // Preserve the raw pose in the write buffer; project only the read snapshot to its declared epoch.
+            var read=ReadSnapshot;
+            for(int i=0;i<highWater;i++)if(alive[i]&&timedStates[i])
+            {read[i]=SampleAt(i,read[i],simTime);}
+        }
+
+        private KinematicState SampleAt(int index,KinematicState latest,double time)
+        {
+            double age=time-sampledAt[index];
+            if(!hasPreviousSample[index])
+            {latest.PositionWorld+=latest.VelocityWorld*age;return latest;}
+            var previous=previousSamples[index];double span=sampledAt[index]-previousSampleTimes[index];
+            if(span<=SimulationTime.DeadlineToleranceSeconds)
+            {latest.PositionWorld+=latest.VelocityWorld*age;return latest;}
+            if(time>=previousSampleTimes[index]&&time<=sampledAt[index])
+            {
+                // Rendering and physics can publish on different clocks. Hermite
+                // resampling preserves both measured positions and velocities and
+                // prevents a future render pose being labelled as a past sensor pose.
+                double u=(time-previousSampleTimes[index])/span,u2=u*u,u3=u2*u;
+                var position=(2*u3-3*u2+1)*previous.PositionWorld+(u3-2*u2+u)*span*previous.VelocityWorld
+                    +(-2*u3+3*u2)*latest.PositionWorld+(u3-u2)*span*latest.VelocityWorld;
+                var velocity=((6*u2-6*u)*previous.PositionWorld+(-6*u2+6*u)*latest.PositionWorld)/span
+                    +(3*u2-4*u+1)*previous.VelocityWorld+(3*u2-2*u)*latest.VelocityWorld;
+                if(math.lengthsq(previous.Rotation.value)>0&&math.lengthsq(latest.Rotation.value)>0)
+                    latest.Rotation=math.slerp(previous.Rotation,latest.Rotation,(float)u);
+                latest.PositionWorld=position;latest.VelocityWorld=velocity;return latest;
+            }
+            var acceleration=(latest.VelocityWorld-previous.VelocityWorld)/span;
+            if(time<previousSampleTimes[index]){latest=previous;age=time-previousSampleTimes[index];}
+            latest.PositionWorld+=latest.VelocityWorld*age+.5*acceleration*age*age;
+            latest.VelocityWorld+=acceleration*age;
+            return latest;
         }
 
         public void Dispose()

@@ -260,7 +260,7 @@ public sealed class MechEnemyDirectionIndicatorTests
                 }
                 Assert.That(green, Is.InRange(300, 3000), "Each view must show hollow green edges.");
             }
-            System.IO.File.WriteAllBytes("E:/UnityDev/tmp/MissileHudTests/EdgePyramidDepthViews.png", image.EncodeToPNG());
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(Environment.GetEnvironmentVariable("ACUNICOMBAT_SENSOR_BENCH_OUTPUT") ?? System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath,"../Temp")),"EdgePyramidDepthViews.png"), image.EncodeToPNG());
         }
         finally
         {

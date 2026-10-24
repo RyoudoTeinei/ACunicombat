@@ -1,5 +1,6 @@
 using System;
 using ACunicombat.Sensing.Contracts;
+using ACunicombat.Simulation.Core;
 using Unity.Collections;
 using Unity.Mathematics;
 
@@ -64,6 +65,27 @@ namespace ACunicombat.Sensors
             SiftUp(heap.Length - 1);
         }
 
+        /// <summary>Bounded physical-device queue. Higher priority may displace queued lower priority work.</summary>
+        public bool TryScheduleBounded(in Dwell dwell, int maximumPerSensor, out bool displaced)
+        {
+            displaced=false;int count=0,worst=-1;
+            for(int i=0;i<heap.Length;i++)if(heap[i].SensorId.Equals(dwell.SensorId))
+            {
+                count++;
+                if(worst<0 || PriorityAfter(heap[i],heap[worst]))worst=i;
+            }
+            if(count>=maximumPerSensor)
+            {
+                if(worst<0 || dwell.Priority>=heap[worst].Priority)return false;
+                heap[worst]=dwell;
+                // Rebuild after replacement without allocating or changing the global queue capacity.
+                for(int i=heap.Length/2-1;i>=0;i--)SiftDown(i);
+                displaced=true;return true;
+            }
+            if(heap.Length==heap.Capacity)return false;
+            Schedule(dwell);return true;
+        }
+
         /// <summary>
         /// 消费本 Tick 的到期驻留：最多 budget 个，按优先级序写入 results（调用方先 Clear）。
         /// 超预算的到期驻留回队顺延。返回实际消费数。
@@ -71,7 +93,7 @@ namespace ACunicombat.Sensors
         public int ConsumeDue(double simTime, int budget, NativeList<Dwell> results)
         {
             dueScratch.Clear();
-            while (heap.Length > 0 && heap[0].DueTime <= simTime)
+            while (heap.Length > 0 && SimulationTime.IsDue(simTime,heap[0].DueTime))
             {
                 dueScratch.Add(heap[0]);
                 PopRoot();

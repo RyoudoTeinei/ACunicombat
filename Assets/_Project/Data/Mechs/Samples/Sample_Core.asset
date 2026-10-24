@@ -15,6 +15,7 @@ MonoBehaviour:
   partId: Sample_Core
   displayName: Sample BD-1010 Core
   slot: 20
+  extensionSlotCount: 2
   category: 0
   manufacturer: 
   tags:

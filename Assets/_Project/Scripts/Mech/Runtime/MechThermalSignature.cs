@@ -73,6 +73,24 @@ namespace ACunicombat.Mechs
         private MechRuntimeState runtimeState;
         private MaterialPropertyBlock propertyBlock;
         private int boundPartCount = -1;
+        private readonly Dictionary<string,float> equipmentTemperatures=new();
+        private readonly List<string> equipmentSlots=new();
+        private readonly Dictionary<Renderer,string> equipmentRenderers=new();
+        public float GetEquipmentTemperature(string slotId)=>equipmentTemperatures.TryGetValue(slotId,out var value)?value:weaponBaselineK;
+        public float InfraredSignatureMultiplier
+        {
+            get {float peak=Mathf.Max(GetChannelTemperature(MechThermalChannel.Skin),GetChannelTemperature(MechThermalChannel.Thrusters));
+                foreach(var value in equipmentTemperatures.Values)peak=Mathf.Max(peak,value);
+                return Mathf.Max(1,Mathf.Pow(peak/Mathf.Max(1,skinBaselineK),2));}
+        }
+        public void NotifyWeaponFired(MechEquipmentSlot slot)
+        {
+            EnsureBinding();
+            if(!equipmentTemperatures.ContainsKey(slot.Id))return;
+            var weapons=GetComponent<MechTestWeaponSystem>();
+            equipmentTemperatures[slot.Id]=weapons!=null&&weapons.TryGetEquipmentHeatFraction(slot.Id,out float fraction)
+                ?weaponBaselineK+900*fraction:equipmentTemperatures[slot.Id]+weaponShotImpulseK;
+        }
         private bool previousQuickBoostActive;
         private float nextRendererIntegrityCheckTime;
         private bool loggedIncompatibleOverride;
@@ -125,6 +143,11 @@ namespace ACunicombat.Mechs
         {
             EnsureBinding();
             Integrate(Time.deltaTime);
+            var weapons=GetComponent<MechTestWeaponSystem>();
+            foreach(var slot in equipmentSlots)
+                equipmentTemperatures[slot]=weapons!=null&&weapons.TryGetEquipmentHeatFraction(slot,out float fraction)
+                    ?weaponBaselineK+900*fraction
+                    :Mathf.Lerp(equipmentTemperatures[slot],weaponBaselineK,1-Mathf.Exp(-Time.deltaTime/ResolveCoolingTauSeconds()));
             UpdateRendererTemperatureOutput();
             ProtectAc6RenderersFromPropertyBlocks();
         }
@@ -171,6 +194,7 @@ namespace ACunicombat.Mechs
             float dissipationKw = runtimeState?.AggregatedStats != null
                 ? runtimeState.AggregatedStats.heatDissipationMw * 1000f
                 : referenceHeatDissipationKw;
+            dissipationKw *= GetComponent<MechPartDamageController>()?.RoleEfficiency(MechPartSlot.Radiator) ?? 1;
             if (dissipationKw <= 0.01f)
             {
                 return maximumCoolingTauSeconds;
@@ -192,13 +216,17 @@ namespace ACunicombat.Mechs
                 runtimeState = GetComponent<MechRuntimeState>();
             }
 
-            var partCount = runtimeState != null ? runtimeState.AssembledParts.Count : 0;
+            var partCount = 17;
+            if(runtimeState!=null)foreach(var record in runtimeState.AssembledParts)partCount=unchecked(partCount*31+record.InstanceId.GetHashCode());
             if (partCount == boundPartCount)
             {
                 return;
             }
 
             boundPartCount = partCount;
+            RestoreRendererTemperatureOverrides();equipmentTemperatures.Clear();equipmentRenderers.Clear();equipmentSlots.Clear();
+            if(runtimeState!=null)foreach(var part in runtimeState.AssembledParts)
+                if(part.part.Category==MechPartCategory.Weapon){equipmentTemperatures[part.SlotId]=weaponBaselineK;equipmentSlots.Add(part.SlotId);}
             foreach (var group in channelRenderers)
             {
                 group.Clear();
@@ -239,6 +267,8 @@ namespace ACunicombat.Mechs
                     continue; // 粒子等特效 renderer 不参与温度绑定。
                 }
 
+                var owner=runtimeState!=null?MechDamageGeometry.Owner(renderer,runtimeState):null;
+                if(owner!=null&&equipmentTemperatures.ContainsKey(owner.SlotId))equipmentRenderers[renderer]=owner.SlotId;
                 var channel = MechThermalChannel.Skin;
                 if (IsUnderAny(renderer.transform, thrusterRoots)) channel = MechThermalChannel.Thrusters;
                 else if (IsUnderAny(renderer.transform, leftWeaponRoots)) channel = MechThermalChannel.LeftWeapon;
@@ -269,7 +299,7 @@ namespace ACunicombat.Mechs
         {
             for (var c = 0; c < ChannelCount; c++)
             {
-                if (Mathf.Abs(temperatures[c] - appliedTemperatures[c]) < 0.25f)
+                if (equipmentRenderers.Count==0 && Mathf.Abs(temperatures[c] - appliedTemperatures[c]) < 0.25f)
                 {
                     continue;
                 }
@@ -296,7 +326,7 @@ namespace ACunicombat.Mechs
 
                     propertyBlock.Clear();
                     renderer.GetPropertyBlock(propertyBlock);
-                    propertyBlock.SetFloat(ThermalTempId, temperatures[c]);
+                    propertyBlock.SetFloat(ThermalTempId, equipmentRenderers.TryGetValue(renderer,out var slot)?GetEquipmentTemperature(slot):temperatures[c]);
                     renderer.SetPropertyBlock(propertyBlock);
                 }
             }

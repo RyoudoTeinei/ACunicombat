@@ -1,8 +1,48 @@
+using System;
 using ACunicombat.Simulation.Core;
 using Unity.Mathematics;
 
 namespace ACunicombat.Sensors
 {
+    /// <summary>Monostatic coherent energy model, SI inputs. No authored distance limit.</summary>
+    [Serializable]
+    public struct RadarPhysicalParameters
+    {
+        public float AverageTransmitPowerWatts, ApertureDiameterMeters, ApertureEfficiency;
+        public float FrequencyHz, SystemNoiseTemperatureKelvin, SystemLossDb;
+        public float CoherentIntegrationEfficiency, SignalBandwidthHz;
+        public float AntennaDutyCycle;
+        public float ThermalNoisePowerDbw => (float)(10.0*math.log10(1.380649e-23*SystemNoiseTemperatureKelvin*SignalBandwidthHz));
+        public bool IsValid => AverageTransmitPowerWatts > 0 && ApertureDiameterMeters > 0 &&
+            FrequencyHz > 0 && SystemNoiseTemperatureKelvin > 0 && ApertureEfficiency > 0 &&
+            CoherentIntegrationEfficiency > 0 && SignalBandwidthHz > 0;
+        public float WavelengthMeters => 299792458f / FrequencyHz;
+        public float GainLinear => ApertureEfficiency * math.pow(math.PI * ApertureDiameterMeters / WavelengthMeters, 2f);
+        public float BeamWidthRadians => 1.22f * WavelengthMeters / ApertureDiameterMeters;
+        // Receiver-input power in dBW; matched-filter integration gain B*t*eta is applied to signal SNR.
+        public RadarDwellConfig BuildDwell(float seconds, float beamWidthRadians, float efficiency = 1f)
+        {
+            float effectiveBeam = math.max(BeamWidthRadians, beamWidthRadians);
+            float gain = GainLinear * math.pow(BeamWidthRadians / effectiveBeam, 2f);
+            double coefficient = AverageTransmitPowerWatts * (double)gain * gain * WavelengthMeters * WavelengthMeters /
+                math.pow(4f * math.PI, 3f);
+            return new RadarDwellConfig {
+                ConstantsDb = (float)(10.0 * math.log10(coefficient)) - SystemLossDb,
+                IntegrationGainDb = 10f * math.log10(math.max(1e-12f, SignalBandwidthHz * seconds * CoherentIntegrationEfficiency * math.clamp(efficiency,0f,1f))),
+                NoisePowerDb = ThermalNoisePowerDbw, DetectThresholdLowDb = 3f, DetectThresholdHighDb = 13f,
+                RangeResolutionMeters = 299792458f / (2f * SignalBandwidthHz),
+                BeamWidthRadians = effectiveBeam,
+                VelocityResolutionMps = WavelengthMeters / (2f * math.max(.0001f, seconds))
+            };
+        }
+        // 50% single-dwell detection against a stated RCS, thermal noise only; UI estimate, never a gate.
+        public float EstimateRangeMeters(float rcs, float seconds)
+        {
+            var c=BuildDwell(seconds,BeamWidthRadians);
+            return math.pow(10f,(c.ConstantsDb+c.IntegrationGainDb-c.NoisePowerDb+10f*math.log10(math.max(rcs,1e-9f))-8f)/40f);
+        }
+    }
+
     /// <summary>雷达驻留常数项（10.2）。首版用归一化标定：参考探测距离反推 ConstantsDb。</summary>
     public struct RadarDwellConfig
     {
@@ -23,6 +63,22 @@ namespace ACunicombat.Sensors
     /// </summary>
     public static class RadarMath
     {
+        /// <summary>One-way relative power gain: Gaussian mainlobe (-3 dB at half beamwidth), bounded sidelobe floor.</summary>
+        public static float AntennaResponseDb(float cosine, float beamWidthRadians, float sidelobeDb)
+        {
+            float angle=math.acos(math.clamp(cosine,-1f,1f));
+            float relative=angle/math.max(.0001f,beamWidthRadians);
+            return math.max(math.min(-1f,sidelobeDb),-12f*relative*relative);
+        }
+        /// <summary>Fraction of flat incident power spectrum admitted by the receive passband.</summary>
+        public static float SpectralOverlap(float receiverCenter, float receiverBandwidth, float sourceCenter, float sourceBandwidth)
+        {
+            if(receiverBandwidth<=0||sourceBandwidth<=0)return 0;
+            float lower=math.max(receiverCenter-receiverBandwidth*.5f,sourceCenter-sourceBandwidth*.5f);
+            float upper=math.min(receiverCenter+receiverBandwidth*.5f,sourceCenter+sourceBandwidth*.5f);
+            return math.saturate((upper-lower)/sourceBandwidth);
+        }
+
         public static float LinearFromDb(float db) => math.pow(10f, db * 0.1f);
 
         public static float DbFromLinear(float linear) => 10f * math.log10(math.max(linear, 1e-30f));

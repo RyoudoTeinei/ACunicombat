@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$RawAssetsRoot = 'E:\UnityDev\Resources\AC6_ExtractedAssets',
     [string]$GameRoot = 'E:\SteamLibrary\steamapps\common\ARMORED CORE VI FIRES OF RUBICON\Game',
     [string]$TexConvPath = '',
@@ -77,6 +77,10 @@ $specs = @(
     [pscustomobject]@{ Key = 'WP_R_4301'; Binder = 'wp_r_4301.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4301'; Flver = 'WP_R_4301.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_L_4302'; Binder = 'wp_l_4302.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4302'; Flver = 'WP_L_4302.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_4302'; Binder = 'wp_r_4302.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4302'; Flver = 'WP_R_4302.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_L_4310'; Binder = 'wp_l_4310.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4310'; Flver = 'WP_L_4310.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_R_4310'; Binder = 'wp_r_4310.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4310'; Flver = 'WP_R_4310.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_L_4230'; Binder = 'wp_l_4230.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4230'; Flver = 'WP_L_4230.flver'; Kind = 'Weapon' },
+    [pscustomobject]@{ Key = 'WP_R_4230'; Binder = 'wp_r_4230.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4230'; Flver = 'WP_R_4230.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_L_4340'; Binder = 'wp_l_4340.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4340'; Flver = 'WP_L_4340.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_4340'; Binder = 'wp_r_4340.partsbnd.dcx'; TextureBinder = $null; RawDir = 'wp\wp_4340'; Flver = 'WP_R_4340.flver'; Kind = 'Weapon' },
     [pscustomobject]@{ Key = 'WP_R_4410'; Binder = 'wp_r_4410.partsbnd.dcx'; TextureBinder = 'wp_4410.tpf.dcx'; RawDir = $null; Flver = 'WP_R_4410.flver'; Kind = 'Weapon' },

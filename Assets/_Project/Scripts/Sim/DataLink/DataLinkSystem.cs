@@ -47,7 +47,7 @@ namespace ACunicombat.DataLink
         public const int MaxTerminals = 64;
         public const int OutboxCapacity = 256;
         public const int InboxCapacity = 512;
-        private const float EstimatedMessageKilobits = 2f;
+        public const float EstimatedMessageKilobits = 2f;
 
         public struct DeliveredLinkMessage
         {
@@ -116,7 +116,7 @@ namespace ACunicombat.DataLink
         /// <summary>入队发送；投递发生在下一个链路 Tick（一 Tick 固有时延）。</summary>
         public bool Send(in LinkMessage message)
         {
-            if (!TryGetTerminal(message.SourceTerminal, out var sender) ||
+            if (!double.IsFinite(message.SendTime) || !TryGetTerminal(message.SourceTerminal, out var sender) ||
                 outbox.Length >= OutboxCapacity)
             {
                 return false;
@@ -133,15 +133,16 @@ namespace ACunicombat.DataLink
                     lastTime = now;
                 }
                 var elapsed = math.max(0.0, now - lastTime);
+                float messageCost=message.Kind==LinkMessageKind.FleetCoordination?message.FleetPayload.EstimatedWireKilobits/EstimatedMessageKilobits:message.Kind==LinkMessageKind.CombatBehaviorReport?2f:1f;
                 transmitCredits[index] = math.min(
-                    MathfMaxMessageBurst(bandwidth),
+                    math.max(messageCost,MathfMaxMessageBurst(bandwidth)),
                     transmitCredits[index] + (float)elapsed * bandwidth / EstimatedMessageKilobits);
                 transmitCreditTimes[index] = now;
-                if (transmitCredits[index] < 1f)
+                if (transmitCredits[index] < messageCost)
                 {
                     return false;
                 }
-                transmitCredits[index] -= 1f;
+                transmitCredits[index] -= messageCost;
             }
 
             var stamped = message;
@@ -157,7 +158,7 @@ namespace ACunicombat.DataLink
             for (var i = pendingDeliveries.Length - 1; i >= 0; i--)
             {
                 var pending = pendingDeliveries[i];
-                if (pending.AvailableTime > simTime || inbox.Length >= InboxCapacity)
+                if (!SimulationTime.IsDue(simTime,pending.AvailableTime) || inbox.Length >= InboxCapacity)
                 {
                     continue;
                 }
@@ -170,9 +171,11 @@ namespace ACunicombat.DataLink
                 });
                 pendingDeliveries.RemoveAtSwapBack(i);
             }
+            int pendingCount=0;
             for (var i = 0; i < outbox.Length; i++)
             {
                 var message = outbox[i];
+                if(!SimulationTime.IsDue(simTime,message.SendTime)){outbox[pendingCount++]=message;continue;}
                 if (!TryGetTerminal(message.SourceTerminal, out var sender) ||
                     !world.IsAlive(sender.OwnerEntityId))
                 {
@@ -184,7 +187,7 @@ namespace ACunicombat.DataLink
                 EmitAndDeliver(in message, in sender, senderPosition, simTime);
             }
 
-            outbox.Clear();
+            outbox.ResizeUninitialized(pendingCount);
         }
 
         private void EmitAndDeliver(
