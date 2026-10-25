@@ -13,6 +13,7 @@ namespace ACunicombat.Mechs
     public sealed class MechMechanicalAudioController : MonoBehaviour
     {
         private const string AudioRoot = "Audio/Mechanical/";
+        private const float ServoMixGain = 0.9f;
         private const int MaximumMonitoredTransforms = 160;
         private const int ActivitySampleCount = 8;
 
@@ -229,13 +230,13 @@ namespace ACunicombat.Mechs
             if (!servoActive && smoothedServoActivity >= servoStartThreshold)
             {
                 servoActive = true;
-                PlayOneShot(servoStartSource, servoTransientVolume);
+                PlayOneShot(servoStartSource, servoTransientVolume * ServoMixGain);
                 PlayMechanicalTransient(mechanicalTransientVolume * 0.65f);
             }
             else if (servoActive && smoothedServoActivity <= servoStopThreshold)
             {
                 servoActive = false;
-                PlayOneShot(servoStopSource, servoTransientVolume * 0.9f);
+                PlayOneShot(servoStopSource, servoTransientVolume * 0.9f * ServoMixGain);
             }
 
             var sharpJointChange = jointActivity - previousRawJointActivity;
@@ -299,10 +300,10 @@ namespace ACunicombat.Mechs
                 smoothedHydraulicActivity);
             var step = deltaTime * 0.75f;
 
-            MoveVolume(servoSlowSource, slowWeight * slowServoVolume, step);
+            MoveVolume(servoSlowSource, slowWeight * slowServoVolume * ServoMixGain, step);
             MoveVolume(
                 servoFastSource,
-                servoEnvelope * fastWeight * fastServoVolume,
+                servoEnvelope * fastWeight * fastServoVolume * ServoMixGain,
                 step);
             MoveVolume(
                 hydraulicLoopSource,

@@ -74,7 +74,7 @@ public sealed class MechBattlefieldMapTests
  }
  [Test] public void InfoPanelWheelDoesNotZoomBattlefield()
  {
-  var map=root.AddComponent<MechBattlefieldMap>();map.ZoomAt(1,new Vector2(1400,300));Assert.That(map.RangeKm,Is.EqualTo(map.BaseRangeKm));
+  var map=root.AddComponent<MechBattlefieldMap>();map.ZoomAt(1,map.FooterRect.center);Assert.That(map.RangeKm,Is.EqualTo(map.BaseRangeKm));
  }
  [Test] public void ExtremeWheelInputRemainsBounded()
  {
@@ -101,7 +101,7 @@ public sealed class MechBattlefieldMapTests
   var map=root.AddComponent<MechBattlefieldMap>();var before=map.Project(Vector3.zero);
   map.BeginPan(new Vector2(500,400));Assert.That(map.EndPan(new Vector2(502,401)),Is.True);
   Assert.That(map.Project(Vector3.zero),Is.EqualTo(before));
-  map.BeginPan(new Vector2(1400,300));map.MovePan(new Vector2(600,450));Assert.That(map.EndPan(new Vector2(600,450)),Is.False);
+  map.BeginPan(map.FooterRect.center);map.MovePan(new Vector2(600,450));Assert.That(map.EndPan(new Vector2(600,450)),Is.False);
   Assert.That(map.Project(Vector3.zero),Is.EqualTo(before));
  }
 
@@ -124,8 +124,8 @@ public sealed class MechBattlefieldMapTests
   var map=root.AddComponent<MechBattlefieldMap>();
   Assert.That(map.InPlot(new Vector2(10,10)),Is.True);
   Assert.That(map.InPlot(new Vector2(1500,750)),Is.True);
-  Assert.That(map.InPlot(map.DetailsRect.center),Is.False);
   Assert.That(map.InPlot(map.FooterRect.center),Is.False);
+  Assert.That(map.InPlot(new Vector2(30,30)),Is.False);
   float before=map.RangeKm;map.ZoomAt(1,map.FooterRect.center);Assert.That(map.RangeKm,Is.EqualTo(before));
  }
 
@@ -157,17 +157,39 @@ public sealed class MechBattlefieldMapTests
   Assert.That(map.ContentZoom,Is.EqualTo(8));map.ZoomAt(-100000,map.MapCenter);map.ZoomAt(-100000,map.MapCenter);
   Assert.That(map.ContentZoom,Is.EqualTo(.25f));map.ResetView();Assert.That(map.ContentZoom,Is.EqualTo(1));
  }
- [Test] public void AdaptiveRenderingIsCleanAtOneAndContinuousAcrossStages()
+ [Test] public void DisplayTreatmentAdaptsWithoutChangingTextureContract()
  {
-  Assert.That(MechBattlefieldMap.RenderProfile(.25f).y,Is.Zero);
-  Assert.That(MechBattlefieldMap.RenderProfile(1).y,Is.Zero);
-  Assert.That(MechBattlefieldMap.RenderProfile(2).y,Is.Zero);
-  Assert.That(MechBattlefieldMap.RenderProfile(8).y,Is.EqualTo(1));
-  // Increase total pixel count to 1.5 times the original, preserving aspect ratio.
-  Assert.That(MechBattlefieldMap.RenderProfile(8).x,Is.EqualTo(5f/Mathf.Sqrt(1.5f)).Within(.01));
-  Assert.That(MechBattlefieldMap.RenderProfile(8).w,Is.EqualTo(.045f).Within(.0001));
-  var last=MechBattlefieldMap.RenderProfile(1);
-  for(float z=1.01f;z<=8;z+=.01f){var next=MechBattlefieldMap.RenderProfile(z);Assert.That(next.x,Is.GreaterThanOrEqualTo(last.x));Assert.That(next.y,Is.GreaterThanOrEqualTo(last.y));Assert.That(Vector4.Distance(last,next),Is.LessThan(.02f));last=next;}
+  var overview=MechBattlefieldMap.RenderProfile(1);var detail=MechBattlefieldMap.RenderProfile(5);
+  Assert.That(overview.x,Is.EqualTo(1));Assert.That(overview.y,Is.EqualTo(.08f).Within(.0001));
+  Assert.That(detail.x,Is.GreaterThan(2));Assert.That(detail.y,Is.EqualTo(1));
+  Assert.That(detail.z,Is.GreaterThan(overview.z));Assert.That(detail.w,Is.GreaterThan(overview.w));
+  Assert.That(MechBattlefieldMap.RenderProfile(.25f),Is.EqualTo(overview));
+  Assert.That(MechBattlefieldMap.RenderProfile(8),Is.EqualTo(detail));
+ }
+ [Test] public void VisibleZoomSmoothsAndConvergesToTheRequestedView()
+ {
+  var map=root.AddComponent<MechBattlefieldMap>();typeof(MechBattlefieldMap).GetField("visible",Private).SetValue(map,true);
+  float initial=map.RangeKm,expected=MechBattlefieldMap.ZoomRange(initial,1);
+  map.ZoomAt(1,map.MapCenter);Assert.That(map.RangeKm,Is.EqualTo(initial));
+  map.AdvanceView(.05f);Assert.That(map.RangeKm,Is.LessThan(initial));Assert.That(map.RangeKm,Is.GreaterThan(expected));
+  for(int i=0;i<5;i++)map.AdvanceView(.25f);
+  Assert.That(map.RangeKm,Is.EqualTo(expected).Within(.001));map.ResetView();
+ }
+ [Test] public void CollapsedFormationPanelReleasesItsUnusedMapArea()
+ {
+  var map=root.AddComponent<MechBattlefieldMap>();var property=typeof(MechBattlefieldMap).GetProperty("FormationPanelRect",Private);
+  Assert.That(map.InPlot(new Vector2(50,100)),Is.False);
+  typeof(MechBattlefieldMap).GetField("formationPanelCollapsed",Private).SetValue(map,true);
+  var collapsed=(Rect)property.GetValue(map);Assert.That(collapsed.height,Is.EqualTo(40));
+  Assert.That(map.InPlot(new Vector2(50,100)),Is.True);
+ }
+ [Test] public void ExpandedPolicyMenuBlocksMapInput()
+ {
+  var map=root.AddComponent<MechBattlefieldMap>();
+  typeof(MechBattlefieldMap).GetField("openPolicyMenu",Private).SetValue(map,1);
+  typeof(MechBattlefieldMap).GetField("policyMenuBounds",Private).SetValue(map,new Rect(500,400,220,118));
+  Assert.That(map.InPlot(new Vector2(550,450)),Is.False);
+  float before=map.RangeKm;map.ZoomAt(1,new Vector2(550,450));Assert.That(map.RangeKm,Is.EqualTo(before));
  }
  [Test] public void TargetSourcesSortByFreshEvidenceAndExpireIndependently()
  {
@@ -221,9 +243,9 @@ public sealed class MechBattlefieldMapTests
   var map=root.AddComponent<MechBattlefieldMap>();root.transform.position=new Vector3(45000,12000,-70000);
   typeof(MechBattlefieldMap).GetField("yaw",Private).SetValue(map,yaw);typeof(MechBattlefieldMap).GetField("tilt",Private).SetValue(map,tilt);
   map.ZoomAt(3,map.MapCenter);map.BeginPan(new Vector2(400,400));map.MovePan(new Vector2(500,460));map.EndPan(new Vector2(500,460));
-  var world=new Vector3(75000,0,-50000);
+  var world=map.GridToWorld(new Vector3(30000,0,20000));
   Assert.That(Vector3.Distance(world,map.MapToGridPlane(map.Project(world))),Is.LessThan(.1));
-  Assert.That(Vector2.Distance(map.Project(new Vector3(world.x,9000,world.z),true),map.Project(world)),Is.LessThan(.01));
+  Assert.That(Vector2.Distance(map.Project(world+Vector3.up*9000,true),map.Project(world)),Is.LessThan(.01));
  }
  [Test] public void WorldGridCellsHaveEqual25KmEdgesBeforeProjection()
  {

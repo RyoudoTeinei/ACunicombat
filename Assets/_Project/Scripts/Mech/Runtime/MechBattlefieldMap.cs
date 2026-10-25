@@ -54,6 +54,20 @@ namespace ACunicombat.Mechs
             retiredTrailKeys.Clear();foreach(var key in trails.Keys)if(!currentTrailKeys.Contains(key))retiredTrailKeys.Add(key);
             foreach(var key in retiredTrailKeys){trails.Remove(key);altitudeSigns.Remove(key);}
         }
+        private readonly List<Vector2> trailDashIntervals=new List<Vector2>(12);
+        public static void BuildTrailDashIntervals(float walked,float segment,float clearance,List<Vector2> result)
+        {
+            result.Clear();
+            if(!float.IsFinite(walked)||!float.IsFinite(segment)||!float.IsFinite(clearance)||walked<0||segment<=0||clearance<0)return;
+            float end=Mathf.Min(80,walked+segment);
+            // Fixed integer dash indices avoid float increments that can stop advancing.
+            for(int dash=0;dash<11;dash++)
+            {
+                float dashStart=clearance+dash*8;
+                float a=Mathf.Max(walked,dashStart),b=Mathf.Min(end,dashStart+5);
+                if(b>a)result.Add(new Vector2(a-walked,b-walked));
+            }
+        }
         private void DrawTrail(Contact c,Vector2 head,Color color,double now)
         {
             if(!trails.TryGetValue(c.Key,out var trail))return;
@@ -61,17 +75,13 @@ namespace ACunicombat.Mechs
             for(int i=trail.Samples.Count-1;i>=0&&walked<80;i--)
             {
                 var sample=trail.Samples[i];var end=ScreenToContent(Project(sample.Position));
-                float length=Vector2.Distance(start,end);if(length<.001f){start=end;continue;}
-                var direction=(end-start)/length;float segment=Mathf.Min(length,80-walked),offset=0;
-                while(offset<segment)
-                {
-                    float distance=walked+offset;
-                    if(distance<clearance){offset=Mathf.Min(segment,clearance-walked);continue;}
-                    float phase=(distance-clearance)%8;float step=Mathf.Min(segment-offset,phase<5?5-phase:8-phase);
-                    if(step<.0001f){offset+=.0001f;continue;}
-                    if(phase<5){var tint=color;tint.a*=Mathf.Lerp(.25f,.75f,Mathf.Clamp01(1-(float)(now-sample.Time)/ObservedTrail.RetentionSeconds));Line(start+direction*offset,start+direction*(offset+step),tint,1);}
-                    offset+=step;
-                }
+                float length=Vector2.Distance(start,end);
+                if(!float.IsFinite(length))break;
+                if(length<.001f){start=end;continue;}
+                var direction=(end-start)/length;float segment=Mathf.Min(length,80-walked);
+                BuildTrailDashIntervals(walked,segment,clearance,trailDashIntervals);
+                var tint=color;tint.a*=Mathf.Lerp(.25f,.75f,Mathf.Clamp01(1-(float)(now-sample.Time)/ObservedTrail.RetentionSeconds));
+                foreach(var interval in trailDashIntervals)Line(start+direction*interval.x,start+direction*interval.y,tint,1);
                 walked+=segment;start=end;
             }
         }
@@ -130,19 +140,12 @@ namespace ACunicombat.Mechs
         }
         private bool drawingTarget;
         private Vector2 targetAnchor;
-        // Counteract world zoom: markers start 20% smaller and grow
-        // to three times their screen size between 1x and 5x, rather than fivefold.
+        // Counteract world zoom while allowing a restrained, sublinear marker size increase.
         public static float TargetVisualScale(float zoom)
         {float z=Mathf.Clamp(zoom,.25f,8);return .56f*(z<1?1f:1f+.5f*(z-1f))/z;}
         public static bool ShowContactLabels(float zoom)=>zoom>=.5f;
         private Vector2 ScaleTargetPoint(Vector2 p)=>targetAnchor+(p-targetAnchor)*TargetVisualScale(ContentZoom);
         private const int W=1600,H=1000,MapLayer=30;
-        private static readonly Color Background=new Color(.025f,.030f,.034f,1);
-        private static readonly Color MutedColor=new Color(.19f,.23f,.22f);
-        internal static readonly Color FriendlyColor=MechTacticalSymbols.Friendly;
-        private static readonly Color HostileColor=MechTacticalSymbols.Hostile;
-        private static readonly Color UnknownColor=MechTacticalSymbols.Unknown;
-        private static readonly Color PrimaryText=MechTacticalSymbols.Own;
         private Action<Vector2,Vector2,Color,float> symbolLine;
         private readonly Dictionary<string,int> altitudeSigns=new Dictionary<string,int>();
         private readonly List<Contact> contacts=new List<Contact>();
@@ -153,10 +156,12 @@ namespace ACunicombat.Mechs
         private int lineCount,textCount;private Camera camera;private Canvas canvas;private Font font;private Material material;
         private RenderTexture source,logical,reconstructed,display,overlayDisplay;private GameObject uiRoot;
         private CanvasScaler scaler;private RectTransform plotRoot;private bool drawingWorld;
-        private Rect viewport;private Vector2 pan;
+        private MechTacticalVectorLayer overlayVectors;
+        private Rect viewport;private Vector2 pan,targetPan;
         private float layoutWidth=W;
         [SerializeField,Range(.75f,2f)] private float screenPixelScale=1f;
         public float ScreenPixelScale=>screenPixelScale;
+        public int DisplayTextureBuildCount {get;private set;}
         public static Vector2Int LogicalScreenSize(float width,float pixelScale)
         {
             float density=.8f/Mathf.Clamp(pixelScale,.75f,2f);
@@ -165,8 +170,8 @@ namespace ACunicombat.Mechs
         public float LayoutWidth=>layoutWidth;
         public Vector2 MapCenter=>new Vector2(layoutWidth*.5f,H*.5f);
         public Rect DetailsRect=>new Rect(layoutWidth-Mathf.Min(300,layoutWidth-48)-24,24,Mathf.Min(300,layoutWidth-48),440);
-        public Rect FooterRect=>new Rect(24,H-160,layoutWidth-48,136);
-        private Rect TimeControlRect=>new Rect((layoutWidth-170)/2,20,170,34);
+        public Rect FooterRect=>new Rect(20,H-190,layoutWidth-40,166);
+        private Rect TimeControlRect=>new Rect((layoutWidth-150)/2,20,150,32);
         [SerializeField] private bool mapTimePaused;
         [SerializeField] private float mapPreviousTimeScale=1f;
         private void ToggleMapTime()
@@ -185,7 +190,7 @@ namespace ACunicombat.Mechs
         public Rect Viewport=>viewport;
         public Vector2Int SourceResolution=>source==null?Vector2Int.zero:new Vector2Int(source.width,source.height);
         private MechRadarController radar;private MechCooperativeTelemetry cooperative;private MechFlightMotionController motion;
-        private string selected="own";private bool visible;private float nextRefresh,rangeKm=250f*440/W,yaw,tilt=0;private CursorLockMode priorLock;private bool priorCursor;
+        private string selected="own";private bool visible;private float nextRefresh,rangeKm=250f*440/W,targetRangeKm=250f*440/W,yaw,targetYaw,tilt=0,targetTilt;private CursorLockMode priorLock;private bool priorCursor;
         public bool Visible=>visible;public RenderTexture Display=>display;public IReadOnlyList<Contact> Contacts=>contacts;
         public float RangeKm=>rangeKm;
         public float HorizontalSpanKm=>layoutWidth*rangeKm/440f;
@@ -193,17 +198,11 @@ namespace ACunicombat.Mechs
         public float BaseRangeKm=>BaseHorizontalSpanKm*440f/layoutWidth;
         public float ContentZoom=>BaseRangeKm/rangeKm;
         public Vector2Int ContentLogicalResolution=>logical==null?Vector2Int.zero:new Vector2Int(logical.width,logical.height);
-        // The former 5x cell density is now reached only at 8x.
-        // Overview magnifications bypass pixel reconstruction entirely.
+        // Magnification changes the display treatment, never the allocated texture sizes.
         public static Vector4 RenderProfile(float zoom)
         {
-            float z=Mathf.Clamp(zoom,1,8);
-            float transition=Mathf.SmoothStep(0,1,(z-2)/6);
-            float cells=Mathf.Lerp(1,5f/Mathf.Sqrt(1.5f),transition);
-            float blend=transition;
-            float rgb=Mathf.Lerp(.15f,1,transition);
-            float scatter=Mathf.Lerp(0,.045f,transition);
-            return new Vector4(cells,blend,rgb,scatter);
+            float transition=Mathf.SmoothStep(0,1,(Mathf.Clamp(zoom,1,5)-1)/4);
+            return new Vector4(Mathf.Lerp(1,2.25f,transition),Mathf.Lerp(.08f,1,transition),Mathf.Lerp(.04f,.7f,transition),Mathf.Lerp(0,.035f,transition));
         }
         private Vector2 ContentToScreen(Vector2 p)=>MapCenter+(p-MapCenter)*ContentZoom;
         private Vector2 ScreenToContent(Vector2 p)=>MapCenter+(p-MapCenter)/ContentZoom;
@@ -223,28 +222,46 @@ namespace ACunicombat.Mechs
         public void ZoomAt(float scroll,Vector2 point)
         {
             if(!InPlot(point))return;
-            float next=Mathf.Clamp(ZoomRange(rangeKm,scroll),BaseRangeKm/8f,BaseRangeKm/.25f);float ratio=rangeKm/next;
-            var relative=point-MapCenter;pan=relative-(relative-pan)*ratio;rangeKm=next;
-            if(pointerCaptured){pointerStart=point;panStart=pan;}
-            nextRefresh=0;
+            float current=visible?targetRangeKm:rangeKm;
+            float next=Mathf.Clamp(ZoomRange(current,scroll),BaseRangeKm/8f,BaseRangeKm/.25f);float ratio=current/next;
+            var relative=point-MapCenter;targetPan=relative-(relative-(visible?targetPan:pan))*ratio;targetRangeKm=next;
+            if(!visible){rangeKm=next;pan=targetPan;}
+            if(pointerCaptured){pointerStart=point;panStart=targetPan;}
         }
-        public bool InPlot(Vector2 p)=>p.x>=0&&p.x<=layoutWidth&&p.y>=0&&p.y<=H&&!(speedMenuOpen&&speedMenuBounds.Contains(p))&&!FooterRect.Contains(p)&&!TimeControlRect.Contains(p)&&!FormationPanelRect.Contains(p)&&(missionEditStage==MissionEditStage.None||!MissionToolbarRect.Contains(p));
+        public bool InPlot(Vector2 p)=>p.x>=0&&p.x<=layoutWidth&&p.y>=0&&p.y<=H&&!(speedMenuOpen&&speedMenuBounds.Contains(p))&&!(openPolicyMenu!=0&&policyMenuBounds.Contains(p))&&!FooterRect.Contains(p)&&!TimeControlRect.Contains(p)&&!FormationPanelRect.Contains(p)&&(missionEditStage==MissionEditStage.None||!MissionToolbarRect.Contains(p))&&!speedCustomEditing;
         public void BeginPan(Vector2 point)
         {
-            pointerCaptured=InPlot(point);pointerDragged=false;pointerStart=point;panStart=pan;
+            pointerCaptured=InPlot(point);pointerDragged=false;pointerStart=point;panStart=visible?targetPan:pan;
         }
         public void MovePan(Vector2 point)
         {
             if(!pointerCaptured)return;
             var delta=point-pointerStart;if(delta.sqrMagnitude>=16)pointerDragged=true;
-            if(pointerDragged){pan=panStart+delta;nextRefresh=0;}
+            if(pointerDragged){targetPan=panStart+delta;if(!visible)pan=targetPan;}
         }
         public bool EndPan(Vector2 point)
         {
             MovePan(point);bool click=pointerCaptured&&!pointerDragged&&InPlot(point);
             pointerCaptured=pointerDragged=false;return click;
         }
-        public void ResetView(){pointerCaptured=pointerDragged=false;rangeKm=BaseRangeKm;pan=Vector2.zero;yaw=0;tilt=0;nextRefresh=0;}
+        public void ResetView()
+        {
+            pointerCaptured=pointerDragged=false;rangeKm=targetRangeKm=BaseRangeKm;pan=targetPan=Vector2.zero;
+            yaw=targetYaw=0;tilt=targetTilt=0;nextRefresh=0;
+        }
+        private void SnapViewTarget(){targetRangeKm=rangeKm;targetPan=pan;targetYaw=yaw;targetTilt=tilt;}
+        public void AdvanceView(float deltaTime)
+        {
+            if(!visible||deltaTime<=0)return;
+            float blend=1-Mathf.Exp(-Mathf.Min(deltaTime,.25f)/.075f);
+            pan=Vector2.Lerp(pan,targetPan,blend);
+            rangeKm=Mathf.Exp(Mathf.Lerp(Mathf.Log(rangeKm),Mathf.Log(targetRangeKm),blend));
+            yaw=Mathf.Lerp(yaw,targetYaw,blend);tilt=Mathf.Lerp(tilt,targetTilt,blend);
+            if(Vector2.Distance(pan,targetPan)<.01f)pan=targetPan;
+            if(Mathf.Abs(rangeKm-targetRangeKm)<.0001f)rangeKm=targetRangeKm;
+            if(Mathf.Abs(yaw-targetYaw)<.001f)yaw=targetYaw;
+            if(Mathf.Abs(tilt-targetTilt)<.001f)tilt=targetTilt;
+        }
 
 
         private void Awake()
@@ -262,20 +279,27 @@ namespace ACunicombat.Mechs
             {
                 MechAssemblyMenu.CloseAllForSolarMap();
                 EnsureDisplay();priorLock=Cursor.lockState;priorCursor=Cursor.visible;Cursor.lockState=CursorLockMode.None;Cursor.visible=true;
-                visible=true;MechSolarSystemMap.SetBattlefieldVisible(true);uiRoot.SetActive(true);Refresh();
+                visible=true;SnapViewTarget();MechSolarSystemMap.SetBattlefieldVisible(true);uiRoot.SetActive(true);Refresh();
             }
             else
             {
                 CancelMissionAssignment();CloseFormationModal();formationMenu=FormationMenu.None;dragFormationMember=Guid.Empty;
                 RestoreMapTime();
-                visible=false;weaponDirectMode=false;commandWeapon=Guid.Empty;contextOpen=false;routeDraft=false;draftWaypoints.Clear();openPolicyMenu=0;pointerCaptured=pointerDragged=false;MechSolarSystemMap.SetBattlefieldVisible(false);if(uiRoot!=null)uiRoot.SetActive(false);
+                visible=false;speedCustomEditing=false;weaponDirectMode=false;commandWeapon=Guid.Empty;contextOpen=false;routeDraft=false;draftWaypoints.Clear();openPolicyMenu=0;pointerCaptured=pointerDragged=false;MechSolarSystemMap.SetBattlefieldVisible(false);if(uiRoot!=null)uiRoot.SetActive(false);
                 Cursor.lockState=priorLock;Cursor.visible=priorCursor;
             }
+        }
+        private void SampleMapPointer()
+        {
+            var mouse=Mouse.current;if(mouse==null)return;
+            var screen=mouse.position.ReadValue();
+            mapPointer=ScreenToLayout(new Vector2(screen.x,Screen.height-screen.y),viewport);
         }
         private void Update()
         {
             if(ScenarioEditing){UpdateScenarioEditor();return;}
             var keyboard=Keyboard.current;
+            if(visible&&speedCustomEditing&&keyboard!=null&&keyboard.escapeKey.wasPressedThisFrame){speedCustomEditing=false;return;}
             if(visible&&missionEditStage!=MissionEditStage.None&&keyboard!=null&&keyboard.escapeKey.wasPressedThisFrame){CancelMissionAssignment();Refresh();return;}
             if(visible&&formationModal!=FormationModal.None)
             {
@@ -286,13 +310,13 @@ namespace ACunicombat.Mechs
             if(!visible){if(Time.unscaledTime>=nextHistoryPoll){nextHistoryPoll=Time.unscaledTime+.5f;Gather();RecordTrails();}return;}
             EnsureDisplay();
             ResizeTargets();
+            AdvanceView(Time.unscaledDeltaTime);
             if(keyboard!=null&&keyboard.homeKey.wasPressedThisFrame)ResetView();
             if(keyboard!=null&&keyboard.escapeKey.wasPressedThisFrame){SetVisible(false);return;}
             var mouse=Mouse.current;
             if(mouse!=null)
             {
-                var screen=mouse.position.ReadValue();var point=ScreenToLayout(new Vector2(screen.x,Screen.height-screen.y),viewport);
-                mapPointer=point;
+                SampleMapPointer();var point=mapPointer;
                 if(HandleMissionPointer(point,mouse)){pointerCaptured=false;Refresh();return;}
                 if(HandleFormationPointer(point,mouse)){pointerCaptured=false;Refresh();return;}
                 bool shift=keyboard!=null&&(keyboard.leftShiftKey.isPressed||keyboard.rightShiftKey.isPressed);
@@ -301,7 +325,7 @@ namespace ACunicombat.Mechs
                 Cursor.visible=!(WeaponCursorActive&&InPlot(point)&&!contextOpen);
                 if(mouse.rightButton.wasPressedThisFrame&&!alt){RightMapCommand(point,shift);Refresh();}
                 float scroll=mouse.scroll.ReadValue().y;if(scroll!=0){if(FormationPanelRect.Contains(point))ScrollFormationList(scroll);else ZoomAt(scroll,point);}
-                if(alt&&mouse.rightButton.isPressed&&!pointerCaptured&&InPlot(point)){var delta=mouse.delta.ReadValue();yaw+=delta.x*.2f;tilt=Mathf.Clamp(tilt-delta.y*.2f,0,75);}
+                if(alt&&mouse.rightButton.isPressed&&!pointerCaptured&&InPlot(point)){var delta=mouse.delta.ReadValue();targetYaw+=delta.x*.2f;targetTilt=Mathf.Clamp(targetTilt-delta.y*.2f,0,75);}
                 if(mouse.leftButton.wasPressedThisFrame){if(HandleCommandClick(point)){pointerCaptured=false;Refresh();return;}BeginPan(point);}
                 if(mouse.leftButton.isPressed)MovePan(point);
                 if(mouse.leftButton.wasReleasedThisFrame&&EndPan(point))
@@ -311,7 +335,8 @@ namespace ACunicombat.Mechs
                     ArmSelectedUnit();
                 }
             }
-            if(Time.unscaledTime>=nextRefresh){nextRefresh=Time.unscaledTime+.1f;Refresh();}
+            if(Time.unscaledTime>=nextRefresh){nextRefresh=Time.unscaledTime+.1f;Gather();RecordTrails();}
+            Redraw();
         }
         private void EnsureDisplay()
         {
@@ -328,17 +353,24 @@ namespace ACunicombat.Mechs
             scaler=canvasObject.AddComponent<CanvasScaler>();scaler.uiScaleMode=CanvasScaler.ScaleMode.ConstantPixelSize;scaler.scaleFactor=source.height/(float)H;
             var plot=new GameObject("Clipped tactical content",typeof(RectTransform),typeof(RectMask2D));plot.layer=MapLayer;plot.transform.SetParent(canvas.transform,false);
             plotRoot=plot.GetComponent<RectTransform>();plotRoot.anchorMin=Vector2.zero;plotRoot.anchorMax=Vector2.one;plotRoot.offsetMin=plotRoot.offsetMax=Vector2.zero;
-            plot.GetComponent<RectMask2D>().padding=Vector4.zero;
+            plot.GetComponent<RectMask2D>().padding=Vector4.zero;plot.GetComponent<RectMask2D>().enabled=false;
+            overlayVectors=CreateVectorLayer("Batched tactical geometry",canvas.transform);
             font=Font.CreateDynamicFontFromOSFont(new[]{"Consolas","Microsoft YaHei","SimHei"},36);
+        }
+        private MechTacticalVectorLayer CreateVectorLayer(string name,Transform parent)
+        {
+            var go=new GameObject(name,typeof(RectTransform),typeof(CanvasRenderer),typeof(MechTacticalVectorLayer));
+            go.layer=MapLayer;go.transform.SetParent(parent,false);
+            var rect=go.GetComponent<RectTransform>();rect.anchorMin=Vector2.zero;rect.anchorMax=Vector2.one;rect.offsetMin=rect.offsetMax=Vector2.zero;
+            var layer=go.GetComponent<MechTacticalVectorLayer>();layer.raycastTarget=false;return layer;
         }
         private void ResizeTargets()
         {
             var next=FitViewport(Screen.width,Screen.height);
-            float preservedZoom=ContentZoom;
+            float oldBase=BaseRangeKm,preservedZoom=ContentZoom,targetZoom=targetRangeKm>0?oldBase/targetRangeKm:preservedZoom;
             layoutWidth=H*next.width/next.height;
-            rangeKm=BaseRangeKm/preservedZoom;
-            var overlaySize=LogicalScreenSize(layoutWidth,screenPixelScale);
-            var logicalSize=new Vector2Int(Mathf.Max(1,Mathf.RoundToInt(overlaySize.x/RenderProfile(ContentZoom).x)),Mathf.Max(1,Mathf.RoundToInt(overlaySize.y/RenderProfile(ContentZoom).x)));
+            rangeKm=BaseRangeKm/preservedZoom;targetRangeKm=BaseRangeKm/targetZoom;
+            var logicalSize=LogicalScreenSize(layoutWidth,screenPixelScale);
             if(plotRoot!=null)plotRoot.GetComponent<RectMask2D>().padding=Vector4.zero;
             if(display!=null&&display.width==(int)next.width&&display.height==(int)next.height&&logical!=null&&logical.width==logicalSize.x&&logical.height==logicalSize.y){viewport=next;return;}
             viewport=next;if(camera!=null)camera.targetTexture=null;
@@ -347,10 +379,11 @@ namespace ACunicombat.Mechs
             float supersampling=Mathf.Min(2f,SystemInfo.maxTextureSize/(float)Mathf.Max(w,h));
             int sw=Mathf.Max(1,Mathf.RoundToInt(w*supersampling)),sh=Mathf.Max(1,Mathf.RoundToInt(h*supersampling));
             source=Texture(sw,sh,24);source.filterMode=FilterMode.Point;
-            // Enlarge actual emitting cells, not the map projection or a separate background dot overlay.
+            // Zoom never reallocates display resources; only viewport or pixel density does.
             logical=Texture(logicalSize.x,logicalSize.y,0,true);logical.filterMode=FilterMode.Trilinear;
             overlayDisplay=Texture(w,h,0);
             reconstructed=Texture(w,h,0);display=Texture(w,h,0);display.filterMode=FilterMode.Point;
+            DisplayTextureBuildCount++;
             if(camera!=null)camera.targetTexture=source;
             if(scaler!=null)scaler.scaleFactor=source.height/(float)H;
             nextRefresh=0;
@@ -368,8 +401,9 @@ namespace ACunicombat.Mechs
             // Native clean path: average the supersampled source, without an emitter mask.
             Graphics.Blit(source,overlayDisplay,material,3);
             material.SetFloat("_GlassScatter",profile.w);
-            material.SetFloat("_GlassDispersion",Mathf.Lerp(0,.08f,profile.y));
+            material.SetFloat("_GlassDispersion",Mathf.Lerp(0,.035f,profile.y));
             material.SetFloat("_RgbStrength",profile.z);
+            material.SetFloat("_CellScale",profile.x);
             material.SetVector("_LogicalSize",new Vector4(logical.width,logical.height,0,0));
             if(profile.y<=0)
             {
@@ -381,6 +415,10 @@ namespace ACunicombat.Mechs
             material.SetTexture("_CleanTex",overlayDisplay);material.SetFloat("_PixelBlend",profile.y);
             material.SetVector("_FormationRect",PanelUv(FormationPanelRect));
             material.SetVector("_DetailsRect",new Vector4(-2,-2,-1,-1));material.SetVector("_FooterRect",PanelUv(FooterRect));
+            material.SetVector("_TimeRect",PanelUv(new Rect(TimeControlRect.x,12,TimeControlRect.width+286,48)));
+            material.SetVector("_ContextRect",PanelUv(contextOpen?contextBounds:new Rect(-2,-2,1,1)));
+            material.SetVector("_PolicyRect",PanelUv(openPolicyMenu!=0?policyMenuBounds:new Rect(-2,-2,1,1)));
+            material.SetVector("_SpeedRect",PanelUv(speedMenuOpen?speedMenuBounds:new Rect(-2,-2,1,1)));
             Graphics.Blit(display,reconstructed,material,4);Graphics.Blit(reconstructed,display);
         }
         private Vector4 PanelUv(Rect r)=>new Vector4(r.x/layoutWidth,1-r.yMax/H,r.xMax/layoutWidth,1-r.y/H);
@@ -391,7 +429,7 @@ namespace ACunicombat.Mechs
             GUI.color=Background;GUI.DrawTexture(new Rect(0,0,Screen.width,Screen.height),Texture2D.whiteTexture);
             GUI.color=Color.white;
             // Texture dimensions equal the viewport's physical pixels: no post-filter resampling.
-            GUI.DrawTexture(viewport,display,ScaleMode.StretchToFill,false);DrawFormationModalGui();GUI.color=color;GUI.depth=old;
+            GUI.DrawTexture(viewport,display,ScaleMode.StretchToFill,false);DrawFormationModalGui();DrawCruiseSpeedEditor();GUI.color=color;GUI.depth=old;
         }
         private Image Stroke()
         {
@@ -401,8 +439,20 @@ namespace ACunicombat.Mechs
         private void Line(Vector2 a,Vector2 b,Color color,float width=1)
         {
             if(drawingTarget){a=ScaleTargetPoint(a);b=ScaleTargetPoint(b);width*=TargetVisualScale(ContentZoom);}
-            if(drawingWorld){a=ContentToScreen(a);b=ContentToScreen(b);width*=ContentZoom;}
+            if(drawingWorld)
+            {
+                a=ContentToScreen(a);b=ContentToScreen(b);width*=ContentZoom;
+                if(!ClipWorldLine(ref a,ref b))return;
+            }
             var image=Stroke();image.color=color;var r=image.rectTransform;r.anchorMin=r.anchorMax=new Vector2(0,1);r.pivot=new Vector2(.5f,.5f);r.anchoredPosition=new Vector2((a.x+b.x)*.5f,-(a.y+b.y)*.5f);r.sizeDelta=new Vector2(Vector2.Distance(a,b),width);r.localRotation=Quaternion.Euler(0,0,-Mathf.Atan2(b.y-a.y,b.x-a.x)*Mathf.Rad2Deg);
+        }
+        private bool ClipWorldLine(ref Vector2 a,ref Vector2 b)
+        {
+            const float padding=3;float start=0,end=1;var delta=b-a;
+            if(!ClipRoute(-delta.x,a.x+padding,ref start,ref end)||!ClipRoute(delta.x,layoutWidth+padding-a.x,ref start,ref end)||
+               !ClipRoute(-delta.y,a.y+padding,ref start,ref end)||!ClipRoute(delta.y,H+padding-a.y,ref start,ref end))return false;
+            if(end-start<=.00001f)return false;
+            var clippedA=a+delta*start;var clippedB=a+delta*end;a=clippedA;b=clippedB;return true;
         }
         private void Label(float x,float y,string value,Color color,int size=17)
         {
@@ -413,8 +463,7 @@ namespace ACunicombat.Mechs
         }
         private void Fill(Rect bounds,Color color)
         {
-            var image=Stroke();image.color=color;var r=image.rectTransform;r.anchorMin=r.anchorMax=new Vector2(0,1);r.pivot=new Vector2(0,1);
-            r.anchoredPosition=new Vector2(bounds.x,-bounds.y);r.sizeDelta=bounds.size;r.localRotation=Quaternion.identity;
+            overlayVectors.AddRect(bounds,color);
         }
         private void Box(float x,float y,float w,float h,Color c,float weight=1){Line(new Vector2(x,y),new Vector2(x+w,y),c,weight);Line(new Vector2(x+w,y),new Vector2(x+w,y+h),c,weight);Line(new Vector2(x+w,y+h),new Vector2(x,y+h),c,weight);Line(new Vector2(x,y+h),new Vector2(x,y),c,weight);}
         private void Circle(Vector2 center,float radius,Color c,int segments=64,float width=1)
@@ -456,9 +505,17 @@ namespace ACunicombat.Mechs
             float minZ=Mathf.Floor(Mathf.Min(a.z,b.z,c.z,d.z)/step)*step-step;
             float maxZ=Mathf.Ceil(Mathf.Max(a.z,b.z,c.z,d.z)/step)*step+step;
             int columns=Mathf.CeilToInt((maxX-minX)/step),rows=Mathf.CeilToInt((maxZ-minZ)/step);
-            float gridWidth=1f/ContentZoom;
-            for(int i=0;i<=columns;i++){float x=minX+i*step;Line(ScreenToContent(Project(GridToWorld(new Vector3(x,0,minZ)))),ScreenToContent(Project(GridToWorld(new Vector3(x,0,maxZ)))),new Color(.25f,.31f,.29f,.85f),gridWidth);}
-            for(int i=0;i<=rows;i++){float z=minZ+i*step;Line(ScreenToContent(Project(GridToWorld(new Vector3(minX,0,z)))),ScreenToContent(Project(GridToWorld(new Vector3(maxX,0,z)))),new Color(.25f,.31f,.29f,.85f),gridWidth);}
+            float gridWidth=.8f/ContentZoom;
+            for(int i=0;i<=columns;i++)
+            {
+                float x=minX+i*step;bool major=Mathf.RoundToInt(x/WorldGridSpacingMeters)%4==0;
+                Line(ScreenToContent(Project(GridToWorld(new Vector3(x,0,minZ)))),ScreenToContent(Project(GridToWorld(new Vector3(x,0,maxZ)))),major?GridMajor:GridMinor,gridWidth*(major?1.35f:1));
+            }
+            for(int i=0;i<=rows;i++)
+            {
+                float z=minZ+i*step;bool major=Mathf.RoundToInt(z/WorldGridSpacingMeters)%4==0;
+                Line(ScreenToContent(Project(GridToWorld(new Vector3(minX,0,z)))),ScreenToContent(Project(GridToWorld(new Vector3(maxX,0,z)))),major?GridMajor:GridMinor,gridWidth*(major?1.35f:1));
+            }
         }
         private void Gather()
         {
@@ -529,23 +586,30 @@ namespace ACunicombat.Mechs
         }
         public void Refresh()
         {
-            Gather();if(!ScenarioEditing)RecordTrails();if(canvas==null)return;lineCount=0;textCount=0;drawingWorld=false;
+            Gather();if(!ScenarioEditing)RecordTrails();Redraw();
+        }
+        private void Redraw()
+        {
+            if(canvas==null)return;lineCount=0;textCount=0;drawingWorld=false;
+            SampleMapPointer();overlayVectors.Begin();
+            plotRoot.SetAsFirstSibling();overlayVectors.transform.SetAsLastSibling();
             double now=radar!=null?radar.SimTimeSeconds:Time.timeAsDouble;
-            plotRoot.SetAsFirstSibling();drawingWorld=true;
+            drawingWorld=true;
             DrawWorldGrid();
             if(!ScenarioEditing){DrawMissionRegionsWorld();DrawRadarScan(now);}
             foreach(var c in contacts)
             {
-                var screenPoint=Project(c.Position);if(screenPoint.x< -200*ContentZoom||screenPoint.x>layoutWidth+50*ContentZoom||screenPoint.y< -80*ContentZoom||screenPoint.y>H+80*ContentZoom)continue;
+                Vector3 presentedPosition=PresentationPosition(c,now);
+                var screenPoint=Project(presentedPosition);if(screenPoint.x< -200*ContentZoom||screenPoint.x>layoutWidth+50*ContentZoom||screenPoint.y< -80*ContentZoom||screenPoint.y>H+80*ContentZoom)continue;
                 var p=ScreenToContent(screenPoint);
                 Color color=c.Own?PrimaryText:c.Identity.Available&&c.Identity.Relation==IdentityRelation.Neutral?new Color(.55f,.58f,.57f):c.Affiliation==TrackAffiliation.Friendly?FriendlyColor:c.Affiliation==TrackAffiliation.Hostile?HostileColor:UnknownColor;
                 DrawTrail(c,p,color,now);
-                var ground=ScreenToContent(Project(c.Position,true));if(Vector2.Distance(p,ground)>3){Line(p,ground,MutedColor);Line(ground-new Vector2(4,0),ground+new Vector2(4,0),MutedColor);}
+                var ground=ScreenToContent(Project(presentedPosition,true));if(Vector2.Distance(p,ground)>3){Line(p,ground,MutedColor);Line(ground-new Vector2(4,0),ground+new Vector2(4,0),MutedColor);}
                 targetAnchor=p;drawingTarget=true;
                 symbolLine??=Line;
                 MechTacticalSymbols.Draw(symbolLine,p,c.Affiliation,c.Missile,color,c.Missile?.8f:1);
                 drawingTarget=false;
-                var v=ScreenToContent(Project(c.Position+c.Velocity*20))-p;
+                var v=ScreenToContent(Project(presentedPosition+c.Velocity*20))-p;
                 float clearance=15.3f*TargetVisualScale(ContentZoom)*(c.Missile?.8f:1);
                 float length=Mathf.Min(v.magnitude,80)*(c.Missile?.65f:1);
                 if(length>clearance)
@@ -557,26 +621,29 @@ namespace ACunicombat.Mechs
                 drawingTarget=true;
                 if(ShowContactLabels(ContentZoom))
                 {
-                var rel=c.Position-transform.position;
-                altitudeSigns.TryGetValue(c.Key,out int previous);int sign=AltitudeSign(rel.y,previous);altitudeSigns[c.Key]=sign;
-                string arrow=sign>0?" ▲":sign<0?" ▼":"";
-                if(c.Own){PlatformLabel(p.x+24,p.y+3,"本机",color,14);}
-                else if(c.Missile){Label(p.x+24,p.y+3,c.Name,color,14);Label(p.x+24,p.y+21,$"R {rel.magnitude/1000:0.0} km",color,13);}
-                else
-                {
-                PlatformLabel(p.x+24,p.y+3,$"{c.Name} / {c.Type}{arrow}",color,14);
-                PlatformLabel(p.x+24,p.y+22.8f,"unknown",color,13);
-                PlatformLabel(p.x+24,p.y+41.5f,$"R {rel.magnitude/1000:0.0} km ({c.Source})",color,13);
-                PlatformLabel(p.x+24,p.y+60.2f,$"Z {rel.y/1000:+0.0;-0.0;+0.0} km",color,13);
-                }
-                if(c.Identity.Available&&(c.Identity.Conflict||c.Identity.Relation==IdentityRelation.SuspectedHostile))Label(p.x-5,p.y-27,"!",HostileColor,14);
+                    var rel=c.Position-transform.position;
+                    altitudeSigns.TryGetValue(c.Key,out int previous);int sign=AltitudeSign(rel.y,previous);altitudeSigns[c.Key]=sign;
+                    string arrow=sign>0?" ▲":sign<0?" ▼":"";
+                    if(c.Own)PlatformLabel(p.x+24,p.y+3,"本机",color,14);
+                    else if(c.Missile)
+                    {
+                        Label(p.x+24,p.y+3,c.Name,color,14);
+                        Label(p.x+24,p.y+21,$"R {rel.magnitude/1000:0.0} km",SecondaryText,13);
+                    }
+                    else
+                    {
+                        PlatformLabel(p.x+24,p.y+3,$"{c.Name} / {c.Type}{arrow}",color,14);
+                        PlatformLabel(p.x+24,p.y+22.8f,$"R {rel.magnitude/1000:0.0} km ({c.Source})",color,13);
+                        PlatformLabel(p.x+24,p.y+41.5f,$"Z {rel.y/1000:+0.0;-0.0;+0.0} km",SecondaryText,13);
+                    }
+                    if(c.Identity.Available&&(c.Identity.Conflict||c.Identity.Relation==IdentityRelation.SuspectedHostile))Label(p.x-5,p.y-27,"!",HostileColor,14);
                 }
                 if(c.Key==selected)SelectionCorners(p);
                 drawingTarget=false;
-
             }
             drawingWorld=false;
             if(!ScenarioEditing)DrawMapCommandUi(now);
+            overlayVectors.Complete();
             for(int i=lineCount;i<lines.Count;i++)lines[i].gameObject.SetActive(false);for(int i=textCount;i<texts.Count;i++)texts[i].gameObject.SetActive(false);
         }
         private void PlatformLabel(float x,float y,string value,Color color,int size)
@@ -618,7 +685,7 @@ namespace ACunicombat.Mechs
         private void ReleaseDisplayResources()
         {
             if(uiRoot!=null)Destroy(uiRoot);uiRoot=null;canvas=null;camera=null;scaler=null;plotRoot=null;
-            lines.Clear();texts.Clear();
+            overlayVectors=null;lines.Clear();texts.Clear();
             foreach(var t in new[]{source,logical,reconstructed,display,overlayDisplay})if(t!=null){t.Release();Destroy(t);}
             source=logical=reconstructed=display=overlayDisplay=null;
             if(material!=null)Destroy(material);material=null;if(font!=null)Destroy(font);font=null;

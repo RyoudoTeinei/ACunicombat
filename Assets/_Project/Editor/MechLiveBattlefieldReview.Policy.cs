@@ -7,7 +7,7 @@ using UnityEditor;
 using Unity.Mathematics;
 public static partial class MechLiveBattlefieldReview
 {
- static int policyStage;static double policyAt;static MechFleetController policyWing;static Guid policyAttack;
+ static int policyStage,policyMapFrames;static double policyAt;static MechFleetController policyWing;static Guid policyAttack;
  public static void RunPolicyReview(){SessionState.SetBool("LiveBattlefieldReview.policy",true);RunRenderingFixReview();}
  static void TickPolicy(MechPlayerRig rig,MechBattlefieldMap map,string dir)
  {
@@ -31,6 +31,7 @@ public static partial class MechLiveBattlefieldReview
   if(Time.timeAsDouble-policyAt<3)return;
   if(!policyWing.HasTask||policyWing.State.Task.Order.Operation!=policyAttack||policyWing.State.Task.Phase==FleetTaskPhase.Returning)throw new Exception("Leader route interrupted wing attack");
   if(fleet.State.Task.Order.Order!=FleetOrderKind.Move)throw new Exception("Leader did not accept new route");
+  map.SetVisible(true);map.Refresh();if(policyMapFrames++<10)return;map.Capture(dir+"/route.png");
   Debug.Log("COMBAT_POLICY_RUNTIME_PASS: outside-range free mode creates no attack; explicit attack accepted; leader new route preserves wing attack");
   SessionState.SetBool("LiveBattlefieldReview.policy",false);SessionState.SetInt("LiveBattlefieldReview.exit",0);SessionState.SetString(Key,"finish");EditorApplication.isPlaying=false;
  }

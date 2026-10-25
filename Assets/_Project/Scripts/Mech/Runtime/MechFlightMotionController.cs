@@ -22,13 +22,13 @@ namespace ACunicombat.Mechs
         [SerializeField] private bool useLoadoutPropulsionStats = true;
         [SerializeField] private float fallbackMassKg = 50000f;
         [Tooltip("无有效换装推进数据时使用的背部主推力。")]
-        [SerializeField] private float fallbackMainThrustKn = 2000f;
+        [SerializeField] private float fallbackMainThrustKn = 4000f;
         [Tooltip("无有效换装推进数据时使用的单一侧向合力；左右能力相同。")]
-        [SerializeField] private float fallbackLateralThrustKn = 1200f;
+        [SerializeField] private float fallbackLateralThrustKn = 2400f;
         [Tooltip("无有效换装推进数据时使用的正面反推力。")]
-        [SerializeField] private float fallbackReverseThrustKn = 1400f;
+        [SerializeField] private float fallbackReverseThrustKn = 2800f;
         [Tooltip("旧装配未提供上推力数据时使用的兼容值。")]
-        [SerializeField] private float verticalThrustKn = 1500f;
+        [SerializeField] private float verticalThrustKn = 3000f;
         [Tooltip("旧装配未提供下推力数据时，相对于兼容上推力的比例。")]
         [Range(0f, 1f)] [SerializeField] private float descentThrustFraction = 0.3f;
         [Tooltip("垂直推力中由肩部上推喷口承担的比例；其余由双腿/脚部喷口承担。")]
@@ -56,12 +56,12 @@ namespace ACunicombat.Mechs
         [Tooltip("主推矢量机构每秒允许改变的最大角度。")]
         [Min(1f)] [SerializeField] private float mainVectorSlewRateDegreesPerSecond = 90f;
         [Tooltip("仅用于防止 Unity 数值和碰撞失稳的极高技术安全上限，不属于玩法速度上限。")]
-        [SerializeField] private float technicalSafetySpeed = 2000f;
+        [SerializeField] private float technicalSafetySpeed = 0f;
         [Header("喷口分配与损坏补偿")]
         [Tooltip("单侧喷口损坏后，飞控允许健侧喷口继续贡献的比例。0 表示严格对称降额；1 表示完全补偿且不模拟姿态扰动。")]
         [Range(0f, 1f)] [SerializeField] private float damagedSideCompensationEfficiency = 0.65f;
         [Tooltip("除背部主推进器外，每个实体喷口的默认额定推力。喷口方向完全取自绑定节点的 -forward。")]
-        [Min(0f)] [SerializeField] private float auxiliaryNozzleThrustKn = 300f;
+        [Min(0f)] [SerializeField] private float auxiliaryNozzleThrustKn = 600f;
         [Tooltip("三轴平移喷口分配器的迭代次数。喷口数量较少时 12 次足以稳定收敛。")]
         [Range(4, 32)] [SerializeField] private int translationAllocatorIterations = 12;
         [Tooltip("喷口分配时对绕质心残余力矩的抑制强度。推力误差始终是首要目标。")]
@@ -69,13 +69,13 @@ namespace ACunicombat.Mechs
 
         [Header("Quick Boost")]
         [Tooltip("QB 窗口内持续施加的固定推力。默认值对 50 吨机体产生约 320 m/s²。")]
-        [SerializeField] private float quickBoostThrustKn = 16000f;
+        [SerializeField] private float quickBoostThrustKn = 32000f;
         [Tooltip("QB 持续施加推力的时间。")]
         [SerializeField] private float quickBoostDuration = 0.28f;
 
         [Header("Assault Boost")]
         [Tooltip("AB 在背部主推之外附加的固定推力。")]
-        [SerializeField] private float assaultBoostThrustKn = 3500f;
+        [SerializeField] private float assaultBoostThrustKn = 7000f;
 
         [Header("机动能量")]
         [Tooltip("供普通推进、制动、轨道同步、AB 与 QB 共用的储能容量（MJ）。有效装配中由发电机决定。")]
@@ -116,9 +116,9 @@ namespace ACunicombat.Mechs
 
         [Header("姿态控制")]
         [Tooltip("肩部左右 RCS 的总额定推力。它们构成主要偏航力偶，不产生净平移力。")]
-        [SerializeField] private float shoulderRcsThrustKn = 650f;
+        [SerializeField] private float shoulderRcsThrustKn = 1300f;
         [Tooltip("腿部左右 RCS 的总额定推力。它们作为次级偏航力偶和损坏冗余。")]
-        [SerializeField] private float legRcsThrustKn = 250f;
+        [SerializeField] private float legRcsThrustKn = 500f;
         [Tooltip("核心动量轮最大偏航扭矩，只负责精调、止转和 RCS 死区。")]
         [SerializeField] private float momentumWheelTorqueKnM = 120f;
         [Tooltip("飞控允许的最大偏航角速度。")]

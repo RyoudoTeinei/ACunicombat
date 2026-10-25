@@ -37,9 +37,9 @@ MonoBehaviour:
     heatGenerationMw: 7
     heatDissipationMw: 0
     heatCapacityMj: 0
-    mainThrustKn: 520
-    lateralThrustKn: 220
-    reverseThrustKn: 300
+    mainThrustKn: 1040
+    lateralThrustKn: 440
+    reverseThrustKn: 600
     attitudeTorqueKnM: 180
     supportedMassKg: 0
     radarRangeKm: 0

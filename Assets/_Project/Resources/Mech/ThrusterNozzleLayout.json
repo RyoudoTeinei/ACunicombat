@@ -14,13 +14,13 @@
             },
             "localEulerOffset": {
                 "x": 359.9710388183594,
-                "y": 0.09545145928859711,
+                "y": 0.0954514592885971,
                 "z": 323.7857971191406
             },
             "radiusScale": 1.1399999856948853,
-            "lengthScale": 1.3300000429153443,
+            "lengthScale": 1.3300000429153442,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 260.0,
+            "ratedThrustKn": 520.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 18.0
         },
@@ -36,13 +36,13 @@
             },
             "localEulerOffset": {
                 "x": 291.4996032714844,
-                "y": 331.17340087890627,
-                "z": 39.245323181152347
+                "y": 331.17340087890625,
+                "z": 39.245323181152344
             },
-            "radiusScale": 1.2000000476837159,
-            "lengthScale": 1.2000000476837159,
+            "radiusScale": 1.2000000476837158,
+            "lengthScale": 1.2000000476837158,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 350.0,
+            "ratedThrustKn": 700.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 8.0
         },
@@ -54,17 +54,17 @@
             "localPositionOffset": {
                 "x": -1.0059372186660767,
                 "y": -0.2854916453361511,
-                "z": -1.8917570114135743
+                "z": -1.8917570114135742
             },
             "localEulerOffset": {
                 "x": 324.9434814453125,
-                "y": 213.13783264160157,
+                "y": 213.13783264160156,
                 "z": 85.31901550292969
             },
-            "radiusScale": 1.2000000476837159,
+            "radiusScale": 1.2000000476837158,
             "lengthScale": 1.399999976158142,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 340.0,
+            "ratedThrustKn": 680.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 8.0
         },
@@ -74,19 +74,19 @@
             "displayName": "Core / BD_M_1010_dmy_32",
             "enabled": true,
             "localPositionOffset": {
-                "x": -0.000008769333362579346,
-                "y": 0.000021032989025115967,
-                "z": 0.13677754998207093
+                "x": -8.769333362579346e-06,
+                "y": 2.1032989025115967e-05,
+                "z": 0.13677754998207092
             },
             "localEulerOffset": {
-                "x": 0.0021685452666133644,
+                "x": 0.0021685452666133642,
                 "y": -0.0008243317133747041,
                 "z": 19.46778678894043
             },
             "radiusScale": 1.1699999570846558,
-            "lengthScale": 1.2000000476837159,
+            "lengthScale": 1.2000000476837158,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 320.0,
+            "ratedThrustKn": 640.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 18.0
         },
@@ -102,13 +102,13 @@
             },
             "localEulerOffset": {
                 "x": -0.005435798317193985,
-                "y": 0.0014371952274814249,
+                "y": 0.0014371952274814248,
                 "z": 36.26447677612305
             },
             "radiusScale": 1.1399999856948853,
-            "lengthScale": 1.3300000429153443,
+            "lengthScale": 1.3300000429153442,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 260.0,
+            "ratedThrustKn": 520.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 18.0
         },
@@ -119,18 +119,18 @@
             "enabled": true,
             "localPositionOffset": {
                 "x": 0.6228315234184265,
-                "y": 0.28881877660751345,
+                "y": 0.2888187766075134,
                 "z": -0.6296579241752625
             },
             "localEulerOffset": {
-                "x": 291.56890869140627,
-                "y": 28.883211135864259,
-                "z": 320.61688232421877
+                "x": 291.56890869140625,
+                "y": 28.883211135864258,
+                "z": 320.61688232421875
             },
-            "radiusScale": 1.2000000476837159,
-            "lengthScale": 1.2000000476837159,
+            "radiusScale": 1.2000000476837158,
+            "lengthScale": 1.2000000476837158,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 350.0,
+            "ratedThrustKn": 700.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 8.0
         },
@@ -146,13 +146,13 @@
             },
             "localEulerOffset": {
                 "x": 324.9556884765625,
-                "y": 146.73101806640626,
+                "y": 146.73101806640625,
                 "z": 274.7847595214844
             },
-            "radiusScale": 1.2000000476837159,
+            "radiusScale": 1.2000000476837158,
             "lengthScale": 1.399999976158142,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 340.0,
+            "ratedThrustKn": 680.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 8.0
         },
@@ -167,14 +167,14 @@
                 "z": 0.1388062983751297
             },
             "localEulerOffset": {
-                "x": 0.038424164056777957,
+                "x": 0.038424164056777954,
                 "y": 359.9292297363281,
                 "z": 340.4544372558594
             },
             "radiusScale": 1.1699999570846558,
-            "lengthScale": 1.2000000476837159,
+            "lengthScale": 1.2000000476837158,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 320.0,
+            "ratedThrustKn": 640.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 18.0
         },
@@ -185,18 +185,18 @@
             "enabled": true,
             "localPositionOffset": {
                 "x": -1.189389944076538,
-                "y": -0.051027774810791019,
-                "z": -0.41568493843078616
+                "y": -0.051027774810791016,
+                "z": -0.41568493843078613
             },
             "localEulerOffset": {
                 "x": 358.9774475097656,
-                "y": 316.53802490234377,
-                "z": 358.34405517578127
+                "y": 316.53802490234375,
+                "z": 358.34405517578125
             },
-            "radiusScale": 1.2899999618530274,
+            "radiusScale": 1.2899999618530273,
             "lengthScale": 1.3700000047683716,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 210.0,
+            "ratedThrustKn": 420.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -208,17 +208,17 @@
             "localPositionOffset": {
                 "x": -0.02720547839999199,
                 "y": -0.02081924118101597,
-                "z": 0.000052422285079956055
+                "z": 5.2422285079956055e-05
             },
             "localEulerOffset": {
                 "x": -0.00012730654270853847,
-                "y": -0.00009935974958352745,
+                "y": -9.935974958352745e-05,
                 "z": 338.8957214355469
             },
-            "radiusScale": 1.2899999618530274,
+            "radiusScale": 1.2899999618530273,
             "lengthScale": 1.3700000047683716,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 210.0,
+            "ratedThrustKn": 420.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -229,18 +229,18 @@
             "enabled": true,
             "localPositionOffset": {
                 "x": 0.0891205370426178,
-                "y": -1.8745416402816773,
+                "y": -1.8745416402816772,
                 "z": 0.5458589792251587
             },
             "localEulerOffset": {
                 "x": 79.93604278564453,
-                "y": 226.82289123535157,
-                "z": 311.77105712890627
+                "y": 226.82289123535156,
+                "z": 311.77105712890625
             },
             "radiusScale": 2.940000057220459,
             "lengthScale": 2.890000104904175,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 300.0,
+            "ratedThrustKn": 600.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -251,18 +251,18 @@
             "enabled": true,
             "localPositionOffset": {
                 "x": 1.1916487216949463,
-                "y": -0.062391042709350589,
+                "y": -0.062391042709350586,
                 "z": -0.4308827221393585
             },
             "localEulerOffset": {
-                "x": 358.94146728515627,
+                "x": 358.94146728515625,
                 "y": 43.50553512573242,
-                "z": 1.8118425607681275
+                "z": 1.8118425607681274
             },
-            "radiusScale": 1.2899999618530274,
+            "radiusScale": 1.2899999618530273,
             "lengthScale": 1.3700000047683716,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 210.0,
+            "ratedThrustKn": 420.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -272,8 +272,8 @@
             "displayName": "Legs / LG_M_1010_dmy_34",
             "enabled": true,
             "localPositionOffset": {
-                "x": 0.029732083901762964,
-                "y": -0.035568587481975558,
+                "x": 0.029732083901762962,
+                "y": -0.035568587481975555,
                 "z": -0.014164019376039505
             },
             "localEulerOffset": {
@@ -281,10 +281,10 @@
                 "y": 0.04658402502536774,
                 "z": 21.24217414855957
             },
-            "radiusScale": 1.2899999618530274,
+            "radiusScale": 1.2899999618530273,
             "lengthScale": 1.3700000047683716,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 210.0,
+            "ratedThrustKn": 420.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -294,7 +294,7 @@
             "displayName": "Legs / LG_M_1010_dmy_831",
             "enabled": true,
             "localPositionOffset": {
-                "x": -0.050732631236314777,
+                "x": -0.050732631236314774,
                 "y": -3.055015802383423,
                 "z": 0.5426291227340698
             },
@@ -306,7 +306,7 @@
             "radiusScale": 2.940000057220459,
             "lengthScale": 2.890000104904175,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 300.0,
+            "ratedThrustKn": 600.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -316,19 +316,19 @@
             "displayName": "Legs / LG_M_1010_dmy_201",
             "enabled": false,
             "localPositionOffset": {
-                "x": 0.00004513069143285975,
+                "x": 4.513069143285975e-05,
                 "y": 0.06216009333729744,
                 "z": 0.9721401333808899
             },
             "localEulerOffset": {
                 "x": 53.76557540893555,
-                "y": 0.30112069845199587,
-                "z": 0.20990769565105439
+                "y": 0.30112069845199585,
+                "z": 0.20990769565105438
             },
             "radiusScale": 1.0,
             "lengthScale": 1.0,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 300.0,
+            "ratedThrustKn": 600.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -339,18 +339,18 @@
             "enabled": true,
             "localPositionOffset": {
                 "x": 0.06473152339458466,
-                "y": 0.024077191948890687,
+                "y": 0.024077191948890686,
                 "z": -0.188211128115654
             },
             "localEulerOffset": {
                 "x": 335.1815490722656,
                 "y": 269.1041259765625,
-                "z": 6.4148759841918949
+                "z": 6.4148759841918945
             },
             "radiusScale": 1.149999976158142,
             "lengthScale": 1.909999966621399,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 320.0,
+            "ratedThrustKn": 640.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -367,12 +367,12 @@
             "localEulerOffset": {
                 "x": 7.7275710105896,
                 "y": 288.9773254394531,
-                "z": 8.377646446228028
+                "z": 8.377646446228027
             },
             "radiusScale": 1.090000033378601,
             "lengthScale": 1.440000057220459,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 310.0,
+            "ratedThrustKn": 620.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -384,17 +384,17 @@
             "localPositionOffset": {
                 "x": 0.02274930104613304,
                 "y": 0.0388345867395401,
-                "z": 0.22437173128128053
+                "z": 0.22437173128128052
             },
             "localEulerOffset": {
-                "x": 354.56048583984377,
+                "x": 354.56048583984375,
                 "y": 14.123046875,
-                "z": 322.98480224609377
+                "z": 322.98480224609375
             },
-            "radiusScale": 1.0299999713897706,
-            "lengthScale": 1.5399999618530274,
+            "radiusScale": 1.0299999713897705,
+            "lengthScale": 1.5399999618530273,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 310.0,
+            "ratedThrustKn": 620.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -409,14 +409,14 @@
                 "z": -0.002648584544658661
             },
             "localEulerOffset": {
-                "x": 0.0040345885790884499,
+                "x": 0.0040345885790884495,
                 "y": -0.0005885279388166964,
                 "z": 24.90300941467285
             },
-            "radiusScale": 1.1299999952316285,
-            "lengthScale": 1.3799999952316285,
+            "radiusScale": 1.1299999952316284,
+            "lengthScale": 1.3799999952316284,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 240.0,
+            "ratedThrustKn": 480.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -427,18 +427,18 @@
             "enabled": true,
             "localPositionOffset": {
                 "x": -0.0353199765086174,
-                "y": 0.017477571964263917,
-                "z": -0.18783505260944367
+                "y": 0.017477571964263916,
+                "z": -0.18783505260944366
             },
             "localEulerOffset": {
-                "x": 335.29351806640627,
+                "x": 335.29351806640625,
                 "y": 90.88719940185547,
                 "z": 353.5877990722656
             },
             "radiusScale": 1.149999976158142,
             "lengthScale": 1.909999966621399,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 320.0,
+            "ratedThrustKn": 640.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -448,19 +448,19 @@
             "displayName": "Arms / AM_M_1010_dmy_8",
             "enabled": true,
             "localPositionOffset": {
-                "x": -0.053282156586647037,
-                "y": -0.27517884969711306,
-                "z": 0.30864453315734866
+                "x": -0.053282156586647034,
+                "y": -0.27517884969711304,
+                "z": 0.30864453315734863
             },
             "localEulerOffset": {
                 "x": 7.833715438842773,
                 "y": 71.01024627685547,
-                "z": 351.58624267578127
+                "z": 351.58624267578125
             },
             "radiusScale": 1.090000033378601,
             "lengthScale": 1.440000057220459,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 310.0,
+            "ratedThrustKn": 620.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -470,19 +470,19 @@
             "displayName": "Arms / AM_M_1010_dmy_71",
             "enabled": true,
             "localPositionOffset": {
-                "x": -0.020054280757904054,
-                "y": 0.032512471079826358,
+                "x": -0.020054280757904053,
+                "y": 0.032512471079826355,
                 "z": 0.2289065271615982
             },
             "localEulerOffset": {
-                "x": 354.65167236328127,
+                "x": 354.65167236328125,
                 "y": 345.9397277832031,
                 "z": 37.02898406982422
             },
-            "radiusScale": 1.0299999713897706,
-            "lengthScale": 1.5399999618530274,
+            "radiusScale": 1.0299999713897705,
+            "lengthScale": 1.5399999618530273,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 310.0,
+            "ratedThrustKn": 620.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -492,7 +492,7 @@
             "displayName": "Arms / AM_M_1010_dmy_25_MIRRORED",
             "enabled": true,
             "localPositionOffset": {
-                "x": -0.0029028342105448248,
+                "x": -0.0029028342105448246,
                 "y": -0.006938624195754528,
                 "z": 0.0002188030630350113
             },
@@ -501,10 +501,10 @@
                 "y": 359.9676513671875,
                 "z": 334.9660339355469
             },
-            "radiusScale": 1.1299999952316285,
-            "lengthScale": 1.3799999952316285,
+            "radiusScale": 1.1299999952316284,
+            "lengthScale": 1.3799999952316284,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 240.0,
+            "ratedThrustKn": 480.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         }

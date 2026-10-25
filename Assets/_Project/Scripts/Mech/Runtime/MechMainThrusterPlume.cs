@@ -678,7 +678,7 @@ namespace ACunicombat.Mechs
             emitter.DisplayName = entry != null && !string.IsNullOrWhiteSpace(entry.displayName)
                 ? entry.displayName
                 : $"{slot} / {candidate.name}";
-            emitter.RatedThrustKn = 300f;
+            emitter.RatedThrustKn = 600f;
             emitter.ShoulderDirection = ResolveShoulderNozzleDirection(candidate, slot);
             if (entry != null)
             {
@@ -2124,7 +2124,7 @@ namespace ACunicombat.Mechs
             public Vector3 LocalEulerOffset;
             public float RadiusScale = 1f;
             public float LengthScale = 1f;
-            public float RatedThrustKn = 300f;
+            public float RatedThrustKn = 600f;
             public bool VectoringEnabled;
             public float MaximumVectorAngleDegrees;
             public Transform Root;

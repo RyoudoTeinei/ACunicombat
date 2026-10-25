@@ -184,6 +184,10 @@ namespace ACunicombat.Mechs
 				orbitalPlanet = UnityEngine.Object.FindAnyObjectByType<MechOrbitalPlanetBackdrop>();
 			}
             PlatformFactory.ConfigurePhysicalPresentation(gameObject,motion,ref thrustVisualizer,ref mainThrusterPlume,ref thermalSignature);
+            if (aiControlled)
+            {
+                MechAppearanceApplicator.Apply(gameObject, MechAppearanceSettings.CreateNpcDefault());
+            }
 			if (weaponLayer == null)
 			{
 				weaponLayer = GetComponent<MechWeaponArmLayer>();

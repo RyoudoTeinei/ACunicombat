@@ -406,7 +406,12 @@ Shader "ACunicombat/AC6/Parts Approx"
                 surfaceData.normalTS = SampleAc6NormalTS(input.uv);
                 #if defined(_EMISSION)
                     half3 emissionSample = SAMPLE_TEXTURE2D(_EmissionMap, sampler_EmissionMap, input.uv).rgb;
-                    surfaceData.emission = (emissionSample + 0.04h) * _EmissionColor.rgb * _EmissionStrength;
+                    half emissionMask = max(emissionSample.r, max(emissionSample.g, emissionSample.b));
+                    // Emissive overlays cover the full source mesh. Only their actual light-emitting
+                    // texels may replace the painted armor underneath; there is no global glow floor.
+                    clip(emissionMask - 0.02h);
+                    surfaceData.albedo = half3(0, 0, 0);
+                    surfaceData.emission = emissionSample * _EmissionColor.rgb * _EmissionStrength;
                 #else
                     surfaceData.emission = half3(0, 0, 0);
                 #endif

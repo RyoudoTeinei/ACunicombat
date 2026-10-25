@@ -6,7 +6,7 @@ public static partial class MechLiveBattlefieldReview
 {
  const string Key="LiveBattlefieldReview.stage";
  const string Scene="Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Scenes/AC6PlayerControl.unity";
- static double entered;static bool opened;static int frames;static bool zoomed;static int adaptiveStage,adaptiveFrames;static bool adaptiveFrozen;
+ static double entered;static bool opened;static int frames;static bool zoomed;static int adaptiveStage,adaptiveFrames;static bool adaptiveFrozen,adaptiveContextPrepared,adaptivePolicyPrepared,adaptiveCustomSpeedPrepared;
  static MechLiveBattlefieldReview(){EditorApplication.update+=Tick;}
  public static void Run()
  {
@@ -34,7 +34,9 @@ public static partial class MechLiveBattlefieldReview
   string dir=Environment.GetEnvironmentVariable("ACUNICOMBAT_LIVE_REVIEW")??"E:/UnityDev/ACunicombat/Artifacts/LiveMapRendering-Final";
   Directory.CreateDirectory(dir);SessionState.SetString("LiveBattlefieldReview.output",dir);
   EditorSceneManager.OpenScene(Scene,OpenSceneMode.Single);
-  ConfigureGameView(2560,1440);
+  int width=Environment.GetEnvironmentVariable("ACUNICOMBAT_REVIEW_WIDTH") is string w&&int.TryParse(w,out var parsedWidth)?parsedWidth:2560;
+  int height=Environment.GetEnvironmentVariable("ACUNICOMBAT_REVIEW_HEIGHT") is string h&&int.TryParse(h,out var parsedHeight)?parsedHeight:1440;
+  ConfigureGameView(width,height);
   SessionState.SetBool("LiveBattlefieldReview.rendering",true);SessionState.SetString(Key,"play");EditorApplication.isPlaying=true;
  }
  static void ConfigureGameView(int w,int h)
@@ -56,16 +58,50 @@ public static partial class MechLiveBattlefieldReview
  }
  static bool CaptureAdaptive(MechBattlefieldMap map,string dir)
  {
-  float[] scales={1,2,3,4,5};
+  float[] scales={1,2,3,4,5,8};
   if(!adaptiveFrozen){adaptiveFrozen=true;Time.timeScale=0;map.ResetView();map.Refresh();adaptiveFrames=0;return true;}
   if(++adaptiveFrames<5)return true;
+  if(adaptiveStage==4&&!adaptiveContextPrepared)
+  {
+   adaptiveContextPrepared=true;
+   var target=map.Contacts.FirstOrDefault(c=>!c.Own);
+   if(!string.IsNullOrEmpty(target.Key))
+   {
+    typeof(MechBattlefieldMap).GetField("contextTarget",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(map,target);
+    typeof(MechBattlefieldMap).GetField("contextPoint",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(map,new Vector2(650,250));
+    typeof(MechBattlefieldMap).GetField("contextOpen",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(map,true);map.Refresh();return true;
+   }
+  }
+  if(adaptiveStage==5&&!adaptivePolicyPrepared)
+  {
+   adaptivePolicyPrepared=true;map.SelectContact("own");
+   typeof(MechBattlefieldMap).GetField("contextOpen",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(map,false);
+   typeof(MechBattlefieldMap).GetField("openPolicyMenu",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(map,0);
+   typeof(MechBattlefieldMap).GetField("speedMenuOpen",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(map,true);
+   var fleet=(MechFleetController)typeof(MechBattlefieldMap).GetField("commandFleet",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).GetValue(map);
+   typeof(MechBattlefieldMap).GetField("speedMenuMember",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(map,fleet.MemberId);
+   map.Refresh();return true;
+  }
+  if(adaptiveStage==5&&!adaptiveCustomSpeedPrepared)
+  {
+   adaptiveCustomSpeedPrepared=true;map.Capture(dir+"/speed-menu.png");
+   typeof(MechBattlefieldMap).GetField("speedCustomEditing",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(map,true);return true;
+  }
+  if(adaptiveStage==5)ScreenCapture.CaptureScreenshot(dir+"/custom-speed.png");
   map.Capture(dir+"/map-"+scales[adaptiveStage]+"x.png");
-  File.AppendAllText(dir+"/profiles.txt",$"zoom={map.ContentZoom} cells={map.ContentLogicalResolution} parameters={MechBattlefieldMap.RenderProfile(map.ContentZoom)}\n");
+  if(adaptiveStage==0)
+  {
+   var clean=(RenderTexture)typeof(MechBattlefieldMap).GetField("overlayDisplay",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).GetValue(map);
+   typeof(MechBattlefieldMap).GetMethod("SaveTexture",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic).Invoke(null,new object[]{clean,dir+"/source-1x.png"});
+  }
+  File.AppendAllText(dir+"/profiles.txt",$"zoom={map.ContentZoom} cells={map.ContentLogicalResolution} textureBuilds={map.DisplayTextureBuildCount} parameters={MechBattlefieldMap.RenderProfile(map.ContentZoom)}\n");
   adaptiveStage++;adaptiveFrames=0;
   if(adaptiveStage>=scales.Length){SessionState.SetBool("LiveBattlefieldReview.adaptive",false);return false;}
   var friend=map.Contacts.First(c=>!c.Own&&c.Affiliation==ACunicombat.Sensing.Contracts.TrackAffiliation.Friendly);
   var anchor=map.Project(friend.Position);
-  map.ZoomAt(Mathf.Log(scales[adaptiveStage]/map.ContentZoom)/.16f,anchor);map.Refresh();
+  map.ZoomAt(Mathf.Log(scales[adaptiveStage]/map.ContentZoom)/.16f,anchor);
+  for(int i=0;i<6;i++)map.AdvanceView(.25f);
+  map.Refresh();
   return true;
  }
  static void Tick()
@@ -80,6 +116,7 @@ public static partial class MechLiveBattlefieldReview
    var rig=UnityEngine.Object.FindObjectsByType<MechPlayerRig>(FindObjectsInactive.Exclude).FirstOrDefault(x=>!x.AiControlled);if(rig==null)return;
    Time.timeScale=adaptiveFrozen?0:1;
    var map=rig.GetComponent<MechBattlefieldMap>();if(map==null)return;
+   if(SessionState.GetBool("LiveBattlefieldReview.appearance",false)){TickAppearance(rig,map,dir);return;}
    if(SessionState.GetBool("LiveBattlefieldReview.iffMenu",false)){TickIffMenu(rig,map,dir);return;}
    if(SessionState.GetBool("LiveBattlefieldReview.engagement",false)){TickEngagement(rig,map,dir);return;}
    if(SessionState.GetBool("LiveBattlefieldReview.policy",false)){TickPolicy(rig,map,dir);return;}

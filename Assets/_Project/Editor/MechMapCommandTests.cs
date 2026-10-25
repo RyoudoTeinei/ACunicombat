@@ -33,4 +33,14 @@ public sealed class MechMapCommandTests
   var packets=new NativeArray<FleetPacket>(1,Allocator.Temp);try{packets[0]=p;Assert.That(packets[0].WeaponName.ToString(),Is.EqualTo("24 联装导弹"));}finally{packets.Dispose();}
   Assert.That(p.EstimatedWireKilobits,Is.GreaterThan(2));
  }
+ [Test] public void CruiseSpeedUsesSharedDefaultsAndRejectsOutOfRangeValues()
+ {
+  var leader=Guid.NewGuid();var own=Guid.NewGuid();var state=new MechFleetState(own,Guid.NewGuid(),leader,true,true,FleetAttackMode.Confirmed);
+  FleetPacket Speed(float value,int revision)=>new FleetPacket{Kind=FleetPacketKind.Order,Sender=own,Fleet=state.Fleet,Recipient=own,Operation=Guid.NewGuid(),Revision=revision,Order=FleetOrderKind.SetCruiseSpeed,CruiseSpeed=value,ObservedAt=1,ExpiresAt=5};
+  Assert.That(state.ReceiveLocalPlayerOrder(Speed(MechFleetState.MaxCruiseSpeed,1),1),Is.True);Assert.That(state.CruiseSpeed,Is.EqualTo(800));
+  Assert.That(state.ReceiveLocalPlayerOrder(Speed(MechFleetState.MaxCruiseSpeed*.5f,2),1),Is.True);Assert.That(state.CruiseSpeed,Is.EqualTo(400));
+  Assert.That(state.ReceiveLocalPlayerOrder(Speed(MechFleetState.MaxCruiseSpeed+1,3),1),Is.False);Assert.That(state.CruiseSpeed,Is.EqualTo(400));
+  Assert.That(state.ReceiveLocalPlayerOrder(Speed(-1,4),1),Is.False);Assert.That(state.CruiseSpeed,Is.EqualTo(400));
+  Assert.That(MechFleetState.DefaultCruiseSpeed,Is.EqualTo(300));
+ }
 }

@@ -47,8 +47,6 @@ namespace ACunicombat.Mechs
         [SerializeField, Min(0.1f)] private float passiveCueRadarHoldSeconds = 0.65f;
         [SerializeField, Range(0.01f, 1f)] private float passiveCueDirectionBlend = 0.35f;
         [SerializeField] private bool stationaryTestMode;
-        [SerializeField] private Color identificationTint =
-            new Color(0.96f, 0.97f, 0.98f, 1f);
 
         private readonly List<Material> ownedPaintMaterials = new();
         private readonly TrackSnapshot[] airTrackScratch =
@@ -1150,112 +1148,60 @@ namespace ACunicombat.Mechs
 
         private void ApplyIdentificationTint()
         {
+            var palette = MechAppearanceSettings.CreateNpcDefault();
             var materialCopies = new Dictionary<Material, Material>();
             var block = new MaterialPropertyBlock();
             var renderers = GetComponentsInChildren<Renderer>(true);
             for (var i = 0; i < renderers.Length; i++)
             {
                 var renderer = renderers[i];
-                if (renderer == null)
-                {
-                    continue;
-                }
-
+                if (renderer == null) continue;
                 var materials = renderer.sharedMaterials;
                 var usesAc6PartsApprox = false;
                 var materialsChanged = false;
-                for (var materialIndex = 0;
-                     materialIndex < materials.Length;
-                     materialIndex++)
+                for (var materialIndex = 0; materialIndex < materials.Length; materialIndex++)
                 {
                     var sourceMaterial = materials[materialIndex];
-                    var shader = sourceMaterial != null
-                        ? sourceMaterial.shader
-                        : null;
-                    if (shader != null &&
-                        shader.name == Ac6PartsApproxShaderName)
+                    var shader = sourceMaterial != null ? sourceMaterial.shader : null;
+                    if (shader == null || shader.name != Ac6PartsApproxShaderName) continue;
+                    usesAc6PartsApprox = true;
+                    if (!materialCopies.TryGetValue(sourceMaterial, out var paintMaterial))
                     {
-                        usesAc6PartsApprox = true;
-                        if (!materialCopies.TryGetValue(
-                                sourceMaterial,
-                                out var paintMaterial))
-                        {
-                            paintMaterial = new Material(sourceMaterial)
-                            {
-                                name =
-                                    $"{sourceMaterial.name}_EnemyWhite_Runtime",
-                            };
-                            ApplyWhitePaintPreset(paintMaterial);
-                            materialCopies.Add(
-                                sourceMaterial,
-                                paintMaterial);
-                            ownedPaintMaterials.Add(paintMaterial);
-                        }
-
-                        materials[materialIndex] = paintMaterial;
-                        materialsChanged = true;
+                        paintMaterial = new Material(sourceMaterial) { name = $"{sourceMaterial.name}_NpcPaint_Runtime" };
+                        ApplyNpcPaintPreset(paintMaterial, palette);
+                        materialCopies.Add(sourceMaterial, paintMaterial);
+                        ownedPaintMaterials.Add(paintMaterial);
                     }
+                    materials[materialIndex] = paintMaterial;
+                    materialsChanged = true;
                 }
-                if (materialsChanged)
-                {
-                    renderer.sharedMaterials = materials;
-                }
-                if (usesAc6PartsApprox)
-                {
-                    continue;
-                }
-
+                if (materialsChanged) renderer.sharedMaterials = materials;
+                if (usesAc6PartsApprox) continue;
                 renderer.GetPropertyBlock(block);
-                block.SetColor("_PaintColor", identificationTint);
+                block.SetColor("_PaintColor", palette.baseColor);
                 block.SetFloat("_PaintInfluence", 0.34f);
                 renderer.SetPropertyBlock(block);
             }
         }
 
-        private void ApplyWhitePaintPreset(Material material)
+        private static void ApplyNpcPaintPreset(Material material, MechAppearanceSettings palette)
         {
-            if (material == null)
-            {
-                return;
-            }
+            if (material == null) return;
+            SetColor(material, "_Zone1Color", palette.baseColor);
+            SetColor(material, "_Zone2Color", palette.subColor);
+            SetColor(material, "_Zone3Color", palette.supportColor);
+            SetColor(material, "_Zone4Color", palette.optionalColor);
+            SetColor(material, "_Zone5Color", palette.deviceColor);
+            SetColor(material, "_Zone6Color", Color.Lerp(palette.subColor, palette.supportColor, .35f));
+            SetColor(material, "_Zone7Color", Color.Lerp(Color.black, palette.optionalColor, .22f));
 
-            var armorWhite = identificationTint;
-            armorWhite.a = 1f;
-            SetColor(material, "_Zone1Color", armorWhite);
-            SetColor(
-                material,
-                "_Zone2Color",
-                new Color(0.62f, 0.65f, 0.68f, 1f));
-            SetColor(
-                material,
-                "_Zone3Color",
-                new Color(0.92f, 0.94f, 0.96f, 1f));
-            SetColor(
-                material,
-                "_Zone4Color",
-                new Color(0.10f, 0.12f, 0.14f, 1f));
-            SetColor(
-                material,
-                "_Zone5Color",
-                new Color(0.46f, 0.50f, 0.54f, 1f));
-            SetColor(
-                material,
-                "_Zone6Color",
-                new Color(0.24f, 0.27f, 0.30f, 1f));
-            SetColor(
-                material,
-                "_Zone7Color",
-                new Color(0.035f, 0.045f, 0.055f, 1f));
-
-            // Enemy paint is a true material preset, not a tint layered over
-            // the source texture. The source-albedo branch otherwise bypasses
-            // every paint and zone color on many imported AC6 sub-materials.
+            // Apply a real material preset instead of a white tint over the source texture.
             SetFloat(material, "_UseSourceAlbedo", 0f);
             SetFloat(material, "_ZoneMode", 0f);
             SetFloat(material, "_PaintInfluence", 1f);
             SetFloat(material, "_AlbedoDetailStrength", 0.18f);
-            SetColor(material, "_BaseColor", armorWhite);
-            SetColor(material, "_PaintColor", armorWhite);
+            SetColor(material, "_BaseColor", palette.baseColor);
+            SetColor(material, "_PaintColor", palette.baseColor);
         }
 
         private static void SetColor(

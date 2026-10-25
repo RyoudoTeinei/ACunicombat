@@ -17,6 +17,18 @@ namespace ACunicombat.Mechs
         [Range(0, 5)] public int lusterLevel = 3;
         [Range(0f, 1f)] public float weatheringAmount = 0.24f;
 
+        public static MechAppearanceSettings CreateNpcDefault()
+        {
+            return new MechAppearanceSettings
+            {
+                baseColor = new Color(.045f, .11f, .24f, 1f),
+                subColor = new Color(.03f, .045f, .065f, 1f),
+                supportColor = new Color(.12f, .24f, .36f, 1f),
+                optionalColor = new Color(.025f, .06f, .12f, 1f),
+                deviceColor = new Color(.24f, .30f, .36f, 1f)
+            };
+        }
+
         public MechAppearanceSettings Clone()
         {
             return new MechAppearanceSettings

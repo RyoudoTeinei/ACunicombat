@@ -161,6 +161,10 @@ namespace ACunicombat.Mechs
             {
                 MechAppearanceApplicator.Apply(assemblyRoot.gameObject, MechAppearanceSelectionStore.Load());
             }
+            else
+            {
+                MechAppearanceApplicator.Apply(assemblyRoot.gameObject, MechAppearanceSettings.CreateNpcDefault());
+            }
 
             ApplyPhysics(stats);
             RuntimeState.Apply(loadout, stats, validation, records, mountPoints);
@@ -175,9 +179,11 @@ namespace ACunicombat.Mechs
 
         private static bool IsPlayerAppearanceTarget(GameObject owner)
         {
-            return owner != null &&
-                   (owner.name.StartsWith("Player_", StringComparison.OrdinalIgnoreCase) ||
-                    owner.name.Equals("Player", StringComparison.OrdinalIgnoreCase));
+            if (owner == null) return false;
+            var rig = owner.GetComponent<MechPlayerRig>();
+            if (rig != null) return !rig.AiControlled;
+            return owner.name.StartsWith("Player_", StringComparison.OrdinalIgnoreCase) ||
+                   owner.name.Equals("Player", StringComparison.OrdinalIgnoreCase);
         }
 
         public MechValidationResult ValidateCurrentLoadout()

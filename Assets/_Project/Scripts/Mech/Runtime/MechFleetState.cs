@@ -37,8 +37,10 @@ namespace ACunicombat.Mechs
             TaskGroup=p.TaskGroup;FormationShape=p.FormationShape;FormationOffset=p.FormationOffset;FormationName=p.FormationName.ToString();
             GrantCommand(p.Sender);
         }
+        public const float DefaultCruiseSpeed=300f;
+        public const float MaxCruiseSpeed=800f;
         public FleetAttackMode Mode {get;private set;}
-        public float CruiseSpeed {get;private set;}=300;
+        public float CruiseSpeed {get;private set;}=DefaultCruiseSpeed;
         public bool CruiseCommandActive {get;private set;}
         public void CancelCruise()=>CruiseCommandActive=false;
         public FleetRadarControl RadarControl {get;private set;}=FleetRadarControl.Active;
@@ -122,7 +124,7 @@ namespace ACunicombat.Mechs
                 foreach(var sector in p.MissionSectors)if(sector.x>sector.z||sector.y>sector.w||Unity.Mathematics.math.any(Unity.Mathematics.math.abs(sector)>1000000)){Reply(p,FleetTaskPhase.Rejected,FleetTaskReason.UnsupportedMovement,now);return false;}
                 TaskGroup=p.TaskGroup;
             }
-            if(p.Order==FleetOrderKind.SetCruiseSpeed){if(!float.IsFinite(p.CruiseSpeed)||p.CruiseSpeed<0||p.CruiseSpeed>800){Reply(p,FleetTaskPhase.Rejected,FleetTaskReason.UnsupportedMovement,now);return false;}CruiseSpeed=p.CruiseSpeed;CruiseCommandActive=true;Reply(p,FleetTaskPhase.Completed,FleetTaskReason.None,now);return true;}
+            if(p.Order==FleetOrderKind.SetCruiseSpeed){if(!float.IsFinite(p.CruiseSpeed)||p.CruiseSpeed<0||p.CruiseSpeed>MaxCruiseSpeed){Reply(p,FleetTaskPhase.Rejected,FleetTaskReason.UnsupportedMovement,now);return false;}CruiseSpeed=p.CruiseSpeed;CruiseCommandActive=true;Reply(p,FleetTaskPhase.Completed,FleetTaskReason.None,now);return true;}
             if(p.Order==FleetOrderKind.SetAttackMode){Mode=p.Mode;Reply(p,FleetTaskPhase.Completed,FleetTaskReason.None,now);return true;}
             if(p.Order==FleetOrderKind.SetRadarControl)
             {if(!SetLocalRadarControl(p.RadarControl)){Reply(p,FleetTaskPhase.Rejected,FleetTaskReason.UnsupportedRadarMode,now);return false;}Reply(p,FleetTaskPhase.Completed,FleetTaskReason.None,now);return true;}

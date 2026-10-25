@@ -23,6 +23,7 @@ namespace ACunicombat.Mechs
     public sealed class MechEngineController : MonoBehaviour
     {
         private const string AudioRoot = "Audio/Engine/";
+        private const float RunningMixGain = 0.8f;
         private const float SilentLoopVolume = 0.0001f;
         private const float MaximumStartupDurationSeconds = 5.5f;
 
@@ -343,19 +344,19 @@ namespace ACunicombat.Mechs
 
             MoveVolume(
                 turbineIdleSource,
-                lowWeight * turbineLoopVolume * structureGain,
+                lowWeight * turbineLoopVolume * RunningMixGain * structureGain,
                 step);
             MoveVolume(
                 turbineCruiseSource,
-                cruiseWeight * turbineLoopVolume * structureGain,
+                cruiseWeight * turbineLoopVolume * RunningMixGain * structureGain,
                 step);
             MoveVolume(
                 turbineMaximumSource,
-                highWeight * turbineLoopVolume * structureGain,
+                highWeight * turbineLoopVolume * RunningMixGain * structureGain,
                 step);
-            MoveVolume(rearLowSource, lowWeight * rearLoopVolume * externalGain, step);
-            MoveVolume(rearCruiseSource, cruiseWeight * rearLoopVolume * externalGain, step);
-            MoveVolume(rearMaximumSource, highWeight * rearLoopVolume * externalGain, step);
+            MoveVolume(rearLowSource, lowWeight * rearLoopVolume * RunningMixGain * externalGain, step);
+            MoveVolume(rearCruiseSource, cruiseWeight * rearLoopVolume * RunningMixGain * externalGain, step);
+            MoveVolume(rearMaximumSource, highWeight * rearLoopVolume * RunningMixGain * externalGain, step);
 
             var assaultBoost = ready && motion.AssaultBoostActive;
             if (assaultBoost && !previousAssaultBoost && afterburnerIgnitionSource != null)
@@ -365,7 +366,7 @@ namespace ACunicombat.Mechs
                 {
                     afterburnerIgnitionSource.PlayOneShot(
                         ignitionClip,
-                        useInteriorMix ? 0.72f : 1f);
+                        (useInteriorMix ? 0.72f : 1f) * RunningMixGain);
                 }
             }
             previousAssaultBoost = assaultBoost;
@@ -376,20 +377,20 @@ namespace ACunicombat.Mechs
 
             MoveVolume(
                 afterburnerBurnSource,
-                afterburnerGain * afterburnerVolume * (useInteriorMix ? 0.72f : 0.35f),
+                afterburnerGain * afterburnerVolume * RunningMixGain * (useInteriorMix ? 0.72f : 0.35f),
                 step);
             MoveVolume(
                 afterburnerWepSource,
-                afterburnerGain * afterburnerVolume * (useInteriorMix ? 0.58f : 0.25f),
+                afterburnerGain * afterburnerVolume * RunningMixGain * (useInteriorMix ? 0.58f : 0.25f),
                 step);
             MoveVolume(
                 jetThrustSource,
-                afterburnerGain * afterburnerVolume,
+                afterburnerGain * afterburnerVolume * RunningMixGain,
                 step);
             MoveVolume(
                 nozzleThrustSource,
-                (ready ? load * rearLoopVolume * 0.42f : 0f) +
-                afterburnerGain * afterburnerVolume * 0.52f,
+                (ready ? load * rearLoopVolume * RunningMixGain * 0.42f : 0f) +
+                afterburnerGain * afterburnerVolume * RunningMixGain * 0.52f,
                 step);
 
             var pitch = Mathf.Lerp(0.97f, 1.03f, load);

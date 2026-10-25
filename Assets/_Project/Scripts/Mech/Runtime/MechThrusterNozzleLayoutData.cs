@@ -47,7 +47,7 @@ namespace ACunicombat.Mechs
         [Min(0.05f)] public float radiusScale = 1f;
         [Min(0.05f)] public float lengthScale = 1f;
         public bool hasPhysicalSettings;
-        [Min(0f)] public float ratedThrustKn = 300f;
+        [Min(0f)] public float ratedThrustKn = 600f;
         public bool vectoringEnabled;
         [Range(0f, 89f)] public float maximumVectorAngleDegrees;
 
@@ -56,7 +56,7 @@ namespace ACunicombat.Mechs
             if (!hasPhysicalSettings)
             {
                 hasPhysicalSettings = true;
-                ratedThrustKn = 300f;
+                ratedThrustKn = 600f;
                 vectoringEnabled = false;
                 maximumVectorAngleDegrees = 0f;
             }

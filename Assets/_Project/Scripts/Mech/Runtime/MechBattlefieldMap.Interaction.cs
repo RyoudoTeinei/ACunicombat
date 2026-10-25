@@ -104,7 +104,7 @@ namespace ACunicombat.Mechs
   private void DrawMapInteraction()
   {
    var origin=Project(GridToWorld(Vector3.zero));
-   if(InPlot(origin)){Circle(origin,5,new Color(.55f,.64f,.59f,1));Line(origin-Vector2.right*9,origin+Vector2.right*9,PrimaryText);Line(origin-Vector2.up*9,origin+Vector2.up*9,PrimaryText);if(Vector2.Distance(mapPointer,origin)<14)Label(origin.x+12,origin.y-22,"任务原点",PrimaryText,14);}
+   if(InPlot(origin)){Circle(origin,4,new Color(.38f,.48f,.45f,.8f),32,.8f);if(Vector2.Distance(mapPointer,origin)<14)Label(origin.x+12,origin.y-22,"任务原点",SecondaryText,13);}
    int selectedAt=contacts.FindIndex(c=>c.Key==selected);if(selectedAt>=0&&InPlot(mapPointer)&&!contextOpen)Line(Project(contacts[selectedAt].Position),mapPointer,PrimaryText,1);
    DrawSelectedWeaponRanges();
    DrawPlannedRoutes();
@@ -219,7 +219,12 @@ namespace ACunicombat.Mechs
    DrawRouteSegment(Project(contact.Position),Project(goal));DrawRouteEndpoint(Project(goal));
   }
   private void DrawRouteEndpoint(Vector2 point)
-  {if(InPlot(point))Fill(new Rect(point.x-5,point.y-5,10,10),RouteRed);}
+  {
+   if(!InPlot(point))return;
+   var image=Stroke();image.color=RouteRed;var rect=image.rectTransform;
+   rect.anchorMin=rect.anchorMax=new Vector2(0,1);rect.pivot=new Vector2(0,1);
+   rect.anchoredPosition=new Vector2(point.x-5,-(point.y-5));rect.sizeDelta=new Vector2(10,10);rect.localRotation=Quaternion.identity;
+  }
   private void DrawRouteSegment(Vector2 from,Vector2 to)
   {
    // Split at viewport and floating-panel boundaries to avoid drawing over controls.

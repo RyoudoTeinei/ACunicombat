@@ -722,8 +722,8 @@ public static class AC6PlayableSceneBuilder
         motion.ConfigureModelForwardYawOffset(180f);
         motion.ConfigurePropulsionForceModel(true, true, 35f);
         motion.ConfigureTranslationThrusterAssist(0.35f, 48f, 36f, 52f, 48f);
-        motion.ConfigureTechnicalSafetySpeed(2000f);
-        motion.ConfigureQuickBoost(90f, 0.28f);
+        motion.ConfigureTechnicalSafetySpeed(0f);
+        motion.ConfigureQuickBoost(180f, 0.28f);
         motion.ConfigureManeuverEnergy(100f, 4f, 15f, 18f, 24f, 0.75f, 0.2f);
         motion.ConfigureGravity(0.2f);
         thrustVisualizer.Configure(motion);

@@ -26,9 +26,11 @@ namespace ACunicombat.Mechs
   {Label(bounds.x,bounds.y,value,color,size);var text=texts[textCount-1];text.rectTransform.sizeDelta=bounds.size;text.horizontalOverflow=HorizontalWrapMode.Wrap;text.verticalOverflow=VerticalWrapMode.Truncate;}
   private void MapButton(Rect bounds,string label,Action click,bool enabled=true,bool active=false,string help=null)
   {
-   Fill(bounds,active?new Color(.07f,.14f,.11f,1):new Color(.035f,.05f,.05f,1));Box(bounds.x,bounds.y,bounds.width,bounds.height,enabled?new Color(.3f,.43f,.39f):MutedColor);
+   Fill(bounds,active?PanelActive:enabled&&bounds.Contains(mapPointer)?PanelHover:PanelRaised);
+   Box(bounds.x,bounds.y,bounds.width,bounds.height,enabled?PanelBorder:MutedColor,PanelStroke);
+   if(active)Fill(new Rect(bounds.x,bounds.y,3,bounds.height),FriendlyColor);
    var labelBounds=bounds;if(help!=null)labelBounds.width-=25;
-   MenuLabel(labelBounds,label,enabled?PrimaryText:new Color(.34f,.39f,.37f,1));
+   MenuLabel(labelBounds,label,enabled?PrimaryText:DisabledText);
    if(enabled)commandButtons.Add(new CommandButton{Bounds=bounds,Caption=label,Click=click});
    if(help!=null)HelpMarker(bounds,help);
   }
@@ -38,19 +40,25 @@ namespace ACunicombat.Mechs
    texts[textCount-1].alignment=TextAnchor.MiddleLeft;
    texts[textCount-1].horizontalOverflow=HorizontalWrapMode.Overflow;
   }
-  private void MenuPanel(Rect bounds)
+  private void PanelFill(Rect bounds,Color color)
   {
-   Fill(new Rect(bounds.x+2,bounds.y+3,bounds.width,bounds.height),new Color(0,0,0,.55f));
-   Fill(bounds,new Color(.025f,.039f,.035f,1));
-   Box(bounds.x,bounds.y,bounds.width,bounds.height,new Color(.29f,.38f,.33f,1));
+   var image=Stroke();image.color=color;var rect=image.rectTransform;
+   rect.anchorMin=rect.anchorMax=new Vector2(0,1);rect.pivot=new Vector2(0,1);
+   rect.anchoredPosition=new Vector2(bounds.x,-bounds.y);rect.sizeDelta=bounds.size;rect.localRotation=Quaternion.identity;
+  }
+  private void MenuPanel(Rect bounds,Color? background=null)
+  {
+   PanelFill(new Rect(bounds.x+3,bounds.y+5,bounds.width,bounds.height),new Color(0,0,0,.42f));
+   PanelFill(bounds,background??PanelBackground);
+   Box(bounds.x,bounds.y,bounds.width,bounds.height,PanelBorder,PanelStroke);
+   Line(new Vector2(bounds.x+1,bounds.y+1),new Vector2(bounds.xMax-1,bounds.y+1),new Color(.32f,.48f,.49f,.55f));
   }
   private void MenuItem(Rect bounds,string label,Action click,bool enabled=true,bool active=false)
   {
-   if(enabled&&(active||bounds.Contains(mapPointer)))
-    Fill(bounds,active?new Color(.09f,.17f,.13f,1):new Color(.075f,.11f,.095f,1));
-   if(active)Fill(new Rect(bounds.x+2,bounds.y+9,2,bounds.height-18),new Color(.48f,.68f,.54f,1));
+   if(enabled&&(active||bounds.Contains(mapPointer)))Fill(bounds,active?PanelActive:PanelHover);
+   if(active)Fill(new Rect(bounds.x+2,bounds.y+8,3,bounds.height-16),FriendlyColor);
    var labelBounds=bounds;labelBounds.width-=25;
-   MenuLabel(labelBounds,label,enabled?PrimaryText:new Color(.34f,.39f,.37f,1));
+   MenuLabel(labelBounds,label,enabled?PrimaryText:DisabledText);
    // Disabled rows consume the click instead of passing it to the map beneath.
    commandButtons.Add(new CommandButton{Bounds=bounds,Caption=label,Click=enabled?click:()=>{}});
    HelpMarker(bounds,MenuHelp(label)+(enabled?"":"\n当前不可用。"));
@@ -180,56 +188,51 @@ namespace ACunicombat.Mechs
     foreach(var cap in commandFleet.State.Capabilities.Values.Where(p=>p.Sender==member&&commandFleet.State.Fresh(p,radar.SimTimeSeconds)).OrderBy(p=>p.Weapon))commandWeapons.Add(new WeaponReadout{Role=(MechWeaponRole)cap.Role,Instance=cap.Weapon,MinimumRange=cap.MinimumRange,MaximumRange=cap.MaximumRange,ProjectileSpeed=cap.ProjectileSpeed,EffectiveRange=cap.EffectiveRange,Mount=(MechPartSlot)cap.WeaponMount,Ammo=cap.Ammunition,Name=cap.WeaponName.IsEmpty?"unknown":cap.WeaponName.ToString()});
    }
    if(knownStatus){radarMode=control==FleetRadarControl.RadiationSilence?"辐射管制":control==FleetRadarControl.Intelligent?"智能模式":"主动雷达";weaponMode=ModeText(attackMode);}
-   var footer=FooterRect;Fill(footer,new Color(.02f,.027f,.027f,1));Box(footer.x,footer.y,footer.width,footer.height,MutedColor);
-   float[] fractions={.09f,.1f,.07f,.07f,.095f,.12f,.22f,.1175f,.1175f};
-   string[] titles={"机型","类型","速度","航向","状态","指令",c.Own?"搭载武器":"搭载武器（已知）","雷达管制","武器管制"};
-   string[] values={"unknown",found?c.Type:"—",found?$"{c.Velocity.magnitude:0.0} m/s":"—",heading,health,order,"",radarMode,weaponMode};
-   float x=footer.x;Rect radarButton=default,weaponButton=default;
-   for(int column=0;column<fractions.Length;column++)
+   var footer=FooterRect;MenuPanel(footer);
+   float unitWidth=footer.width*.33f,weaponWidth=footer.width*.42f;
+   var unit=new Rect(footer.x,footer.y,unitWidth,footer.height);
+   var weaponGroup=new Rect(unit.xMax,footer.y,weaponWidth,footer.height);
+   var policyGroup=new Rect(weaponGroup.xMax,footer.y,footer.xMax-weaponGroup.xMax,footer.height);
+   Line(new Vector2(unit.xMax,footer.y+12),new Vector2(unit.xMax,footer.yMax-12),PanelBorder);
+   Line(new Vector2(weaponGroup.xMax,footer.y+12),new Vector2(weaponGroup.xMax,footer.yMax-12),PanelBorder);
+   BoundedLabel(new Rect(unit.x+16,unit.y+18,unit.width*.48f,28),found?c.Name:"未选择联系人",PrimaryText,19);
+   BoundedLabel(new Rect(unit.x+16,unit.y+47,unit.width*.48f,22),found?c.Type:"—",SecondaryText,12);
+   BoundedLabel(new Rect(unit.x+unit.width*.52f,unit.y+36,unit.width*.44f,58),health,PrimaryText,13);
+   var speedBox=new Rect(unit.x+16,unit.y+94,142,ControlHeight);var speedRecipient=member;
+   MapButton(speedBox,found?$"{c.Velocity.magnitude:0.0} m/s":"—",()=>speedMenuOpen=!speedMenuOpen,canControl);
+   speedMenuAnchor=speedBox;speedMenuMember=speedRecipient;
+   BoundedLabel(new Rect(speedBox.xMax+12,unit.y+94,unit.width*.42f-24,ControlHeight),"航向  "+heading,PrimaryText,13);
+   BoundedLabel(new Rect(unit.x+16,unit.y+133,unit.width-32,25),order,SecondaryText,12);
+   Label(weaponGroup.x+16,weaponGroup.y+11,c.Own?"搭载武器":"搭载武器 / 最近报告",SecondaryText,12);
+   MechPartSlot[] mounts={MechPartSlot.LeftBackWeapon,MechPartSlot.RightBackWeapon,MechPartSlot.LeftHandWeapon,MechPartSlot.RightHandWeapon};
+   string[] mountNames={"左肩","右肩","左手","右手"};
+   float cell=(weaponGroup.width-44)/2;
+   for(int i=0;i<mounts.Length;i++)
    {
-    float width=footer.width*fractions[column];
-    if(column>0)Line(new Vector2(x,footer.y+12),new Vector2(x,footer.yMax-12),MutedColor);
-    BoundedLabel(new Rect(x+10,footer.y+10,width-20,24),titles[column],new Color(.64f,.7f,.67f,1),15);
-    if(column<6)BoundedLabel(new Rect(x+10,footer.y+37,width-20,footer.height-47),values[column],PrimaryText,column==0?20:16);
-    if(column==2){var speedBox=new Rect(x+8,footer.y+37,width-16,32);var recipient=member;MapButton(speedBox,values[column],()=>speedMenuOpen=!speedMenuOpen,canControl);speedMenuAnchor=speedBox;speedMenuMember=recipient;}
-    if(column==6)
+    var weapon=commandWeapons.FirstOrDefault(item=>item.Mount==mounts[i]);
+    var weaponBounds=new Rect(weaponGroup.x+16+(i%2)*(cell+12),weaponGroup.y+39+(i/2)*55,cell,48);
+    bool active=weapon!=null&&commandWeapon==weapon.Instance;
+    Fill(weaponBounds,active?PanelActive:PanelRaised);Box(weaponBounds.x,weaponBounds.y,weaponBounds.width,weaponBounds.height,active?FriendlyColor:PanelBorder);
+    if(weapon!=null)
     {
-     MechPartSlot[] mounts={MechPartSlot.LeftBackWeapon,MechPartSlot.RightBackWeapon,MechPartSlot.LeftHandWeapon,MechPartSlot.RightHandWeapon};
-     string[] mountNames={"左肩","右肩","左手","右手"};
-     float cell=(width-20)/2;
-     for(int i=0;i<mounts.Length;i++)
-     {
-      var weapon=commandWeapons.FirstOrDefault(item=>item.Mount==mounts[i]);
-      string readout=weapon!=null?$"{weapon.Ammo} {weapon.Name}":c.Own?"未搭载":"未报告";
-      var weaponBounds=new Rect(x+10+(i%2)*cell,footer.y+37+(i/2)*43,cell-8,40);
-      if(weapon!=null)
-      {
-       if(commandWeapon==weapon.Instance)Fill(weaponBounds,new Color(.10f,.18f,.14f,1));
-       var chosen=weapon;
-       commandButtons.Add(new CommandButton{Bounds=weaponBounds,Caption=mountNames[i]+"武器",Click=()=>{commandWeapon=commandWeapon==chosen.Instance?Guid.Empty:chosen.Instance;weaponDirectMode=commandWeapon!=Guid.Empty;contextOpen=false;}});
-      }
-      var weaponLabelBounds=weaponBounds;weaponLabelBounds.width-=27;
-      BoundedLabel(weaponLabelBounds,mountNames[i]+"  "+readout,PrimaryText,13);
-      string weaponHelp=weapon==null?mountNames[i]+"挂点："+(c.Own?"未搭载武器。":"尚未收到装备报告。"):
-       $"{mountNames[i]}：{weapon.Name}\n{WeaponHelpRole(weapon.Role)} · 剩余弹药 {weapon.Ammo}"+
-       (weapon.EffectiveRange>0?$"，有效射程 {weapon.EffectiveRange/1000:0.0} km":"")+
-       (weapon.MinimumRange>0?$"，最小距离 {weapon.MinimumRange/1000:0.0} km":"")+
-       "\n点击武器进入准星指派，右键目标提交打击；再次点击取消选择。";
-      HelpMarker(weaponBounds,weaponHelp);
-     }
+     var chosen=weapon;
+     commandButtons.Add(new CommandButton{Bounds=weaponBounds,Caption=mountNames[i]+"武器",Click=()=>{commandWeapon=commandWeapon==chosen.Instance?Guid.Empty:chosen.Instance;weaponDirectMode=commandWeapon!=Guid.Empty;contextOpen=false;}});
     }
-    if(column==7)
-    {
-     radarButton=new Rect(x+8,footer.y+37,width-16,32);
-     MapButton(radarButton,radarMode,()=>openPolicyMenu=openPolicyMenu==1?0:1,canControl,openPolicyMenu==1,"雷达管制：管理所选机体的主动雷达辐射许可。点击按钮选择模式。");
-    }
-    if(column==8)
-    {
-     weaponButton=new Rect(x+8,footer.y+37,width-16,32);
-     MapButton(weaponButton,weaponMode,()=>openPolicyMenu=openPolicyMenu==2?0:2,canControl,openPolicyMenu==2,"武器管制：管理所选机体的自主开火权限。点击按钮选择模式。");
-    }
-    x+=width;
+    BoundedLabel(new Rect(weaponBounds.x+9,weaponBounds.y+4,weaponBounds.width-36,18),mountNames[i]+"  /  "+(weapon!=null?weapon.Ammo.ToString():"—"),active?FriendlyColor:SecondaryText,11);
+    BoundedLabel(new Rect(weaponBounds.x+9,weaponBounds.y+23,weaponBounds.width-36,21),weapon!=null?weapon.Name:c.Own?"未搭载":"未报告",weapon!=null?PrimaryText:DisabledText,12);
+    string weaponHelp=weapon==null?mountNames[i]+"挂点："+(c.Own?"未搭载武器。":"尚未收到装备报告。"):
+     $"{mountNames[i]}：{weapon.Name}\n{WeaponHelpRole(weapon.Role)} · 剩余弹药 {weapon.Ammo}"+
+     (weapon.EffectiveRange>0?$"，有效射程 {weapon.EffectiveRange/1000:0.0} km":"")+
+     (weapon.MinimumRange>0?$"，最小距离 {weapon.MinimumRange/1000:0.0} km":"")+
+     "\n点击武器进入准星指派，右键目标提交打击；再次点击取消选择。";
+    HelpMarker(weaponBounds,weaponHelp);
    }
+   Label(policyGroup.x+14,policyGroup.y+11,"交战管制",SecondaryText,12);
+   Rect radarButton=new Rect(policyGroup.x+14,policyGroup.y+39,policyGroup.width-28,ControlHeight);
+   MapButton(radarButton,radarMode,()=>openPolicyMenu=openPolicyMenu==1?0:1,canControl,openPolicyMenu==1,"雷达管制：管理所选机体的主动雷达辐射许可。点击按钮选择模式。");
+   Rect weaponButton=new Rect(policyGroup.x+14,policyGroup.y+82,policyGroup.width-28,ControlHeight);
+   MapButton(weaponButton,weaponMode,()=>openPolicyMenu=openPolicyMenu==2?0:2,canControl,openPolicyMenu==2,"武器管制：管理所选机体的自主开火权限。点击按钮选择模式。");
+   BoundedLabel(new Rect(policyGroup.x+14,policyGroup.y+125,policyGroup.width-28,32),commandMessage,SecondaryText,11);
    foreach(var observed in contacts)if(ResolveSelectedMember(observed,out var executorMember,out _)&&executorMember==commandExecutor)
    {executorLabel=observed.Name+(MechFleetController.Roster.TryGetValue(commandExecutor,out var roster)&&roster.IsLeader?"（编队）":"");break;}
 
@@ -240,25 +243,26 @@ namespace ACunicombat.Mechs
    {
     bool radarMenu=openPolicyMenu==1;Rect anchor=radarMenu?radarButton:weaponButton;
     int count=radarMenu?3:2;
-    policyMenuBounds=new Rect(anchor.x,anchor.y-count*34-12,anchor.width,count*34+8);
+    policyMenuBounds=new Rect(anchor.x,Mathf.Max(8,anchor.y-count*36-14),anchor.width,count*36+10);
     if(policyMenuBounds.Contains(mapPointer))hoveredHelp=null;
-    MenuPanel(policyMenuBounds);
+    MenuPanel(policyMenuBounds,Background);
     Guid recipient=member;bool own=c.Own;
-    Rect row=new Rect(anchor.x+1,policyMenuBounds.y+4,anchor.width-2,34);
+    Rect row=new Rect(anchor.x+1,policyMenuBounds.y+5,anchor.width-2,36);
     if(radarMenu)
     {
      MenuItem(row,"辐射管制",()=>{openPolicyMenu=0;SetRadarPolicy(own,recipient,FleetRadarControl.RadiationSilence);},true,knownStatus&&control==FleetRadarControl.RadiationSilence);
-     row.y+=34;MenuItem(row,"主动雷达",()=>{openPolicyMenu=0;SetRadarPolicy(own,recipient,FleetRadarControl.Active);},true,knownStatus&&control==FleetRadarControl.Active);
-     row.y+=34;MenuItem(row,"智能模式",null,false);
+     row.y+=36;MenuItem(row,"主动雷达",()=>{openPolicyMenu=0;SetRadarPolicy(own,recipient,FleetRadarControl.Active);},true,knownStatus&&control==FleetRadarControl.Active);
+     row.y+=36;MenuItem(row,"智能模式",null,false);
     }
     else
     {
      MenuItem(row,"确认开火",()=>{openPolicyMenu=0;SetWeaponPolicy(own,recipient,FleetAttackMode.Confirmed);},true,knownStatus&&attackMode==FleetAttackMode.Confirmed);
-     row.y+=34;MenuItem(row,"自由开火",()=>{openPolicyMenu=0;SetWeaponPolicy(own,recipient,FleetAttackMode.Free);},true,knownStatus&&attackMode==FleetAttackMode.Free);
+     row.y+=36;MenuItem(row,"自由开火",()=>{openPolicyMenu=0;SetWeaponPolicy(own,recipient,FleetAttackMode.Free);},true,knownStatus&&attackMode==FleetAttackMode.Free);
     }
    }
    MapButton(TimeControlRect,mapTimePaused?"继续时间":Time.timeScale<=0?"时间已暂停":"暂停时间",
     ToggleMapTime,mapTimePaused||Time.timeScale>0,mapTimePaused);
+   BoundedLabel(new Rect(TimeControlRect.xMax+18,20,250,32),$"视野 {HorizontalSpanKm:0.0} km   /   {ContentZoom:0.00}×",SecondaryText,12);
    DrawFormationEditorOverlay();
    DrawMissionAssignmentOverlay();
    DrawHelpTooltip();
