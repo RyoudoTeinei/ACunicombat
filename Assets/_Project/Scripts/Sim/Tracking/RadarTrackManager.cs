@@ -1128,6 +1128,7 @@ namespace ACunicombat.Tracking
                 for(int slot=0;slot<activeCapacity;slot++)
                 {
                     costs[row,slot]=OneToOneAssignment.Rejected;
+                    if(OutsideAnyGate(slot,in m,observer))continue;
                     int found=FindAssociation(in m,observer,observerVelocity,position,in noise,m.ObjectClass,m.Timestamp,0,out var st,slot);
                     if(found<0)
                     {
@@ -1159,6 +1160,27 @@ namespace ACunicombat.Tracking
                     RadarReplayJournal.EmitBatch(new RadarBatchDecision{manager=ReplayIdentity,time=m.Timestamp,sensor=m.SensorId.Packed,dwell=m.DwellSequence,selected=slot>=0?slots[slot].Id.Packed:0,margin=margins[row],score=slot>=0?costs[row,slot]:double.PositiveInfinity,candidates=ids.ToArray(),costs=values.ToArray()});
                 }
             }
+        }
+
+        // Conservative pre-gate for the batch plan: true only when the pair would fail the
+        // position gate of both the regular and the manoeuvre search. NIS >= |v|^2/trace(S)
+        // and |v|^2 >= dr^2 + r^2 (pi/4)^2 sin^2(bearing offset); half of that bound is used.
+        private bool OutsideAnyGate(int slot,in Measurement m,double3 observer)
+        {
+            ref readonly var track=ref slots[slot];
+            if(!track.Active)return true;
+            ref readonly var filter=ref track.Filter;
+            var relative=filter.Position-observer;double range=math.max(1,math.length(relative));
+            var n=math.normalizesafe(relative,new double3(0,0,1));var d=math.normalizesafe((double3)m.Direction,n);
+            double forward=math.dot(d,n),offset=math.max(0,math.dot(d,d)-forward*forward),dr=m.Range-range;
+            double lower=dr*dr+.6168*range*range*offset;
+            double positionTrace=math.max(0,filter.P[0,0]+filter.P[1,1]+filter.P[2,2]);
+            double angular=math.max(0,(double)m.AngleVar)+positionTrace/(2*range*range);
+            double radial=math.max(1e-9,(double)m.RangeVar)+range*range*angular*angular;
+            double window=math.max(math.max(0,m.Timestamp-track.LastUpdateTime),ResolveManeuverResponseSeconds(m.ObjectClass));
+            double manoeuvre=ResolveManeuverAcceleration(m.ObjectClass)*window*window;
+            double trace=positionTrace+radial+2*range*range*math.max(1e-12,(double)m.AngleVar)+3e-9+3*manoeuvre*manoeuvre;
+            return .5*lower>AssociationGateSquared*trace;
         }
 
         private int FindAssociation(
