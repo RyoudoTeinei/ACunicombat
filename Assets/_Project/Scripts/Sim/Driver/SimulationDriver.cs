@@ -595,6 +595,7 @@ namespace ACunicombat.Simulation.Driver
                 // Labelling them 'now' made velocity one step stale during acceleration.
                 var tickTime = SimTimeSeconds - dt
                                - SensorStepSeconds * (sensorTicks - 1 - i);
+                var sections=ACunicombat.Simulation.Core.SimulationCostProbe.Sections.Begin(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorRadarTick);
                 radar.Tick(tickTime);
                 if (DetailedTelemetry)
                 {
@@ -619,6 +620,7 @@ namespace ACunicombat.Simulation.Driver
                             in radar.Detections.ElementAt(detectionIndex));
                     }
                 }
+                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorOptics);
                 if (combatContext.HasOpticalReceiver)
                 {
                     var effectiveOptical=combatContext.OpticalReceiver;
@@ -654,6 +656,7 @@ namespace ACunicombat.Simulation.Driver
                             in laserRangefinder.Emissions.ElementAt(emissionIndex));
                     }
                 }
+                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorTracking);
                 var sensorPosition = double3.zero;
                 var sensorVelocity = double3.zero;
                 if (trackContext.OriginEntity.IsValid
@@ -703,6 +706,7 @@ namespace ACunicombat.Simulation.Driver
                     }
                 }
 
+                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorDataLink);
                 // 数据链：投递队列中的报文（写链路辐射 + 按物理条件投递）。
                 dataLink.Tick(tickTime);
                 if (DetailedTelemetry)
@@ -719,6 +723,7 @@ namespace ACunicombat.Simulation.Driver
                     }
                 }
 
+                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorEsm);
                 // 被动告警：同 Tick 消费全部辐射环（每环每 Tick 清空，接收必须
                 // 与辐射同步）——雷达环 + 数据链环 + MAW 红外通道，汇入同一
                 // 接触环后由相关器按本机接收机 Id 过滤处理。
@@ -760,6 +765,7 @@ namespace ACunicombat.Simulation.Driver
                     combatContext.WarningReceiver,
                     tickTime);
 
+                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorTelemetry);
                 var telemetryThreatCount = 0;
                 if (telemetry != null && telemetry.IsRecording)
                 {
@@ -817,6 +823,7 @@ namespace ACunicombat.Simulation.Driver
                         nextTelemetrySensorSummaryTime = tickTime + 1.0;
                     }
                 }
+                sections.End();
             }
 
             fusionClock.Advance(dt);

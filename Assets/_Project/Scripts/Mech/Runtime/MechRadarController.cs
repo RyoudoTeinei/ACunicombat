@@ -2037,6 +2037,7 @@ namespace ACunicombat.Mechs
                 : (playerPosition - previousPlayerPosition) / dt;
             driver.SetTimedEntityState(playerEntity, BuildState(transform, playerVelocity),
                 flightMotion!=null&&flightMotion.HasKinematicSample?flightMotion.KinematicSampleTime:Time.fixedTimeAsDouble);
+            var radarSections=ACunicombat.Simulation.Core.SimulationCostProbe.Sections.Begin(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.RadarEoCue);
             var electroOpticalForward =
                 aimingCamera != null
                     ? aimingCamera.transform.forward
@@ -2056,6 +2057,7 @@ namespace ACunicombat.Mechs
                 ToFloat3(electroOpticalForward));
             previousPlayerPosition = playerPosition;
 
+            radarSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SceneSync);
             for (var i = 0; i < sceneTargetCount; i++)
             {
                 var sceneTarget = sceneTargets[i];
@@ -2090,15 +2092,21 @@ namespace ACunicombat.Mechs
                 UpdateTargetRegistration(i);
             }
 
+            radarSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.RadarValidateStt);
             RefreshDamageEffects();
             ValidateSttTrack();
+            radarSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.RadarScheduleDwells);
             if (RadarPowerEnabled)
             {
                 ScheduleDwells();
             }
+            radarSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.RadarGuidance);
             PumpGuidanceUplinks(driver.SimTimeSeconds);
+            radarSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.RadarFriendlyReports);
             ConsumeFriendlyMissileReports();
+            radarSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.RadarMissileFusion);
             EnsureMissileTrackCache();
+            radarSections.End();
         }
 
         private void LateUpdate()

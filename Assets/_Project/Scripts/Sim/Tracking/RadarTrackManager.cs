@@ -310,6 +310,7 @@ namespace ACunicombat.Tracking
             ReplayDepth++;bool completed=false;
             try
             {
+            var trackSections=ACunicombat.Simulation.Core.SimulationCostProbe.Sections.Begin(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.TrackPredict);
             for (var i = 0; i < slots.Length; i++)
             {
                 associated[i] = false;
@@ -362,6 +363,7 @@ namespace ACunicombat.Tracking
                 slots[i] = slot;
             }
 
+            trackSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.TrackObservation);
             if (hasObservationDwells)
             {
                 MarkObservationOpportunities(observationDwells);
@@ -369,6 +371,7 @@ namespace ACunicombat.Tracking
 
             // Process precise returns first within an epoch, so an overlapping sidelobe
             // cannot bootstrap an overconfident competing track before its mainlobe return.
+            trackSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.TrackBatchPlan);
             dwellAssignments.Clear();
             measurementOrder.Clear();
             for(int index=0;index<measurements.Length;index++)
@@ -383,6 +386,7 @@ namespace ACunicombat.Tracking
             // an early dwell's sidelobe suppress a later dwell's precise mainlobe.
             batchPlans.Clear();
             foreach(int index in measurementOrder)PrepareResolvedBatch(measurements,index,sensorPosition,sensorVelocity);
+            trackSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.TrackAssociate);
             for (var order = 0; order < measurementOrder.Count; order++)
             {
                 int i=measurementOrder[order];
@@ -685,6 +689,7 @@ namespace ACunicombat.Tracking
                 }
             }
 
+            trackSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.TrackLifecycle);
             for (var i = 0; i < slots.Length; i++)
             {
                 if (!slots[i].Active)
@@ -763,6 +768,7 @@ namespace ACunicombat.Tracking
                 }
             }
         
+                trackSections.End();
                 completed=true;
             }
             finally {ReplayDepth--;if(completed&&replay!=null)RadarReplayJournal.Emit(this,replay);}

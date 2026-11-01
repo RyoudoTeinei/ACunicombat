@@ -59,9 +59,11 @@ namespace ACunicombat.Mechs
    foreach(var pair in State.Members)
    {
     var m=pair.Value;if(pair.Key==MemberId||!State.Fresh(m,now)||!m.Available||m.IsPlayer||!m.Target.TrackId.IsValid)continue;
-    if(MechFleetContactMatcher.Match(m.Target,yieldScratch,1,now)!=0)continue;
+    // Distance test first: the statistical contact match is expensive and only matters
+    // for a friend that would actually take precedence.
     float friend=Vector3.Distance((Vector3)(float3)(m.Position+m.Velocity*Math.Max(0,now-m.ObservedAt)),predictedPosition);
-    if(MechFormationDoctrine.ShouldYieldTarget(own,friend,State.FormationIndex,m.FormationIndex))return true;
+    if(!MechFormationDoctrine.ShouldYieldTarget(own,friend,State.FormationIndex,m.FormationIndex))continue;
+    if(MechFleetContactMatcher.Match(m.Target,yieldScratch,1,now)==0)return true;
    }
    return false;
   }
