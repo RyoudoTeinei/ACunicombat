@@ -603,7 +603,7 @@ namespace ACunicombat.Simulation.Driver
                 {
                     var tickTime = StepTickTime(i);
                     SensorTickA(tickTime);
-                    tickSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorTracking);
+                    using (ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorTracking))
                     SensorTickB(tickTime);
                     SensorTickC(tickTime);
                 }
@@ -694,7 +694,6 @@ namespace ACunicombat.Simulation.Driver
         // Sensor tick split for parallel tracking: A (sensors) and C (links, warning,
         // telemetry) run on the main thread; B touches only this observer's tracker and may
         // run on a worker thread. Order within one observer is unchanged: A, B, C.
-        private ACunicombat.Simulation.Core.SimulationCostProbe.Sections tickSections;
         private readonly System.Collections.Generic.List<(LaserRangeObservation observation, bool accepted, double nis)> pendingLaserTelemetry = new();
         internal void SensorTickA(double tickTime)
         {
@@ -759,7 +758,7 @@ namespace ACunicombat.Simulation.Driver
                         in laserRangefinder.Emissions.ElementAt(emissionIndex));
                 }
             }
-            tickSections=sections;
+            sections.End();
         }
 
         /// <summary>Tracker update only. Thread-safe with respect to every other observer.</summary>
@@ -813,8 +812,7 @@ namespace ACunicombat.Simulation.Driver
 
         internal void SensorTickC(double tickTime)
         {
-            var sections=tickSections;
-            sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorDataLink);
+            var sections=ACunicombat.Simulation.Core.SimulationCostProbe.Sections.Begin(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorDataLink);
             foreach (var laser in pendingLaserTelemetry)
                 telemetry?.RecordLaserObservation(tickTime, telemetrySource, in laser.observation, laser.accepted, laser.nis);
             pendingLaserTelemetry.Clear();

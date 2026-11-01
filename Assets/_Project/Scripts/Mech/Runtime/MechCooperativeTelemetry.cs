@@ -48,12 +48,19 @@ namespace ACunicombat.Mechs
         {
             if(!active.Contains(this))active.Add(this);
             if(!prewarmHooked){SimulationDriver.AfterScheduledStep+=PrewarmAll;prewarmHooked=true;}
+            MechCooperativePrewarmClock.Ensure();
         }
         private void OnDisable()=>active.Remove(this);
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetPrewarm(){active.Clear();if(prewarmHooked)SimulationDriver.AfterScheduledStep-=PrewarmAll;prewarmHooked=false;}
         private static readonly List<MechCooperativeTelemetry> prewarm=new();
         private double prewarmNow;private ulong prewarmRevision;
+        /// <summary>
+        /// Runs before every radar controller each physics step (see MechCooperativePrewarmClock):
+        /// the first track lookup of a step re-keys fusion on the new time with the previous
+        /// step's tracks; that same keyed result is produced here in parallel instead.
+        /// </summary>
+        internal static void PrewarmBeforeStep()=>PrewarmAll();
         private static void PrewarmAll()
         {
             if(!ParallelPrewarm)return;
