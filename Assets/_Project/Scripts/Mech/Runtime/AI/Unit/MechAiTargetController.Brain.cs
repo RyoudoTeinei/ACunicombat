@@ -106,7 +106,8 @@ namespace ACunicombat.Mechs
                     Fleet.State.Task.Phase == FleetTaskPhase.Returning,
                     Fleet.State.Task.Order.Order == FleetOrderKind.Move,
                     Fleet.HasSpatialMission && Fleet.TaskGroup == FleetTaskGroup.Escort) ||
-                 Fleet.StrikeRequiresNavigation);
+                 Fleet.StrikeRequiresNavigation) ||
+                perception.HasNavigation && Fleet.IsWinchester;
         }
 
         /// <summary>

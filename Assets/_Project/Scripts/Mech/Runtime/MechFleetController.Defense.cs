@@ -129,7 +129,10 @@ namespace ACunicombat.Mechs
                 if(!e.Enabled||e.Reloading||e.Rounds<=0||!IsDefensiveRole(e.Role))continue;
                 if(weapons.TryEstimateFleetDefense(e.SlotId,threat,out float seconds))estimate=Math.Min(estimate,seconds+Math.Max(0,e.NextFireTime-Time.time));
             }
-            return float.IsFinite(estimate);
+            // Sea Power's CanAircraftHelpAgainstWeapon: a defender whose interception
+            // lands after the threat's earliest impact on a protected member cannot help,
+            // so it must not hold the claim another member could still satisfy.
+            return float.IsFinite(estimate)&&MechForceAllocation.CanReachBeforeImpact(estimate,ProtectedThreatTime(threat));
         }
         private void MaintainDefenseClaim(in MissileTrackSnapshot track,double now)
         {

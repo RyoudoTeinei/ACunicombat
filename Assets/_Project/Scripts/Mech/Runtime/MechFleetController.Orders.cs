@@ -87,7 +87,8 @@ namespace ACunicombat.Mechs
             objective=default;if(!Configured||(IsPlayer&&!PlayerAutopilotActive)||motion==null)return false;
             double now=radar.SimTimeSeconds;Vector3 point,velocity;
             bool follow=!IsActingLeader&&(!Detached||HasTask&&State.Task.Phase==FleetTaskPhase.Returning);
-            if(HasTask&&State.Task.Order.Order==FleetOrderKind.Move&&State.Task.Phase!=FleetTaskPhase.Returning)
+            if(!IsPlayer&&IsWinchester&&TryWinchesterNavigation(out point,out velocity)){follow=!IsActingLeader;}
+            else if(HasTask&&State.Task.Order.Order==FleetOrderKind.Move&&State.Task.Phase!=FleetTaskPhase.Returning)
             {point=MoveDestination();velocity=Vector3.zero;}
             else if(HasSpatialMission&&TryMissionNavigation(out point,out velocity)){}
             else if(follow)
@@ -150,30 +151,6 @@ namespace ACunicombat.Mechs
             float maximum=0;if(weapons==null)return 0;weapons.CopyEquipmentWeaponSnapshots(equipment);
             foreach(var e in equipment)if(e.Enabled&&weapons.TryGetWeaponSlotStatus(new MechEquipmentSlot(e.SlotId),out var s)&&s.HasReserveAmmunition&&MechAiRulePlanner.IsOffensiveRole(s.Role))maximum=Mathf.Max(maximum,s.MaximumRangeMeters);
             return maximum;
-        }
-        private void CoordinateAutonomousAttack(double now)
-        {
-            if(HasTask)return;int count=radar.CopyTracks(air);
-            TrackSnapshot Pick(Vector3 origin,float maximum)
-            {
-                TrackSnapshot best=default;float distance=float.PositiveInfinity;
-                for(int i=0;i<count;i++){var t=air[i];if(t.ObjectClass==TrackObjectClass.Missile||t.ObjectClass==TrackObjectClass.Decoy||t.Affiliation==TrackAffiliation.Friendly||t.Identity.Available&&!t.Identity.CanAttackPlatform||t.Lifecycle!=TrackLifecycle.Confirmed)continue;
-                    var point=(Vector3)(float3)t.PredictPosition(now);float d=Vector3.Distance(origin,point);if(d>=distance||!WithinAutomaticAttackRange(origin,point,maximum))continue;best=t;distance=d;}
-                return best;
-            }
-            if(!IsPlayer)
-            {
-                var target=Pick(transform.position,MaximumOffensiveRange());
-                if(target.TrackId.IsValid)State.Receive(new FleetPacket{Kind=FleetPacketKind.Order,Sender=MemberId,Recipient=MemberId,Fleet=State.Fleet,Operation=Guid.NewGuid(),Revision=++revision,Order=FleetOrderKind.Attack,Target=target,AutomaticEngagement=true,ObservedAt=now,ExpiresAt=now+3,TaskDeadline=now+Math.Max(TaskSeconds,300),WholeFleet=true},now);
-            }
-            foreach(var r in Roster.Values)
-            {
-                if(r.Leader!=MemberId||r.Member==MemberId||r.Player||!State.Members.TryGetValue(r.Member,out var member)||!State.Fresh(member,now)||member.Mode!=FleetAttackMode.Free)continue;
-                if(member.Phase!=FleetTaskPhase.None&&member.Phase!=FleetTaskPhase.Completed&&member.Phase!=FleetTaskPhase.Cancelled&&member.Phase!=FleetTaskPhase.Expired)continue;
-                float maximum=0;foreach(var cap in State.Capabilities.Values)if(cap.Sender==r.Member&&cap.Available&&cap.Ammunition>0&&State.Fresh(cap,now)&&MechAiRulePlanner.IsOffensiveRole((MechWeaponRole)cap.Role))maximum=Mathf.Max(maximum,cap.MaximumRange);
-                var target=Pick((Vector3)(float3)member.Position,maximum);if(!target.TrackId.IsValid)continue;
-                IssueInternal(r.Member,FleetOrderKind.Attack,target,default,State.Mode,true,now+Math.Max(TaskSeconds,300),automaticEngagement:true);
-            }
         }
     }
 }
