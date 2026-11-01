@@ -86,16 +86,53 @@ namespace ACunicombat.Mechs
             UpdateMissileDefense();
             perception.WeaponCount = currentOffensiveWeaponCount = CopyOffensiveWeaponStatuses();
             perception.HasTarget = TryGetAirTargetTrack(perception.WeaponCount, out perception.Target);
+            if (perception.HasTarget && ShouldAbandonChase(in perception.Target))
+            {
+                perception.HasTarget = false;
+                selectedAirTrackId = default;
+                hasLastAirTrack = false;
+            }
+            if (Fleet != null)
+            {
+                if (perception.HasTarget) Fleet.ReportEngagementTarget(in perception.Target);
+                else Fleet.ClearEngagementTarget();
+            }
             perception.Evasion = EvaluateEvasion();
             perception.HasNavigation = !stationaryTestMode && Fleet != null &&
                                        Fleet.TryNavigation(out perception.NavigationDirection, out perception.NavigationFrame);
             perception.NavigationRequired = perception.HasNavigation && Fleet.HasTask &&
-                MechAiRulePlanner.ShouldYieldCombatToNavigation(
+                (MechAiRulePlanner.ShouldYieldCombatToNavigation(
                     Fleet.HasTask,
                     Fleet.State.Task.Phase == FleetTaskPhase.Returning,
                     Fleet.State.Task.Order.Order == FleetOrderKind.Move,
-                    Fleet.HasSpatialMission && Fleet.TaskGroup == FleetTaskGroup.Escort);
+                    Fleet.HasSpatialMission && Fleet.TaskGroup == FleetTaskGroup.Escort) ||
+                 Fleet.StrikeRequiresNavigation);
         }
+
+        /// <summary>
+        /// Shooter deconfliction (formation layer): a contact a closer member is
+        /// already engaging scores worse, so free members spread across targets.
+        /// It is a penalty, not a veto, so a lone target is still engaged.
+        /// </summary>
+        public const float DeconflictionScorePenalty = 2.5f;
+
+        /// <summary>
+        /// Drop a self-selected chase that is out of every weapon's reach and not
+        /// closing. Commanded targets are never abandoned here; the task layer owns them.
+        /// </summary>
+        private bool ShouldAbandonChase(in TrackSnapshot track)
+        {
+            if (Fleet == null || Fleet.HasTask || perception.WeaponCount == 0) return false;
+            var relative = radar.PredictTrackPosition(in track) - transform.position;
+            float range = relative.magnitude;
+            if (range < 1f) return false;
+            float maximum = 0f;
+            for (var i = 0; i < perception.WeaponCount; i++) maximum = Mathf.Max(maximum, weaponStatusScratch[i].MaximumRangeMeters);
+            float closing = -Vector3.Dot(ToVector3(track.Velocity) - motion.Velocity, relative / range);
+            return MechFormationDoctrine.ShouldAbandonChase(range, maximum, closing);
+        }
+        private float DeconflictionPenalty(in TrackSnapshot track)
+            => Fleet != null && Fleet.FriendlyHoldsTarget(in track, radar.PredictTrackPosition(in track)) ? DeconflictionScorePenalty : 0f;
 
         private MechAiEvasionPlan EvaluateEvasion()
         {

@@ -68,12 +68,12 @@ namespace ACunicombat.Mechs
         {
             using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Fleet);
             if(!Configured||radar?.TelemetryDriver==null||body!=null&&!body.IsAlive)return;
-            double now=radar.SimTimeSeconds;State.Tick(now);UpdateRadarDoctrine();
+            double now=radar.SimTimeSeconds;State.Tick(now);UpdateRadarDoctrine();RefreshStationRole(now);
             for(int i=outbox.Count-1;i>=0;i--)if(outbox[i].Packet.ExpiresAt<now)outbox.RemoveAt(i);
             if(now>=nextHeartbeat){nextHeartbeat=now+MemberReportSeconds;Send(GetOwnStatus());}
             if(now>=nextInventory){nextInventory=now+1;weapons?.CopyEquipmentWeaponSnapshots(equipment);foreach(var e in equipment){weapons.TryGetWeaponSlotStatus(new MechEquipmentSlot(e.SlotId),out var status);Send(new FleetPacket{Kind=FleetPacketKind.Capability,Weapon=e.InstanceId,WeaponMount=(int)GetEquipmentMount(e.SlotId),Role=(int)e.Role,Ammunition=e.Rounds,WeaponName=new Unity.Collections.FixedString512Bytes(GetEquipmentDisplayName(e.SlotId)),Available=e.Enabled&&!e.Reloading,MaximumRange=status.MaximumRangeMeters,MinimumRange=status.MinimumRangeMeters,EffectiveRange=status.EffectiveRangeMeters,ProjectileSpeed=weapons.EstimatedProjectileSpeed(e.SlotId),ObservedAt=now,ExpiresAt=now+3});}}
             foreach(var pair in pending){var p=pair.Value;if(p.Acknowledged)continue;if(p.Packet.ExpiresAt<now){p.Acknowledged=true;var failed=p.Packet;failed.ObservedAt=now;failed.Phase=FleetTaskPhase.Rejected;failed.Reason=FleetTaskReason.LinkTimeout;results[pair.Key]=failed;Log("command_timeout",failed,"NoAcknowledgement");continue;}if(now<p.NextRetry)continue;p.NextRetry=now+.5;Send(p.Packet);}
-            UpdateOrder(now);UpdateFleetDefense(now);
+            UpdateOrder(now);UpdateStrikeMission(now);UpdateFleetDefense(now);
             if(now>=nextPrune){nextPrune=now+10;var stale=new List<Guid>();foreach(var pair in pending)if(pair.Value.Packet.TaskDeadline+120<now)stale.Add(pair.Key);foreach(var id in stale){pending.Remove(id);results.Remove(id);delegation.Remove(id);}
                 var oldTracks=new List<TrackId>();foreach(var id in contactIds.Keys)if(!radar.TryGetTrack(id,out _)&&!radar.TryGetMissileTrack(id,out _))oldTracks.Add(id);foreach(var id in oldTracks){contactTracks.Remove(contactIds[id]);contactIds.Remove(id);}}
 
@@ -178,7 +178,7 @@ namespace ACunicombat.Mechs
         {
             if(!Configured||radar==null)return default;
             double now=radar.SimTimeSeconds;
-            var p=new FleetPacket{Kind=FleetPacketKind.Heartbeat,Sender=MemberId,Fleet=State.Fleet,Leader=State.Leader,Position=(double3)(float3)transform.position,Velocity=(double3)(float3)(motion!=null?motion.Velocity:Vector3.zero),Available=body==null||body.IsAlive,IsPlayer=IsPlayer,IsLeader=IsLeader,HasPlatformStatus=body!=null,HealthFraction=body!=null?body.HealthFraction:0,HeadingDegrees=ReportedHeading(),RadarPowered=radar.RadarPowerEnabled,RadarControl=State.RadarControl,Mode=State.Mode,CruiseSpeed=State.CruiseSpeed,Target=State.Task!=null?State.Task.Order.Target:default,Order=State.Task!=null?State.Task.Order.Order:default,Phase=State.Task!=null?State.Task.Phase:FleetTaskPhase.None,FormationRoot=State.FormationRoot,FormationIndex=State.FormationIndex,FormationSize=State.FormationSize,TaskGroup=State.TaskGroup,FormationShape=State.FormationShape,Reason=State.Task!=null?State.Task.Reason:FleetTaskReason.None,ObservedAt=now,ExpiresAt=now+3};
+            var p=new FleetPacket{Kind=FleetPacketKind.Heartbeat,Sender=MemberId,Fleet=State.Fleet,Leader=State.Leader,Position=(double3)(float3)transform.position,Velocity=(double3)(float3)(motion!=null?motion.Velocity:Vector3.zero),Available=body==null||body.IsAlive,IsPlayer=IsPlayer,IsLeader=IsLeader,HasPlatformStatus=body!=null,HealthFraction=body!=null?body.HealthFraction:0,HeadingDegrees=ReportedHeading(),RadarPowered=radar.RadarPowerEnabled,RadarControl=State.RadarControl,Mode=State.Mode,CruiseSpeed=State.CruiseSpeed,Target=State.Task!=null&&!State.Task.Terminal?State.Task.Order.Target:HasReportedEngagement(now)?reportedEngagement:default,Order=State.Task!=null?State.Task.Order.Order:default,Phase=State.Task!=null?State.Task.Phase:FleetTaskPhase.None,FormationRoot=State.FormationRoot,FormationIndex=State.FormationIndex,FormationSize=State.FormationSize,TaskGroup=State.TaskGroup,FormationShape=State.FormationShape,Reason=State.Task!=null?State.Task.Reason:FleetTaskReason.None,ObservedAt=now,ExpiresAt=now+3};
             var damage=GetComponent<MechPartDamageController>();
             if(damage!=null&&damage.IsBound){p.HasDamageReport=true;damage.CopySnapshots(statusDamage);foreach(var region in statusDamage){if(region.Condition==MechPartCondition.Destroyed)p.DisabledRegions++;else if(region.Condition!=MechPartCondition.NormalOrLight)p.ImpairedRegions++;}}
             var ai=GetComponent<MechAiTargetController>();p.HasActionReport=ai!=null;p.CombatAction=ai!=null?(int)ai.CurrentCombatState:0;
@@ -218,6 +218,7 @@ namespace ACunicombat.Mechs
             if(HasSpatialMission&&TaskGroup==FleetTaskGroup.ElectronicWarfare){reason="ElectronicWarfareMissionOnly";return false;}
             if(HasSpatialMission&&TaskGroup==FleetTaskGroup.AirDefenseSuppression)
             {weapons.CopyEquipmentWeaponSnapshots(equipment);var chosen=equipment.Find(e=>e.InstanceId==instance);if(chosen.InstanceId==Guid.Empty||!AllowsMissionEquipment(chosen.SlotId,role)){reason="SuppressionRequiresPassiveRfWeapon";return false;}}
+            if(AllowsScreeningEngagement&&!IsStrikeTarget(target)&&State.AllowsWeapon(instance)&&(role!=MechWeaponRole.AirToAirMissile||State.Mode==FleetAttackMode.Free||State.Task.Order.AuthorizedWeaponSelection))return true;
             if(HasSpatialMission&&!MissionAllowsOffensiveTarget(target)){reason="OutsideMissionAssignment";return false;}
             if(HasTask&&State.Task.Order.Order!=FleetOrderKind.Move&&State.Task.Phase!=FleetTaskPhase.Returning&&(!resolvedOrder.IsValid||!resolvedOrder.Equals(target))){reason="OrderedTargetOnly";return false;}
             if(HasTask&&State.Task.Phase==FleetTaskPhase.Returning&&role==MechWeaponRole.AirToAirMissile){reason="ReturningToFormation";return false;}

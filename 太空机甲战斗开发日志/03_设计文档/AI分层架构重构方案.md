@@ -94,12 +94,36 @@ L0 驾驶层   MechAiPilot          把意图翻译成输入帧（本轮实现�
 
 | 步 | 内容 | 状态 |
 | --- | --- | --- |
-| 0 | `AI/Core` 状态机 + `AI/Pilot` 驾驶原语 | 本轮 |
-| 1 | `MechAiBrain` 接管 `Update()`，拆除 `ShouldYieldCombatToNavigation` 覆盖逻辑 | 本轮 |
-| 2 | 新规避时机 + cold/beam + 干扰弹 | 本轮 |
-| 3 | 编队层：角色、保持风格、目标分发与让开、长机接替 | 下一轮 |
+| 0 | `AI/Core` 状态机 + `AI/Pilot` 驾驶原语 | 已完成（Pilot 暂复用现有 `MechAutonomousFlight`） |
+| 1 | `MechAiBrain` 接管 `Update()`，拆除 `ShouldYieldCombatToNavigation` 覆盖逻辑 | 已完成 |
+| 2 | 新规避时机 + cold/beam + 干扰弹 | 已完成 |
+| 3 | 编队层：角色、保持风格、射手让开、放弃追击 | 已完成；长机接替尚未做 |
 | 4 | 任务阶段机：Strike、Escort 优先 | 下一轮 |
 | 5 | 指挥层与难度参数 | 后续 |
+
+## 实现位置
+
+| 内容 | 文件 |
+| --- | --- |
+| 优先级状态机 | `Scripts/Mech/Runtime/AI/Core/MechAiStateMachine.cs` |
+| 单机大脑（感知快照 + 5 个状态） | `Scripts/Mech/Runtime/AI/Unit/MechAiTargetController.Brain.cs` |
+| 规避时机判定 | `Scripts/Mech/Runtime/AI/Unit/MechAiEvasionDoctrine.cs` |
+| 编队规则（角色、风格、分档、让开、放弃） | `Scripts/Mech/Runtime/AI/Formation/MechFormationDoctrine.cs` |
+| 编队接入（槽位保持、角色刷新、交战上报） | `Scripts/Mech/Runtime/MechFleetController.Station.cs` |
+| 测试 | `Editor/MechAiBrainTests.cs`、`Editor/MechFormationDoctrineTests.cs` |
+
+实现要点：
+
+- 单机层：每帧先感知一次（威胁、库存、目标、编队导航），状态只负责产出输入帧。编队导航不再事后覆盖交战结果。
+- Evade 是唯一标记为"打断"的转移，所以状态机会记住被打断的基础状态。退出 Evade 时重新求值，不恢复可能已经失效的旧目标。
+- 编队保持只替换 `MechFlightTask.Formation` 这一分支。Move、返航、任务导航仍走原有导航。
+- 风格的间距倍率作用在 `OwnFormationOffset` 和 `TryFormationPoint` 两处，两边保持一致。自定义队形使用绝对偏移，不受风格影响。
+- 射手让开：心跳的 `Target` 字段在无任务时上报 AI 当前的交战目标。其他成员用 `MechFleetContactMatcher` 跨观测者关联，命中时给目标打分加 2.5 分作为惩罚，而不是一票否决，所以只有一个目标时仍然会去打。
+- 命令目标（有任务时）不参与让开或放弃，由任务层负责。
+
+## 已知遗留
+
+- `MechFleetMissileAITests.SuppressionFamiliesExposePassiveCapabilityAndLongRange`（4 例）在重构前就失败。原因是导弹目录现在把 `effectiveRangeMeters` 写为 0（射程改为计算得出），测试仍断言它大于 0。与 AI 无关，未修改。
 
 ## 已确认
 

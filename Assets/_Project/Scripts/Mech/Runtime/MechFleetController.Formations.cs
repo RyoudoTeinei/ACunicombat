@@ -55,6 +55,6 @@ namespace ACunicombat.Mechs
     _=>new Vector3(side*rank*spacing,0,-rank*spacing)
    };
   }
-  private Vector3 OwnFormationOffset()=>State.FormationShape==FleetFormationShape.Custom?(Vector3)State.FormationOffset:FormationSlotOffset(State.FormationShape,State.FormationIndex,State.FormationSize,FormationSpacing);
+  private Vector3 OwnFormationOffset()=>State.FormationShape==FleetFormationShape.Custom?(Vector3)State.FormationOffset:FormationSlotOffset(State.FormationShape,State.FormationIndex,State.FormationSize,StyledSpacing);
  }
 }

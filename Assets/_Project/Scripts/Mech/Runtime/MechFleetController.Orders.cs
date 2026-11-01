@@ -33,7 +33,7 @@ namespace ACunicombat.Mechs
         public bool TryGetOrderedTrack(out TrackSnapshot track)
         {
             track=default;if(!HasTask||State.Task.Order.Order==FleetOrderKind.Move||State.Task.Phase==FleetTaskPhase.Returning)return false;
-            if(HasSpatialMission)return TryMissionAirTarget(out track);
+            if(HasSpatialMission)return StrikeAllowsMissionTarget&&TryMissionAirTarget(out track);
             double now=radar.SimTimeSeconds;var report=State.Task.Order.Target;
             if(resolvedOrder.IsValid&&radar.TryGetTrack(resolvedOrder,out var retained)&&now-retained.LastUpdateTime<=1.5&&retained.Affiliation!=TrackAffiliation.Friendly&&(!retained.Identity.Available||retained.Identity.CanAttackPlatform))
             {track=retained;lastSeenOrder=now;return true;}
@@ -77,7 +77,10 @@ namespace ACunicombat.Mechs
         {
             direction=transform.forward;frame=default;
             if(!TryGetNavigationObjective(out var objective))return false;
-            frame=MechAutonomousFlight.Navigate(motion,transform.position,in objective,out direction);return true;
+            frame=objective.Task==MechFlightTask.Formation
+                ?KeepStation(objective.Position,objective.Velocity,radar.SimTimeSeconds,out direction)
+                :MechAutonomousFlight.Navigate(motion,transform.position,in objective,out direction);
+            return true;
         }
         public bool TryGetNavigationObjective(out MechNavigationObjective objective)
         {
@@ -123,7 +126,7 @@ namespace ACunicombat.Mechs
             velocity=(Vector3)(float3)leader.Velocity;
             var offset=OwnFormationOffset();
             if(Roster.TryGetValue(State.Leader,out var leaderEntry)&&GroupRoot(leaderEntry)==State.FormationRoot)
-                offset-=leaderEntry.FormationShape==FleetFormationShape.Custom?leaderEntry.FormationOffset:FormationSlotOffset(leaderEntry.FormationShape,leaderEntry.FormationIndex,leaderEntry.FormationSize,FormationSpacing);
+                offset-=leaderEntry.FormationShape==FleetFormationShape.Custom?leaderEntry.FormationOffset:FormationSlotOffset(leaderEntry.FormationShape,leaderEntry.FormationIndex,leaderEntry.FormationSize,StyledSpacing);
             formationCourse.Resolve(State.Leader,now,velocity,offset,out var worldOffset,out velocity);
             point=(Vector3)(float3)(leader.Position+leader.Velocity*Math.Max(0,now-leader.ObservedAt))+worldOffset;return true;
         }

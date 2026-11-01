@@ -803,7 +803,8 @@ namespace ACunicombat.Mechs
         {
             using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.AiTargetSelection);
             selected = default;
-            if (Fleet != null && Fleet.HasTask && Fleet.State.Task.Order.Order!=FleetOrderKind.Move && Fleet.State.Task.Phase != FleetTaskPhase.Returning)
+            bool screening = Fleet != null && Fleet.AllowsScreeningEngagement;
+            if (!screening && Fleet != null && Fleet.HasTask && Fleet.State.Task.Order.Order!=FleetOrderKind.Move && Fleet.State.Task.Phase != FleetTaskPhase.Returning)
             {
                 if (!Fleet.TryGetOrderedTrack(out selected)) return false;
                 selectedAirTrackId = radar.Reference(selected.TrackId);
@@ -811,7 +812,7 @@ namespace ACunicombat.Mechs
                 hasLastAirTrack = true;
                 return true;
             }
-            if(Fleet!=null&&(Fleet.TaskGroup==FleetTaskGroup.Support||Fleet.TaskGroup==FleetTaskGroup.Escort||Fleet.TaskGroup==FleetTaskGroup.AirDefenseSuppression||Fleet.TaskGroup==FleetTaskGroup.AirSuperiority&&!Fleet.HasSpatialMission))return false;
+            if(!screening&&Fleet!=null&&(Fleet.TaskGroup==FleetTaskGroup.Support||Fleet.TaskGroup==FleetTaskGroup.Escort||Fleet.TaskGroup==FleetTaskGroup.AirDefenseSuppression||Fleet.TaskGroup==FleetTaskGroup.AirSuperiority&&!Fleet.HasSpatialMission))return false;
             if (radar == null || !radar.isActiveAndEnabled)
             {
                 return false;
@@ -823,7 +824,7 @@ namespace ACunicombat.Mechs
             }
             // Inventory does not change while scoring this batch. Do not rebuild
             // the equipment/slot graph for every candidate (including missiles).
-            float automaticRange = Fleet != null && (!Fleet.HasTask || Fleet.State.Task.Order.Order == FleetOrderKind.Move)
+            float automaticRange = Fleet != null && (screening || !Fleet.HasTask || Fleet.State.Task.Order.Order == FleetOrderKind.Move)
                 ? Fleet.MaximumOffensiveRange() : float.PositiveInfinity;
             var retained = default(TrackSnapshot);
             var hasCurrent = selectedAirTrackId.IsValid &&
@@ -846,10 +847,10 @@ namespace ACunicombat.Mechs
             for (var i = 0; i < count; i++)
             {
                 var candidate = airTrackScratch[i];
-                if (!IsUsableAirTargetWithinRange(in candidate, automaticRange)) continue;
+                if (!IsUsableAirTargetWithinRange(in candidate, automaticRange) || screening && Fleet.IsStrikeTarget(candidate.TrackId)) continue;
                 var range = Vector3.Distance(transform.position, radar.PredictTrackPosition(in candidate));
                 var canEngage = CanEngageAirTarget(in candidate, range, weaponCount);
-                var score = MechAiTargetSelection.Score(in candidate, range, canEngage, radar.SimTimeSeconds);
+                var score = MechAiTargetSelection.Score(in candidate, range, canEngage, radar.SimTimeSeconds) + DeconflictionPenalty(in candidate);
                 if (score >= bestScore) continue;
                 bestScore = score;
                 best = candidate;
@@ -862,7 +863,7 @@ namespace ACunicombat.Mechs
             {
                 var currentRange = Vector3.Distance(transform.position, radar.PredictTrackPosition(in retained));
                 currentCanEngage = CanEngageAirTarget(in retained, currentRange, weaponCount);
-                currentScore = MechAiTargetSelection.Score(in retained, currentRange, currentCanEngage, radar.SimTimeSeconds);
+                currentScore = MechAiTargetSelection.Score(in retained, currentRange, currentCanEngage, radar.SimTimeSeconds) + DeconflictionPenalty(in retained);
             }
 
             var hasAlternative = best.TrackId.IsValid;

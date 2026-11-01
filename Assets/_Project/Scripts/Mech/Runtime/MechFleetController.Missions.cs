@@ -83,7 +83,7 @@ namespace ACunicombat.Mechs
   private bool MissionAllowsOffensiveTarget(TrackId id)
   {
    if(!HasSpatialMission)return true;var p=State.Task.Order;
-   return (p.TaskGroup==FleetTaskGroup.Strike||p.TaskGroup==FleetTaskGroup.AirSuperiority||p.TaskGroup==FleetTaskGroup.AirDefenseSuppression)&&id.Equals(resolvedOrder)&&radar.TryGetTrack(id,out var t)&&(p.TaskGroup!=FleetTaskGroup.AirSuperiority||MissionContains(p,radar.PredictTrackPosition(t)));
+   return StrikeAllowsMissionTarget&&(p.TaskGroup==FleetTaskGroup.Strike||p.TaskGroup==FleetTaskGroup.AirSuperiority||p.TaskGroup==FleetTaskGroup.AirDefenseSuppression)&&id.Equals(resolvedOrder)&&radar.TryGetTrack(id,out var t)&&(p.TaskGroup!=FleetTaskGroup.AirSuperiority||MissionContains(p,radar.PredictTrackPosition(t)));
   }
   public bool AllowsMissionEquipment(string slotId,MechWeaponRole role)
    =>!HasSpatialMission||State.Task.Order.TaskGroup!=FleetTaskGroup.AirDefenseSuppression||IsDefensiveRole(role)||weapons!=null&&weapons.SupportsPassiveRfHoming(slotId);
@@ -108,7 +108,7 @@ namespace ACunicombat.Mechs
   {
    point=transform.position;velocity=Vector3.zero;if(!HasSpatialMission)return false;
    var p=State.Task.Order;float phase=(float)(radar.SimTimeSeconds*.035)+State.FormationIndex*.35f;
-   if(p.TaskGroup==FleetTaskGroup.Strike)return false;
+   if(p.TaskGroup==FleetTaskGroup.Strike)return TryStrikeNavigation(out point,out velocity);
    if(p.TaskGroup==FleetTaskGroup.Escort)
    {
     if(!TryMissionProtectedState(out var protectedPosition,out velocity))return true;
