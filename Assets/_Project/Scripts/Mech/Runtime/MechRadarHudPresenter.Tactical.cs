@@ -42,6 +42,9 @@ namespace ACunicombat.Mechs
    locked&&float.IsFinite(distanceMeters)&&distanceMeters>100000?distanceMeters*1.1f:100000;
 
   private static readonly System.Action<Vector2,Vector2,Color,float> TacticalSymbolLine=(a,b,c,w)=>TacticalLine(a,b,c,w);
+  // One cached-texture draw per symbol instead of up to 48 line draws (see MechTacticalSymbols.DrawCached).
+  private static void TacticalSymbol(Vector2 point,TrackAffiliation affiliation,bool missile,Color color,float scale)
+   =>MechTacticalSymbols.DrawCached(point+new Vector2(18,18),affiliation,missile,color,scale);
   private static void TacticalLabel(Rect rect,string text,GUIStyle style)
   {rect.position+=new Vector2(18,18);GUI.Label(rect,text,style);}
   private static bool ClipTacticalAxis(float p,float q,ref float from,ref float to)
@@ -68,36 +71,77 @@ namespace ACunicombat.Mechs
    }
    TacticalLine(start,end,color,.8f);
   }
-  private Texture2D tacticalSectorTexture;
-  private float tacticalSectorAngle=-1,tacticalSectorReach=-1;
+  // Sector wedge baked once per whole degree of half-angle at the full display reach and
+  // scaled about the own-ship point to the current reach. Rebuilding a 400x400 texture
+  // whenever reach or angle drifted (STT range, mode switches) caused combat hitches.
+  private const int SectorSize=2*(int)TacticalForwardPixels+8;
+  private readonly Dictionary<int,Texture2D> tacticalSectorTextures=new();
   private void DrawTacticalSector(Rect bounds,Color tint)
   {
-   float halfAngle=Mathf.Clamp(radarStatus.ScanAzimuthDegrees*.5f,1,89);
+   int halfAngle=Mathf.Clamp(Mathf.RoundToInt(radarStatus.ScanAzimuthDegrees*.5f),1,89);
    float reach=Mathf.Min(TacticalForwardPixels,Mathf.Max(0,radarStatus.RangeMeters)/tacticalRangeMeters*TacticalForwardPixels);
-   if(tacticalSectorTexture==null||Mathf.Abs(halfAngle-tacticalSectorAngle)>.1f||Mathf.Abs(reach-tacticalSectorReach)>.5f)
+   if(reach<1)return;
+   if(!tacticalSectorTextures.TryGetValue(halfAngle,out var texture)||texture==null)tacticalSectorTextures[halfAngle]=texture=BuildSectorTexture(halfAngle);
+   float scale=reach/TacticalForwardPixels,size=SectorSize*scale;
+   var origin=bounds.position+TacticalOwn;
+   // Clip to the display by drawing through a GUI group sized to the bounds.
+   GUI.BeginGroup(bounds);
+   GUI.color=tint;GUI.DrawTexture(new Rect(TacticalOwn.x-size*.5f,TacticalOwn.y-size*.5f,size,size),texture,ScaleMode.StretchToFill,true);
+   GUI.EndGroup();
+  }
+  // Start runs after every component's Awake, so the radar is configured by then.
+  private void Start()=>WarmTacticalSector();
+  /// <summary>Build the wedge for this radar's scan width at load time (it is a hardware constant).</summary>
+  private void WarmTacticalSector()
+  {
+   if(radar==null||!radar.isActiveAndEnabled)return;
+   int halfAngle=Mathf.Clamp(Mathf.RoundToInt(radar.GetStatusSnapshot().ScanAzimuthDegrees*.5f),1,89);
+   if(!tacticalSectorTextures.ContainsKey(halfAngle))tacticalSectorTextures[halfAngle]=BuildSectorTexture(halfAngle);
+  }
+  private static Texture2D BuildSectorTexture(int halfAngle)
+  {
+   int size=SectorSize;float reach=TacticalForwardPixels,c=size*.5f;var pixels=new Color32[size*size];
+   // Angle tests by dot product against the half-angle cosine; only pixels near an
+   // edge (arc or ray) need 2x2 supersampling and the outline evaluation.
+   float cosHalf=Mathf.Cos(halfAngle*Mathf.Deg2Rad),reach2=reach*reach;
+   var left=RadarDirection(-halfAngle);var right=RadarDirection(halfAngle);
+   var clear=new Color32(0,0,0,0);var solid=(Color32)new Color(.12f,.48f,.22f,.065f);
+   bool Inside(float dx,float dy){float r2=dx*dx+dy*dy;return r2<=reach2&&(r2<1e-6f||-dy>=cosHalf*Mathf.Sqrt(r2));}
+   for(int y=0;y<size;y++)
    {
-    if(tacticalSectorTexture!=null)UnityEngine.Object.Destroy(tacticalSectorTexture);
-    const int size=400;var pixels=new Color32[size*size];
-    for(int y=0;y<size;y++)for(int x=0;x<size;x++)
+    float dy0=size-y-.5f-c;
+    // Rows entirely beyond the reach circle stay transparent.
+    if(Mathf.Abs(dy0)>reach+2){for(int x=0;x<size;x++)pixels[y*size+x]=clear;continue;}
+    for(int x=0;x<size;x++)
     {
+     float dx0=x+.5f-c;float r=Mathf.Sqrt(dx0*dx0+dy0*dy0);
+     float edgeDistance=Mathf.Min(Mathf.Abs(r-reach),Mathf.Min(Mathf.Abs(dx0*left.y-dy0*left.x),Mathf.Abs(dx0*right.y-dy0*right.x)));
+     if(edgeDistance>2&&r>14){pixels[y*size+x]=Inside(dx0,dy0)?solid:clear;continue;}
      int inside=0;
-     for(int sy=0;sy<2;sy++)for(int sx=0;sx<2;sx++)
-     {
-      float dx=x+(sx+.5f)/2-TacticalOwn.x,dy=size-y-(sy+.5f)/2-TacticalOwn.y;
-      if(dx*dx+dy*dy<=reach*reach&&Mathf.Abs(Mathf.Atan2(dx,-dy)*Mathf.Rad2Deg)<=halfAngle)inside++;
-     }
-     pixels[y*size+x]=new Color(.12f,.48f,.22f,.065f*inside/4);
+     for(int sy=0;sy<2;sy++)for(int sx=0;sx<2;sx++)if(Inside(x+(sx+.5f)/2-c,size-y-(sy+.5f)/2-c))inside++;
+     var fill=new Color(.12f,.48f,.22f,.065f*inside/4);
+     float edge=SectorOutlineAlpha(dx0,dy0,halfAngle,reach);
+     pixels[y*size+x]=edge>0?Color.Lerp(fill,SectorOutline,edge):fill;
     }
-    tacticalSectorTexture=new Texture2D(size,size,TextureFormat.RGBA32,false,true){name="Uniform Tactical Sector",filterMode=FilterMode.Bilinear,wrapMode=TextureWrapMode.Clamp,hideFlags=HideFlags.HideAndDontSave};
-    tacticalSectorTexture.SetPixels32(pixels);tacticalSectorTexture.Apply(false,true);tacticalSectorAngle=halfAngle;tacticalSectorReach=reach;
    }
-   GUI.color=tint;GUI.DrawTexture(bounds,tacticalSectorTexture,ScaleMode.StretchToFill,true);
-   var outline=new Color(.18f,.65f,.3f,.6f);
-   TacticalLine(TacticalOwn+RadarDirection(-halfAngle)*12,TacticalOwn+RadarDirection(-halfAngle)*reach,outline,1);
-   TacticalLine(TacticalOwn+RadarDirection(halfAngle)*12,TacticalOwn+RadarDirection(halfAngle)*reach,outline,1);
-   var previous=TacticalOwn+RadarDirection(-halfAngle)*reach;
-   for(float angle=-halfAngle+1;angle<=halfAngle+1;angle+=1)
-   {var next=TacticalOwn+RadarDirection(Mathf.Min(angle,halfAngle))*reach;TacticalLine(previous,next,outline,1);previous=next;}
+   var texture=new Texture2D(size,size,TextureFormat.RGBA32,false,true){name="Tactical Sector "+halfAngle,filterMode=FilterMode.Bilinear,wrapMode=TextureWrapMode.Clamp,hideFlags=HideFlags.HideAndDontSave};
+   texture.SetPixels32(pixels);texture.Apply(false,true);return texture;
+  }
+  private static readonly Color SectorOutline=new Color(.18f,.65f,.3f,.6f);
+  /// <summary>Coverage (0..1) of the sector outline at a pixel: both edge rays (from 12 px out) and the arc, ~1 px wide.</summary>
+  private static float SectorOutlineAlpha(float dx,float dy,float halfAngle,float reach)
+  {
+   float r=Mathf.Sqrt(dx*dx+dy*dy);if(r<11||r>reach+1.5f)return 0;
+   float angle=Mathf.Atan2(dx,-dy)*Mathf.Rad2Deg;
+   float arc=Mathf.Abs(angle)<=halfAngle?Mathf.Abs(r-reach):float.PositiveInfinity;
+   float edge=float.PositiveInfinity;
+   foreach(float side in new[]{-halfAngle,halfAngle})
+   {
+    var d=RadarDirection(side);float along=dx*d.x+dy*d.y;
+    if(along>=12&&along<=reach)edge=Mathf.Min(edge,Mathf.Abs(dx*d.y-dy*d.x));
+   }
+   float distance=Mathf.Min(arc,edge);
+   return distance<=.5f?1:Mathf.Clamp01(1-(distance-.5f)/1f);
   }
   private void DrawCombinedTacticalRadar(bool showTracks,bool showScan)
   {
@@ -158,7 +202,7 @@ namespace ACunicombat.Mechs
        if(length>.1f){TacticalLine(last,last+delta.normalized*length,new Color(color.r,color.g,color.b,color.a*.4f),1,true);remaining-=length;}last=next;
       }
      }
-     MechTacticalSymbols.Draw(TacticalSymbolLine,point,t.Affiliation,false,color,.7f);
+     TacticalSymbol(point,t.Affiliation,false,color,.7f);
      var v=ToHeadingLocal(ToVector3(t.Velocity));var heading=new Vector2(v.x,-v.z);
      if(heading.magnitude>1)TacticalLine(point+heading.normalized*8,point+heading.normalized*20,color,1);
      bool selected=t.TrackId.Equals(radar.SttTrackId)||t.TrackId.Equals(radar.CandidateTrackId);
@@ -176,11 +220,11 @@ namespace ACunicombat.Mechs
      var t=missileTracks[i];if(!ShouldDisplayFriendlyMissile(in t)&&!ShouldDisplayIncomingMissile(in t))continue;
      var point=TacticalPoint(ToVector3(t.PredictPosition(radar.SimTimeSeconds)));if(!new Rect(12,20,376,358).Contains(point))continue;
      var color=t.IsFriendly?TacticalFriend:t.IsLikelyTargetingOwnship||t.Affiliation==TrackAffiliation.Hostile?TacticalHostile:MechTacticalSymbols.Unknown;
-     MechTacticalSymbols.Draw(TacticalSymbolLine,point,t.IsFriendly?TrackAffiliation.Friendly:t.Affiliation,true,color,.56f);
+     TacticalSymbol(point,t.IsFriendly?TrackAffiliation.Friendly:t.Affiliation,true,color,.56f);
      if(i==closest){microStyle.normal.textColor=color;microStyle.alignment=TextAnchor.UpperLeft;TacticalLabel(ClampToRect(new Rect(point.x+9,point.y+1,70,16),new Rect(8,20,384,358),0),(closestDistance/1000).ToString("0.0")+" km",microStyle);}
     }
    }
-   MechTacticalSymbols.Draw(TacticalSymbolLine,TacticalOwn,TrackAffiliation.Friendly,false,MechTacticalSymbols.Own,.7f);TacticalLine(TacticalOwn+Vector2.up*8,TacticalOwn+Vector2.up*15,HudBrightGreen,1.5f);
+   TacticalSymbol(TacticalOwn,TrackAffiliation.Friendly,false,MechTacticalSymbols.Own,.7f);TacticalLine(TacticalOwn+Vector2.up*8,TacticalOwn+Vector2.up*15,HudBrightGreen,1.5f);
    TacticalLine(new Vector2(1,1),new Vector2(399,1),frame,1);TacticalLine(new Vector2(1,1),new Vector2(1,399),frame,1);
    TacticalLine(new Vector2(399,1),new Vector2(399,399),frame,1);TacticalLine(new Vector2(1,399),new Vector2(399,399),frame,1);
    microStyle.alignment=TextAnchor.UpperRight;microStyle.normal.textColor=HudGreen;TacticalLabel(new Rect(290,378,98,18),(tacticalRangeMeters/1000).ToString("0.#")+" km",microStyle);

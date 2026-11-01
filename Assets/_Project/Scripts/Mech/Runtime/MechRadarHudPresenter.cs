@@ -364,6 +364,7 @@ namespace ACunicombat.Mechs
 
 		private void Awake()
 		{
+			MechTacticalSymbols.WarmCache();
 			if (radar == null)
 			{
 				radar = GetComponent<MechRadarController>();
@@ -433,7 +434,8 @@ namespace ACunicombat.Mechs
                 else DestroyImmediate(directionArrowMaterial);
                 directionArrowMaterial = null;
             }
-            if(tacticalSectorTexture!=null){UnityEngine.Object.Destroy(tacticalSectorTexture);tacticalSectorTexture=null;}
+            foreach(var sector in tacticalSectorTextures.Values)if(sector!=null)UnityEngine.Object.Destroy(sector);
+            tacticalSectorTextures.Clear();
             if(centerReticleTexture!=null){UnityEngine.Object.Destroy(centerReticleTexture);centerReticleTexture=null;}
             if(crossReticleTexture!=null){UnityEngine.Object.Destroy(crossReticleTexture);crossReticleTexture=null;}
 			if (operationRingTexture != null)
