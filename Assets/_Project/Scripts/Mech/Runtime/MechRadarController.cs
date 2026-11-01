@@ -1243,6 +1243,8 @@ namespace ACunicombat.Mechs
             driver!=null&&isActiveAndEnabled ? driver.CopyRadarEmissions(sensorId,destination) : 0;
         public ACunicombat.Sensors.RadarPhysicalParameters RadarHardware => radarPerformance.Hardware;
 
+        /// <summary>Own velocity as published in <see cref="GetStatusSnapshot"/>, without building the snapshot.</summary>
+        public double3 OwnshipVelocity => ToDouble3(playerVelocity);
         public RadarStatusSnapshot GetStatusSnapshot()
         {
             EnsureInitialized();

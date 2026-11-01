@@ -38,10 +38,53 @@ namespace ACunicombat.Mechs
         private readonly List<CombatBehaviorReport> behaviorReports=new List<CombatBehaviorReport>();
         private double fusedTime=double.NaN;private ulong fusedRevision=ulong.MaxValue;private int reportRevision,fusedReportRevision=-1;
         public IReadOnlyList<string> AssociationDiagnostics=>fusion.Decisions;
+        // ---- Parallel pre-warm. After the scheduler has ticked every observer driver, each
+        // observer's fusion for this step (same time, revision and report key a later lookup
+        // would use) is computed on worker threads, so lookups later in the step hit the cache.
+        private static readonly List<MechCooperativeTelemetry> active=new();
+        private static bool prewarmHooked;
+        public static bool ParallelPrewarm {get;set;}=true;
+        private void OnEnable()
+        {
+            if(!active.Contains(this))active.Add(this);
+            if(!prewarmHooked){SimulationDriver.AfterScheduledStep+=PrewarmAll;prewarmHooked=true;}
+        }
+        private void OnDisable()=>active.Remove(this);
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetPrewarm(){active.Clear();if(prewarmHooked)SimulationDriver.AfterScheduledStep-=PrewarmAll;prewarmHooked=false;}
+        private static readonly List<MechCooperativeTelemetry> prewarm=new();
+        private double prewarmNow;private ulong prewarmRevision;
+        private static void PrewarmAll()
+        {
+            if(!ParallelPrewarm)return;
+            prewarm.Clear();
+            foreach(var link in active)
+            {
+                if(link==null||!link.isActiveAndEnabled)continue;
+                link.radar??=link.GetComponent<MechRadarController>();var context=link.radar!=null?link.radar.TelemetryDriver:null;
+                if(context==null)continue;
+                // Unity time and component lookups are main-thread only: resolve them here.
+                link.prewarmNow=link.radar.SimTimeSeconds;link.prewarmRevision=context.ObservationRevision;prewarm.Add(link);
+            }
+            if(prewarm.Count<2)return;
+            System.Threading.Tasks.Parallel.For(0,prewarm.Count,i=>
+            {
+                SimulationCostProbe.MarkWorkerThread(true);
+                try{var link=prewarm[i];link.RefreshFusion(link.prewarmNow,link.prewarmRevision);link.Publish(link.prewarmNow);}
+                finally{SimulationCostProbe.MarkWorkerThread(false);}
+            });
+        }
+
         private void RefreshFusion()
         {
             radar??=GetComponent<MechRadarController>();if(radar==null)return;
             var context=radar.TelemetryDriver;double now=radar.SimTimeSeconds;ulong revision=context!=null?context.ObservationRevision:0;
+            RefreshFusion(now,revision);
+        }
+        // Unity-free part of the refresh: callable from a worker thread once the time and
+        // driver revision have been read on the main thread (see PrewarmAll).
+        private void RefreshFusion(double now,ulong revision)
+        {
             if(now==fusedTime&&revision==fusedRevision&&reportRevision==fusedReportRevision)return;
             receivedReports.Clear();foreach(var peer in peers)receivedReports.Add(peer.Received.Track);
             fusion.Update(localTracks,radar.CopyLocalSensorTracks(localTracks),receivedReports,now);
@@ -93,12 +136,17 @@ namespace ACunicombat.Mechs
         private void EnsurePublished()
         {
             RefreshFusion();if(radar==null)return;
+            Publish(radar.SimTimeSeconds);
+        }
+        private void Publish(double now)
+        {
             if(publishedTime!=fusedTime||publishedRevision!=fusedRevision||publishedReports!=reportRevision)
-            {publishedCount=sharedTargets.Merge(publishedTargets,fusion.CopyTo(publishedTargets),radar.SimTimeSeconds);publishedTime=fusedTime;publishedRevision=fusedRevision;publishedReports=reportRevision;}
+            {publishedCount=sharedTargets.Merge(publishedTargets,fusion.CopyTo(publishedTargets),now);publishedTime=fusedTime;publishedRevision=fusedRevision;publishedReports=reportRevision;}
         }
         public bool IdentifiesFriendly(in TrackSnapshot track)=>TryGetFusedTrack(track.TrackId,out var fused)&&fused.Affiliation==TrackAffiliation.Friendly;
         private void LateUpdate()
         {
+            using var lateProbe=ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.LateCoop);
             radar??=GetComponent<MechRadarController>();if(radar?.TelemetryDriver==null)return;
             driver=radar.TelemetryDriver;var owner=GetComponent<CombatTestTarget>();if(owner==null)return;
             double now=radar.SimTimeSeconds;
@@ -170,6 +218,11 @@ namespace ACunicombat.Mechs
             var localDamage=GetComponent<MechPartDamageController>();
             if(localDamage!=null&&localDamage.RoleEfficiency(MechPartSlot.DataLinkTerminal)<=0)return;
             int count=driver.CopyLinkInbox(radar.TelemetryTerminal,inbox);
+            // Receiver state is constant while this batch is processed: resolve it once, not per
+            // message (the full radar status snapshot copied every track for each message).
+            var ownIdentity=count>0?GetComponent<MechIdentityController>():null;
+            var ownPosition=(double3)(float3)owner.AimPoint.position;
+            var ownVelocity=count>0?radar.OwnshipVelocity:default;
             for(int i=0;i<count;i++)
             {
                 var message=inbox[i];
@@ -178,9 +231,8 @@ namespace ACunicombat.Mechs
                 if(peer==null)continue;
                 if(message.Kind==LinkMessageKind.TargetObservation)
                 {
-                    var ownIdentity=GetComponent<MechIdentityController>();
                     bool authenticatedSelf=message.AuthenticatedTrackSubject!=Guid.Empty&&ownIdentity?.Credential!=null&&message.AuthenticatedTrackSubject==ownIdentity.Credential.Subject;
-                    bool self=MechSharedTargetTracks.MatchesOwnNavigation(message.TrackPayload,(double3)(float3)owner.AimPoint.position,radar.GetStatusSnapshot().OwnshipVelocity,now,authenticatedSelf);
+                    bool self=MechSharedTargetTracks.MatchesOwnNavigation(message.TrackPayload,ownPosition,ownVelocity,now,authenticatedSelf);
                     if(self){sharedTargets.Remove(message.SourceTerminal,message.TrackPayload.TrackId);reportRevision++;}
                     bool accepted=!self&&sharedTargets.Receive(message.SourceTerminal,message.TrackPayload,now);
                     if(accepted)reportRevision++;if(TraceTargetSharing)TraceTarget($"receive accepted={accepted} self={self} observed={message.TrackPayload.LastUpdateTime:R} now={now:R}");continue;

@@ -22,6 +22,27 @@ public static class MechStressReview
     static readonly Stopwatch frameClock = new();
     static readonly List<double> frameMs = new();
     static readonly FrameTiming[] timingScratch = new FrameTiming[8];
+    // Engine-side main-thread markers: where frame time goes outside our own probes.
+    static readonly (string category, string marker)[] EngineMarkers =
+    {
+        ("Scripts", "FixedBehaviourUpdate"),
+        ("Physics", "FixedUpdate.PhysicsFixedUpdate"),
+        ("Scripts", "Update.ScriptRunBehaviourUpdate"),
+        ("Scripts", "PreLateUpdate.ScriptRunBehaviourLateUpdate"),
+        ("Animation", "PreLateUpdate.DirectorUpdateAnimationBegin"),
+        ("Animation", "PreLateUpdate.DirectorUpdateAnimationEnd"),
+        ("Render", "PostLateUpdate.FinishFrameRendering"),
+        ("GUI", "PostLateUpdate.PlayerUpdateCanvases"),
+        ("GUI", "GUI.Repaint"),
+        ("Scripts", "PostLateUpdate.UpdateAllRenderers"),
+        ("Memory", "GC.Collect"),
+        ("Physics", "Physics.Simulate"),
+        ("Scripts", "FixedUpdate.ScriptRunDelayedFixedFrameRate"),
+    };
+    static Unity.Profiling.ProfilerRecorder[] engineRecorders;
+    static double[] engineTotals;
+    static long gcAllocBytes; static int sampledFrames;
+    static Unity.Profiling.ProfilerRecorder gcAllocRecorder;
 
     static MechStressReview() { EditorApplication.update += Tick; }
     static string Arg(string name, string fallback)
@@ -129,6 +150,19 @@ public static class MechStressReview
                 return;
             }
             frameMs.Add(frameClock.Elapsed.TotalMilliseconds); frameClock.Restart();
+            if (engineRecorders == null)
+            {
+                engineRecorders = new Unity.Profiling.ProfilerRecorder[EngineMarkers.Length]; engineTotals = new double[EngineMarkers.Length];
+                for (int i = 0; i < EngineMarkers.Length; i++)
+                {
+                    var category = EngineMarkers[i].category switch { "Physics" => Unity.Profiling.ProfilerCategory.Physics, "Animation" => Unity.Profiling.ProfilerCategory.Animation, "Render" => Unity.Profiling.ProfilerCategory.Render, "GUI" => Unity.Profiling.ProfilerCategory.Gui, "Memory" => Unity.Profiling.ProfilerCategory.Memory, _ => Unity.Profiling.ProfilerCategory.Scripts };
+                    engineRecorders[i] = Unity.Profiling.ProfilerRecorder.StartNew(category, EngineMarkers[i].marker);
+                }
+                gcAllocRecorder = Unity.Profiling.ProfilerRecorder.StartNew(Unity.Profiling.ProfilerCategory.Memory, "GC.Alloc");
+            }
+            sampledFrames++;
+            for (int i = 0; i < engineRecorders.Length; i++) if (engineRecorders[i].Valid) engineTotals[i] += engineRecorders[i].LastValue / 1e6;
+            if (gcAllocRecorder.Valid) gcAllocBytes += gcAllocRecorder.LastValue;
             double t = Time.timeAsDouble - started;
             if (Time.timeAsDouble >= nextSample)
             {
@@ -149,6 +183,16 @@ public static class MechStressReview
                 for (int i = 0; i < got; i++) { main += timingScratch[i].cpuMainThreadFrameTime; render += timingScratch[i].cpuRenderThreadFrameTime; gpu += timingScratch[i].gpuFrameTime; }
                 if (got > 0) { main /= got; render /= got; gpu /= got; }
                 frames.WriteLine($"{{\"sim\":{t:F2},\"frames\":{frameMs.Count},\"p50\":{p50:F2},\"p99\":{p99:F2},\"max\":{(frameMs.Count > 0 ? frameMs[^1] : 0):F2},\"mainMs\":{main:F2},\"renderMs\":{render:F2},\"gpuMs\":{gpu:F2},\"missiles\":{missiles},\"alive\":{alive}}}");
+                if (engineRecorders != null)
+                {
+                    for (int i = 0; i < engineRecorders.Length; i++)
+                    {
+                        costs.WriteLine($"{{\"sim\":{t:F2},\"system\":\"Engine:{EngineMarkers[i].marker}\",\"milliseconds\":{engineTotals[i] / System.Math.Max(1, sampledFrames):F3},\"maximumMilliseconds\":0,\"calls\":{(engineRecorders[i].Valid ? 1 : 0)}}}");
+                        engineTotals[i] = 0;
+                    }
+                    costs.WriteLine($"{{\"sim\":{t:F2},\"system\":\"Engine:GC.AllocBytes\",\"milliseconds\":{gcAllocBytes / 1048576.0:F3},\"maximumMilliseconds\":0,\"calls\":1}}");
+                    gcAllocBytes = 0; sampledFrames = 0;
+                }
                 frameMs.Clear(); costs.Flush(); frames.Flush();
             }
             if (t >= SessionState.GetFloat("MechStress.seconds", 60) || EditorApplication.timeSinceStartup - wallStarted > 3600) Finish();
@@ -159,6 +203,8 @@ public static class MechStressReview
     static void Finish()
     {
         costs?.Dispose(); costs = null; frames?.Dispose(); frames = null;
+        if (engineRecorders != null) { foreach (var r in engineRecorders) r.Dispose(); engineRecorders = null; }
+        gcAllocRecorder.Dispose();
         SimulationCostProbe.Enabled = false; Time.captureDeltaTime = 0;
         SessionState.SetString(Key, "finish"); EditorApplication.isPlaying = false;
     }
