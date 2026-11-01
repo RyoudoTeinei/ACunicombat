@@ -70,6 +70,7 @@ namespace ACunicombat.Mechs
         private MechWeaponArmLayer weaponAnimationLayer;
         private CombatTestTarget selfTarget;
         private int consumedAirCount,consumedMissileCount,consumedThreatCount;
+        private int currentOffensiveWeaponCount;
         public double LastAirInputsTime {get;private set;}=-1;
         public double LastMissileInputsTime {get;private set;}=-1;
         public double LastThreatInputsTime {get;private set;}=-1;
@@ -85,6 +86,9 @@ namespace ACunicombat.Mechs
         private MechTrackControlFilter targetControlFilter;
         private TrackSnapshot lastAirTrack;
         private bool hasLastAirTrack;
+        private float nextTargetSwitchTime;
+        public bool HasSelectedAirTrack => hasLastAirTrack && selectedAirTrackId.IsValid;
+        public TrackId SelectedAirTrackId => selectedAirTrackId.TrackId;
         private float nextInterceptorTime;
         private float nextInterceptorRadarSweepTime;
         private float nextDefensiveQuickBoostTime;
@@ -98,12 +102,24 @@ namespace ACunicombat.Mechs
         private float defensiveDodgeSign = 1f;
         private bool incomingThreat;
         private float incomingThreatTime = float.PositiveInfinity;
-        private float nextOffensiveMissileTime, launchStandOffUntil, launchStandOff;
-        private TrackId launchStandOffTrack;
+        private bool hasIncomingThreatObservation;
+        private Vector3 incomingThreatPosition;
+        private Vector3 incomingThreatVelocity;
+        private float nextOffensiveMissileTime;
+        private readonly MechAiManeuverPlanner maneuverPlanner = new();
+        private MechAiAttitudeIntent currentAttitudeIntent;
         public string LastWeaponDecision {get;private set;}="Idle";
+        public string LastManeuverDecision {get;private set;}="Idle";
+        public MechAiManeuverState CurrentManeuverState => maneuverPlanner.CurrentState;
+        public float ManeuverCommitRemainingSeconds => maneuverPlanner.EngagementCommitRemainingSeconds;
         private float nextWeaponDecisionReport;
         private void ReportWeaponDecision(string reason)
         {LastWeaponDecision=reason;if(Time.unscaledTime<nextWeaponDecisionReport)return;nextWeaponDecisionReport=Time.unscaledTime+1;Fleet?.Log("ai_weapon_decision",Fleet.State.Task?.Order??default,reason);}
+        private void ReportManeuverDecision(MechAiManeuverState state)
+        {
+            LastManeuverDecision=state.ToString();
+            Fleet?.Log("ai_maneuver_decision",Fleet.State.Task?.Order??default,LastManeuverDecision);
+        }
         private CombatState combatState;
         private EsmThreatId passiveCueThreatId;
         private Vector3 passiveCueDirection;
@@ -240,6 +256,8 @@ namespace ACunicombat.Mechs
             motion?.SetYawTurnInput(0f);
             if (motion != null) motion.SetAimPitch(motion.LogicalPitchDegrees);
             combatState = CombatState.Disabled;
+            maneuverPlanner.Reset();
+            LastManeuverDecision = MechAiManeuverState.Disabled.ToString();
         }
 
         private void SetRuntimeAiEnabled(bool value)
@@ -289,6 +307,7 @@ namespace ACunicombat.Mechs
 
         private void Update()
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.AI);
             if (input == null || motion == null)
             {
                 input?.SubmitExternalFrame(default);
@@ -307,12 +326,36 @@ namespace ACunicombat.Mechs
 
             UpdateMissileDefense();
 
-            if (!TryGetAirTargetTrack(out var targetTrack))
+            var weaponCount = CopyOffensiveWeaponStatuses();
+            currentOffensiveWeaponCount = weaponCount;
+            if (!TryGetAirTargetTrack(weaponCount, out var targetTrack))
             {
                 targetControlFilter.Reset();
                 combatState = incomingThreat
                     ? CombatState.Defensive
                     : CombatState.Search;
+                if (incomingThreat && hasIncomingThreatObservation)
+                {
+                    var threatDirection = Vector3.zero;
+                    var defensiveManeuver = Vector3.zero;
+                    var defensiveFrame = stationaryTestMode
+                        ? default
+                        : BuildIncomingThreatFlightFrame(
+                            weaponCount,
+                            out threatDirection,
+                            out defensiveManeuver);
+                    if (!stationaryTestMode)
+                    {
+                        UpdateSensorCamera(threatDirection);
+                        CommandAttitude(ResolveAttitudeDirection(
+                            threatDirection,
+                            defensiveManeuver,
+                            CombatState.Defensive,
+                            false));
+                    }
+                    input.SubmitExternalFrame(in defensiveFrame);
+                    return;
+                }
                 var hasBearingCue = TryGetPassiveAirSearchCue(
                     out var searchDirection);
                 if (!hasBearingCue)
@@ -370,9 +413,9 @@ namespace ACunicombat.Mechs
             {
                 maneuverTrackId = targetTrack.TrackId;
                 orbitTangent = Vector3.ProjectOnPlane(motion.Velocity - lastTrackedVelocity, direction);
+                maneuverPlanner.ResetEngagement();
             }
             UpdateSensorCamera(direction);
-            var weaponCount = CopyOffensiveWeaponStatuses();
             var doctrine = MechAiRulePlanner.ResolveCombatDoctrine(
                 weaponStatusScratch,
                 weaponCount,
@@ -380,18 +423,12 @@ namespace ACunicombat.Mechs
                 activeTacticalRole,
                 minimumCombatRangeMeters,
                 maximumCombatRangeMeters);
-            if(Fleet!=null&&Fleet.TaskGroup==FleetTaskGroup.Reconnaissance&&!Fleet.HasTask)
-            {
-                float standOff=Mathf.Max(1000,doctrine.EngagementBand.MaximumRangeMeters);
-                doctrine=new MechAiCombatDoctrine(doctrine.TacticalRole,new MechAiEngagementBand(standOff,standOff*1.2f,standOff*1.5f),120f);
-            }
+            doctrine = MechAiRulePlanner.ApplyMissionDoctrine(
+                in doctrine,
+                Fleet != null ? Fleet.TaskGroup : FleetTaskGroup.AirSuperiority,
+                Fleet != null && Fleet.HasTask,
+                Fleet != null && Fleet.HasSpatialMission);
             activeTacticalRole = doctrine.TacticalRole;
-            bool missileReady=false;
-            for(int i=0;i<weaponCount;i++)
-                if(weaponStatusScratch[i].Role==MechWeaponRole.AirToAirMissile&&weapons.CanReleaseMissileAt(weaponInstances[i].SlotId,targetTrack.TrackId,out _,out _)){missileReady=true;break;}
-            if(missileReady){launchStandOffTrack=targetTrack.TrackId;launchStandOff=range;launchStandOffUntil=Time.time+Mathf.Max(2,missileCooldownSeconds);}
-            if(launchStandOffTrack.Equals(targetTrack.TrackId)&&Time.time<launchStandOffUntil&&weaponCount>0)
-                doctrine=new MechAiCombatDoctrine(doctrine.TacticalRole,new MechAiEngagementBand(Mathf.Max(100,launchStandOff*.9f),launchStandOff,launchStandOff*1.1f),doctrine.OrbitSpeedMetersPerSecond);
             var engagementBand = doctrine.EngagementBand;
             // The movement controller uses this same preferred standoff range.
             // Publish the estimated firing position, never the target's position.
@@ -406,13 +443,19 @@ namespace ACunicombat.Mechs
             var maneuverDirection = direction;
             var frame = stationaryTestMode
                 ? default
-                : BuildFlightFrame(
-                    range,
-                    direction,
-                    targetControlFilter.Velocity,
-                    combatState,
-                    in doctrine,
-                    out maneuverDirection);
+                : incomingThreat && hasIncomingThreatObservation
+                    ? BuildIncomingThreatFlightFrame(
+                        weaponCount, out _, out maneuverDirection)
+                    : BuildFlightFrame(
+                        range,
+                        direction,
+                        targetControlFilter.Velocity,
+                        combatState,
+                        in doctrine,
+                        out maneuverDirection);
+            if (!stationaryTestMode && maneuverPlanner.CurrentState == MechAiManeuverState.PostLaunchBreak)
+                plannedEngagementPosition = transform.position + maneuverDirection *
+                    Mathf.Clamp(range * 0.08f, 40f, 240f);
             if (!stationaryTestMode)
             {
                 CommandAttitude(ResolveAttitudeDirection(
@@ -421,10 +464,14 @@ namespace ACunicombat.Mechs
                     combatState,
                     weaponReady));
             }
-            if (!stationaryTestMode && !incomingThreat && Fleet != null && Fleet.TryNavigation(out var formationDirection, out var formationFrame))
+            if (!stationaryTestMode && !incomingThreat && Fleet != null && Fleet.HasTask &&
+                MechAiRulePlanner.ShouldYieldCombatToNavigation(
+                    Fleet.HasTask,
+                    Fleet.State.Task.Phase == FleetTaskPhase.Returning,
+                    Fleet.State.Task.Order.Order == FleetOrderKind.Move,
+                    Fleet.HasSpatialMission && Fleet.TaskGroup == FleetTaskGroup.Escort) &&
+                Fleet.TryNavigation(out var formationDirection, out var formationFrame))
             { frame = formationFrame; CommandAttitude(direction); }
-            if(!incomingThreat&&Fleet!=null&&Fleet.TryAttackNavigation(in targetTrack,out var attackFrame,out var attackPoint)){frame=attackFrame;plannedEngagementPosition=attackPoint;hasPlannedEngagementPosition=true;}
-            if(!incomingThreat)Fleet?.LimitCruise(ref frame);
             input.SubmitExternalFrame(in frame);
 
             UpdateWeapons(
@@ -475,7 +522,7 @@ namespace ACunicombat.Mechs
             if(weapons==null||radar==null)return;
             // Designation is not launch authorization. Passive and data-link shots
             // must not depend on acquiring an active-radar STT first.
-            if(radar.RadarPowerEnabled&&!(Fleet!=null&&Fleet.HasSpatialMission&&Fleet.TaskGroup==FleetTaskGroup.AirDefenseSuppression))radar.TryAssignFireControlTrack(track.TrackId);
+            if(radar.RadarPowerEnabled&&radar.TrackOperationMode&&!(Fleet!=null&&Fleet.HasSpatialMission&&Fleet.TaskGroup==FleetTaskGroup.AirDefenseSuppression))radar.TryAssignFireControlTrack(track.TrackId);
 
             var bodyForward = motion.LogicalRotation * Vector3.forward;
             var toTarget = estimatedPosition - transform.position;
@@ -516,6 +563,7 @@ namespace ACunicombat.Mechs
 
         private int CopyOffensiveWeaponStatuses()
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.AiInventory);
             if (weapons == null)
             {
                 return 0;
@@ -607,6 +655,13 @@ namespace ACunicombat.Mechs
         {
             if(role==MechWeaponRole.InterceptorMissile){nextInterceptorTime=Time.time+interceptorCooldownSeconds;return;}
             if(!weapons.TryGetWeaponSlotStatus(new MechEquipmentSlot(slotId),out var status))return;
+            var trackedDirection = hasLastAirTrack
+                ? (lastTrackedPosition - transform.position).normalized
+                : motion != null ? motion.LogicalRotation * Vector3.forward : transform.forward;
+            var logicalRotation = motion != null ? motion.LogicalRotation : transform.rotation;
+            if (maneuverPlanner.NotifyWeaponCommitted(
+                    role, status.Slot, logicalRotation, trackedDirection, Time.time))
+                ReportManeuverDecision(MechAiManeuverState.PostLaunchBreak);
             if(!weaponRuleStates.TryGetValue(instance,out var state))weaponRuleStates[instance]=state=new WeaponRuleState();
             var shotInterval = status.RoundsPerMinute > 0f
                 ? 60f / status.RoundsPerMinute
@@ -668,7 +723,7 @@ namespace ACunicombat.Mechs
         private bool TryGetPassiveAirSearchCue(out Vector3 direction)
         {
             direction = Vector3.zero;
-            if (radar == null || !radar.RadarPowerEnabled)
+            if (radar == null)
             {
                 hasPassiveCue = false;
                 return false;
@@ -837,6 +892,7 @@ namespace ACunicombat.Mechs
             {
                 incomingThreat = false;
                 incomingThreatTime = float.PositiveInfinity;
+                hasIncomingThreatObservation = false;
             }
             if (radar == null ||
                 weapons == null ||
@@ -890,6 +946,9 @@ namespace ACunicombat.Mechs
             radar.CuePointDefenseTrack(bestThreat.TrackId);
             var predictedThreatPosition = ToVector3(
                 bestThreat.PredictPosition(now));
+            incomingThreatPosition = predictedThreatPosition;
+            incomingThreatVelocity = ToVector3(bestThreat.PredictVelocity(now));
+            hasIncomingThreatObservation = true;
             var localThreat = transform.InverseTransformPoint(
                 predictedThreatPosition);
             if (Mathf.Abs(localThreat.x) > 0.1f)
@@ -916,11 +975,18 @@ namespace ACunicombat.Mechs
                 { nextInterceptorTime=Time.time+.2f; break; }
         }
 
-        private bool TryGetAirTargetTrack(out TrackSnapshot selected)
+        private bool TryGetAirTargetTrack(int weaponCount, out TrackSnapshot selected)
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.AiTargetSelection);
             selected = default;
             if (Fleet != null && Fleet.HasTask && Fleet.State.Task.Order.Order!=FleetOrderKind.Move && Fleet.State.Task.Phase != FleetTaskPhase.Returning)
-                return Fleet.TryGetOrderedTrack(out selected);
+            {
+                if (!Fleet.TryGetOrderedTrack(out selected)) return false;
+                selectedAirTrackId = radar.Reference(selected.TrackId);
+                lastAirTrack = selected;
+                hasLastAirTrack = true;
+                return true;
+            }
             if(Fleet!=null&&(Fleet.TaskGroup==FleetTaskGroup.Support||Fleet.TaskGroup==FleetTaskGroup.Escort||Fleet.TaskGroup==FleetTaskGroup.AirDefenseSuppression||Fleet.TaskGroup==FleetTaskGroup.AirSuperiority&&!Fleet.HasSpatialMission))return false;
             if (radar == null || !radar.isActiveAndEnabled)
             {
@@ -931,63 +997,68 @@ namespace ACunicombat.Mechs
             {
                 selectedAirTrackId=default;hasLastAirTrack=false;
             }
-            if (selectedAirTrackId.IsValid &&
-                radar.TryGetTrack(selectedAirTrackId, out var retained) &&
-                IsUsableAirTarget(in retained))
-            {
-                selected = retained;
-                lastAirTrack = retained;
-                hasLastAirTrack = true;
-                return true;
-            }
-
-            if (hasLastAirTrack &&
-                radar.TryReacquireTrack(
-                    in lastAirTrack,
-                    500f,
-                    out var reacquired) &&
-                IsUsableAirTarget(in reacquired))
+            // Inventory does not change while scoring this batch. Do not rebuild
+            // the equipment/slot graph for every candidate (including missiles).
+            float automaticRange = Fleet != null && (!Fleet.HasTask || Fleet.State.Task.Order.Order == FleetOrderKind.Move)
+                ? Fleet.MaximumOffensiveRange() : float.PositiveInfinity;
+            var retained = default(TrackSnapshot);
+            var hasCurrent = selectedAirTrackId.IsValid &&
+                             radar.TryGetTrack(selectedAirTrackId, out retained) &&
+                             IsUsableAirTargetWithinRange(in retained, automaticRange);
+            if (!hasCurrent && hasLastAirTrack &&
+                radar.TryReacquireTrack(in lastAirTrack, 500f, out var reacquired) &&
+                IsUsableAirTargetWithinRange(in reacquired, automaticRange))
             {
                 selectedAirTrackId = radar.Reference(reacquired.TrackId);
-                lastAirTrack = reacquired;
-                selected = reacquired;
-                return true;
+                retained = reacquired;
+                hasCurrent = true;
             }
 
-            selectedAirTrackId = default;
             var count = radar.CopyTracks(airTrackScratch);
             consumedAirCount=count;LastAirInputsTime=radar.SimTimeSeconds;
+            var best = default(TrackSnapshot);
             var bestScore = float.PositiveInfinity;
+            var bestCanEngage = false;
             for (var i = 0; i < count; i++)
             {
                 var candidate = airTrackScratch[i];
-                if (!IsUsableAirTarget(in candidate))
-                {
-                    continue;
-                }
-
-                var range = Vector3.Distance(
-                    transform.position,
-                    radar.PredictTrackPosition(in candidate));
-                var classPenalty = candidate.ObjectClass ==
-                                   TrackObjectClass.AirVehicle
-                    ? 0f
-                    : 3f;
-                var score = classPenalty +
-                            range / 10000f +
-                            (1f - candidate.Confidence) * 2f +
-                            candidate.InterferenceScore;
-                if (score >= bestScore)
-                {
-                    continue;
-                }
-
+                if (!IsUsableAirTargetWithinRange(in candidate, automaticRange)) continue;
+                var range = Vector3.Distance(transform.position, radar.PredictTrackPosition(in candidate));
+                var canEngage = CanEngageAirTarget(in candidate, range, weaponCount);
+                var score = MechAiTargetSelection.Score(in candidate, range, canEngage, radar.SimTimeSeconds);
+                if (score >= bestScore) continue;
                 bestScore = score;
-                selected = candidate;
+                best = candidate;
+                bestCanEngage = canEngage;
             }
 
-            if (!selected.TrackId.IsValid)
+            var currentScore = 0f;
+            var currentCanEngage = false;
+            if (hasCurrent)
             {
+                var currentRange = Vector3.Distance(transform.position, radar.PredictTrackPosition(in retained));
+                currentCanEngage = CanEngageAirTarget(in retained, currentRange, weaponCount);
+                currentScore = MechAiTargetSelection.Score(in retained, currentRange, currentCanEngage, radar.SimTimeSeconds);
+            }
+
+            var hasAlternative = best.TrackId.IsValid;
+            var alternativeIsCurrent = hasCurrent && best.TrackId.Equals(retained.TrackId);
+            if (hasCurrent && (!hasAlternative || alternativeIsCurrent ||
+                !MechAiTargetSelection.ShouldSwitch(
+                    true, currentCanEngage, currentScore,
+                    hasAlternative, bestCanEngage, bestScore,
+                    Time.time, nextTargetSwitchTime)))
+            {
+                selected = retained;
+            }
+            else if (hasAlternative)
+            {
+                selected = best;
+                nextTargetSwitchTime = Time.time + MechAiTargetSelection.MinimumSwitchIntervalSeconds;
+            }
+            else
+            {
+                selectedAirTrackId = default;
                 hasLastAirTrack = false;
                 return false;
             }
@@ -998,9 +1069,27 @@ namespace ACunicombat.Mechs
             return true;
         }
 
+        private bool CanEngageAirTarget(in TrackSnapshot track, float range, int weaponCount)
+        {
+            var uncertaintyMeters = CalculatePositionUncertainty(in track);
+            for (var i = 0; i < weaponCount; i++)
+            {
+                if (MechAiRulePlanner.IsEligibleForAirTarget(
+                    in weaponStatusScratch[i], range, 0f,
+                    track.Confidence, uncertaintyMeters)) return true;
+            }
+            return false;
+        }
+
         private bool IsUsableAirTarget(in TrackSnapshot track)
         {
-            if(Fleet!=null&&(!Fleet.HasTask||Fleet.State.Task.Order.Order==FleetOrderKind.Move)&&!MechFleetController.WithinAutomaticAttackRange(transform.position,radar.PredictTrackPosition(in track),Fleet.MaximumOffensiveRange()))return false;
+            float range = Fleet != null && (!Fleet.HasTask || Fleet.State.Task.Order.Order == FleetOrderKind.Move)
+                ? Fleet.MaximumOffensiveRange() : float.PositiveInfinity;
+            return IsUsableAirTargetWithinRange(in track, range);
+        }
+        private bool IsUsableAirTargetWithinRange(in TrackSnapshot track, float automaticRange)
+        {
+            if(!float.IsPositiveInfinity(automaticRange)&&!MechFleetController.WithinAutomaticAttackRange(transform.position,radar.PredictTrackPosition(in track),automaticRange))return false;
             return track.TrackId.IsValid &&
                    track.ObjectClass != TrackObjectClass.Missile &&
                    track.ObjectClass != TrackObjectClass.Decoy &&
@@ -1037,6 +1126,34 @@ namespace ACunicombat.Mechs
             return new Vector3(value.x, value.y, value.z);
         }
 
+        private MechPlayerInputFrame BuildIncomingThreatFlightFrame(
+            int weaponCount,
+            out Vector3 threatDirection,
+            out Vector3 maneuverDirection)
+        {
+            var delta = incomingThreatPosition - transform.position;
+            var range = delta.magnitude;
+            threatDirection = range > 0.01f
+                ? delta / range
+                : incomingThreatVelocity.sqrMagnitude > 0.01f
+                    ? -incomingThreatVelocity.normalized
+                    : motion.ReferenceUp;
+            var doctrine = MechAiRulePlanner.ResolveCombatDoctrine(
+                weaponStatusScratch,
+                weaponCount,
+                range,
+                activeTacticalRole,
+                minimumCombatRangeMeters,
+                maximumCombatRangeMeters);
+            return BuildFlightFrame(
+                range,
+                threatDirection,
+                incomingThreatVelocity,
+                CombatState.Defensive,
+                in doctrine,
+                out maneuverDirection);
+        }
+
         private MechPlayerInputFrame BuildFlightFrame(
             float range,
             Vector3 directionToTarget,
@@ -1049,11 +1166,31 @@ namespace ACunicombat.Mechs
             orbitTangent = MechAiRulePlanner.ResolveOrbitTangent(radial, orbitTangent, motion.ReferenceUp);
             var defensive = state == CombatState.Defensive;
             var tangent = defensive ? orbitTangent * defensiveDodgeSign : orbitTangent;
-            var acceleration = MechAiRulePlanner.CalculateSpatialAcceleration(
-                radial * range, targetVelocity - motion.Velocity, tangent, state, in doctrine,
+            var previousManeuverState = maneuverPlanner.CurrentState;
+            var weaponReady = HasReadyWeaponForDoctrine(
+                in doctrine, range, currentOffensiveWeaponCount);
+            var command = maneuverPlanner.Resolve(
+                radial * range,
+                targetVelocity - motion.Velocity,
+                tangent,
+                state,
+                in doctrine,
+                Fleet != null ? Fleet.TaskGroup : FleetTaskGroup.AirSuperiority,
+                Fleet != null && Fleet.HasTask,
+                Fleet != null && Fleet.HasSpatialMission,
+                currentOffensiveWeaponCount > 0,
+                weaponReady,
+                motion.ManeuverEnergyNormalized,
                 motion.EstimateTranslationAcceleration(radial),
                 motion.EstimateTranslationAcceleration(-radial),
-                maximumManeuverAcceleration, maneuverVelocityResponseSeconds, out urgentBraking);
+                maximumManeuverAcceleration,
+                maneuverVelocityResponseSeconds,
+                Time.time);
+            if (command.State != previousManeuverState)
+                ReportManeuverDecision(command.State);
+            currentAttitudeIntent = command.AttitudeIntent;
+            urgentBraking = command.UrgentBraking;
+            var acceleration = command.AccelerationWorld;
             if (motion.Grounded)
             {
                 // Air combat must first leave the launch platform. The allocator
@@ -1097,16 +1234,15 @@ namespace ACunicombat.Mechs
                 return directionToTarget;
             }
 
-            if (urgentBraking || (state == CombatState.Defensive && incomingThreatTime < 3f))
-            {
+            if (currentAttitudeIntent == MechAiAttitudeIntent.EmergencyManeuver ||
+                urgentBraking || (state == CombatState.Defensive && incomingThreatTime < 3f))
                 return maneuverDirection;
-            }
-            if (weaponReady)
-            {
+            if (currentAttitudeIntent == MechAiAttitudeIntent.TrackTarget ||
+                currentAttitudeIntent == MechAiAttitudeIntent.LeadWeapon || weaponReady)
                 return directionToTarget;
-            }
-
-            if (state == CombatState.Extend) return maneuverDirection;
+            if (currentAttitudeIntent == MechAiAttitudeIntent.Search &&
+                state == CombatState.Extend)
+                return maneuverDirection;
             // Keep a searchable forward view while repositioning/reloading.
             return Vector3.RotateTowards(directionToTarget, maneuverDirection,
                 20f * Mathf.Deg2Rad, 0f).normalized;

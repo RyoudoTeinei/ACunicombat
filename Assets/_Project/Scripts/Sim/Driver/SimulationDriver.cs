@@ -92,7 +92,7 @@ namespace ACunicombat.Simulation.Driver
         private double nextTelemetrySensorSummaryTime;
 
         private bool DetailedTelemetry =>
-            telemetry != null && telemetryDetail == CombatTelemetryDetail.Detailed;
+            telemetry != null && telemetry.IsRecording && telemetryDetail == CombatTelemetryDetail.Detailed;
 
         public System.Guid ObserverScope => trackContext?.ObserverScope ?? System.Guid.Empty;
         private System.Func<double> simulationTimeSource;
@@ -271,6 +271,9 @@ namespace ACunicombat.Simulation.Driver
             SimEntityId entityId) =>
             electroOpticalSensor.UnregisterTarget(entityId);
 
+        public void SetElectroOpticalTargetSignature(SimEntityId entityId, float signatureDb) =>
+            electroOpticalSensor.SetTargetSignature(entityId, signatureDb);
+
         public int CopyElectroOpticalObservations(
             ElectroOpticalObservation[] destination)
         {
@@ -356,6 +359,12 @@ namespace ACunicombat.Simulation.Driver
             if(linkEmitters.TryGetValue(terminalId,out var emitter)){emitterIdentities.Release(emitter.Value);linkEmitters.Remove(terminalId);}
         }
 
+        public long AcceptedLinkMessageCount => dataLink?.AcceptedMessageCount ?? 0;
+        public long RejectedLinkMessageCount => dataLink?.RejectedMessageCount ?? 0;
+        public long DeliveredLinkMessageCount => dataLink?.DeliveredMessageCount ?? 0;
+        public long LinkDeliveryAttemptsFor(LinkTerminalId terminal) => dataLink?.DeliveryAttemptsFor(terminal) ?? 0;
+        public long LinkDeliveriesFor(LinkTerminalId terminal) => dataLink?.DeliveriesFor(terminal) ?? 0;
+
         /// <summary>入队发送；下一个传感器 Tick 投递（一 Tick 固有时延）。</summary>
         public bool SendLinkMessage(in LinkMessage message)
         {
@@ -410,6 +419,11 @@ namespace ACunicombat.Simulation.Driver
         public void RegisterRadarTarget(in RadarTargetProfile profile) => radar.RegisterTarget(profile);
 
         public void UnregisterRadarTarget(SimEntityId entityId) => radar.UnregisterTarget(entityId);
+
+        public void QueueJamContribution(in JamContribution contribution)
+        {
+            if (contribution.VictimSensorId.IsValid) radar.JamInboxForEw.Add(contribution);
+        }
 
         public void ScheduleRadarDwell(in Dwell dwell)
         {
@@ -564,6 +578,8 @@ namespace ACunicombat.Simulation.Driver
 
         private void FixedUpdate()
         {
+            if(telemetry!=null&&telemetry.TryTakeFailure(out var recordingFailure))Debug.LogWarning("[CombatTelemetry] Recording stopped: "+recordingFailure);
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Driver);
             sceneEntities?.PruneRetired();
             var dt = Time.fixedDeltaTime;
             var motionTicks = motionClock.Advance(dt);
@@ -650,6 +666,16 @@ namespace ACunicombat.Simulation.Driver
                 trackContext.Process(radar.Detections, radar.Emissions,
                     sensorPosition, sensorVelocity, tickTime);
 
+                if (combatContext.HasOpticalReceiver)
+                {
+                    for (int opticalIndex = 0; opticalIndex < electroOpticalSensor.Observations.Length; opticalIndex++)
+                    {
+                        trackContext.TryRefineConfirmedTrackWithBearing(
+                            electroOpticalSensor.Observations[opticalIndex], sensorPosition, tickTime,
+                            out _, sensorVelocity);
+                    }
+                }
+
                 // Laser returns refine only the confirmed missile track that
                 // cued the pulse. They do not create tracks, count as radar
                 // hits, or keep a coasting radar track alive.
@@ -735,7 +761,7 @@ namespace ACunicombat.Simulation.Driver
                     tickTime);
 
                 var telemetryThreatCount = 0;
-                if (telemetry != null)
+                if (telemetry != null && telemetry.IsRecording)
                 {
                     telemetryThreatCount = threatCorrelator.CopyThreats(
                         telemetryThreatScratch);

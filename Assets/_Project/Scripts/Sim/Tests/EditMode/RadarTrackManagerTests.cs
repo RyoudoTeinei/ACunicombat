@@ -109,6 +109,92 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void ElectroOpticalBearingRefinesConfirmedTrackWithoutCreatingRangeEvidence()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(1, Allocator.Temp);
+            for (int i = 1; i <= 3; i++)
+            {
+                measurements.Clear();var radarMeasurement = MeasurementAt(i * .04);
+                radarMeasurement.ObjectClass = TrackObjectClass.AirVehicle;
+                measurements.Add(radarMeasurement);
+                manager.Process(measurements, double3.zero, i * .04);
+            }
+            Assert.IsTrue(manager.TryGetBestTrack(out var before));
+            var optical = new ElectroOpticalObservation
+            {
+                Timestamp = .16,
+                Direction = math.normalize(new float3(.005f, 0, 1)),
+                AngleVar = 1e-6f,
+                ObjectClass = TrackObjectClass.AirVehicle,
+                ClassificationConfidence = .9f,
+            };
+            Assert.IsTrue(manager.TryRefineConfirmedTrackWithBearing(optical, double3.zero, .16, out _));
+            Assert.IsTrue(manager.TryGetTrack(before.TrackId, out var after));
+            Assert.Greater(after.Position.x, 1);
+            Assert.That(math.length(after.Position), Is.EqualTo(1000).Within(100));
+            Assert.AreEqual(before.HitCount, after.HitCount);
+            Assert.IsTrue((after.SourceMask & TrackSourceMask.ElectroOptical) != 0);
+            Assert.AreEqual(.16, after.SourceEvidence.ElectroOptical.Timestamp, .00001);
+        }
+
+        [Test]
+        public void ElectroOpticalLosRateRefinesTransverseVelocityWithoutInventingRange()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(1, Allocator.Temp);
+            for (int i = 1; i <= 3; i++)
+            {
+                measurements.Clear();
+                var radarMeasurement = MeasurementAt(i * .04);
+                radarMeasurement.ObjectClass = TrackObjectClass.AirVehicle;
+                measurements.Add(radarMeasurement);
+                manager.Process(measurements, double3.zero, i * .04);
+            }
+            Assert.IsTrue(manager.TryGetBestTrack(out var before));
+            var optical = new ElectroOpticalObservation
+            {
+                Timestamp = .16, Direction = new float3(0, 0, 1), AngleVar = 1e-6f,
+                HasLosRate = true, LosRate = new float3(0, .25f, 0), LosRateVar = .0001f,
+                ObjectClass = TrackObjectClass.AirVehicle, ClassificationConfidence = .9f,
+            };
+            Assert.IsTrue(manager.TryRefineConfirmedTrackWithBearing(
+                optical, double3.zero, .16, out _, double3.zero));
+            Assert.IsTrue(manager.TryGetTrack(before.TrackId, out var after));
+            Assert.That(after.Velocity.x, Is.GreaterThan(50));
+            Assert.That(math.length(after.Position), Is.EqualTo(1000).Within(100));
+            Assert.AreEqual(before.HitCount, after.HitCount);
+        }
+
+        [Test]
+        public void ElectroOpticalBearingRejectsAmbiguousCandidatesWithoutMutation()
+        {
+            var manager = new RadarTrackManager();
+            using var measurements = new NativeList<Measurement>(2, Allocator.Temp);
+            for (int i = 1; i <= 3; i++)
+            {
+                measurements.Clear();
+                var first = MeasurementAtPosition(i * .04, new double3(0, 0, 1000), double3.zero);
+                first.ObjectClass = TrackObjectClass.AirVehicle;measurements.Add(first);
+                var second = MeasurementAtPosition(i * .04, new double3(1, 0, 1000), double3.zero);
+                second.ObjectClass = TrackObjectClass.AirVehicle;measurements.Add(second);
+                manager.Process(measurements, double3.zero, i * .04);
+            }
+            var before = new TrackSnapshot[4];int count = manager.CopyTracks(before);
+            var optical = new ElectroOpticalObservation
+            {
+                Timestamp = .16,
+                Direction = math.normalize(new float3(.05f, 0, 1)),
+                AngleVar = 1e-6f,
+                ObjectClass = TrackObjectClass.AirVehicle,
+                ClassificationConfidence = .9f,
+            };
+            Assert.IsFalse(manager.TryRefineConfirmedTrackWithBearing(optical, double3.zero, .16, out _));
+            var after = new TrackSnapshot[4];Assert.AreEqual(count, manager.CopyTracks(after));
+            for (int j = 0; j < count; j++) Assert.IsFalse((after[j].SourceMask & TrackSourceMask.ElectroOptical) != 0);
+        }
+
+        [Test]
         public void MissileSignatureEvidence_PropagatesWithoutEntityIdentity()
         {
             var manager = new RadarTrackManager();

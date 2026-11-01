@@ -157,10 +157,16 @@ public sealed class MechVariableLayoutTests
     [Test] public void AddingUtilitySlot_UsesSameAssemblyAndSelectionApi()
     {
         var l = Layout(4, Part()); var utility = Own(ScriptableObject.CreateInstance<MechPartDefinition>());
+        // Extension modules require core capacity under the current kit rules.
+        // Supply that prerequisite rather than testing an invalid bare weapon rack.
+        var core=Own(ScriptableObject.CreateInstance<MechPartDefinition>());
+        core.EditorConfigure("core","Core",MechPartSlot.Core,MechPartCategory.Frame,null,new MechPartStats{massKg=0},null);
+        l.Platform.slots.Add(new MechSlotDefinition{id="core",legacyRole=MechPartSlot.Core,category=MechPartCategory.Frame,hardpointType=core.MountClass});
+        Assert.IsTrue(l.TrySetPart("core",core,out var coreError),coreError);
         utility.EditorConfigure("defense", "Defense", MechPartSlot.Extension, MechPartCategory.Utility, null, new MechPartStats { massKg = 30 }, null);
         l.Platform.slots.Add(new MechSlotDefinition { id = "defense", category = MechPartCategory.Utility, hardpointType = MechHardpointType.None });
         Assert.That(l.TrySetPart("defense", utility, out var error), Is.True, error);
-        var assembler = Assemble(l); Assert.That(assembler.RuntimeState.AssembledParts.Count, Is.EqualTo(5));
+        var assembler = Assemble(l); Assert.That(assembler.RuntimeState.AssembledParts.Count, Is.EqualTo(6));
         Assert.That(assembler.RuntimeState.AggregatedStats.totalMassKg, Is.EqualTo(70));
     }
     [Test] public void SelfExpandingRack_IsBoundedAndRejected()

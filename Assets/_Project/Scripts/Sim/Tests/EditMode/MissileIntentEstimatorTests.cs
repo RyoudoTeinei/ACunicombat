@@ -60,7 +60,7 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
-        public void PersistentFriendlyMissileGeometry_ResolvesIntentWithoutInferringRole()
+        public void PersistentFriendlyMissileGeometry_InfersInterceptorFromKinematics()
         {
             var state = new MissileIntentEstimatorState();
             var targetPosition = new double3(-2_000.0, 0.0, 6_000.0);
@@ -89,13 +89,16 @@ namespace ACunicombat.Tests.EditMode
                 tracks[0].TargetIntent,
                 Is.EqualTo(MissileTargetIntent.FriendlyMissile),
                 $"confidence={tracks[0].TargetIntentConfidence:0.000}");
-            Assert.That(tracks[0].IsLikelyInterceptor, Is.False);
+            Assert.That(tracks[0].IsLikelyInterceptor, Is.True);
             Assert.That(
                 tracks[0].SuspectedTargetTrackId,
                 Is.EqualTo(tracks[1].TrackId));
             Assert.That(
                 tracks[0].MissionRole,
-                Is.EqualTo(MissileMissionRole.Unknown));
+                Is.EqualTo(MissileMissionRole.Interceptor));
+            Assert.That(
+                tracks[0].MissionRoleEvidence,
+                Is.EqualTo(MissileMissionRoleEvidence.KinematicIntent));
         }
 
         [Test]
@@ -151,7 +154,10 @@ namespace ACunicombat.Tests.EditMode
                 tracks[0].TargetIntent,
                 Is.EqualTo(MissileTargetIntent.FriendlyMissile),
                 $"confidence={tracks[0].TargetIntentConfidence:0.000}");
-            Assert.That(tracks[0].IsLikelyInterceptor, Is.False);
+            Assert.That(tracks[0].IsLikelyInterceptor, Is.True);
+            Assert.That(
+                tracks[0].MissionRoleEvidence,
+                Is.EqualTo(MissileMissionRoleEvidence.KinematicIntent));
             Assert.That(
                 tracks[0].SuspectedTargetTrackId,
                 Is.EqualTo(candidates[0].TrackId));
@@ -402,10 +408,10 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(
                 tracks[0].TargetIntent,
                 Is.EqualTo(MissileTargetIntent.FriendlyMissile));
-            Assert.That(tracks[0].IsLikelyInterceptor, Is.False);
+            Assert.That(tracks[0].IsLikelyInterceptor, Is.True);
             Assert.That(
                 tracks[0].MissionRole,
-                Is.EqualTo(MissileMissionRole.Unknown));
+                Is.EqualTo(MissileMissionRole.Interceptor));
         }
 
         [Test]

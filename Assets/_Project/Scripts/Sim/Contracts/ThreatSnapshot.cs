@@ -38,6 +38,8 @@ namespace ACunicombat.Sensing.Contracts
         AirToAirMissileSeeker = 7,
         /// <summary>近程高速拦截弹主动雷达导引头。</summary>
         InterceptorMissileSeeker = 8,
+        /// <summary>连续或间歇噪声干扰辐射源，可作为反辐射攻击对象。</summary>
+        NoiseJammer = 9,
     }
 
     public static class EsmWaveformClassification
@@ -113,5 +115,9 @@ namespace ACunicombat.Sensing.Contracts
         /// <summary>只使用主瓣样本计算的功率变化率（dB/s）。</summary>
         public float MainlobePowerTrendDbPerSecond;
         public int MainlobeContactCount;
+        /// <summary>最近一次接收到的发射波束几何；DirectionWorld 仍是接收机到辐射源方向。</summary>
+        public float3 EmissionDirection;
+        public float EmissionBeamWidth;
+        public double EmissionMaxRangeMeters;
     }
 }

@@ -166,7 +166,7 @@ namespace ACunicombat.Mechs
             profile.RcsMomentArmMeters = 1.5f;
             profile.MaximumAngularRateDegreesPerSecond = 390f;
             profile.MaximumFlightTimeSeconds = 160f;
-            profile.MaximumRangeMeters = 28_000f;
+
             profile.SeekerSearchHalfAngleDegrees = 45f;
             profile.SeekerGimbalDegrees = 72f;
             profile.ProximityFuseRadiusMeters = 9f;
@@ -195,7 +195,7 @@ namespace ACunicombat.Mechs
             profile.PitchYawInertiaKgM2 = 180f;
             profile.MaximumAngularRateDegreesPerSecond = 190f;
             profile.MaximumFlightTimeSeconds = 420f;
-            profile.MaximumRangeMeters = 82_000f;
+
             profile.SeekerRangeMeters = 10_000f;
             performance.directHitDamage = source.directHitDamage;
             performance.warheadMassKg = 24f;
@@ -223,7 +223,7 @@ namespace ACunicombat.Mechs
             performance.muzzleVelocityMetersPerSecond = profile.EjectionSpeedMps;
             performance.projectileLifetimeSeconds = profile.MaximumFlightTimeSeconds;
             performance.maximumRangeMeters = profile.MaximumRangeMeters;
-            performance.effectiveRangeMeters = profile.MaximumRangeMeters;
+            performance.effectiveRangeMeters = 0;
             performance.proximityFuseRadiusMeters = profile.ProximityFuseRadiusMeters;
             performance.proximityFuseArmSeconds = profile.ProximityFuseArmSeconds;
             performance.proximityFuseSafeDistanceMeters = profile.ProximityFuseSafeDistanceMeters;

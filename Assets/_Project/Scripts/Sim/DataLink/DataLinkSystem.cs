@@ -72,8 +72,15 @@ namespace ACunicombat.DataLink
         private NativeList<PendingDelivery> pendingDeliveries;
         private NativeList<EmissionEvent> emissionRing;
         private ulong sequenceCounter;
+        private readonly long[] deliveryAttempts = new long[MaxTerminals];
+        private readonly long[] terminalDeliveries = new long[MaxTerminals];
 
         public uint SessionSeed;
+        public long AcceptedMessageCount { get; private set; }
+        public long RejectedMessageCount { get; private set; }
+        public long DeliveredMessageCount { get; private set; }
+        public long DeliveryAttemptsFor(LinkTerminalId terminal) => terminal.IsValid && terminal.Value.Index < MaxTerminals ? deliveryAttempts[terminal.Value.Index] : 0;
+        public long DeliveriesFor(LinkTerminalId terminal) => terminal.IsValid && terminal.Value.Index < MaxTerminals ? terminalDeliveries[terminal.Value.Index] : 0;
 
         public DataLinkSystem(SimWorld world)
         {
@@ -119,6 +126,7 @@ namespace ACunicombat.DataLink
             if (!double.IsFinite(message.SendTime) || !TryGetTerminal(message.SourceTerminal, out var sender) ||
                 outbox.Length >= OutboxCapacity)
             {
+                RejectedMessageCount++;
                 return false;
             }
 
@@ -140,6 +148,7 @@ namespace ACunicombat.DataLink
                 transmitCreditTimes[index] = now;
                 if (transmitCredits[index] < messageCost)
                 {
+                    RejectedMessageCount++;
                     return false;
                 }
                 transmitCredits[index] -= messageCost;
@@ -148,6 +157,7 @@ namespace ACunicombat.DataLink
             var stamped = message;
             stamped.Sequence = ++sequenceCounter;
             outbox.Add(stamped);
+            AcceptedMessageCount++;
             return true;
         }
 
@@ -164,6 +174,7 @@ namespace ACunicombat.DataLink
                 }
                 var delivered = pending.Message;
                 delivered.DeliveryTime = simTime;
+                RecordDelivery(pending.Receiver);
                 inbox.Add(new DeliveredLinkMessage
                 {
                     Receiver = pending.Receiver,
@@ -256,6 +267,7 @@ namespace ACunicombat.DataLink
                     continue;
                 }
 
+                if (unicast) deliveryAttempts[r]++;
                 if (!world.IsAlive(receiver.OwnerEntityId))
                 {
                     continue;
@@ -300,6 +312,7 @@ namespace ACunicombat.DataLink
                 if (latencySeconds <= 0.0001f)
                 {
                     delivered.DeliveryTime = simTime;
+                    RecordDelivery(receiver.TerminalId);
                     inbox.Add(new DeliveredLinkMessage
                     {
                         Receiver = receiver.TerminalId,
@@ -316,6 +329,12 @@ namespace ACunicombat.DataLink
                     });
                 }
             }
+        }
+
+        private void RecordDelivery(LinkTerminalId terminal)
+        {
+            DeliveredMessageCount++;
+            if (terminal.IsValid && terminal.Value.Index < MaxTerminals) terminalDeliveries[terminal.Value.Index]++;
         }
 
         private static float MathfMaxMessageBurst(float bandwidthKilobitsPerSecond)

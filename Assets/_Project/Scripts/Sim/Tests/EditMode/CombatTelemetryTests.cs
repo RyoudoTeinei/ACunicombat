@@ -14,6 +14,29 @@ namespace ACunicombat.Tests.EditMode
 {
     public class CombatTelemetryTests
     {
+        [Test] public void RetiredTelemetryContactsDoNotAccumulateForAnHour()
+        {
+            string directory=Path.Combine(Path.GetTempPath(),"telemetry-retirement-"+Guid.NewGuid().ToString("N"));
+            try
+            {
+                using var session=new CombatTelemetrySession(directory,"retirement",64*1024*1024);
+                for(int t=0;t<3600;t+=10)
+                {
+                    for(int i=0;i<10;i++)
+                    {
+                        var track=new MissileTrackSnapshot{TrackId=new TrackId(new Handle((ushort)(t+i+1),1))};
+                        session.RecordMissileTrack(t,"observer",in track);
+                    }
+                    Assert.Less(session.CachedObservationCount,170);
+                }
+                session.RecordDriverStart(3800,"observer",1,.01,.04,.04);
+                Assert.AreEqual(0,session.CachedObservationCount);
+                var returned=new MissileTrackSnapshot{TrackId=new TrackId(new Handle(1,1))};
+                session.RecordMissileTrack(3801,"observer",in returned);
+                Assert.AreEqual(1,session.CachedObservationCount);
+            }
+            finally{if(Directory.Exists(directory))Directory.Delete(directory,true);}
+        }
         [Test]
         public void ApsDecisionAndOutcomeArePersistedWithCorrelationAndProgress()
         {

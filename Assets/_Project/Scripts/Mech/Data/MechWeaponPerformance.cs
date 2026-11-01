@@ -39,6 +39,7 @@ namespace ACunicombat.Mechs
         [Min(0)] public int magazineCapacity;
         [Min(0)] public int magazineCount;
         [Min(0)] public int missileGroupCapacity;
+        [Min(0f)] public float missileLaunchCycleSeconds;
         [Min(0f)] public float reloadSeconds;
 
         [Header("Trigger behavior")]
@@ -58,6 +59,7 @@ namespace ACunicombat.Mechs
         [Header("Guided missile")]
         public MissileFlightProfile missileFlightProfile;
         public bool verticalColdLaunch;
+        public bool coldLaunch;
         public bool supportsPassiveRfHoming;
 
         [Header("Guided missile presentation")]
@@ -112,7 +114,29 @@ namespace ACunicombat.Mechs
 
         public MechWeaponPerformance Clone()
         {
-            return (MechWeaponPerformance)MemberwiseClone();
+            var clone = (MechWeaponPerformance)MemberwiseClone();
+            clone.RefreshMissileEnvelope();
+            return clone;
         }
+        public void RefreshMissileEnvelope()
+        {
+            if(!IsGuidedMissile || !missileFlightProfile.IsConfigured) return;
+            var dynamics = missileFlightProfile.Kinematics;
+            if(!hasCachedEnvelope || !dynamics.HasSameDynamics(cachedDynamics))
+            {
+                missileFlightProfile = missileFlightProfile.Sanitized();
+                cachedDynamics = missileFlightProfile.Kinematics;
+                cachedReferenceRange = missileFlightProfile.MaximumRangeMeters;
+                hasCachedEnvelope = true;
+            }
+            missileFlightProfile.MaximumRangeMeters = cachedReferenceRange;
+            maximumRangeMeters = cachedReferenceRange;
+            effectiveRangeMeters = 0;
+            calculateEffectiveRange = false;
+            projectileLifetimeSeconds = missileFlightProfile.MaximumFlightTimeSeconds;
+        }
+        [NonSerialized] private bool hasCachedEnvelope;
+        [NonSerialized] private ACunicombat.FireControl.MissileKinematicProfile cachedDynamics;
+        [NonSerialized] private float cachedReferenceRange;
     }
 }

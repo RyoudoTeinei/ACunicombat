@@ -1,4 +1,5 @@
 using ACunicombat.Mechs;
+using ACunicombat.Sensing.Contracts;
 using NUnit.Framework;
 
 namespace ACunicombat.Editor.Tests
@@ -228,6 +229,59 @@ namespace ACunicombat.Editor.Tests
                 opening.EngagementBand.PreferredRangeMeters,
                 Is.GreaterThan(close.EngagementBand.PreferredRangeMeters));
         }
+
+        [TestCase(FleetTaskGroup.Reconnaissance)]
+        [TestCase(FleetTaskGroup.ElectronicWarfare)]
+        [TestCase(FleetTaskGroup.EarlyWarningCommand)]
+        [TestCase(FleetTaskGroup.Logistics)]
+        public void PassiveMissionWithoutAttack_KeepsObservationStandoff(
+            FleetTaskGroup taskGroup)
+        {
+            var doctrine = Doctrine();
+            var modified = MechAiRulePlanner.ApplyMissionDoctrine(
+                in doctrine, taskGroup, false, false);
+
+            Assert.That(modified.EngagementBand.MinimumRangeMeters,
+                Is.GreaterThanOrEqualTo(doctrine.EngagementBand.MaximumRangeMeters));
+            Assert.That(modified.OrbitSpeedMetersPerSecond,
+                Is.LessThanOrEqualTo(100f));
+        }
+
+        [Test]
+        public void StrikeMissileMission_ExtendsLaunchGeometryWithoutChangingWeaponRole()
+        {
+            var doctrine = new MechAiCombatDoctrine(
+                MechAiTacticalWeaponRole.StandoffMissile,
+                new MechAiEngagementBand(8000f, 20000f, 30000f),
+                125f);
+            var modified = MechAiRulePlanner.ApplyMissionDoctrine(
+                in doctrine, FleetTaskGroup.Strike, true, true);
+
+            Assert.That(modified.TacticalRole, Is.EqualTo(doctrine.TacticalRole));
+            Assert.That(modified.EngagementBand.PreferredRangeMeters,
+                Is.EqualTo(22000f).Within(0.001f));
+            Assert.That(modified.OrbitSpeedMetersPerSecond,
+                Is.LessThan(doctrine.OrbitSpeedMetersPerSecond));
+        }
+
+        [Test]
+        public void EscortMission_LimitsOrbitButPreservesWeaponEngagementBand()
+        {
+            var doctrine = Doctrine();
+            var modified = MechAiRulePlanner.ApplyMissionDoctrine(
+                in doctrine, FleetTaskGroup.Escort, true, true);
+
+            Assert.That(modified.EngagementBand.PreferredRangeMeters,
+                Is.EqualTo(doctrine.EngagementBand.PreferredRangeMeters));
+            Assert.That(modified.OrbitSpeedMetersPerSecond,
+                Is.EqualTo(90f));
+        }
+
+        private static MechAiCombatDoctrine Doctrine() =>
+            new MechAiCombatDoctrine(
+                MechAiTacticalWeaponRole.GeneralAutomatic,
+                new MechAiEngagementBand(1000f, 3000f, 5000f),
+                165f);
 
         private static MechWeaponSlotStatus Weapon(
             MechPartSlot slot,

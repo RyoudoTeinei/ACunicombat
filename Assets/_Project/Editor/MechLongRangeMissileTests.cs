@@ -87,6 +87,20 @@ public class MechLongRangeMissileTests
     public static void AssertFlightEnvelope(MechWeaponPerformance p,string number,int hz,float rangeFraction=.95f)
     {
         var profile=p.missileFlightProfile;
+        // This fixture has no target. Adaptive pulses intentionally remain in
+        // reserve and the ducted motor cruises at minimum throttle.
+        var unobservedProfile=profile;
+        if(profile.AdaptiveSecondPulse)
+        {
+            unobservedProfile.DryMassKg+=profile.SecondStagePropellantMassKg;
+            unobservedProfile.SecondStagePropellantMassKg=0;
+        }
+        else if(profile.PropulsionMode==MissilePropulsionMode.VariableFlowDuctedRocket)
+        {
+            unobservedProfile.SecondStageThrustNewtons*=profile.SecondStageMinimumThrottle;
+            unobservedProfile.SecondStageMassFlowKgPerSecond*=profile.SecondStageMinimumThrottle;
+        }
+        float expectedRange=unobservedProfile.ReferenceRangeMeters;
         var owner=new GameObject("Range test launcher");var body=new GameObject("Range test missile");
         float previous=Time.fixedDeltaTime;Time.fixedDeltaTime=1f/hz;
         try
@@ -98,7 +112,7 @@ public class MechLongRangeMissileTests
                 profile.MaximumFlightTimeSeconds,newMaximumTravelDistance:profile.MaximumRangeMeters,missileProfile:profile);
             var step=typeof(MechTestProjectile).GetMethod("UpdateMissile",Private);
             float elapsed=0;bool reached100=false,reached200=false,secondBurn=false;float previousMass=missile.CurrentMassKg;
-            while(body.transform.position.z<profile.MaximumRangeMeters*rangeFraction&&elapsed<profile.MaximumFlightTimeSeconds-.1f)
+            while(body.transform.position.z<expectedRange*rangeFraction&&elapsed<profile.MaximumFlightTimeSeconds-.1f)
             {
                 // This isolated envelope test has no seeker/target. Prevent only
                 // guidance-loss disposal; propulsion, staging and fuel are real.
@@ -110,8 +124,8 @@ public class MechLongRangeMissileTests
                 reached100|=body.transform.position.z>=100000;reached200|=body.transform.position.z>=200000;
                 secondBurn|=(bool)typeof(MechTestProjectile).GetField("secondStageIgnited",Private).GetValue(missile);
             }
-            if(profile.MaximumRangeMeters>=220000)Assert.IsTrue(reached100&&reached200);
-            Assert.GreaterOrEqual(body.transform.position.z,profile.MaximumRangeMeters*rangeFraction);
+            if(expectedRange>=220000)Assert.IsTrue(reached100&&reached200);
+            Assert.GreaterOrEqual(body.transform.position.z,expectedRange*rangeFraction);
             Assert.AreEqual(profile.HasSecondStage&&!profile.AdaptiveSecondPulse,secondBurn,"Adaptive missile must keep its reserve without any observed target.");Assert.GreaterOrEqual(missile.CurrentMassKg,profile.DryMassKg);
             TestContext.WriteLine(number+" @"+hz+"Hz distance="+body.transform.position.z+" time="+elapsed+" speed="+missile.Velocity.magnitude+" mass="+missile.CurrentMassKg);
         }
@@ -180,7 +194,7 @@ public class MechLongRangeMissileTests
                     TestContext.WriteLine(number+" range="+range+" time="+(radar.SimTimeSeconds-start)+" minRange="+minRange+" active="+active+" lock="+locked+" damage="+(victim.MaxHealth-victim.Health));
                     Assert.IsFalse(radar.RadarPowerEnabled);Assert.IsTrue(active&&locked,"Must autonomously acquire at terminal range.");
                     Assert.Less(victim.Health,victim.MaxHealth,"Real terminal detonation must damage the target.");
-                    if(profile.AdaptiveSecondPulse){Assert.Greater(pulseTime,profile.MainBurnDurationSeconds+35);Assert.IsNotNull(pulseReason);TestContext.WriteLine("adaptive pulse at="+pulseTime+" reason="+pulseReason);}
+                    if(profile.AdaptiveSecondPulse){Assert.Greater(pulseTime,profile.MainBurnDurationSeconds+profile.SecondStageIgnitionDelaySeconds);Assert.IsNotNull(pulseReason);TestContext.WriteLine("adaptive pulse at="+pulseTime+" reason="+pulseReason);}
                 }
                 finally{if(body!=null)UnityEngine.Object.DestroyImmediate(body);UnityEngine.Object.DestroyImmediate(emitter);UnityEngine.Object.DestroyImmediate(owner);}
                 yield return null;

@@ -41,6 +41,11 @@ namespace ACunicombat.Simulation.Driver
         public bool TryRefineConfirmedTrackWithLaser(in LaserRangeObservation observation,
             double3 observerPosition, double time, out double normalizedInnovationSquared) =>
             tracks.TryRefineConfirmedTrackWithLaser(in observation, observerPosition, time, out normalizedInnovationSquared);
+        public bool TryRefineConfirmedTrackWithBearing(in ElectroOpticalObservation observation,
+            double3 observerPosition, double time, out double normalizedAngle,
+            double3 observerVelocity = default) =>
+            tracks.TryRefineConfirmedTrackWithBearing(in observation, observerPosition, time,
+                out normalizedAngle, observerVelocity);
         public SimEntityId OriginEntity { get; private set; }
         public SensorId Sensor { get; private set; }
         public EmitterId Emitter { get; private set; }

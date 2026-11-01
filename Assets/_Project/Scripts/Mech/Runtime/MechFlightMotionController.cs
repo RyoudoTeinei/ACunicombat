@@ -12,6 +12,9 @@ namespace ACunicombat.Mechs
     /// </summary>
     public sealed class MechFlightMotionController : MonoBehaviour
     {
+        // Demand only; physical auxiliary capacity uses the nozzle rating, without another multiplier.
+        private const float AuxiliaryDemandScale = 1.5f;
+
         private const float DefaultManeuverEnergyCapacity = 100f;
         private const float DefaultMovementEnergyDrainPerSecond = 4f;
         private const float DefaultAssaultBoostEnergyDrainPerSecond = 15f;
@@ -61,7 +64,7 @@ namespace ACunicombat.Mechs
         [Tooltip("单侧喷口损坏后，飞控允许健侧喷口继续贡献的比例。0 表示严格对称降额；1 表示完全补偿且不模拟姿态扰动。")]
         [Range(0f, 1f)] [SerializeField] private float damagedSideCompensationEfficiency = 0.65f;
         [Tooltip("除背部主推进器外，每个实体喷口的默认额定推力。喷口方向完全取自绑定节点的 -forward。")]
-        [Min(0f)] [SerializeField] private float auxiliaryNozzleThrustKn = 600f;
+        [Min(0f)] [SerializeField] private float auxiliaryNozzleThrustKn = 900f;
         [Tooltip("三轴平移喷口分配器的迭代次数。喷口数量较少时 12 次足以稳定收敛。")]
         [Range(4, 32)] [SerializeField] private int translationAllocatorIterations = 12;
         [Tooltip("喷口分配时对绕质心残余力矩的抑制强度。推力误差始终是首要目标。")]
@@ -2673,20 +2676,20 @@ namespace ACunicombat.Mechs
             if (stats != null)
             {
                 mainNewtons = Mathf.Max(0f, stats.mainThrustKn) * 1000f;
-                lateralNewtons = Mathf.Max(0f, stats.lateralThrustKn) * 1000f;
-                reverseNewtons = Mathf.Max(0f, stats.reverseThrustKn) * 1000f;
-                upwardNewtons = Mathf.Max(0f, stats.upwardThrustKn) * 1000f;
-                downwardNewtons = Mathf.Max(0f, stats.downwardThrustKn) * 1000f;
+                lateralNewtons = Mathf.Max(0f, stats.lateralThrustKn) * 1000f * AuxiliaryDemandScale;
+                reverseNewtons = Mathf.Max(0f, stats.reverseThrustKn) * 1000f * AuxiliaryDemandScale;
+                upwardNewtons = Mathf.Max(0f, stats.upwardThrustKn) * 1000f * AuxiliaryDemandScale;
+                downwardNewtons = Mathf.Max(0f, stats.downwardThrustKn) * 1000f * AuxiliaryDemandScale;
                 return;
             }
 
             mainNewtons = Mathf.Max(0f, fallbackMainThrustKn) * 1000f;
-            lateralNewtons = Mathf.Max(0f, fallbackLateralThrustKn) * 1000f;
-            reverseNewtons = Mathf.Max(0f, fallbackReverseThrustKn) * 1000f;
-            upwardNewtons = Mathf.Max(0f, verticalThrustKn) * 1000f;
+            lateralNewtons = Mathf.Max(0f, fallbackLateralThrustKn) * 1000f * AuxiliaryDemandScale;
+            reverseNewtons = Mathf.Max(0f, fallbackReverseThrustKn) * 1000f * AuxiliaryDemandScale;
+            upwardNewtons = Mathf.Max(0f, verticalThrustKn) * 1000f * AuxiliaryDemandScale;
             downwardNewtons = Mathf.Max(
                 0f,
-                verticalThrustKn * Mathf.Clamp01(descentThrustFraction)) * 1000f;
+                verticalThrustKn * Mathf.Clamp01(descentThrustFraction)) * 1000f * AuxiliaryDemandScale;
         }
 
         private float ResolveOverloadAccelerationScale()
@@ -2746,8 +2749,8 @@ namespace ACunicombat.Mechs
 
 			var stats = runtimeState != null ? runtimeState.AggregatedStats : null;
 			return stats != null
-				? Mathf.Max(0f, stats.rcsThrustKn)
-				: Mathf.Max(0f, shoulderRcsThrustKn + legRcsThrustKn);
+				? Mathf.Max(0f, stats.rcsThrustKn) * AuxiliaryDemandScale
+				: Mathf.Max(0f, shoulderRcsThrustKn + legRcsThrustKn) * AuxiliaryDemandScale;
 		}
 
         private Vector3 ResolveMainThrustDirection(Quaternion yawBasis, bool grounded)

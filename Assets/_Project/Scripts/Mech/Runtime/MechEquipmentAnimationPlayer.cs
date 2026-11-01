@@ -25,6 +25,7 @@ namespace ACunicombat.Mechs
         private bool isPlaying;
         private bool sampleDirectly;
 
+        public void SetPlaybackSpeed(float speed){playbackSpeed=Mathf.Max(.01f,speed);}
         public IReadOnlyList<MechEquipmentAnimationDefinition> Actions => actions;
         public string DefaultActionId => defaultActionId;
         public string ActiveActionId => activeAction == null ? string.Empty : activeAction.ActionId;
@@ -195,6 +196,7 @@ namespace ACunicombat.Mechs
 
         private void Update()
         {
+            using var costScope=ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.EquipmentAnimation);
             if (!isPlaying || activeAction?.Clip == null)
             {
                 return;

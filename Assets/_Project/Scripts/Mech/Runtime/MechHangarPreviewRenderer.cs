@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
@@ -12,6 +13,8 @@ namespace ACunicombat.Mechs
         private const float MinimumZoom = 0.28f;
         private const float MaximumZoom = 1.35f;
         private static readonly Vector3 PreviewOrigin = new Vector3(0f, -256f, 0f);
+        private static readonly HashSet<int> occupiedStages = new HashSet<int>();
+        private int stageIndex = -1;
 
         private GameObject previewStage;
         private GameObject contentRoot;
@@ -171,6 +174,8 @@ namespace ACunicombat.Mechs
             }
 
             FrameContent();
+            zoom = 1.05f;
+            ApplyCameraPose();
         }
 
         public void Draw(Rect rect)
@@ -235,7 +240,10 @@ namespace ACunicombat.Mechs
                 hideFlags = HideFlags.HideAndDontSave,
                 layer = PreviewLayer
             };
-            previewStage.transform.position = PreviewOrigin;
+            stageIndex = 0;
+            while (occupiedStages.Contains(stageIndex)) stageIndex++;
+            occupiedStages.Add(stageIndex);
+            previewStage.transform.position = PreviewOrigin + Vector3.right * (stageIndex * 4096f);
 
             var cameraObject = new GameObject("PreviewCamera")
             {
@@ -671,8 +679,10 @@ namespace ACunicombat.Mechs
             DestroyTarget();
             if (previewStage != null)
             {
+                previewStage.SetActive(false);
                 Destroy(previewStage);
             }
+            if (stageIndex >= 0) occupiedStages.Remove(stageIndex);
 
             if (previewVolumeProfile != null)
             {

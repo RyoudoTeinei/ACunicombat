@@ -159,7 +159,9 @@ public class MechJianweiTests
             var threats=new MechTestProjectile[2];
             for(int i=0;i<2;i++)
             {
-                var go=new GameObject(i==0?"Far real incoming":"Near real incoming");objects.Add(go);go.transform.position=new Vector3(i*1000,0,i==0?63000:35000);go.transform.rotation=Quaternion.LookRotation(-go.transform.position);
+                // At 63 km the ordinary round can meet a 1 km/s incoming target
+                // inside its fuel/lifetime envelope. Use an ER-only encounter.
+                var go=new GameObject(i==0?"Far real incoming":"Near real incoming");objects.Add(go);go.transform.position=new Vector3(i*1000,0,i==0?84000:35000);go.transform.rotation=Quaternion.LookRotation(-go.transform.position);
                 var p=go.AddComponent<MechTestProjectile>();threats[i]=p;
                 p.Configure(enemy.transform,null,default,TestWeaponKind.Missile,go.transform.forward*1000,1,.2f,150,accelerationMetersPerSecondSquared:1,newSeekerActivationDelay:.1f,newSeekerMaximumRange:100000,
                     hasInitialGuidanceEstimate:true,initialGuidancePosition:a.transform.position,initialGuidanceUncertaintyMeters:1);

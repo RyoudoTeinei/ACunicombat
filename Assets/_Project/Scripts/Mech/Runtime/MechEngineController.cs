@@ -24,6 +24,8 @@ namespace ACunicombat.Mechs
     {
         private const string AudioRoot = "Audio/Engine/";
         private const float RunningMixGain = 0.8f;
+        private const float IdleCruiseTurbineGain = 0.8f;
+        private const float PropulsionMixGain = 0.9f;
         private const float SilentLoopVolume = 0.0001f;
         private const float MaximumStartupDurationSeconds = 5.5f;
 
@@ -344,19 +346,19 @@ namespace ACunicombat.Mechs
 
             MoveVolume(
                 turbineIdleSource,
-                lowWeight * turbineLoopVolume * RunningMixGain * structureGain,
+                lowWeight * turbineLoopVolume * RunningMixGain * IdleCruiseTurbineGain * structureGain,
                 step);
             MoveVolume(
                 turbineCruiseSource,
-                cruiseWeight * turbineLoopVolume * RunningMixGain * structureGain,
+                cruiseWeight * turbineLoopVolume * RunningMixGain * IdleCruiseTurbineGain * structureGain,
                 step);
             MoveVolume(
                 turbineMaximumSource,
-                highWeight * turbineLoopVolume * RunningMixGain * structureGain,
+                highWeight * turbineLoopVolume * RunningMixGain * PropulsionMixGain * structureGain,
                 step);
-            MoveVolume(rearLowSource, lowWeight * rearLoopVolume * RunningMixGain * externalGain, step);
-            MoveVolume(rearCruiseSource, cruiseWeight * rearLoopVolume * RunningMixGain * externalGain, step);
-            MoveVolume(rearMaximumSource, highWeight * rearLoopVolume * RunningMixGain * externalGain, step);
+            MoveVolume(rearLowSource, lowWeight * rearLoopVolume * RunningMixGain * PropulsionMixGain * externalGain, step);
+            MoveVolume(rearCruiseSource, cruiseWeight * rearLoopVolume * RunningMixGain * PropulsionMixGain * externalGain, step);
+            MoveVolume(rearMaximumSource, highWeight * rearLoopVolume * RunningMixGain * PropulsionMixGain * externalGain, step);
 
             var assaultBoost = ready && motion.AssaultBoostActive;
             if (assaultBoost && !previousAssaultBoost && afterburnerIgnitionSource != null)
@@ -366,7 +368,7 @@ namespace ACunicombat.Mechs
                 {
                     afterburnerIgnitionSource.PlayOneShot(
                         ignitionClip,
-                        (useInteriorMix ? 0.72f : 1f) * RunningMixGain);
+                        (useInteriorMix ? 0.72f : 1f) * RunningMixGain * PropulsionMixGain);
                 }
             }
             previousAssaultBoost = assaultBoost;
@@ -377,20 +379,20 @@ namespace ACunicombat.Mechs
 
             MoveVolume(
                 afterburnerBurnSource,
-                afterburnerGain * afterburnerVolume * RunningMixGain * (useInteriorMix ? 0.72f : 0.35f),
+                afterburnerGain * afterburnerVolume * RunningMixGain * PropulsionMixGain * (useInteriorMix ? 0.72f : 0.35f),
                 step);
             MoveVolume(
                 afterburnerWepSource,
-                afterburnerGain * afterburnerVolume * RunningMixGain * (useInteriorMix ? 0.58f : 0.25f),
+                afterburnerGain * afterburnerVolume * RunningMixGain * PropulsionMixGain * (useInteriorMix ? 0.58f : 0.25f),
                 step);
             MoveVolume(
                 jetThrustSource,
-                afterburnerGain * afterburnerVolume * RunningMixGain,
+                afterburnerGain * afterburnerVolume * RunningMixGain * PropulsionMixGain,
                 step);
             MoveVolume(
                 nozzleThrustSource,
-                (ready ? load * rearLoopVolume * RunningMixGain * 0.42f : 0f) +
-                afterburnerGain * afterburnerVolume * RunningMixGain * 0.52f,
+                (ready ? load * rearLoopVolume * RunningMixGain * PropulsionMixGain * 0.42f : 0f) +
+                afterburnerGain * afterburnerVolume * RunningMixGain * PropulsionMixGain * 0.52f,
                 step);
 
             var pitch = Mathf.Lerp(0.97f, 1.03f, load);

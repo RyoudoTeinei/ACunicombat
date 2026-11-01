@@ -24,18 +24,64 @@ public sealed class MechRadarSignalSchedulingTests
     }
     [TearDown] public void Cleanup(){sensor.Dispose();scheduler.Dispose();grid.Dispose();world.Dispose();}
     private static KinematicState State(double3 p)=>new KinematicState{PositionWorld=p,Rotation=quaternion.identity,Mass=1};
-    private SensorId AddSensor(int index,byte generation)
+    private SensorId AddSensor(int index,byte generation,bool losRate=false)
     {
         var value=new SensorId(new Handle(index,generation));var owner=world.Register(State(double3.zero));
         sensor.RegisterSensor(new RadarSensorProfile{SensorId=value,OwnerEntityId=owner,EmitterId=new EmitterId(new Handle(index,generation)),
             Physical=hardware,DwellConfig=hardware.BuildDwell(.008f,hardware.BeamWidthRadians),ClutterPowerDb=-300,
-            SidelobeLevelDb=-25,FrequencyBand=1,MaxRangeMeters=1,Capability=SensorCapability.Range|SensorCapability.Doppler,
+            SidelobeLevelDb=-25,FrequencyBand=1,MaxRangeMeters=1,Capability=SensorCapability.Range|SensorCapability.Doppler|(losRate?SensorCapability.LosRate:0),
             Resolutions=new ResolutionMerge.Resolutions{RangeMeters=1,AngleRadians=.001f,VelocityMps=1}});
         return value;
     }
     private Dwell Work(ulong sequence,float duration=.008f,DwellPriority priority=DwellPriority.WideSearch,double due=0)
         =>new Dwell{SensorId=id,DueTime=due,DwellTimeSeconds=duration,BeamDirection=new float3(0,0,1),
             BeamWidthRadians=hardware.BeamWidthRadians,Sequence=sequence,Priority=priority};
+    [TestCase(100000,100)] [TestCase(200000,100)] [TestCase(100000,1)] [TestCase(200000,1)]
+    public void LayeredSearchFindsUncuedTargetThroughActualSensorWithinThirtySeconds(float range,float rcs)
+    {
+        double az=math.radians(22.0),el=math.radians(12.0);
+        world.TrySetState(target,State(new double3(math.sin(az)*math.cos(el),math.sin(el),math.cos(az)*math.cos(el))*range));
+        sensor.RegisterTarget(new RadarTargetProfile{EntityId=target,RadarCrossSectionSquareMeters=rcs});
+        var wide=new RasterScanPattern(100,60,math.degrees(hardware.BeamWidthRadians)*.66f*MechRadarTaskPolicy.AcquisitionBeamMultiplier);
+        var deep=new RasterScanPattern(100,60,math.degrees(hardware.BeamWidthRadians)*.66f);
+        double next=0,first=-1;ulong seq=0;int detections=0;
+        for(int tick=1;tick<=1500;tick++)
+        {
+            double now=tick*.04;
+            if(now>=next)
+            {
+                double interval=MechRadarTaskPolicy.BatchInterval(5,seq,1,.35,.04);
+                for(int k=0;k<5;k++)
+                {
+                    bool far=MechRadarTaskPolicy.DeepSearch(seq);var cell=(far?deep:wide).Next();var d=Work(++seq,far?.008f:.004f,due:now);
+                    var a=math.radians(cell.x);var e=math.radians(cell.y);d.BeamDirection=new float3(math.sin(a)*math.cos(e),math.sin(e),math.cos(a)*math.cos(e));d.BeamWidthRadians=hardware.BeamWidthRadians*(far?1:MechRadarTaskPolicy.AcquisitionBeamMultiplier);sensor.ScheduleDwell(d);
+                }
+                next=now+interval;
+            }
+            sensor.Tick(now);
+            if(sensor.Detections.Length>0){detections+=sensor.Detections.Length;if(first<0)first=now;}
+        }
+        Assert.That(first,Is.InRange(0,30));Assert.That(detections,Is.GreaterThan(3));Assert.That(sensor.TotalPhysicalDwellSeconds,Is.LessThanOrEqualTo(60.001));Assert.That(scheduler.Count,Is.LessThanOrEqualTo(16));
+        TestContext.WriteLine($"range={range}, first={first}, detections={detections}, deferred={sensor.BudgetDeferredCount}");
+    }
+    [TestCase(50000)] [TestCase(100000)]
+    public void ActualMissileRadarEchoesReachWeaponsQualityWithoutPassiveReceivers(float initialRange)
+    {
+        id=AddSensor(0,1,true);
+        sensor.RegisterTarget(new RadarTargetProfile{EntityId=target,RadarCrossSectionSquareMeters=1,ObjectClass=TrackObjectClass.Missile,ClassificationSignature=1});
+        var manager=new ACunicombat.Tracking.RadarTrackManager();var snapshots=new TrackSnapshot[32];bool approved=false;double first=0;double approvalRange=0;
+        for(int tick=1;tick<=300;tick++)
+        {
+            double now=tick*.04;var targetState=State(new double3(0,0,initialRange-1000*now));targetState.VelocityWorld=new double3(0,0,-1000);world.TrySetState(target,targetState);
+            if(tick%3==0)sensor.ScheduleDwell(Work((ulong)tick,.012f,DwellPriority.AlertConfirm,now));
+            sensor.Tick(now);manager.Process(sensor.Detections,sensor.Emissions,double3.zero,double3.zero,now);int n=manager.CopyTracks(snapshots);
+            for(int i=0;i<n;i++)if(ACunicombat.FireControl.MissileTrackFusion.IsIndependentRadarWeaponsQuality(snapshots[i],double3.zero,now)){if(!approved){first=now;approvalRange=math.length(snapshots[i].Position);}approved=true;}
+        }
+        int finalCount=manager.CopyTracks(snapshots);
+        for(int i=0;i<finalCount;i++){var t=snapshots[i];TestContext.WriteLine($"final class={t.ObjectClass} state={t.Lifecycle} hits={t.HitCount} confidence={t.Confidence} classification={t.Classification} p={t.GetCovariance(0,0)+t.GetCovariance(1,1)+t.GetCovariance(2,2)} v={t.GetCovariance(3,3)+t.GetCovariance(4,4)+t.GetCovariance(5,5)}");}
+        Assert.IsTrue(approved,"Actual sensor/filter chain must resolve the missile without RWR/EO");Assert.That(approvalRange,Is.GreaterThan(30000));
+        TestContext.WriteLine($"missile initial={initialRange}, radar-only approval at t={first:F2}, range={approvalRange:F1}");
+    }
     [Test] public void ReceiverNoiseUsesKelvinBandwidthAndDbw()
     {
         var c=hardware.BuildDwell(.008f,hardware.BeamWidthRadians);

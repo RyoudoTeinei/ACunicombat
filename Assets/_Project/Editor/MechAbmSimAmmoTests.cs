@@ -12,7 +12,7 @@ public class MechAbmSimAmmoTests
     const BindingFlags Private=BindingFlags.Instance|BindingFlags.NonPublic;
     [TestCase("ABM-12",12000)] [TestCase("ABM-18",18000)]
     [TestCase("SIM-29",29000)] [TestCase("SIM-29M",35000)]
-    [TestCase("SIM-57",57000)] [TestCase("SIM-57R",82000)]
+    [TestCase("SIM-57",57000)] [TestCase("SIM-57R",77000)]
     public void AmmunitionHasRequestedMaximumWithoutOwningLauncherCapacity(string id,int maximum)
     {
         var p=MechMissileAmmunitionCatalog.Create(id);Assert.IsNotNull(p);Assert.AreEqual(id,p.missileDisplayName);

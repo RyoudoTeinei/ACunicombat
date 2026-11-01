@@ -134,8 +134,12 @@ namespace ACunicombat.FireControl
                         var track=missileTrackCache[c];
                         if(occupied[c]||friendlyMissileTrackMatched[c]||!track.TrackId.Equals(association.TrackId))continue;
                         if(report.HasLaunchTimestamp&&track.FirstObservationTime>0&&track.FirstObservationTime+1e-4<report.LaunchTimestamp)break;
+                        // Our own fire-control system knows this launch for its whole lifetime.
+                        // Once a sensor track is authenticated, a telemetry dropout must not
+                        // publish the same physical weapon again as an unknown threat.
+                        bool persistentOwnBinding=row.Own!=null&&row.Own.Track.Equals(association.TrackId);
                         double support=math.max(association.LastSupportedTime,association.LastAuthenticatedTime);
-                        if(now-support>FriendlyMissileIdentityCoastSeconds)break;
+                        if(!persistentOwnBinding&&now-support>FriendlyMissileIdentityCoastSeconds)break;
                         if(now-report.StateTimestamp>FriendlyMissileReportRetentionSeconds&&track.KinematicUpdateTime>0&&now-track.KinematicUpdateTime<=.25)association.LastSupportedTime=now;
                         decision.TrackIndex=c;decision.Score=association.LastAssociationScore;decision.Resolution=FriendlyIdentityResolution.Coasting;occupied[c]=true;break;
                     }

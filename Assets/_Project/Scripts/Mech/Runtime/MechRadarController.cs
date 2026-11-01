@@ -145,7 +145,7 @@ namespace ACunicombat.Mechs
         private float SearchBeamSpacingDegrees => SearchBeamWidthDegrees * .66f;
         private const int SearchDwellsPerTick = 5;
         private const int SttSearchDwellsPerTick = 2;
-        private const int TwsRevisitsPerTick = 2;
+        private const int TwsRevisitsPerTick = 4;
         private const float TwsRevisitIntervalSeconds = 0.24f;
         private float TwsBeamWidthDegrees => SearchBeamWidthDegrees;
         private float SttBeamWidthDegrees => SearchBeamWidthDegrees;
@@ -269,6 +269,8 @@ namespace ACunicombat.Mechs
         private UplinkSubscription[] uplinkSubscriptions = Array.Empty<UplinkSubscription>();
         public string LastGuidanceUplinkRejection { get; private set; } = string.Empty;
         public int GuidanceUplinksUsed { get { int n=0;foreach(var s in uplinkSubscriptions)if(s.Active)n++;return n; } }
+        public long GuidanceUplinkSendAttempts { get; private set; }
+        public long GuidanceUplinkSendAccepted { get; private set; }
         public int GuidanceUplinkCapacity { get { RefreshGuidanceUplinkCapacity();return uplinkSubscriptions.Length; } }
         private readonly TrackSnapshot[] trackScratch = new TrackSnapshot[MaximumPublicTracks];
         private readonly MissileTrackSnapshot[] missileTrackScratch =
@@ -303,6 +305,8 @@ namespace ACunicombat.Mechs
         private readonly uint[] twsRevisitTrackKeys =
             new uint[MaximumPublicTracks];
         private RasterScanPattern searchPattern;
+        private RasterScanPattern deepSearchPattern;
+        private ulong searchTaskSequence;
 
         private Vector3 previousPlayerPosition;
         private Vector3 playerVelocity;
@@ -1236,6 +1240,7 @@ namespace ACunicombat.Mechs
 
         public int CopyOwnRadarEmissions(EmissionEvent[] destination) =>
             driver!=null&&isActiveAndEnabled ? driver.CopyRadarEmissions(sensorId,destination) : 0;
+        public ACunicombat.Sensors.RadarPhysicalParameters RadarHardware => radarPerformance.Hardware;
 
         public RadarStatusSnapshot GetStatusSnapshot()
         {
@@ -1293,7 +1298,7 @@ namespace ACunicombat.Mechs
                 BeamElevationDegrees = beamElevationDegrees,
                 BeamWidthDegrees = hasStt
                     ? SttBeamWidthDegrees
-                    : SearchBeamWidthDegrees,
+                    : SearchBeamWidthDegrees*MechRadarTaskPolicy.AcquisitionBeamMultiplier,
                 SearchFrameProgress = searchPattern.FrameProgress,
                 SearchColumnCount = searchPattern.ColumnCount,
                 SearchRowCount = searchPattern.RowCount,
@@ -1680,7 +1685,7 @@ namespace ACunicombat.Mechs
             int found=0;uint waveformKey=0;
             for(int i=0;i<count;i++)
             {
-                var t=threats[i];if(t.WaveformClass!=EsmWaveformClass.SearchRadar&&t.WaveformClass!=EsmWaveformClass.FireControlRadar)continue;
+                var t=threats[i];if(t.WaveformClass!=EsmWaveformClass.SearchRadar&&t.WaveformClass!=EsmWaveformClass.FireControlRadar&&t.WaveformClass!=EsmWaveformClass.NoiseJammer)continue;
                 if(SimTimeSeconds<t.LastSeenTime||SimTimeSeconds-t.LastSeenTime>1.5||t.ContactCount<2||t.IdentificationConfidence<.5f)continue;
                 double angle=math.degrees(math.acos(math.clamp(math.dot(direction,(double3)t.DirectionWorld),-1,1)));
                 if(angle>12)continue;
@@ -2014,15 +2019,16 @@ namespace ACunicombat.Mechs
         public void ReleaseProtectionRadar(SensorId sensor){if(driver!=null&&sensor.IsValid)driver.UnregisterRadarSensor(sensor);}
         private void FixedUpdate()
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.RadarPhysics);
             EnsureInitialized();
             if (!initialized)
             {
                 return;
             }
 
-            if(Time.unscaledTime>=nextSceneDiscovery)
+            if(Time.fixedTimeAsDouble>=nextSceneDiscovery)
             {
-                RefreshSceneTargetRoster();nextSceneDiscovery=Time.unscaledTime+.25f;
+                RefreshSceneTargetRoster();nextSceneDiscovery=Time.fixedTimeAsDouble+.25;
             }
             var dt = Mathf.Max(Time.fixedDeltaTime, 1e-4f);
             var playerPosition = transform.position;
@@ -2035,6 +2041,17 @@ namespace ACunicombat.Mechs
                 aimingCamera != null
                     ? aimingCamera.transform.forward
                     : transform.forward;
+            // The camera is the search default, not a restriction on threat tracking.
+            // A fused warning can cue EO onto an off-boresight incoming missile.
+            int opticalCueCount = CopyMissileTracks(missileTrackScratch);
+            if (ElectroOpticalCuePolicy.TrySelectThreat(
+                    missileTrackScratch, opticalCueCount, ToDouble3(playerPosition),
+                    SimTimeSeconds, Math.Max(100.0, headPerformance.referenceHotRangeKm * 1000.0),
+                    out _, out var opticalCuePosition))
+            {
+                var cueDirection = ToVector3(opticalCuePosition) - playerPosition;
+                if (cueDirection.sqrMagnitude > .001f) electroOpticalForward = cueDirection.normalized;
+            }
             driver.UpdateElectroOpticalForward(
                 ToFloat3(electroOpticalForward));
             previousPlayerPosition = playerPosition;
@@ -2086,6 +2103,7 @@ namespace ACunicombat.Mechs
 
         private void LateUpdate()
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.RadarPresentation);
             if (!initialized)
             {
                 damageAssessments.Clear();
@@ -2328,13 +2346,12 @@ namespace ACunicombat.Mechs
             var hasStt = HasStt;
             if (SimulationTime.IsDue(now,nextSearchDwellTime))
             {
-                ScheduleSearchBatch(
-                    now,
-                    hasStt ? SttSearchDwellsPerTick : SearchDwellsPerTick);
+                ulong batchStart=searchTaskSequence;
+                ScheduleSearchBatch(now,hasStt ? SttSearchDwellsPerTick : SearchDwellsPerTick);
                 int searchCount=hasStt?SttSearchDwellsPerTick:SearchDwellsPerTick;
-                // Search must not request more than a full antenna-second every second by itself.
-                double searchDuty=math.max(.05,radarPerformance.Hardware.AntennaDutyCycle*.2);
-                nextSearchDwellTime = now + math.max(RuntimeSearchIntervalSeconds,searchCount*.008/searchDuty);
+                nextSearchDwellTime=now+MechRadarTaskPolicy.BatchInterval(searchCount,batchStart,
+                    radarPerformance.Hardware.AntennaDutyCycle,
+                    MechRadarTaskPolicy.SearchDuty(driver!=null&&driver.TrackCount>0,hasStt,pointDefenseCueTrackId.IsValid),RuntimeSearchIntervalSeconds);
             }
 
             ScheduleAirSearchCue(now);
@@ -2520,21 +2537,24 @@ namespace ACunicombat.Mechs
             CaptureSearchFrame();
             for (var i = 0; i < dwellCount; i++)
             {
-                var cell = searchPattern.Next();
+                bool deep=MechRadarTaskPolicy.DeepSearch(searchTaskSequence++);
+                var cell = (deep?deepSearchPattern:searchPattern).Next();
                 var direction = SearchDirection(cell.x, cell.y);
                 driver.ScheduleRadarDwell(new Dwell
                 {
                     SensorId = sensorId,
                     DueTime = now,
-                    DwellTimeSeconds = 0.008f,
+                    DwellTimeSeconds = deep?MechRadarTaskPolicy.DeepDwellSeconds:MechRadarTaskPolicy.AcquisitionDwellSeconds,
                     BeamDirection = direction,
-                    BeamWidthRadians = SearchBeamWidthDegrees * Mathf.Deg2Rad,
+                    BeamWidthRadians = SearchBeamWidthDegrees * Mathf.Deg2Rad*(deep?1:MechRadarTaskPolicy.AcquisitionBeamMultiplier),
                     Priority = DwellPriority.WideSearch,
                     Sequence = ++dwellSequence,
                 });
                 UpdateBeamAngles(direction);
             }
         }
+
+        private Vector3 CurrentOwnVelocity()=>GetComponent<MechFlightMotionController>()?.Velocity??Vector3.zero;
 
         private float TrackingDwellSeconds(in TrackSnapshot track,float precisionDwell,float acquisitionDwell)
         {
@@ -2547,6 +2567,14 @@ namespace ACunicombat.Mechs
         private void ScheduleTwsRevisits(double now, bool hasStt)
         {
             var count = CopyTracks(trackScratch);
+            var observer=ToDouble3(transform.position);var ownVelocity=ToDouble3(CurrentOwnVelocity());
+            Span<float> weights=stackalloc float[MaximumPublicTracks];double weightedCost=0;
+            for(int k=0;k<count;k++)
+            {
+                weights[k]=MechRadarTaskPolicy.RevisitWeight(trackScratch[k],observer,ownVelocity,now);
+                if(!trackScratch[k].TrackId.Equals(sttTrackId)&&trackScratch[k].Lifecycle!=TrackLifecycle.Dropped)
+                    weightedCost+=TrackingDwellSeconds(trackScratch[k],.004f,.012f)*weights[k];
+            }
             Span<bool> pickedThisCall = stackalloc bool[MaximumPublicTracks];
             pickedThisCall.Clear();
             var scheduled = 0;
@@ -2585,12 +2613,12 @@ namespace ACunicombat.Mechs
                     }
 
                     if (!SimulationTime.IsDue(now,nextTwsRevisitTimes[slot]) ||
-                        nextTwsRevisitTimes[slot] >= bestDueTime)
+                        nextTwsRevisitTimes[slot] - (weights[i]-1)*.12 >= bestDueTime)
                     {
                         continue;
                     }
 
-                    bestDueTime = nextTwsRevisitTimes[slot];
+                    bestDueTime = nextTwsRevisitTimes[slot] - (weights[i]-1)*.12;
                     bestIndex = i;
                 }
 
@@ -2619,16 +2647,16 @@ namespace ACunicombat.Mechs
                     DwellTimeSeconds = TrackingDwellSeconds(selected,.004f,.012f),
                     BeamDirection = direction,
                     BeamWidthRadians = TwsBeamWidthDegrees * Mathf.Deg2Rad,
-                    Priority = selected.Lifecycle == TrackLifecycle.Tentative
+                    Priority = selected.Lifecycle == TrackLifecycle.Tentative || (selected.ObjectClass==TrackObjectClass.Missile&&selected.Affiliation!=TrackAffiliation.Friendly)
                         ? DwellPriority.AlertConfirm
                         : DwellPriority.TrackWhileScan,
                     Sequence = ++dwellSequence,
                 });
                 scheduled++;
                 double twsDuty=math.max(.05,radarPerformance.Hardware.AntennaDutyCycle*(pointDefenseCueTrackId.IsValid?.25:.45));
-                double fairInterval=count*TrackingDwellSeconds(selected,.004f,.012f)/twsDuty;
-                nextTwsRevisitTimes[selectedSlot] = now + math.max(fairInterval,
-                    hasStt?RuntimeTwsRevisitIntervalSeconds*1.5f:RuntimeTwsRevisitIntervalSeconds);
+                float weight=weights[bestIndex];
+                nextTwsRevisitTimes[selectedSlot]=now+math.max(weightedCost/(twsDuty*weight),
+                    math.max(.08,(hasStt?RuntimeTwsRevisitIntervalSeconds*1.5f:RuntimeTwsRevisitIntervalSeconds)/weight));
             }
         }
 
@@ -2660,8 +2688,15 @@ namespace ACunicombat.Mechs
             var dwellsPerTick = hasStt
                 ? SttSearchDwellsPerTick
                 : SearchDwellsPerTick;
-            var frameSeconds =
-                searchPattern.CellCount * RuntimeSearchIntervalSeconds / dwellsPerTick;
+            double cycleSeconds=0;
+            for(int i=0;i<MechRadarTaskPolicy.SearchCycle;i++)
+            {
+                double interval=MechRadarTaskPolicy.BatchInterval(dwellsPerTick,(ulong)(i*dwellsPerTick),
+                    radarPerformance.Hardware.AntennaDutyCycle,
+                    MechRadarTaskPolicy.SearchDuty(driver!=null&&driver.TrackCount>0,hasStt,pointDefenseCueTrackId.IsValid),RuntimeSearchIntervalSeconds);
+                cycleSeconds+=math.ceil(interval/SimulationDriver.SensorStepSeconds)*SimulationDriver.SensorStepSeconds;
+            }
+            float frameSeconds=(float)(searchPattern.CellCount*cycleSeconds/((MechRadarTaskPolicy.SearchCycle-1)*dwellsPerTick));
             return frameSeconds > 0f ? 1f / frameSeconds : 0f;
         }
 
@@ -2828,7 +2863,9 @@ namespace ACunicombat.Mechs
             searchPattern = new RasterScanPattern(
                 RuntimeSearchAzimuthDegrees,
                 RuntimeSearchElevationDegrees,
-                SearchBeamSpacingDegrees);
+                SearchBeamSpacingDegrees*MechRadarTaskPolicy.AcquisitionBeamMultiplier);
+            deepSearchPattern=new RasterScanPattern(RuntimeSearchAzimuthDegrees,RuntimeSearchElevationDegrees,SearchBeamSpacingDegrees);
+            searchTaskSequence=0;
             guidanceChannels = new GuidanceChannel[
                 Mathf.Max(0, fireControlPerformance.GuidanceChannelCapacity)];
             driver = GetComponent<SimulationDriver>();
@@ -2909,6 +2946,10 @@ namespace ACunicombat.Mechs
                     TrackCapacity = Mathf.Max(1, headPerformance.trackCapacity),
                     ClassificationScale = Mathf.Clamp01(
                         headPerformance.identificationCapability / 100f),
+                    AngularResolutionFloorRadians = Mathf.Lerp(.08f,.01f,
+                        Mathf.Clamp01(headPerformance.trackingCapability/100f))*Mathf.Deg2Rad,
+                    ClassificationDiameterRadians = Mathf.Lerp(.25f,.06f,
+                        Mathf.Clamp01(headPerformance.identificationCapability/100f))*Mathf.Deg2Rad,
                 });
             driver.RegisterLaserRangefinder(
                 new LaserRangefinderProfile
@@ -2976,6 +3017,7 @@ namespace ACunicombat.Mechs
                 1,
                 4,
                 EsmWaveformClass.InterceptorMissileSeeker);
+            driver.RegisterEsmWaveformClass(1, MechElectronicWarfareController.NoiseWaveformId, EsmWaveformClass.NoiseJammer);
             driver.RegisterEsmWaveformClass(2, 10, EsmWaveformClass.DataLinkUplink);
             driver.RegisterEsmWaveformClass(
                 MawSensorSystem.InfraredBand,
@@ -3139,10 +3181,10 @@ namespace ACunicombat.Mechs
 
         // The firing platform knows the launch state immediately. Subsequent remote state
         // still arrives through the physical link; this one-shot seed cannot renew itself.
-        internal void RecordOwnMissileLaunch(LinkTerminalId terminal,Vector3 position,Vector3 velocity,MissileMissionRole role,Unity.Collections.FixedString128Bytes model=default)
+        internal void RecordOwnMissileLaunch(LinkTerminalId terminal,Vector3 position,Vector3 velocity,MissileMissionRole role,Unity.Collections.FixedString128Bytes model=default,double? stateTime=null)
         {
             if(!TryGetOwnedMissileLinkEntity(terminal,out _))return;
-            friendlyMissileReports[terminal.Value.Index]=new FriendlyMissileLinkReport{KnownModel=model,Active=true,SourceTerminal=terminal,HasLaunchTimestamp=true,LaunchTimestamp=SimTimeSeconds,Position=ToDouble3(position),Velocity=ToDouble3(velocity),MissionRole=role,MissionRoleConfidence=1,StateTimestamp=SimTimeSeconds,Sequence=0};
+            friendlyMissileReports[terminal.Value.Index]=new FriendlyMissileLinkReport{KnownModel=model,Active=true,SourceTerminal=terminal,HasLaunchTimestamp=true,LaunchTimestamp=stateTime??SimTimeSeconds,Position=ToDouble3(position),Velocity=ToDouble3(velocity),MissionRole=role,MissionRoleConfidence=1,StateTimestamp=stateTime??SimTimeSeconds,Sequence=0};
             missileTrackCacheTime=double.NaN;
         }
         public bool SendFriendlyMissileTrackReport(
@@ -3263,8 +3305,8 @@ namespace ACunicombat.Mechs
 
 
         private readonly Dictionary<Guid,OwnLaunchRecord> ownLaunchRecords;
-        internal void RecordOwnedMissileLaunch(Guid id,Vector3 position,Vector3 velocity,MissileMissionRole role,Unity.Collections.FixedString128Bytes model=default)
-        {missileContacts.RegisterOwnLaunch(id,ToDouble3(position),ToDouble3(velocity),role,SimTimeSeconds,model:model);missileTrackCacheTime=double.NaN;}
+        internal void RecordOwnedMissileLaunch(Guid id,Vector3 position,Vector3 velocity,MissileMissionRole role,Unity.Collections.FixedString128Bytes model=default,double? stateTime=null)
+        {missileContacts.RegisterOwnLaunch(id,ToDouble3(position),ToDouble3(velocity),role,stateTime??SimTimeSeconds,model:model);missileTrackCacheTime=double.NaN;}
         internal void SetOwnedMissileAssignedTarget(Guid id,TrackId target)
         {if(ownLaunchRecords.TryGetValue(id,out var record))record.AssignedTarget=target;missileTrackCacheTime=double.NaN;}
         internal void BindOwnedMissileTerminal(Guid id,LinkTerminalId terminal)
@@ -3483,7 +3525,8 @@ namespace ACunicombat.Mechs
                 }
 
                 subscription.LastSent = track;
-                driver.SendLinkMessage(new LinkMessage
+                GuidanceUplinkSendAttempts++;
+                if(driver.SendLinkMessage(new LinkMessage
                 {
                     Kind = LinkMessageKind.GuidanceUpdate,
                     NetworkId = GuidanceNetworkId,
@@ -3491,21 +3534,25 @@ namespace ACunicombat.Mechs
                     TargetTerminal = subscription.MissileTerminal,
                     SendTime = now,
                     TrackPayload = track,
-                });
+                }))GuidanceUplinkSendAccepted++;
                 subscription.NextSendTime = now + RuntimeGuidanceUplinkIntervalSeconds;
                 uplinkSubscriptions[i] = subscription;
             }
         }
 
         private readonly List<CombatTestTarget> discoveryScratch = new List<CombatTestTarget>();
-        private float nextSceneDiscovery;
+        private double nextSceneDiscovery;
         private void RefreshSceneTargetRoster()
         {
             for(var i=sceneTargetCount-1;i>=0;i--)
             {
                 var target=sceneTargets[i];
                 if(target!=null && target.gameObject.activeInHierarchy)continue;
-                if(target!=null)target.GetComponent<MechTestRadarEmitter>()?.UnregisterObserverDriver(driver);
+                if(target!=null)
+                {
+                    target.GetComponent<MechTestRadarEmitter>()?.UnregisterObserverDriver(driver);
+                    target.GetComponent<MechElectronicWarfareController>()?.UnregisterObserverDriver(driver);
+                }
                 driver.ReleaseSceneEntity(in targetEntityLeases[i]);
                 for(var j=i;j<sceneTargetCount-1;j++)
                 {
@@ -3591,12 +3638,20 @@ namespace ACunicombat.Mechs
                     transform,
                     63 - targetIndex);
             }
+            var electronicWarfare = sceneTarget.GetComponent<MechElectronicWarfareController>() ??
+                                    sceneTarget.gameObject.AddComponent<MechElectronicWarfareController>();
+            electronicWarfare.RegisterObserverDriver(driver, transform, this);
         }
 
         private void UpdateTargetRegistration(int index)
         {
             var sceneTarget = sceneTargets[index];
             var shouldRegister = sceneTarget != null && sceneTarget.IsAlive;
+            if (shouldRegister)
+            {
+                driver.SetElectroOpticalTargetSignature(targetEntities[index],
+                    30f + 20f * Mathf.Log10(Mathf.Max(0.01f, sceneTarget.ThermalSignature)));
+            }
             if (shouldRegister == targetRadarRegistered[index])
             {
                 return;
@@ -3707,7 +3762,11 @@ namespace ACunicombat.Mechs
 
             for (var i = 0; i < sceneTargetCount; i++)
             {
-                if(sceneTargets[i]!=null) sceneTargets[i].GetComponent<MechTestRadarEmitter>()?.UnregisterObserverDriver(driver);
+                if(sceneTargets[i]!=null)
+                {
+                    sceneTargets[i].GetComponent<MechTestRadarEmitter>()?.UnregisterObserverDriver(driver);
+                    sceneTargets[i].GetComponent<MechElectronicWarfareController>()?.UnregisterObserverDriver(driver);
+                }
                 driver.ReleaseSceneEntity(in targetEntityLeases[i]);
             }
 

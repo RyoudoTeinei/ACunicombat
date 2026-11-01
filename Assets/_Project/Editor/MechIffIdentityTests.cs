@@ -14,13 +14,18 @@ public sealed class MechIffIdentityTests
   Assert.That(model.SetManualRelation(id,IdentityRelation.Neutral,1),Is.True);
   var state=model.Evaluate(id,1);
   Assert.That(state.Relation,Is.EqualTo(IdentityRelation.Neutral));Assert.That(state.CanAttackPlatform,Is.False);
-  Assert.That(state.Iff,Is.EqualTo(IffOutcome.None));Assert.That(state.Conflict,Is.True);
+  Assert.That(state.Iff,Is.EqualTo(IffOutcome.None));Assert.That(state.Conflict,Is.True);Assert.That(model.HasDecidedIdentity(id),Is.True);
   model.SetManualRelation(id,IdentityRelation.Friendly,2);
-  Assert.That(model.Evaluate(id,2).Relation,Is.EqualTo(IdentityRelation.Friendly));
+  Assert.That(model.Evaluate(id,2).Relation,Is.EqualTo(IdentityRelation.Friendly));Assert.That(model.HasDecidedIdentity(id),Is.True);
   model.SetManualRelation(id,IdentityRelation.Hostile,3);
-  Assert.That(model.Evaluate(id,3).CanAttackPlatform,Is.True);
+  Assert.That(model.Evaluate(id,3).CanAttackPlatform,Is.True);Assert.That(model.HasDecidedIdentity(id),Is.True);
   Assert.That(model.Evaluate(Id(2),3).Relation,Is.EqualTo(IdentityRelation.Unknown));
   model.Forget(id);Assert.That(model.Evaluate(id,4).Relation,Is.EqualTo(IdentityRelation.Unknown));
+ }
+ [Test] public void UnknownAndNeutralRemainEligibleForRoutineIdentification()
+ {
+  var model=new MechIdentityEvidence();var id=Id();Assert.That(model.HasDecidedIdentity(id),Is.False);
+  model.SetManualRelation(id,IdentityRelation.Neutral,0);model.Evaluate(id,0);Assert.That(model.HasDecidedIdentity(id),Is.False);
  }
  [Test] public void ManualMarkSurvivesIffUpdateWithoutChangingAuthenticationOutcome()
  {
@@ -74,6 +79,11 @@ public sealed class MechIffIdentityTests
   var a=new IffAuthority();var c=Credential();a.Register(c);var p=new MechIffProtocol(a,c);var q=p.Begin(Id(),1000,0);var r=a.Reply(c,q,.1,double3.zero,double3.zero);
   Assert.That(p.Receive(r,.2),Is.EqualTo(IffOutcome.Authenticated));Assert.That(p.Receive(r,.21),Is.EqualTo(IffOutcome.Replay));p.Tick(1);Assert.That(p.Receive(r,1),Is.EqualTo(IffOutcome.Replay));
  }
+ [Test] public void IlluminationAssociationMatchesRwrBearingTolerance()
+ {
+  Assert.That(MechIdentityController.IlluminationAssociationHalfAngleDegrees,Is.EqualTo(12).Within(.001));
+  Assert.That(MechIdentityController.IlluminationAssociationHalfAngleDegrees,Is.GreaterThanOrEqualTo(8));
+ }
  [Test] public void NoReplyNeverMakesAnUnknownTargetHostile()
  {var f=new MechIdentityEvidence();f.SetIff(Id(),IffOutcome.NoResponse);var s=f.Evaluate(Id(),1);Assert.That(s.Relation,Is.EqualTo(IdentityRelation.Unknown));Assert.That(s.CanAttackPlatform,Is.False);}
  [Test] public void ForwardedCopiesCannotAccumulateWeakSuspicion()
@@ -84,8 +94,18 @@ public sealed class MechIffIdentityTests
  [Test] public void SuspectedHostileRequiresHoldAndExitsWithHysteresis()
  {
   var f=new MechIdentityEvidence();f.Submit(Id(),Evidence("lock",IdentityEvidenceKind.FireControlIllumination,0,4),0);
-  Assert.That(f.Evaluate(Id(),0).Relation,Is.EqualTo(IdentityRelation.Unknown));Assert.That(f.Evaluate(Id(),2).Relation,Is.EqualTo(IdentityRelation.SuspectedHostile));
-  Assert.That(f.Evaluate(Id(),4).Relation,Is.EqualTo(IdentityRelation.SuspectedHostile));Assert.That(f.Evaluate(Id(),10).Relation,Is.EqualTo(IdentityRelation.Unknown));
+  var initial=f.Evaluate(Id(),0);Assert.That(initial.Relation,Is.EqualTo(IdentityRelation.SuspectedHostile));Assert.That(initial.Suspicion,Is.EqualTo(.7f).Within(.001));Assert.That(MechBattlefieldMap.IdentitySuspicionLevel(initial),Is.EqualTo(2));
+  var suspected=f.Evaluate(Id(),2);Assert.That(suspected.Relation,Is.EqualTo(IdentityRelation.SuspectedHostile));Assert.That(MechBattlefieldMap.IdentitySuspicionLevel(suspected),Is.EqualTo(2));
+  var held=f.Evaluate(Id(),4);Assert.That(held.Relation,Is.EqualTo(IdentityRelation.SuspectedHostile));Assert.That(held.Suspicion,Is.Zero);Assert.That(MechBattlefieldMap.IdentitySuspicionLevel(held),Is.EqualTo(2));
+  var cleared=f.Evaluate(Id(),10);Assert.That(cleared.Relation,Is.EqualTo(IdentityRelation.Unknown));Assert.That(MechBattlefieldMap.IdentitySuspicionLevel(cleared),Is.Zero);
+ }
+ [Test] public void SuspicionMarkerHasDiscreteLevelsAndDoesNotGrantAttackPermission()
+ {
+  var identity=new ContactIdentitySnapshot{Available=true,Party=IdentityParty.ThirdParty,Relation=IdentityRelation.Unknown,Suspicion=.3f,CanAttackPlatform=false};
+  Assert.That(MechBattlefieldMap.IdentitySuspicionLevel(identity),Is.EqualTo(1));Assert.That(identity.CanAttackPlatform,Is.False);
+  identity.Suspicion=.7f;Assert.That(MechBattlefieldMap.IdentitySuspicionLevel(identity),Is.EqualTo(1));
+  identity.Relation=IdentityRelation.SuspectedHostile;Assert.That(MechBattlefieldMap.IdentitySuspicionLevel(identity),Is.EqualTo(2));
+  identity.Suspicion=.9f;Assert.That(MechBattlefieldMap.IdentitySuspicionLevel(identity),Is.EqualTo(3));Assert.That(identity.CanAttackPlatform,Is.False);
  }
  [Test] public void NeutralAndThirdPartyDoNotBecomeHostileOnSilence()
  {
@@ -93,20 +113,28 @@ public sealed class MechIffIdentityTests
   var n=f.Evaluate(Id(),1);Assert.That(n.Relation,Is.EqualTo(IdentityRelation.Neutral));Assert.That(n.Party,Is.EqualTo(IdentityParty.ThirdParty));Assert.That(n.CanAttackPlatform,Is.False);
   f.Submit(Id(2),Evidence("third",IdentityEvidenceKind.ThirdPartyAuthentication),1);var t=f.Evaluate(Id(2),1);Assert.That(t.Party,Is.EqualTo(IdentityParty.ThirdParty));Assert.That(t.CanAttackPlatform,Is.False);
  }
- [Test] public void ConfirmedFriendlyAttackIsHostileAndAllowsDefenseWithConflictRetained()
+ [Test] public void ConfirmedFriendlyAttackKeepsStableIdentityAndDefensePermission()
  {
   var f=new MechIdentityEvidence();f.Submit(Id(),Evidence("auth",IdentityEvidenceKind.FriendlyAuthentication),0);f.Submit(Id(),Evidence("attack",IdentityEvidenceKind.ObservedAttack),0);
-  var s=f.Evaluate(Id(),1);Assert.That(s.Relation,Is.EqualTo(IdentityRelation.Hostile));Assert.That(s.Conflict,Is.True);Assert.That(s.CanInterceptThreat,Is.True);Assert.That(s.CanAttackPlatform,Is.True);
+  var s=f.Evaluate(Id(),1);Assert.That(s.Relation,Is.EqualTo(IdentityRelation.Friendly));Assert.That(s.Conflict,Is.True);Assert.That(s.CanInterceptThreat,Is.True);Assert.That(s.CanAttackPlatform,Is.False);
+  Assert.That(f.HasDecidedIdentity(Id()),Is.True);Assert.That(f.Evaluate(Id(),101).Relation,Is.EqualTo(IdentityRelation.Friendly));
  }
  [Test] public void ConfirmedAttackPersistsUntilExplicitCorrection()
  {
   var f=new MechIdentityEvidence();f.Submit(Id(),Evidence("attack",IdentityEvidenceKind.ObservedAttack,0,2),0);f.Evaluate(Id(),0);
   Assert.That(f.Evaluate(Id(),10).Relation,Is.EqualTo(IdentityRelation.Hostile));f.CorrectHostility(Id());Assert.That(f.Evaluate(Id(),11).Relation,Is.EqualTo(IdentityRelation.Unknown));
  }
- [Test] public void IdentityExpiresAndNeverTransfersToReusedHandleGeneration()
+ [Test] public void ConfirmedHostileIgnoresLaterFriendlyEvidence()
+ {
+  var f=new MechIdentityEvidence();f.Submit(Id(),Evidence("attack",IdentityEvidenceKind.ObservedAttack),0);f.Evaluate(Id(),0);
+  f.Submit(Id(),Evidence("auth",IdentityEvidenceKind.FriendlyAuthentication,1),1);var s=f.Evaluate(Id(),1);
+  Assert.That(s.Relation,Is.EqualTo(IdentityRelation.Hostile));Assert.That(s.Conflict,Is.True);Assert.That(s.CanAttackPlatform,Is.True);Assert.That(f.HasDecidedIdentity(Id()),Is.True);
+ }
+ [Test] public void DecidedFriendlySurvivesExpiryAndNeverTransfersToReusedHandleGeneration()
  {
   var f=new MechIdentityEvidence();f.Submit(Id(),Evidence("auth",IdentityEvidenceKind.FriendlyAuthentication,0,5),0);
-  Assert.That(f.Evaluate(Id(),1).Relation,Is.EqualTo(IdentityRelation.Friendly));Assert.That(f.Evaluate(Id(1,2),1).Relation,Is.EqualTo(IdentityRelation.Unknown));Assert.That(f.Evaluate(Id(),6).Relation,Is.EqualTo(IdentityRelation.Unknown));
+  Assert.That(f.Evaluate(Id(),1).Relation,Is.EqualTo(IdentityRelation.Friendly));Assert.That(f.Evaluate(Id(1,2),1).Relation,Is.EqualTo(IdentityRelation.Unknown));
+  var expired=f.Evaluate(Id(),6);Assert.That(expired.Relation,Is.EqualTo(IdentityRelation.Friendly));Assert.That(expired.Confidence,Is.EqualTo(1));Assert.That(expired.ValidUntil,Is.EqualTo(double.MaxValue));
  }
  [Test] public void OpticalAndWaveformIdentityRemainDisabled()
  {var f=new MechIdentityEvidence();Assert.That(f.Submit(Id(),Evidence("optical",IdentityEvidenceKind.OpticalIdentity),0),Is.False);Assert.That(f.Submit(Id(),Evidence("rf",IdentityEvidenceKind.WaveformIdentity),0),Is.False);}
@@ -128,11 +156,12 @@ public sealed class MechIffIdentityTests
   Assert.That(f.Evaluate(Id(),1).Relation,Is.Not.EqualTo(IdentityRelation.Hostile));
   f.Submit(Id(),Evidence("lock",IdentityEvidenceKind.FireControlIllumination,1,20),1);Assert.That(f.Evaluate(Id(),2).Relation,Is.Not.EqualTo(IdentityRelation.Hostile));
  }
- [Test] public void RevokingIffDoesNotEraseIndependentFriendlyEvidence()
+ [Test] public void FriendlyLatchRequiresExplicitRevocationAfterEvidenceRemoval()
  {
   var f=new MechIdentityEvidence();f.Submit(Id(),Evidence("iff",IdentityEvidenceKind.FriendlyAuthentication),0);f.Submit(Id(),Evidence("link",IdentityEvidenceKind.CooperativeFriendly),0);
   f.RemoveEvidence(Id(),"iff");Assert.That(f.Evaluate(Id(),1).Relation,Is.EqualTo(IdentityRelation.Friendly));
-  f.RemoveEvidence(Id(),"link");Assert.That(f.Evaluate(Id(),2).Relation,Is.EqualTo(IdentityRelation.Unknown));
+  f.RemoveEvidence(Id(),"link");Assert.That(f.Evaluate(Id(),2).Relation,Is.EqualTo(IdentityRelation.Friendly));
+  f.RevokeFriendlyIdentity(Id());Assert.That(f.HasDecidedIdentity(Id()),Is.False);Assert.That(f.Evaluate(Id(),3).Relation,Is.EqualTo(IdentityRelation.Unknown));
  }
  [Test] public void InvalidReplyIsNotOverwrittenAsRadioSilence()
  {
@@ -171,6 +200,7 @@ public sealed class MechIffIdentityTests
  public void ExpiredProtectedIdentityCannotBecomeTrainingFreeFireTarget(IdentityEvidenceKind kind)
  {
   var f=new MechIdentityEvidence{AllowUnknownPlatformAttack=true};f.Submit(Id(),Evidence("identity",kind,0,2),0);f.Evaluate(Id(),1);
-  var stale=f.Evaluate(Id(),3);Assert.That(stale.Relation,Is.EqualTo(IdentityRelation.Unknown));Assert.That(stale.CanAttackPlatform,Is.False);Assert.That(stale.Reason,Is.EqualTo(IdentityReason.EvidenceExpired));
+  var stale=f.Evaluate(Id(),3);bool friendly=kind==IdentityEvidenceKind.FriendlyAuthentication;
+  Assert.That(stale.Relation,Is.EqualTo(friendly?IdentityRelation.Friendly:IdentityRelation.Unknown));Assert.That(stale.CanAttackPlatform,Is.False);Assert.That(stale.Reason,Is.EqualTo(friendly?IdentityReason.Authenticated:IdentityReason.EvidenceExpired));Assert.That(f.HasDecidedIdentity(Id()),Is.EqualTo(friendly));
  }
 }

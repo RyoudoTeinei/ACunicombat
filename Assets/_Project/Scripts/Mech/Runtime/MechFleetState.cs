@@ -44,7 +44,7 @@ namespace ACunicombat.Mechs
         public bool CruiseCommandActive {get;private set;}
         public void CancelCruise()=>CruiseCommandActive=false;
         public FleetRadarControl RadarControl {get;private set;}=FleetRadarControl.Active;
-        public bool SetLocalRadarControl(FleetRadarControl mode){if(mode!=FleetRadarControl.Active&&mode!=FleetRadarControl.RadiationSilence)return false;RadarControl=mode;return true;}
+        public bool SetLocalRadarControl(FleetRadarControl mode){if(!Enum.IsDefined(typeof(FleetRadarControl),mode))return false;RadarControl=mode;return true;}
         public MechFleetTask Task {get;private set;}
         public readonly Dictionary<Guid,FleetPacket> Members=new Dictionary<Guid,FleetPacket>();
         public readonly Dictionary<Guid,FleetPacket> Capabilities=new Dictionary<Guid,FleetPacket>();
@@ -107,15 +107,15 @@ namespace ACunicombat.Mechs
             revisions[p.Sender]=p.Revision;operations[p.Operation]=Math.Max(p.ExpiresAt,now+120);
             if(p.Order==FleetOrderKind.ConfigureFormation)
             {
-                if(p.TaskGroup==FleetTaskGroup.ElectronicWarfare||p.TaskGroup==FleetTaskGroup.EarlyWarningCommand||p.TaskGroup==FleetTaskGroup.Logistics||p.FormationRoot==Guid.Empty||p.Leader==Guid.Empty||p.FormationIndex<0||p.FormationSize<=p.FormationIndex||!Unity.Mathematics.math.all(Unity.Mathematics.math.isfinite(p.FormationOffset))||!Enum.IsDefined(typeof(FleetTaskGroup),p.TaskGroup)||!Enum.IsDefined(typeof(FleetFormationShape),p.FormationShape))
+                if(p.TaskGroup==FleetTaskGroup.EarlyWarningCommand||p.TaskGroup==FleetTaskGroup.Logistics||p.FormationRoot==Guid.Empty||p.Leader==Guid.Empty||p.FormationIndex<0||p.FormationSize<=p.FormationIndex||!Unity.Mathematics.math.all(Unity.Mathematics.math.isfinite(p.FormationOffset))||!Enum.IsDefined(typeof(FleetTaskGroup),p.TaskGroup)||!Enum.IsDefined(typeof(FleetFormationShape),p.FormationShape))
                 {Reply(p,FleetTaskPhase.Rejected,FleetTaskReason.UnsupportedMovement,now);return false;}
                 ApplyFormationConfiguration(p,now);Reply(p,FleetTaskPhase.Completed,FleetTaskReason.None,now);return true;
             }
             if(p.Order==FleetOrderKind.AssignMission)
             {
-                if(!Enum.IsDefined(typeof(FleetTaskGroup),p.TaskGroup)||p.TaskGroup==FleetTaskGroup.ElectronicWarfare||p.TaskGroup==FleetTaskGroup.EarlyWarningCommand||p.TaskGroup==FleetTaskGroup.Logistics||!Enum.IsDefined(typeof(FleetMissionGeometry),p.MissionGeometry)||!Unity.Mathematics.math.all(Unity.Mathematics.math.isfinite(p.MissionPoint))||!Unity.Mathematics.math.all(Unity.Mathematics.math.isfinite(p.MissionDirection)))
+                if(!Enum.IsDefined(typeof(FleetTaskGroup),p.TaskGroup)||p.TaskGroup==FleetTaskGroup.EarlyWarningCommand||p.TaskGroup==FleetTaskGroup.Logistics||!Enum.IsDefined(typeof(FleetMissionGeometry),p.MissionGeometry)||!Unity.Mathematics.math.all(Unity.Mathematics.math.isfinite(p.MissionPoint))||!Unity.Mathematics.math.all(Unity.Mathematics.math.isfinite(p.MissionDirection)))
                 {Reply(p,FleetTaskPhase.Rejected,FleetTaskReason.UnsupportedMovement,now);return false;}
-                bool legalGeometry=p.TaskGroup switch{FleetTaskGroup.Strike or FleetTaskGroup.Escort or FleetTaskGroup.AirDefenseSuppression=>p.MissionGeometry==FleetMissionGeometry.Target,FleetTaskGroup.AirSuperiority=>p.MissionGeometry==FleetMissionGeometry.Area||p.MissionGeometry==FleetMissionGeometry.Point,FleetTaskGroup.Reconnaissance=>p.MissionGeometry==FleetMissionGeometry.Area||p.MissionGeometry==FleetMissionGeometry.PointDirection,_=>false};
+                bool legalGeometry=p.TaskGroup switch{FleetTaskGroup.Strike or FleetTaskGroup.Escort or FleetTaskGroup.AirDefenseSuppression or FleetTaskGroup.ElectronicWarfare=>p.MissionGeometry==FleetMissionGeometry.Target,FleetTaskGroup.AirSuperiority=>p.MissionGeometry==FleetMissionGeometry.Area||p.MissionGeometry==FleetMissionGeometry.Point,FleetTaskGroup.Reconnaissance=>p.MissionGeometry==FleetMissionGeometry.Area||p.MissionGeometry==FleetMissionGeometry.PointDirection,_=>false};
                 if(!legalGeometry){Reply(p,FleetTaskPhase.Rejected,FleetTaskReason.UnsupportedMovement,now);return false;}
                 if(p.MissionGeometry==FleetMissionGeometry.Target&&!p.Target.TrackId.IsValid&&p.MissionProtectedMember==Guid.Empty){Reply(p,FleetTaskPhase.Rejected,FleetTaskReason.MissingObservation,now);return false;}
                 if(p.MissionGeometry==FleetMissionGeometry.PointDirection&&Unity.Mathematics.math.lengthsq(p.MissionDirection)<.001f){Reply(p,FleetTaskPhase.Rejected,FleetTaskReason.UnsupportedMovement,now);return false;}

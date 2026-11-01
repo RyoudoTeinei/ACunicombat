@@ -16,24 +16,18 @@ namespace ACunicombat.Mechs
         }
         private MechMissileBanks EnsureMissileBanks(MechEquipmentSlot slot)
         {
-            var part=GetEquippedPartDefinition(slot);if(part==null||!MechMissileLauncherCatalog.IsJianwei(part.PartId))return null;
+            var part=GetEquippedPartDefinition(slot);if(part==null||MechMissileLauncherCatalog.Find(part.PartId)==null)return null;
             var state=GetInstanceState(slot);
             if(state.MissileBanks==null)state.MissileBanks=new MechMissileBanks(MechMissileLauncherCatalog.Find(part.PartId),SelectedMissileVariant(slot,part));
             state.MissileBanks.Tick(Time.timeAsDouble);SyncMissileBankCounts(state);return state.MissileBanks;
         }
         private static void SyncMissileBankCounts(InstanceWeaponState state)
         {var b=state.MissileBanks;if(b==null)return;state.Rounds=b.Loaded;state.Magazines=(b.Total+b.Launcher.GroupCapacity-1)/b.Launcher.GroupCapacity;}
-        private double MissileTargetDistance(TrackId id)
-        {
-            if(radarController!=null&&id.IsValid&&radarController.TryGetMissileTrack(id,out var t))
-                return Unity.Mathematics.math.distance(t.PredictPosition(radarController.SimTimeSeconds),(Unity.Mathematics.double3)(Unity.Mathematics.float3)transform.position);
-            return 0;
-        }
         private MechWeaponPerformance BankPerformance(MechEquipmentSlot slot,TrackId target=default)
         {
             var banks=EnsureMissileBanks(slot);if(banks==null)return null;
             var state=GetInstanceState(slot);int index=state.ActiveMissileBank;
-            if(index<0)index=target.IsValid?banks.Select(MissileTargetDistance(target)):banks.LongestLoadedBank();
+            if(index<0)index=target.IsValid?SelectMissileBankForTarget(banks,target):banks.LongestLoadedBank();
             // Empty/unsuitable inventory still has a role for HUD; release checks
             // explicitly reject it instead of confusing a fallback with ammunition.
             string ammo=index>=0?banks.Banks[index].Ammo:banks.Launcher.DefaultAmmo;
@@ -42,16 +36,41 @@ namespace ACunicombat.Mechs
         private bool BankCanRelease(MechEquipmentSlot slot,TrackId target)
         {
             var banks=EnsureMissileBanks(slot);if(banks==null)return true;
-            var state=GetInstanceState(slot);int index=state.ActiveMissileBank>=0?state.ActiveMissileBank:banks.Select(MissileTargetDistance(target));
+            var state=GetInstanceState(slot);int index=state.ActiveMissileBank>=0?state.ActiveMissileBank:SelectMissileBankForTarget(banks,target);
             if(index<0||banks.Banks[index].Rounds<=0)return false;
-            return MissileTargetDistance(target)<=MechMissileAmmunitionCatalog.Create(banks.Banks[index].Ammo).maximumRangeMeters;
+            return !banks.UsesRangeSelection || BankHasIntercept(banks.Banks[index].Ammo,target);
         }
+        private int SelectMissileBankForTarget(MechMissileBanks banks,TrackId target)
+        {
+            if(!banks.UsesRangeSelection || radarController==null || !radarController.TryGetMissileTrack(target,out var threat))
+                return banks.Select(0);
+            int best=-1;float shortest=float.PositiveInfinity;
+            for(int i=0;i<banks.Banks.Length;i++)
+            {
+                if(banks.Banks[i].Rounds<=0)continue;
+                var performance=MechMissileAmmunitionCatalog.Create(banks.Banks[i].Ammo);
+                var profile=performance.missileFlightProfile;
+                if(profile.MaximumRangeMeters>=shortest)continue;
+                if(BankHasIntercept(banks.Banks[i].Ammo,target)){best=i;shortest=profile.MaximumRangeMeters;}
+            }
+            return best;
+        }
+        private bool BankHasIntercept(string ammo,TrackId target)
+        {
+            if(radarController==null || !radarController.TryGetMissileTrack(target,out var threat))return false;
+            var profile=MechMissileAmmunitionCatalog.Create(ammo).missileFlightProfile;
+            var velocity=flightMotion!=null?flightMotion.Velocity:Vector3.zero;
+            var direction=flightMotion!=null?flightMotion.LogicalRotation*Vector3.up:transform.up;
+            return SolveInterceptorEngagement(in threat,transform.position,velocity,direction,radarController.SimTimeSeconds,profile).Reachable;
+        }
+        public bool IsMissileMagazineReloading(MechEquipmentSlot slot)
+        {var banks=EnsureMissileBanks(slot);return banks!=null&&banks.Loaded==0&&banks.Loading>0;}
         public string GetMissileBankStatus(MechEquipmentSlot slot)
         {
             var banks=EnsureMissileBanks(slot);if(banks==null)return null;
             string result="";
             for(int i=0;i<banks.Banks.Length;i++)
-            {var b=banks.Banks[i];if(i>0)result+=" / ";result+=(i==0?"A:":"B:")+(b.Ammo=="JW7-ER"?"C":"普")+b.Rounds;
+            {var b=banks.Banks[i];if(i>0)result+=" / ";result+=(i==0?"A:":"B:")+(banks.UsesRangeSelection?(b.Ammo=="JW7-ER"?"C":"普"):MechMissileAmmunitionCatalog.Create(b.Ammo).missileDisplayName)+b.Rounds;
                 if(b.Loading>0)result+=" 装"+Mathf.Max(0,(float)(b.ReloadAt-Time.timeAsDouble)).ToString("0.0")+"s";}
             return result+" 备"+banks.Reserve+"/总"+banks.Total;
         }

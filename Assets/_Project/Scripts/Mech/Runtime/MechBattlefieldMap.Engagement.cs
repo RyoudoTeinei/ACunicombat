@@ -46,9 +46,14 @@ namespace ACunicombat.Mechs
    }
    GUI.color=tint;GUI.matrix=matrix;GUI.depth=depth;
   }
+  public static bool CanPreviewAttackTarget(bool own,TrackAffiliation affiliation,ContactIdentitySnapshot identity)
+  {
+   if(own||affiliation==TrackAffiliation.Friendly)return false;
+   return !identity.Available||identity.CanAttackPlatform;
+  }
   private void DrawAttackPreview(Contact owner)
   {
-   if(contextOpen||!InPlot(mapPointer)||!ContactAt(mapPointer,out var enemy)||enemy.Own||enemy.Affiliation!=TrackAffiliation.Hostile)return;
+   if(contextOpen||!InPlot(mapPointer)||!ContactAt(mapPointer,out var enemy)||!CanPreviewAttackTarget(enemy.Own,enemy.Affiliation,enemy.Identity))return;
    double now=Time.timeAsDouble;
    if(now>=nextPreview||previewOwner!=owner.Key||previewTarget!=enemy.Key||previewWeapon!=commandWeapon)
    {

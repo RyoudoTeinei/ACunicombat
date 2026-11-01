@@ -74,14 +74,32 @@ namespace ACunicombat.Mechs
             SecondStageThrustNewtons > 0f &&
             SecondStageMassFlowKgPerSecond > 0f;
 
+        // Vacuum reference trajectory: zero carrier velocity, no lateral manoeuvre,
+        // full thrust and earliest permitted second ignition within service lifetime.
+        public ACunicombat.FireControl.MissileKinematicProfile Kinematics => new ACunicombat.FireControl.MissileKinematicProfile
+        {
+            EjectionSpeed = EjectionSpeedMps,
+            InertMass = DryMassKg + RcsPropellantMassKg,
+            MainPropellantMass = MainPropellantMassKg,
+            MainEngineThrust = MainEngineThrustNewtons,
+            MainMassFlow = MainMassFlowKgPerSecond,
+            SecondPropellantMass = HasSecondStage ? SecondStagePropellantMassKg : 0,
+            SecondEngineThrust = SecondStageThrustNewtons,
+            SecondMassFlow = SecondStageMassFlowKgPerSecond,
+            SecondIgnitionDelay = Mathf.Max(0, SecondStageIgnitionDelaySeconds),
+            FlightTimeLimit = MaximumFlightTimeSeconds,
+            SeekerRange = SeekerRangeMeters
+        };
+
+        public float ReferenceRangeMeters => (float)(Math.Floor(Kinematics.RelativeTravelDistance(MaximumFlightTimeSeconds) / 100.0) * 100.0);
+
         public bool IsConfigured =>
             DryMassKg > 0f &&
             MainPropellantMassKg > 0f &&
             MainEngineThrustNewtons > 0f &&
             MainMassFlowKgPerSecond > 0f &&
             PitchYawInertiaKgM2 > 0f &&
-            MaximumFlightTimeSeconds > 0f &&
-            MaximumRangeMeters > 0f;
+            MaximumFlightTimeSeconds > 0f;
 
         public MissileFlightProfile Sanitized()
         {
@@ -125,8 +143,9 @@ namespace ACunicombat.Mechs
                 Mathf.Max(0f, profile.EjectionSpeedMps);
             profile.MaximumFlightTimeSeconds =
                 Mathf.Max(0.1f, profile.MaximumFlightTimeSeconds);
-            profile.MaximumRangeMeters =
-                Mathf.Max(100f, profile.MaximumRangeMeters);
+            // Keep the serialized field as a migration output for existing callers.
+            // Its authored value never controls missile range.
+            profile.MaximumRangeMeters = profile.ReferenceRangeMeters;
             profile.SeekerActivationDelaySeconds =
                 Mathf.Max(0.01f, profile.SeekerActivationDelaySeconds);
             profile.SeekerRangeMeters =
@@ -167,7 +186,6 @@ namespace ACunicombat.Mechs
                 MaximumAngularRateDegreesPerSecond = 240f,
                 EjectionSpeedMps = 40f,
                 MaximumFlightTimeSeconds = 300f,
-                MaximumRangeMeters = 50_000f,
                 SeekerActivationDelaySeconds = 0.5f,
                 SeekerRangeMeters = 8_000f,
                 SeekerSearchHalfAngleDegrees = 35f,
@@ -194,7 +212,6 @@ namespace ACunicombat.Mechs
                 MaximumAngularRateDegreesPerSecond = 600f,
                 EjectionSpeedMps = 55f,
                 MaximumFlightTimeSeconds = 40f,
-                MaximumRangeMeters = 15_000f,
                 SeekerActivationDelaySeconds = 0.1f,
                 SeekerRangeMeters = 12_000f,
                 SeekerSearchHalfAngleDegrees = 50f,

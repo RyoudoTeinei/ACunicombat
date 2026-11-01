@@ -24,6 +24,7 @@ namespace ACunicombat.Mechs
         }
         private void OnGUI()
         {
+            if(Event.current==null||Event.current.type!=EventType.Repaint)return;
             if(diagram?.Texture==null||GetComponent<MechAiTargetController>()!=null||MechSolarSystemMap.IsAnyMapVisible||MechAssemblyMenu.IsAnyMenuVisible)return;
             var previous=MechHudLayout.BeginScaledGui();var color=GUI.color;
             GUI.color=Color.white;GUI.DrawTexture(MechHudLayout.OwnshipDiagramRect,diagram.Texture,ScaleMode.ScaleToFit,true);

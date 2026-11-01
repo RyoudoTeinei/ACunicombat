@@ -132,6 +132,20 @@ namespace ACunicombat.Tests.EditMode
             var message=Message(a.TerminalId,b.TerminalId,0);message.Kind=LinkMessageKind.FleetCoordination;message.FleetPayload=new FleetPacket{Kind=FleetPacketKind.Order};Assert.IsFalse(link.Send(message));message.SendTime=1;Assert.IsFalse(link.Send(message));message.SendTime=3;Assert.IsTrue(link.Send(message));Assert.IsFalse(link.Send(message));
         }
 
+        [Test] public void EmissionReportTraversesPhysicalLinkWithoutGeometryLoss()
+        {
+            using var world=new SimWorld();using var link=new DataLinkSystem(world);
+            var a=Terminal(1,world.Register(State(double3.zero)),.01f,100);var b=Terminal(2,world.Register(State(new double3(100,0,0))),.01f,100);
+            world.SwapSnapshots(0);link.RegisterTerminal(a);link.RegisterTerminal(b);
+            var message=Message(a.TerminalId,b.TerminalId,0);message.Kind=LinkMessageKind.EmissionReport;
+            message.EmissionPayload=new EmissionReport{ObservedAt=0,ExpiresAt=1,Emission=new EmissionEvent{EmissionType=EmissionType.Jamming,Origin=new double3(25,0,0),Direction=new float3(0,0,1),BeamWidth=.3f,MaxRangeMeters=90000}};
+            Assert.IsTrue(link.Send(message));link.Tick(0);link.Tick(.03);
+            var inbox=new LinkMessage[1];Assert.AreEqual(1,link.CopyInbox(b.TerminalId,inbox));
+            Assert.AreEqual(EmissionType.Jamming,inbox[0].EmissionPayload.Emission.EmissionType);
+            Assert.AreEqual(.3f,inbox[0].EmissionPayload.Emission.BeamWidth,.0001);
+            Assert.AreEqual(90000,inbox[0].EmissionPayload.Emission.MaxRangeMeters,.001);
+        }
+
         private static LinkTerminalProfile Terminal(
             int index,
             SimEntityId owner,

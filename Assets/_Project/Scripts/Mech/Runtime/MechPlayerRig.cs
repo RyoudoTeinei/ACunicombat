@@ -181,6 +181,7 @@ namespace ACunicombat.Mechs
 			mechanicalAudioController.Configure(motion, !aiControlled);
 			if (!aiControlled)
 			{
+                MechOwnshipEventLog.Ensure(gameObject);
 				orbitalPlanet = UnityEngine.Object.FindAnyObjectByType<MechOrbitalPlanetBackdrop>();
 			}
             PlatformFactory.ConfigurePhysicalPresentation(gameObject,motion,ref thrustVisualizer,ref mainThrusterPlume,ref thermalSignature);
@@ -198,6 +199,10 @@ namespace ACunicombat.Mechs
 			}
 			runtimeState = GetComponent<MechRuntimeState>();
 			radar = GetComponent<MechRadarController>();
+			if (radar != null && GetComponent<MechElectronicWarfareController>() == null)
+			{
+				base.gameObject.AddComponent<MechElectronicWarfareController>();
+			}
 			if (combatTarget == null)
 			{
 				combatTarget = GetComponent<CombatTestTarget>();
@@ -215,6 +220,10 @@ namespace ACunicombat.Mechs
 			if (!aiControlled && radar != null && GetComponent<MechThreatWarningPresenter>() == null)
 			{
 				base.gameObject.AddComponent<MechThreatWarningPresenter>();
+			}
+			if (!aiControlled && GetComponent<MechSubtitlePresenter>() == null)
+			{
+				base.gameObject.AddComponent<MechSubtitlePresenter>();
 			}
 			if (orbitSynchronizer == null)
 			{
@@ -414,6 +423,7 @@ namespace ACunicombat.Mechs
 
 		private void Update()
 		{
+            using var costScope=ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.PlayerUpdate);
 			MechSolarSystemMap.EnsureAttached(this);
 			if (input == null || motion == null || graphRunner == null)
 			{
@@ -603,6 +613,7 @@ namespace ACunicombat.Mechs
 
 		private void LateUpdate()
 		{
+            using var costScope=ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.PlayerLate);
 			if (cam != null)
 			{
 				cam.Follow(Time.deltaTime);
@@ -815,6 +826,8 @@ namespace ACunicombat.Mechs
 
 		private void OnGUI()
 		{
+            if(Event.current==null||Event.current.type!=EventType.Repaint)return;
+            using var costScope=ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.PlayerHud);
 			if (MechSolarSystemMap.IsAnyMapVisible || MechAssemblyMenu.IsAnyMenuVisible)
 			{
 				return;
@@ -947,8 +960,8 @@ namespace ACunicombat.Mechs
 					return;
 				}
 			}
-			float width = Mathf.Clamp(MechHudLayout.Width * 0.34f, 300f, 520f);
-			Rect rect = new Rect(MechHudLayout.Width * 0.5f - width * 0.5f, MechHudLayout.Height - 86f, width, 14f);
+			float width = Mathf.Clamp(MechHudLayout.Width * 0.34f, 300f, 520f) * 1.25f;
+			Rect rect = new Rect(MechHudLayout.Width * 0.5f - width * 0.5f, MechHudLayout.Height - 102f, width, 14f);
 			float normalized = combatTarget.HealthFraction;
 			Color color = ((normalized <= 0.2f) ? new Color(1f, 0.2f, 0.14f, 0.98f) : ((normalized <= 0.5f) ? new Color(1f, 0.72f, 0.18f, 0.98f) : new Color(0.34f, 0.94f, 0.82f, 0.98f)));
 			DrawInstrumentRect(new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f), new Color(0.01f, 0.05f, 0.045f, 0.9f));
@@ -966,8 +979,8 @@ namespace ACunicombat.Mechs
 
 		private void DrawManeuverEnergyGauge()
 		{
-			float width = Mathf.Clamp(MechHudLayout.Width * 0.34f, 300f, 520f);
-			Rect rect = new Rect(MechHudLayout.Width * 0.5f - width * 0.5f, MechHudLayout.Height - 126f, width, 12f);
+			float width = Mathf.Clamp(MechHudLayout.Width * 0.34f, 300f, 520f) * 1.25f;
+			Rect rect = new Rect(MechHudLayout.Width * 0.5f - width * 0.5f, MechHudLayout.Height - 142f, width, 12f);
 			float normalized = Mathf.Clamp01(motion.ManeuverEnergyNormalized);
 			Color color = (motion.ManeuverEnergyDepleted ? new Color(1f, 0.2f, 0.14f, 0.98f) : ((normalized <= 0.3f) ? new Color(1f, 0.72f, 0.18f, 0.98f) : new Color(0.38f, 1f, 0.56f, 0.98f)));
 			DrawInstrumentRect(new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f), new Color(0.01f, 0.05f, 0.035f, 0.86f));

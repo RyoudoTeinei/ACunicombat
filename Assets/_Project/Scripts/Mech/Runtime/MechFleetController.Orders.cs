@@ -75,7 +75,13 @@ namespace ACunicombat.Mechs
         }
         public bool TryNavigation(out Vector3 direction,out MechPlayerInputFrame frame)
         {
-            direction=transform.forward;frame=default;if(!Configured||(IsPlayer&&!PlayerAutopilotActive)||motion==null)return false;
+            direction=transform.forward;frame=default;
+            if(!TryGetNavigationObjective(out var objective))return false;
+            frame=MechAutonomousFlight.Navigate(motion,transform.position,in objective,out direction);return true;
+        }
+        public bool TryGetNavigationObjective(out MechNavigationObjective objective)
+        {
+            objective=default;if(!Configured||(IsPlayer&&!PlayerAutopilotActive)||motion==null)return false;
             double now=radar.SimTimeSeconds;Vector3 point,velocity;
             bool follow=State.Leader!=MemberId&&(!Detached||HasTask&&State.Task.Phase==FleetTaskPhase.Returning);
             if(HasTask&&State.Task.Order.Order==FleetOrderKind.Move&&State.Task.Phase!=FleetTaskPhase.Returning)
@@ -90,14 +96,10 @@ namespace ACunicombat.Mechs
             else if(State.CruiseCommandActive&&!HasTask){point=transform.position+transform.forward*State.CruiseSpeed*10;velocity=Vector3.zero;}
             else if(TaskGroup==FleetTaskGroup.Support&&!HasTask){point=transform.position;velocity=Vector3.zero;}
             else return false;
-            Vector3 delta=point-transform.position;if(delta.sqrMagnitude>1)direction=delta.normalized;
-            var desired=velocity+Vector3.ClampMagnitude(delta*.15f,State.CruiseSpeed);
-            var acceleration=Vector3.ClampMagnitude((desired-motion.Velocity)/2,30);
-            var local=Quaternion.Inverse(motion.LogicalRotation)*acceleration/30;
-            frame.MoveLocal=new Vector2(Mathf.Clamp(local.x,-1,1),Mathf.Clamp(local.z,-1,1));
-            // Vertical translation uses the same player input channel as piloted flight.
-            frame.HasAutonomousFlightCommand=true;frame.AutonomousAccelerationWorld=acceleration;frame.RiseHeld=local.y>.1f;frame.DescendHeld=local.y<-.1f;return true;
+            var task=follow?(HasTask&&State.Task.Phase==FleetTaskPhase.Returning?MechFlightTask.Return:MechFlightTask.Formation):MechFlightTask.Navigation;
+            objective=new MechNavigationObjective(task,point,velocity,State.CruiseSpeed);return true;
         }
+        private readonly MechFormationCourse formationCourse=new();
         public bool TryGetNavigationGoal(out Vector3 point)
         {
             point=default;if(!Configured)return false;
@@ -118,13 +120,12 @@ namespace ACunicombat.Mechs
         {
             point=velocity=Vector3.zero;
             if(!State.Members.TryGetValue(State.Leader,out var leader)||!State.Fresh(leader,now)||!leader.Available)return false;
-            velocity=(Vector3)(float3)leader.Velocity;var forward=velocity.sqrMagnitude>1?velocity.normalized:Vector3.forward;
-            var side=Vector3.Cross(Vector3.up,forward);if(side.sqrMagnitude<.01f)side=Vector3.Cross(Vector3.right,forward);side.Normalize();
+            velocity=(Vector3)(float3)leader.Velocity;
             var offset=OwnFormationOffset();
             if(Roster.TryGetValue(State.Leader,out var leaderEntry)&&GroupRoot(leaderEntry)==State.FormationRoot)
                 offset-=leaderEntry.FormationShape==FleetFormationShape.Custom?leaderEntry.FormationOffset:FormationSlotOffset(leaderEntry.FormationShape,leaderEntry.FormationIndex,leaderEntry.FormationSize,FormationSpacing);
-            var up=Vector3.Cross(forward,side).normalized;
-            point=(Vector3)(float3)(leader.Position+leader.Velocity*Math.Max(0,now-leader.ObservedAt))+side*offset.x+up*offset.y+forward*offset.z;return true;
+            formationCourse.Resolve(State.Leader,now,velocity,offset,out var worldOffset,out velocity);
+            point=(Vector3)(float3)(leader.Position+leader.Velocity*Math.Max(0,now-leader.ObservedAt))+worldOffset;return true;
         }
         private void RefreshIssuedTargets(double now)
         {
@@ -142,6 +143,7 @@ namespace ACunicombat.Mechs
             =>float.IsFinite(maximum)&&maximum>0&&(target-shooter).sqrMagnitude<=maximum*maximum;
         public float MaximumOffensiveRange()
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.FleetRange);
             float maximum=0;if(weapons==null)return 0;weapons.CopyEquipmentWeaponSnapshots(equipment);
             foreach(var e in equipment)if(e.Enabled&&weapons.TryGetWeaponSlotStatus(new MechEquipmentSlot(e.SlotId),out var s)&&s.HasReserveAmmunition&&MechAiRulePlanner.IsOffensiveRole(s.Role))maximum=Mathf.Max(maximum,s.MaximumRangeMeters);
             return maximum;

@@ -80,7 +80,7 @@ namespace ACunicombat.Mechs
    "护航"=>"选择友方机体或编队，在适当防御位置伴飞并协助拦截。",
    "制空"=>"选择网格区域，攻击区内已确认敌方并拦截威胁；无区域则在航迹点附近巡逻。",
    "防空压制"=>"选择威胁目标，使用可用反辐射弹药压制并协同拦截；辐射关联丢失时停止新发射。",
-   "电子战"=>"对指定区域实施电子压制；目前没有电子战套件。",
+   "电子战"=>"选择非友方辐射目标；电子战套件根据被动测向实施定向噪声压制，无辐射证据时保持静默。",
    "预警与指挥"=>"特型机体承担预警与指挥，在航迹点附近巡逻；目前没有对应套件。",
    "加油与支援"=>"指定目标专供或区域补给；目前没有补给套件。",
    "协助指令"=>"协助目标友机完成它当前的指令。",
@@ -150,7 +150,7 @@ namespace ACunicombat.Mechs
   }
   private static string DamageText(FleetPacket p)=>$"耐久 {p.HealthFraction*100:0}%"+(p.HasDamageReport?$"\n效能下降 {p.ImpairedRegions}\n失效 {p.DisabledRegions}":"");
   private static string IffText(IffOutcome value)=>value switch{IffOutcome.Waiting=>"等待应答",IffOutcome.Authenticated=>"认证成功",IffOutcome.AuthenticatedUnassociated=>"认证成功／待关联",IffOutcome.NoResponse=>"无应答",IffOutcome.Untrusted=>"未获信任",IffOutcome.InvalidProof=>"认证失败",IffOutcome.Replay=>"重复应答",IffOutcome.Expired=>"已过期",IffOutcome.Corrupt=>"报文损坏",IffOutcome.Cancelled=>"已取消",IffOutcome.CapacityLimited=>"问询通道已满",_=>"未问询"};
-  private static string ReasonText(FleetTaskReason value)=>value switch{FleetTaskReason.Unauthorized=>"无指挥权限",FleetTaskReason.PlayerIsNotSubordinate=>"玩家不接受下级命令",FleetTaskReason.Expired=>"请求过期",FleetTaskReason.StaleRevision=>"旧版本请求",FleetTaskReason.MissingWeapon=>"装备不存在",FleetTaskReason.MissingObservation=>"缺少目标观测",FleetTaskReason.IdentityDenied=>"身份规则限制",FleetTaskReason.UnsupportedMovement=>"移动任务未接入",FleetTaskReason.LeaderUnavailable=>"长机失联",FleetTaskReason.Cancelled=>"已取消",FleetTaskReason.LeaseExpired=>"预约过期",FleetTaskReason.LinkTimeout=>"通信超时",FleetTaskReason.WeaponUnavailable=>"装备不可用",FleetTaskReason.TargetLost=>"目标丢失",FleetTaskReason.EngagementCompleted=>"攻击批次完成",FleetTaskReason.UnsupportedRadarMode=>"智能模式待接入",_=>""};
+  private static string ReasonText(FleetTaskReason value)=>value switch{FleetTaskReason.Unauthorized=>"无指挥权限",FleetTaskReason.PlayerIsNotSubordinate=>"玩家不接受下级命令",FleetTaskReason.Expired=>"请求过期",FleetTaskReason.StaleRevision=>"旧版本请求",FleetTaskReason.MissingWeapon=>"装备不存在",FleetTaskReason.MissingObservation=>"缺少目标观测",FleetTaskReason.IdentityDenied=>"身份规则限制",FleetTaskReason.UnsupportedMovement=>"移动任务未接入",FleetTaskReason.LeaderUnavailable=>"长机失联",FleetTaskReason.Cancelled=>"已取消",FleetTaskReason.LeaseExpired=>"预约过期",FleetTaskReason.LinkTimeout=>"通信超时",FleetTaskReason.WeaponUnavailable=>"装备不可用",FleetTaskReason.TargetLost=>"目标丢失",FleetTaskReason.EngagementCompleted=>"攻击批次完成",FleetTaskReason.UnsupportedRadarMode=>"雷达模式不可用",_=>""};
   private void TrackMapOperation(Guid operation)
   {lastMapOperation=operation;commandMessage=operation==Guid.Empty?"请求未创建：无权限或条件不足":"请求已提交，等待回执";}
   private bool ResolveSelectedMember(Contact c,out Guid member,out FleetPacket state)
@@ -195,14 +195,15 @@ namespace ACunicombat.Mechs
    var policyGroup=new Rect(weaponGroup.xMax,footer.y,footer.xMax-weaponGroup.xMax,footer.height);
    Line(new Vector2(unit.xMax,footer.y+12),new Vector2(unit.xMax,footer.yMax-12),PanelBorder);
    Line(new Vector2(weaponGroup.xMax,footer.y+12),new Vector2(weaponGroup.xMax,footer.yMax-12),PanelBorder);
-   BoundedLabel(new Rect(unit.x+16,unit.y+18,unit.width*.48f,28),found?c.Name:"未选择联系人",PrimaryText,19);
-   BoundedLabel(new Rect(unit.x+16,unit.y+47,unit.width*.48f,22),found?c.Type:"—",SecondaryText,12);
-   BoundedLabel(new Rect(unit.x+unit.width*.52f,unit.y+36,unit.width*.44f,58),health,PrimaryText,13);
-   var speedBox=new Rect(unit.x+16,unit.y+94,142,ControlHeight);var speedRecipient=member;
+   BoundedLabel(new Rect(unit.x+16,unit.y+14,unit.width*.48f,28),found?c.Name:"未选择联系人",PrimaryText,19);
+   BoundedLabel(new Rect(unit.x+16,unit.y+43,unit.width*.48f,20),found?c.Type:"—",SecondaryText,12);
+   BoundedLabel(new Rect(unit.x+unit.width*.52f,unit.y+14,unit.width*.44f,52),health,PrimaryText,13);
+   var taskBounds=new Rect(unit.x+16,unit.y+68,unit.width-32,38);Fill(taskBounds,PanelRaised);Fill(new Rect(taskBounds.x,taskBounds.y,3,taskBounds.height),FriendlyColor);
+   BoundedLabel(new Rect(taskBounds.x+12,taskBounds.y,taskBounds.width-24,taskBounds.height),"任务  "+order,PrimaryText,15);
+   var speedBox=new Rect(unit.x+16,unit.y+116,142,ControlHeight);var speedRecipient=member;
    MapButton(speedBox,found?$"{c.Velocity.magnitude:0.0} m/s":"—",()=>speedMenuOpen=!speedMenuOpen,canControl);
    speedMenuAnchor=speedBox;speedMenuMember=speedRecipient;
-   BoundedLabel(new Rect(speedBox.xMax+12,unit.y+94,unit.width*.42f-24,ControlHeight),"航向  "+heading,PrimaryText,13);
-   BoundedLabel(new Rect(unit.x+16,unit.y+133,unit.width-32,25),order,SecondaryText,12);
+   BoundedLabel(new Rect(speedBox.xMax+12,unit.y+116,unit.width*.42f-24,ControlHeight),"航向  "+heading,PrimaryText,13);
    Label(weaponGroup.x+16,weaponGroup.y+11,c.Own?"搭载武器":"搭载武器 / 最近报告",SecondaryText,12);
    MechPartSlot[] mounts={MechPartSlot.LeftBackWeapon,MechPartSlot.RightBackWeapon,MechPartSlot.LeftHandWeapon,MechPartSlot.RightHandWeapon};
    string[] mountNames={"左肩","右肩","左手","右手"};
@@ -252,7 +253,7 @@ namespace ACunicombat.Mechs
     {
      MenuItem(row,"辐射管制",()=>{openPolicyMenu=0;SetRadarPolicy(own,recipient,FleetRadarControl.RadiationSilence);},true,knownStatus&&control==FleetRadarControl.RadiationSilence);
      row.y+=36;MenuItem(row,"主动雷达",()=>{openPolicyMenu=0;SetRadarPolicy(own,recipient,FleetRadarControl.Active);},true,knownStatus&&control==FleetRadarControl.Active);
-     row.y+=36;MenuItem(row,"智能模式",null,false);
+     row.y+=36;MenuItem(row,"智能模式",()=>{openPolicyMenu=0;SetRadarPolicy(own,recipient,FleetRadarControl.Intelligent);},true,knownStatus&&control==FleetRadarControl.Intelligent);
     }
     else
     {

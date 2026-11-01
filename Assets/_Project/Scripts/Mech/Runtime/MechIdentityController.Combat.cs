@@ -37,15 +37,15 @@ namespace ACunicombat.Mechs
             protectedContacts.Add(new ProtectedCombatContact{Position=transform.position,Velocity=motion!=null?motion.Velocity:Vector3.zero,Radius=ProtectedVolumeRadiusMetres,Kind=ProtectedContactKind.Ownship});
             for(int i=0;i<count;i++)
             {
-                var t=tracks[i];bool friendly=t.Affiliation==TrackAffiliation.Friendly;
+                var t=tracks[i];if(t.ObjectClass==TrackObjectClass.Missile||t.ObjectClass==TrackObjectClass.Decoy)continue;bool friendly=t.Affiliation==TrackAffiliation.Friendly;
                 if(snapshots.TryGetValue(t.TrackId,out var identity))friendly=identity.Relation==IdentityRelation.Friendly;
                 bool protectedByMission=missionProtected.Contains(t.TrackId);
                 if(Radar.SimTimeSeconds-t.LastUpdateTime>3)continue;
-                protectedContacts.Add(new ProtectedCombatContact{Position=(Vector3)(float3)t.PredictPosition(Radar.SimTimeSeconds),Velocity=(Vector3)(float3)t.Velocity,Radius=ProtectedVolumeRadiusMetres,Kind=protectedByMission?ProtectedContactKind.MissionProtected:friendly?ProtectedContactKind.FriendlyPlatform:ProtectedContactKind.UnprotectedPlatform});
+                protectedContacts.Add(new ProtectedCombatContact{Position=(Vector3)(float3)t.PredictPosition(Radar.SimTimeSeconds),Velocity=(Vector3)(float3)t.Velocity,Radius=ProtectedVolumeRadiusMetres,SensorTrack=t.TrackId,Kind=protectedByMission?ProtectedContactKind.MissionProtected:friendly?ProtectedContactKind.FriendlyPlatform:ProtectedContactKind.UnprotectedPlatform});
             }
             int missileCount=Radar.CopyMissileTracks(protectedMissiles);
             for(int i=0;i<missileCount;i++){var t=protectedMissiles[i];if(Radar.SimTimeSeconds-t.LastUpdateTime>1||t.PositionUncertaintyMeters>10)continue;
-                protectedContacts.Add(new ProtectedCombatContact{Position=(Vector3)(float3)t.PredictPosition(Radar.SimTimeSeconds),Velocity=(Vector3)(float3)t.Velocity,Radius=8,Kind=t.IsFriendly?ProtectedContactKind.FriendlyEquipment:ProtectedContactKind.UnprotectedEquipment});}
+                protectedContacts.Add(new ProtectedCombatContact{Position=(Vector3)(float3)t.PredictPosition(Radar.SimTimeSeconds),Velocity=(Vector3)(float3)t.PredictVelocity(Radar.SimTimeSeconds),Radius=8,SensorTrack=t.TrackId,AssociatedSensorTrack=t.AssociatedSensorTrackId,LaunchIdentity=t.OwnLaunchIdentity,Kind=t.IsFriendly?ProtectedContactKind.FriendlyEquipment:ProtectedContactKind.UnprotectedEquipment});}
         }
         private void PollCombatObservations(double now)
         {

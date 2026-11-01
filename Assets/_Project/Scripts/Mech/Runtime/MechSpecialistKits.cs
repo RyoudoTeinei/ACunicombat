@@ -18,7 +18,7 @@ namespace ACunicombat.Mechs
    if(IsShoulder(slot.LegacyRole))return true;
    var record=runtime.AssembledParts.FirstOrDefault(r=>r!=null&&r.SlotId==slot.Id);
    if(record!=null&&IsShoulder(record.slot))return true;
-   var definition=runtime.CurrentLoadout?.GetSlots().Find(s=>s.id==slot.Id);
+   var definition=runtime.FindCompiledSlot(slot.Id);
    return definition!=null&&(IsShoulder(definition.legacyRole)||definition.weaponGroup=="left-shoulder"||definition.weaponGroup=="right-shoulder");
   }
   public static bool RadarOperational(MechRuntimeState runtime)

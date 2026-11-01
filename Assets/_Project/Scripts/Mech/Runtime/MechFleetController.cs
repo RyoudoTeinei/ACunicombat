@@ -52,6 +52,7 @@ namespace ACunicombat.Mechs
         {
             if(Configured)throw new InvalidOperationException("Fleet identity cannot change during a live membership.");
             State=new MechFleetState(MemberId,fleet,leader,player,isLeader,initialMode);
+            if(!player)State.SetLocalRadarControl(FleetRadarControl.Intelligent);
             State.SetInitialFormation(formationRoot==Guid.Empty?leader:formationRoot,index,Math.Max(formationSize,index+1));
             State.Feedback+=p=>{if(IsPlayer&&p.Recipient==MemberId)results[p.Operation]=p;else Send(p);};
             Roster[MemberId]=new MechFleetRosterEntry{Member=MemberId,Fleet=fleet,Leader=leader,Name=name,Player=player,IsLeader=isLeader,FormationIndex=index,FormationRoot=State.FormationRoot,FormationSize=State.FormationSize};
@@ -59,14 +60,15 @@ namespace ACunicombat.Mechs
         }
         public void GrantAuthority(Guid commander)=>State?.GrantCommand(commander);
         public bool CanCommand(Guid recipient)
-        {return IsPlayer&&recipient==MemberId||formationManagedMembers.Contains(recipient)||IsLeader&&Roster.TryGetValue(recipient,out var r)&&!r.Player&&(r.Leader==MemberId||r.FormationRoot==MemberId||authorizedLeaders.Contains(recipient));}
+        {if(IsPlayer&&recipient==MemberId||formationManagedMembers.Contains(recipient))return true;if(!IsLeader||!Roster.TryGetValue(recipient,out var r)||r.Player)return false;if(r.Leader==MemberId||r.FormationRoot==MemberId||authorizedLeaders.Contains(recipient))return true;return IsPlayer&&r.Fleet==State.Fleet;}
         private readonly HashSet<Guid> authorizedLeaders=new HashSet<Guid>();
         public void GrantSubordinateLeader(MechFleetController other)
         {if(!IsLeader||other==null||!other.IsLeader||other.IsPlayer)throw new InvalidOperationException("Invalid command hierarchy");authorizedLeaders.Add(other.MemberId);other.GrantAuthority(MemberId);}
         private void Update()
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Fleet);
             if(!Configured||radar?.TelemetryDriver==null||body!=null&&!body.IsAlive)return;
-            double now=radar.SimTimeSeconds;State.Tick(now);
+            double now=radar.SimTimeSeconds;State.Tick(now);UpdateRadarDoctrine();
             for(int i=outbox.Count-1;i>=0;i--)if(outbox[i].Packet.ExpiresAt<now)outbox.RemoveAt(i);
             if(now>=nextHeartbeat){nextHeartbeat=now+MemberReportSeconds;Send(GetOwnStatus());}
             if(now>=nextInventory){nextInventory=now+1;weapons?.CopyEquipmentWeaponSnapshots(equipment);foreach(var e in equipment){weapons.TryGetWeaponSlotStatus(new MechEquipmentSlot(e.SlotId),out var status);Send(new FleetPacket{Kind=FleetPacketKind.Capability,Weapon=e.InstanceId,WeaponMount=(int)GetEquipmentMount(e.SlotId),Role=(int)e.Role,Ammunition=e.Rounds,WeaponName=new Unity.Collections.FixedString512Bytes(GetEquipmentDisplayName(e.SlotId)),Available=e.Enabled&&!e.Reloading,MaximumRange=status.MaximumRangeMeters,MinimumRange=status.MinimumRangeMeters,EffectiveRange=status.EffectiveRangeMeters,ProjectileSpeed=weapons.EstimatedProjectileSpeed(e.SlotId),ObservedAt=now,ExpiresAt=now+3});}}
@@ -128,7 +130,7 @@ namespace ACunicombat.Mechs
             {
                 if(p.Order==FleetOrderKind.ConfigureFormation){UpdateFormationRoster();return;}
                 if(p.Order==FleetOrderKind.AssignMission){resolvedOrder=default;lastSeenOrder=now;missionWaypoint=0;UpdateFormationRoster();return;}
-                if(p.Order==FleetOrderKind.SetRadarControl)radar.SetRadarPowerEnabled(State.RadarControl==FleetRadarControl.Active);
+                if(p.Order==FleetOrderKind.SetRadarControl)ApplyRadarControlMode();
                 if(p.Order==FleetOrderKind.Attack||p.Order==FleetOrderKind.AttackWithWeapon||p.Order==FleetOrderKind.Return){resolvedOrder=default;lastSeenOrder=now;taskShots=0;}
                 if(IsLeader){foreach(var member in Roster.Values)if(member.Leader==MemberId&&member.Member!=MemberId&&!member.Player){Guid childWeapon=Guid.Empty;
                     if(p.Order==FleetOrderKind.AttackWithWeapon){foreach(var cap in State.Capabilities.Values)if(cap.Sender==member.Member&&cap.Role==p.Role&&cap.Available&&State.Fresh(cap,now)){childWeapon=cap.Weapon;break;}
@@ -151,6 +153,7 @@ namespace ACunicombat.Mechs
             {
                 p.Sender=MemberId;p.Fleet=State.Fleet;pending[p.Operation].Packet=p;pending[p.Operation].Acknowledged=true;
                 if(!State.ReceiveLocalPlayerOrder(p,radar.SimTimeSeconds))return Guid.Empty;
+                if(kind==FleetOrderKind.SetRadarControl)ApplyRadarControlMode();
                 resolvedOrder=default;lastSeenOrder=radar.SimTimeSeconds;
                 foreach(var member in Roster.Values)if(IsLeader&&member.Leader==MemberId&&member.Member!=MemberId&&!member.Player)
                 {
@@ -163,13 +166,13 @@ namespace ACunicombat.Mechs
             Send(p);return p.Operation;
         }
         public bool SetOwnRadarControl(FleetRadarControl mode)
-        {if(!Configured||radar==null||!State.SetLocalRadarControl(mode))return false;radar.SetRadarPowerEnabled(mode==FleetRadarControl.Active);return true;}
+        {if(!Configured||radar==null||!State.SetLocalRadarControl(mode))return false;ApplyRadarControlMode();return true;}
         public Guid RequestCruiseSpeed(Guid recipient,float speed)
         {if(!CanCommand(recipient))return Guid.Empty;return IssueInternal(recipient,FleetOrderKind.SetCruiseSpeed,default,default,State.Mode,false,radar.SimTimeSeconds+TaskSeconds,cruiseSpeed:speed);}
         public void LimitCruise(ref MechPlayerInputFrame frame)
         {if(!Configured||!State.CruiseCommandActive||motion==null||!frame.HasAutonomousFlightCommand)return;var desired=Vector3.ClampMagnitude(motion.Velocity+frame.AutonomousAccelerationWorld*2,State.CruiseSpeed);frame.AutonomousAccelerationWorld=Vector3.ClampMagnitude((desired-motion.Velocity)/2,30);}
         public Guid RequestRadarControl(Guid recipient,FleetRadarControl mode)
-        {if(!CanCommand(recipient)||mode==FleetRadarControl.Intelligent)return Guid.Empty;return IssueInternal(recipient,FleetOrderKind.SetRadarControl,default,default,State.Mode,false,radar.SimTimeSeconds+TaskSeconds,mode);}
+        {if(!CanCommand(recipient)||!Enum.IsDefined(typeof(FleetRadarControl),mode))return Guid.Empty;return IssueInternal(recipient,FleetOrderKind.SetRadarControl,default,default,State.Mode,false,radar.SimTimeSeconds+TaskSeconds,mode);}
         private readonly List<MechPartDamageSnapshot> statusDamage=new();
         public FleetPacket GetOwnStatus()
         {
@@ -212,6 +215,7 @@ namespace ACunicombat.Mechs
         public bool AllowsWeapon(Guid instance,MechWeaponRole role,TrackId target,out string reason)
         {
             reason=null;if(!Configured||IsPlayer||IsDefensiveRole(role))return true;
+            if(HasSpatialMission&&TaskGroup==FleetTaskGroup.ElectronicWarfare){reason="ElectronicWarfareMissionOnly";return false;}
             if(HasSpatialMission&&TaskGroup==FleetTaskGroup.AirDefenseSuppression)
             {weapons.CopyEquipmentWeaponSnapshots(equipment);var chosen=equipment.Find(e=>e.InstanceId==instance);if(chosen.InstanceId==Guid.Empty||!AllowsMissionEquipment(chosen.SlotId,role)){reason="SuppressionRequiresPassiveRfWeapon";return false;}}
             if(HasSpatialMission&&!MissionAllowsOffensiveTarget(target)){reason="OutsideMissionAssignment";return false;}

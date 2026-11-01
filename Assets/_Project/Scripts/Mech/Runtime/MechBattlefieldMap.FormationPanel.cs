@@ -27,7 +27,14 @@ namespace ACunicombat.Mechs
   private bool TryFormationContact(Guid member,out Contact contact)
   {foreach(var c in contacts)if(ResolveSelectedMember(c,out var candidate,out _)&&candidate==member){contact=c;return true;}contact=default;return false;}
   private string FormationMemberName(MechFleetRosterEntry member)=>TryFormationContact(member.Member,out var contact)?contact.Name:string.IsNullOrEmpty(member.Name)?"未定位成员":member.Name;
-  private static string FormationPositionName(int index,int count)=>index==0?"编队长机":index==1?"1号机僚机":index%2==0?(index+1<count?$"第{index/2+1}双机组长机":"直属僚机"):$"{index}号机僚机";
+  private string FormationMemberStatus(Guid member)
+  {
+   FleetPacket report;
+   if(member==commandFleet.MemberId)report=commandFleet.GetOwnStatus();
+   else if(!commandFleet.State.Members.TryGetValue(member,out report)||!commandFleet.State.Fresh(report,radar.SimTimeSeconds))return "状态未报告";
+   if(!report.HasPlatformStatus)return "状态未报告";
+   return report.Phase==FleetTaskPhase.None?(report.IsLeader?"自主行动":"编队保持"):TaskReadout(report);
+  }
   private static string TaskGroupName(FleetTaskGroup mode)=>mode switch{FleetTaskGroup.Support=>"支援",FleetTaskGroup.Escort=>"护航",FleetTaskGroup.AirSuperiority=>"制空",FleetTaskGroup.AirDefenseSuppression=>"防空压制",FleetTaskGroup.ElectronicWarfare=>"电子战",FleetTaskGroup.EarlyWarningCommand=>"预警与指挥",FleetTaskGroup.Logistics=>"加油与支援",FleetTaskGroup.Reconnaissance=>"侦察",_=>"打击"};
   private static string TaskGroupShortName(FleetTaskGroup mode)=>mode switch{FleetTaskGroup.AirDefenseSuppression=>"压制",FleetTaskGroup.EarlyWarningCommand=>"预警",FleetTaskGroup.Logistics=>"补给",_=>TaskGroupName(mode)};
   private static string ShapeName(FleetFormationShape shape)=>shape switch{FleetFormationShape.EchelonLeft=>"左梯队",FleetFormationShape.EchelonRight=>"右梯队",FleetFormationShape.LineAbreast=>"横队／战斗展开",FleetFormationShape.Trail=>"纵队／拖后",FleetFormationShape.Wedge=>"楔形",FleetFormationShape.FingerFour=>"指尖四机",FleetFormationShape.Diamond=>"菱形",FleetFormationShape.Custom=>"自定义",_=>"自动队形"};
@@ -58,14 +65,18 @@ namespace ACunicombat.Mechs
    for(int i=0;i<capacity&&i+formationListOffset<rows.Count;i++)
    {
     var row=rows[i+formationListOffset];var bounds=new Rect(panel.x+1,panel.y+40+i*32,panel.width-2,32);
-    if(row.ContactKey==selected||bounds.Contains(mapPointer))Fill(bounds,new Color(.075f,.14f,.105f,1));
+    if(row.ContactKey!=null&&row.ContactKey==selected)
+    {
+     Fill(bounds,new Color(.12f,.30f,.22f,1));Fill(new Rect(bounds.x,bounds.y,4,bounds.height),FriendlyColor);Box(bounds.x,bounds.y,bounds.width,bounds.height,new Color(.35f,.78f,.55f,1),1.2f);
+    }
+    else if(bounds.Contains(mapPointer))Fill(bounds,new Color(.075f,.14f,.105f,1));
     if(row.Header)
     {
      float offset=row.Group==Guid.Empty?0:82;
      if(row.Group!=Guid.Empty)
      {
       var lead=MechFleetController.FormationMembers(row.Group).First();var button=new Rect(bounds.xMax-79,bounds.y+3,74,26);
-      Fill(button,new Color(.07f,.12f,.095f,1));Box(button.x,button.y,button.width,button.height,MutedColor);MenuLabel(button,TaskGroupShortName(lead.TaskGroup),PrimaryText,12);
+      Fill(button,new Color(.07f,.12f,.095f,1));Box(button.x,button.y,button.width,button.height,MutedColor);MenuLabel(button,TaskGroupShortName(lead.TaskGroup),PrimaryText,12);texts[textCount-1].alignment=TextAnchor.MiddleCenter;
       formationHits.Add(new FormationHit{Bounds=button,Root=row.Group,Task=true});
      }
      MenuLabel(new Rect(bounds.x,bounds.y,bounds.width-offset,bounds.height),(row.Expanded?"▼ ":"▶ ")+row.Text,PrimaryText,13);
@@ -74,10 +85,9 @@ namespace ACunicombat.Mechs
     else if(row.Summary){MenuLabel(new Rect(bounds.x+14,bounds.y,bounds.width-14,bounds.height),row.Text,new Color(.57f,.64f,.60f,1),12);formationHits.Add(new FormationHit{Bounds=bounds,Root=row.Group,Header=true});}
     else
     {
-     MenuLabel(new Rect(bounds.x+12,bounds.y,bounds.width*.55f,bounds.height),row.Text,row.ContactKey!=null?PrimaryText:new Color(.42f,.49f,.45f,1),12);
-     var member=MechFleetController.Roster[row.Member];string role=member.FormationSize<=1?"独立单位":FormationPositionName(row.Index,member.FormationSize);
-     BoundedLabel(new Rect(bounds.x+bounds.width*.56f,bounds.y,bounds.width*.43f-8,bounds.height),role,PrimaryText,11);texts[textCount-1].alignment=TextAnchor.MiddleRight;
-     if(row.Leader)DrawFormationCrown(new Vector2(bounds.x+bounds.width*.51f,bounds.center.y-6),PrimaryText);
+     MenuLabel(new Rect(bounds.x+12,bounds.y,bounds.width*.47f,bounds.height),row.Text,row.ContactKey!=null?PrimaryText:new Color(.42f,.49f,.45f,1),12);
+     BoundedLabel(new Rect(bounds.x+bounds.width*.48f,bounds.y,bounds.width*.51f-8,bounds.height),FormationMemberStatus(row.Member),PrimaryText,11);texts[textCount-1].alignment=TextAnchor.MiddleRight;
+     if(row.Leader)DrawFormationCrown(new Vector2(bounds.x+bounds.width*.46f,bounds.center.y-6),PrimaryText);
      formationHits.Add(new FormationHit{Bounds=bounds,Root=row.Group,Member=row.Member,Index=row.Index});
     }
    }

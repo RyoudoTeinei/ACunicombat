@@ -57,6 +57,9 @@ namespace ACunicombat.Tracking
             public float MainlobePowerEmaDb;
             public float MainlobePowerTrendDbPerSecond;
             public int MainlobeContactCount;
+            public float3 EmissionDirection;
+            public float EmissionBeamWidth;
+            public double EmissionMaxRangeMeters;
             public double LastLevelChange;
         }
 
@@ -253,6 +256,12 @@ namespace ACunicombat.Tracking
                 return EsmThreatLevel.MissileActive;
             }
 
+            if (slot.WaveformClass == EsmWaveformClass.NoiseJammer)
+            {
+                // Continuous jamming is emitter contact, not evidence of a weapon lock.
+                return EsmThreatLevel.Tracked;
+            }
+
             if (slot.WaveformClass == EsmWaveformClass.DataLinkUplink)
             {
                 // 解出制导上行波形 = 附近有弹在飞，早于 pitbull 的软告警；
@@ -411,6 +420,9 @@ namespace ACunicombat.Tracking
             }
 
             slot.PowerEmaDb = math.lerp(slot.PowerEmaDb, contact.ReceivedPowerDb, 0.3f);
+            slot.EmissionDirection = contact.EmissionDirection;
+            slot.EmissionBeamWidth = contact.EmissionBeamWidth;
+            slot.EmissionMaxRangeMeters = contact.EmissionMaxRangeMeters;
             slot.Direction = math.normalizesafe(
                 math.lerp(slot.Direction, contact.Direction, DirectionSmoothing),
                 slot.Direction);
@@ -470,6 +482,9 @@ namespace ACunicombat.Tracking
                 MainlobePowerTrendDbPerSecond =
                     slot.MainlobePowerTrendDbPerSecond,
                 MainlobeContactCount = slot.MainlobeContactCount,
+                EmissionDirection = slot.EmissionDirection,
+                EmissionBeamWidth = slot.EmissionBeamWidth,
+                EmissionMaxRangeMeters = slot.EmissionMaxRangeMeters,
             };
         }
     }

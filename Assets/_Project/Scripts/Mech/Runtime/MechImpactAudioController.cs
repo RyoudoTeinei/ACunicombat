@@ -13,6 +13,11 @@ namespace ACunicombat.Mechs
         private const string AudioRoot = "Audio/Impacts/";
         private const string MissileImpactAudioRoot = "Audio/Impacts/Missile/";
         private const string FlakAudioRoot = "Audio/Impacts/Flak/";
+        private AudioSource missileHitWarningSource;
+        private int missileHitWarningRemaining;
+        private double nextMissileHitWarningTime;
+        private const float MissileHitWarningVolume = 0.65f;
+        private const double MissileHitWarningGap = 0.1;
         private const int ExternalSourceCount = 4;
         private const int StructureSourceCount = 3;
         private const int FlakSourceCount = 16;
@@ -87,6 +92,12 @@ namespace ACunicombat.Mechs
         private void Awake()
         {
             LoadVariantSets();
+            var warningObject=new GameObject("Missile Hit Warning");warningObject.transform.SetParent(transform,false);
+            missileHitWarningSource=warningObject.AddComponent<AudioSource>();
+            missileHitWarningSource.clip=Resources.Load<AudioClip>("Audio/Warnings/critical_event_warning");
+            missileHitWarningSource.playOnAwake=false;missileHitWarningSource.loop=false;
+            missileHitWarningSource.spatialBlend=0;missileHitWarningSource.dopplerLevel=0;
+            missileHitWarningSource.volume=MissileHitWarningVolume;missileHitWarningSource.priority=16;
             externalSources = CreateSourcePool(ExternalSourceCount, true);
             structureSources = CreateSourcePool(StructureSourceCount, false);
             flakSources = CreateFlakSourcePool();
@@ -100,6 +111,7 @@ namespace ACunicombat.Mechs
         {
             if (weaponKind == TestWeaponKind.Missile)
             {
+                if(ownship&&damage>0)BeginMissileHitWarning();
                 PlayMissileImpact(hitPoint, ownship);
                 return;
             }
@@ -164,6 +176,22 @@ namespace ACunicombat.Mechs
                     flakDebrisVariants.Next(), flakDebrisVolume,
                     detonationPoint, eventPitch);
             }
+        }
+
+        private void BeginMissileHitWarning()
+        {
+            if(missileHitWarningSource==null||missileHitWarningSource.clip==null)return;
+            // Refresh a bounded three-pulse burst instead of stacking alarms during a salvo.
+            missileHitWarningSource.Stop();missileHitWarningRemaining=3;
+            nextMissileHitWarningTime=Time.unscaledTimeAsDouble;
+            TickMissileHitWarning(Time.unscaledTimeAsDouble);
+        }
+        private void Update()=>TickMissileHitWarning(Time.unscaledTimeAsDouble);
+        private void TickMissileHitWarning(double now)
+        {
+            if(missileHitWarningRemaining<=0||missileHitWarningSource==null||missileHitWarningSource.clip==null||now<nextMissileHitWarningTime)return;
+            missileHitWarningSource.Play();missileHitWarningRemaining--;
+            nextMissileHitWarningTime=now+missileHitWarningSource.clip.length+MissileHitWarningGap;
         }
 
         private void PlayMissileImpact(Vector3 hitPoint, bool ownship)
@@ -398,6 +426,7 @@ namespace ACunicombat.Mechs
 
         private void OnDisable()
         {
+            missileHitWarningRemaining=0;if(missileHitWarningSource!=null)missileHitWarningSource.Stop();
             StopAll(externalSources);
             StopAll(structureSources);
             StopAll(flakSources);

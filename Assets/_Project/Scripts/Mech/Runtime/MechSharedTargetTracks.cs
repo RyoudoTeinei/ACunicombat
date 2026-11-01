@@ -9,7 +9,7 @@ namespace ACunicombat.Mechs
     // Received observations only. No remote entity/transform or world identity crosses here.
     public sealed class MechSharedTargetTracks
     {
-        sealed class Entry {public TrackSnapshot Track;public TrackId Local;}
+        sealed class Entry {public TrackSnapshot Track;public TrackId Local,Public;}
         readonly Dictionary<(uint,uint),Entry> reports=new();
         int next=30000;
         public static bool MatchesOwnNavigation(in TrackSnapshot report,double3 ownPosition,double3 ownVelocity,double now,bool authenticatedSelf=false)
@@ -64,19 +64,24 @@ namespace ACunicombat.Mechs
                 var e=entries[row];var remote=e.Track;int match=assignment[row];
                 if(match<0&&count>=output.Length)continue;
                 var result=remote;
-                result.TrackId=match>=0?output[match].TrackId:e.Local;
+                result.TrackId=match>=0?output[match].TrackId:(e.Public.IsValid?e.Public:e.Local);
                 if(match>=0)
                 {
                     var local=output[match];
                     if(local.PredictPositionUncertainty(now)<=remote.PredictPositionUncertainty(now))result=local;
                     else {result.TrackId=local.TrackId;result.Identity=local.Identity;result.Affiliation=local.Affiliation;result.SourceEvidence=local.SourceEvidence;}
                     result.SourceMask|=local.SourceMask;
+                    e.Public=result.TrackId;
                 }
                 result.SourceMask|=TrackSourceMask.DataLink;
-                e.Local=result.TrackId;
                 result.SourceEvidence.Record(TrackSourceMask.DataLink,remote.Confidence,remote.LastUpdateTime);
                 // A received sender's radar evidence is not a local radar observation.
-                if(match<0){result.SourceMask=TrackSourceMask.DataLink;result.SourceEvidence=default;result.SourceEvidence.Record(TrackSourceMask.DataLink,remote.Confidence,remote.LastUpdateTime);}
+                if(match<0)
+                {
+                    result.SourceMask=TrackSourceMask.DataLink;result.SourceEvidence=default;result.SourceEvidence.Record(TrackSourceMask.DataLink,remote.Confidence,remote.LastUpdateTime);
+                    bool duplicate=false;for(int i=0;i<count;i++)if(output[i].TrackId.Packed==result.TrackId.Packed){duplicate=true;break;}
+                    if(duplicate)continue;
+                }
                 output[match>=0?match:count++]=result;
                 }
             }

@@ -121,7 +121,7 @@ namespace ACunicombat.Mechs
                     emitter.AuxiliaryAnchor.InverseTransformDirection(
                         baseExhaustDirection).normalized,
                     emitter.AuxiliarySlot,
-                    emitter.AuxiliaryAnchor.name,
+                    emitter.AnchorName,
                     emitter.RatedThrustKn,
                     emitter.VectoringEnabled,
                     emitter.MaximumVectorAngleDegrees));
@@ -215,6 +215,7 @@ namespace ACunicombat.Mechs
 
         private void LateUpdate()
         {
+            using var costScope=ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Plume);
             if (motion == null)
             {
                 return;
@@ -254,10 +255,15 @@ namespace ACunicombat.Mechs
                 visibleAuxiliaryCount);
         }
 
+        [SerializeField] private bool logAuxiliaryRuntimeDiagnostics;
+        private float nextAuxiliaryRuntimeDiagnostic;
+
         private void ReportAuxiliaryRuntimeState(
             bool inputActive,
             int visibleCount)
         {
+            if (!logAuxiliaryRuntimeDiagnostics || Time.unscaledTime < nextAuxiliaryRuntimeDiagnostic) return;
+            nextAuxiliaryRuntimeDiagnostic = Time.unscaledTime + 1f;
             if (hasReportedAuxiliaryRuntimeState &&
                 inputActive == lastReportedAuxiliaryInputActive &&
                 visibleCount == lastReportedVisibleAuxiliaryCount)
@@ -296,7 +302,6 @@ namespace ACunicombat.Mechs
         {
             runtimeState ??= GetComponent<MechRuntimeState>();
             LoadNozzleLayout();
-            EnsureMirroredRightForearmNozzle();
             var currentSignature = CalculateAssemblySignature();
             if (!forceRebuild &&
                 currentSignature == assemblySignature &&
@@ -305,6 +310,7 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            EnsureMirroredRightForearmNozzle();
             assemblySignature = currentSignature;
             foreach (var pair in auxiliaryEmitters)
             {
@@ -477,14 +483,10 @@ namespace ACunicombat.Mechs
 
         private bool AuxiliaryEmitterAnchorsAreValid()
         {
-            if (auxiliaryEmitters.Count == 0)
-            {
-                return false;
-            }
-
+            // An assembly with no auxiliary nozzles is a valid cached result.
             foreach (var pair in auxiliaryEmitters)
             {
-                if (pair.Value.AuxiliaryAnchor == null)
+                if (pair.Value.AuxiliaryAnchor == null || pair.Value.Root == null)
                 {
                     return false;
                 }
@@ -526,7 +528,7 @@ namespace ACunicombat.Mechs
                         candidate.SourceId.IndexOf(
                             "/R_Coxa",
                             StringComparison.OrdinalIgnoreCase) >= 0 &&
-                        candidate.AuxiliaryAnchor.name.Equals(
+                        candidate.AnchorName.Equals(
                             mirroredAnchorName,
                             StringComparison.OrdinalIgnoreCase))
                     {
@@ -672,13 +674,15 @@ namespace ACunicombat.Mechs
 
             var emitter = CreateEmitter(layoutId, "Auxiliary_Thruster_Plume");
             emitter.AuxiliaryAnchor = candidate;
+            emitter.AnchorName = candidate.name;
+            emitter.MirrorAnchorName = TryGetMirroredAnchorName(emitter.AnchorName,out var mirrorName)?mirrorName:null;
             emitter.AuxiliarySlot = slot;
             emitter.LayoutId = layoutId;
             emitter.SourceId = sourceId;
             emitter.DisplayName = entry != null && !string.IsNullOrWhiteSpace(entry.displayName)
                 ? entry.displayName
                 : $"{slot} / {candidate.name}";
-            emitter.RatedThrustKn = 600f;
+            emitter.RatedThrustKn = 900f;
             emitter.ShoulderDirection = ResolveShoulderNozzleDirection(candidate, slot);
             if (entry != null)
             {
@@ -930,11 +934,12 @@ namespace ACunicombat.Mechs
             if (string.IsNullOrWhiteSpace(id) ||
                 !auxiliaryEmitters.TryGetValue(id, out var emitter) ||
                 emitter.AuxiliaryAnchor == null ||
-                !TryGetMirroredAnchorName(emitter.AuxiliaryAnchor.name, out var mirroredAnchorName))
+                string.IsNullOrEmpty(emitter.MirrorAnchorName))
             {
                 return false;
             }
 
+            var mirroredAnchorName=emitter.MirrorAnchorName;
             var sourceSide = Mathf.Sign(Vector3.Dot(
                 emitter.AuxiliaryAnchor.position - transform.position,
                 transform.right));
@@ -943,7 +948,7 @@ namespace ACunicombat.Mechs
             {
                 var candidate = pair.Value;
                 if (candidate.AuxiliaryAnchor == null ||
-                    !candidate.AuxiliaryAnchor.name.Equals(
+                    !candidate.AnchorName.Equals(
                         mirroredAnchorName,
                         StringComparison.OrdinalIgnoreCase))
                 {
@@ -1299,7 +1304,7 @@ namespace ACunicombat.Mechs
             var partId = string.Empty;
             for (var current = candidate; current != null; current = current.parent)
             {
-                var assembledPart = current.GetComponent<MechAssembledPart>();
+                current.TryGetComponent<MechAssembledPart>(out var assembledPart);
                 if (assembledPart != null)
                 {
                     partId = assembledPart.Definition != null
@@ -1321,7 +1326,7 @@ namespace ACunicombat.Mechs
         {
             for (var current = candidate; current != null; current = current.parent)
             {
-                var assembledPart = current.GetComponent<MechAssembledPart>();
+                current.TryGetComponent<MechAssembledPart>(out var assembledPart);
                 if (assembledPart != null)
                 {
                     slot = assembledPart.Slot;
@@ -1578,7 +1583,7 @@ namespace ACunicombat.Mechs
         {
             for (var current = anchor; current != null; current = current.parent)
             {
-                var assembledPart = current.GetComponent<MechAssembledPart>();
+                current.TryGetComponent<MechAssembledPart>(out var assembledPart);
                 if ((assembledPart != null && assembledPart.Slot == MechPartSlot.Booster) ||
                     current.name.StartsWith("Booster_", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1770,7 +1775,7 @@ namespace ACunicombat.Mechs
                 var sideSign = Mathf.Sign(Vector3.Dot(radial, transform.right));
                 if (Mathf.Abs(sideSign) <= Mathf.Epsilon)
                 {
-                    sideSign = emitter.AuxiliaryAnchor.name.EndsWith(
+                    sideSign = emitter.AnchorName.EndsWith(
                         "_dmy_8",
                         StringComparison.OrdinalIgnoreCase)
                         ? 1f
@@ -1817,10 +1822,10 @@ namespace ACunicombat.Mechs
                 return false;
             }
 
-            return emitter.AuxiliaryAnchor.name.EndsWith(
+            return emitter.AnchorName.EndsWith(
                        "_dmy_70",
                        StringComparison.OrdinalIgnoreCase) ||
-                   emitter.AuxiliaryAnchor.name.EndsWith(
+                   emitter.AnchorName.EndsWith(
                        "_dmy_71",
                        StringComparison.OrdinalIgnoreCase);
         }
@@ -2114,6 +2119,7 @@ namespace ACunicombat.Mechs
         {
             public MechThrusterChannelState Channel;
             public Transform AuxiliaryAnchor;
+            public string AnchorName, MirrorAnchorName;
             public MechPartSlot AuxiliarySlot;
             public ShoulderNozzleDirection ShoulderDirection;
             public string LayoutId;
@@ -2124,7 +2130,7 @@ namespace ACunicombat.Mechs
             public Vector3 LocalEulerOffset;
             public float RadiusScale = 1f;
             public float LengthScale = 1f;
-            public float RatedThrustKn = 600f;
+            public float RatedThrustKn = 900f;
             public bool VectoringEnabled;
             public float MaximumVectorAngleDegrees;
             public Transform Root;

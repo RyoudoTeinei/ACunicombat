@@ -22,6 +22,7 @@ namespace ACunicombat.Mechs
         private readonly EsmReceiverSystem passiveReceiver;
         private readonly EmissionEvent[] emissions=new EmissionEvent[64];
         private readonly Dictionary<MechRadarController,double> lastEmission=new();
+        private readonly Dictionary<MechElectronicWarfareController,double> lastJammingEmission=new();
         private readonly SimEntityId receiver;
         private readonly SensorId sensor=new SensorId(new Handle(0,1));
         private readonly ObserverEntityBindings bindings;
@@ -56,11 +57,22 @@ namespace ACunicombat.Mechs
                 foreach(var body in bodies)
                 {
                     if(body==null||!body.IsAlive||missile.IsOwnedBy(body.transform))continue;
-                    var source=body.GetComponent<MechRadarController>();if(source==null)continue;
-                    int n=source.CopyOwnRadarEmissions(emissions);double latest=lastEmission.TryGetValue(source,out var prior)?prior:double.NegativeInfinity;
-                    for(int i=0;i<n;i++)if(emissions[i].StartTime>latest&&emissions[i].StartTime<=time&&time-emissions[i].EndTime<.2)
-                    {events.Add(emissions[i]);prior=System.Math.Max(prior,emissions[i].StartTime);}
-                    if(n>0)lastEmission[source]=System.Math.Max(latest,prior);
+                    var source=body.GetComponent<MechRadarController>();
+                    if(source!=null)
+                    {
+                        int n=source.CopyOwnRadarEmissions(emissions);double latest=lastEmission.TryGetValue(source,out var prior)?prior:double.NegativeInfinity;
+                        for(int i=0;i<n;i++)if(emissions[i].StartTime>latest&&emissions[i].StartTime<=time&&time-emissions[i].EndTime<.2)
+                        {events.Add(emissions[i]);prior=System.Math.Max(prior,emissions[i].StartTime);}
+                        if(n>0)lastEmission[source]=System.Math.Max(latest,prior);
+                    }
+                    var jammer=body.GetComponent<MechElectronicWarfareController>();
+                    if(jammer!=null)
+                    {
+                        int n=jammer.CopyOwnEmissions(emissions);double latest=lastJammingEmission.TryGetValue(jammer,out var prior)?prior:double.NegativeInfinity;
+                        for(int i=0;i<n;i++)if(emissions[i].StartTime>latest&&emissions[i].StartTime<=time&&time-emissions[i].EndTime<.2)
+                        {events.Add(emissions[i]);prior=System.Math.Max(prior,emissions[i].StartTime);}
+                        if(n>0)lastJammingEmission[jammer]=System.Math.Max(latest,prior);
+                    }
                 }
                 passiveReceiver.Consume(events,time);
             }

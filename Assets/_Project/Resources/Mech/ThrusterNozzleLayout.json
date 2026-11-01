@@ -20,7 +20,7 @@
             "radiusScale": 1.1399999856948853,
             "lengthScale": 1.3300000429153442,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 520.0,
+            "ratedThrustKn": 780.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 18.0
         },
@@ -42,7 +42,7 @@
             "radiusScale": 1.2000000476837158,
             "lengthScale": 1.2000000476837158,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 700.0,
+            "ratedThrustKn": 1050.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 8.0
         },
@@ -64,7 +64,7 @@
             "radiusScale": 1.2000000476837158,
             "lengthScale": 1.399999976158142,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 680.0,
+            "ratedThrustKn": 1020.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 8.0
         },
@@ -86,7 +86,7 @@
             "radiusScale": 1.1699999570846558,
             "lengthScale": 1.2000000476837158,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 640.0,
+            "ratedThrustKn": 960.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 18.0
         },
@@ -108,7 +108,7 @@
             "radiusScale": 1.1399999856948853,
             "lengthScale": 1.3300000429153442,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 520.0,
+            "ratedThrustKn": 780.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 18.0
         },
@@ -130,7 +130,7 @@
             "radiusScale": 1.2000000476837158,
             "lengthScale": 1.2000000476837158,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 700.0,
+            "ratedThrustKn": 1050.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 8.0
         },
@@ -152,7 +152,7 @@
             "radiusScale": 1.2000000476837158,
             "lengthScale": 1.399999976158142,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 680.0,
+            "ratedThrustKn": 1020.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 8.0
         },
@@ -174,7 +174,7 @@
             "radiusScale": 1.1699999570846558,
             "lengthScale": 1.2000000476837158,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 640.0,
+            "ratedThrustKn": 960.0,
             "vectoringEnabled": true,
             "maximumVectorAngleDegrees": 18.0
         },
@@ -196,7 +196,7 @@
             "radiusScale": 1.2899999618530273,
             "lengthScale": 1.3700000047683716,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 420.0,
+            "ratedThrustKn": 630.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -218,7 +218,7 @@
             "radiusScale": 1.2899999618530273,
             "lengthScale": 1.3700000047683716,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 420.0,
+            "ratedThrustKn": 630.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -240,7 +240,7 @@
             "radiusScale": 2.940000057220459,
             "lengthScale": 2.890000104904175,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 600.0,
+            "ratedThrustKn": 900.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -262,7 +262,7 @@
             "radiusScale": 1.2899999618530273,
             "lengthScale": 1.3700000047683716,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 420.0,
+            "ratedThrustKn": 630.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -284,7 +284,7 @@
             "radiusScale": 1.2899999618530273,
             "lengthScale": 1.3700000047683716,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 420.0,
+            "ratedThrustKn": 630.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -306,7 +306,7 @@
             "radiusScale": 2.940000057220459,
             "lengthScale": 2.890000104904175,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 600.0,
+            "ratedThrustKn": 900.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -328,7 +328,7 @@
             "radiusScale": 1.0,
             "lengthScale": 1.0,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 600.0,
+            "ratedThrustKn": 900.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -350,7 +350,7 @@
             "radiusScale": 1.149999976158142,
             "lengthScale": 1.909999966621399,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 640.0,
+            "ratedThrustKn": 960.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -372,7 +372,7 @@
             "radiusScale": 1.090000033378601,
             "lengthScale": 1.440000057220459,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 620.0,
+            "ratedThrustKn": 930.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -394,7 +394,7 @@
             "radiusScale": 1.0299999713897705,
             "lengthScale": 1.5399999618530273,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 620.0,
+            "ratedThrustKn": 930.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -416,7 +416,7 @@
             "radiusScale": 1.1299999952316284,
             "lengthScale": 1.3799999952316284,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 480.0,
+            "ratedThrustKn": 720.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -438,7 +438,7 @@
             "radiusScale": 1.149999976158142,
             "lengthScale": 1.909999966621399,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 640.0,
+            "ratedThrustKn": 960.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -460,7 +460,7 @@
             "radiusScale": 1.090000033378601,
             "lengthScale": 1.440000057220459,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 620.0,
+            "ratedThrustKn": 930.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -482,7 +482,7 @@
             "radiusScale": 1.0299999713897705,
             "lengthScale": 1.5399999618530273,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 620.0,
+            "ratedThrustKn": 930.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         },
@@ -504,7 +504,7 @@
             "radiusScale": 1.1299999952316284,
             "lengthScale": 1.3799999952316284,
             "hasPhysicalSettings": true,
-            "ratedThrustKn": 480.0,
+            "ratedThrustKn": 720.0,
             "vectoringEnabled": false,
             "maximumVectorAngleDegrees": 0.0
         }

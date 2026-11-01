@@ -18,6 +18,34 @@ namespace ACunicombat.Mechs
         public IReadOnlyList<MechValidationIssue> ValidationIssues => validationIssues;
         public IReadOnlyList<MechAssemblyRecord> AssembledParts => assembledParts;
         public IReadOnlyList<MechMountPoint> MountPoints => mountPoints;
+        // Compiled assembly metadata, not a cache of ammo/damage/availability.
+        // Apply invalidates it on every assembly, including same-frame rebuilds.
+        private bool assemblyIndexReady;
+        private readonly Dictionary<string,MechAssemblyRecord> recordsBySlot=new Dictionary<string,MechAssemblyRecord>(System.StringComparer.Ordinal);
+        private readonly Dictionary<MechPartSlot,MechAssemblyRecord> recordsByRole=new Dictionary<MechPartSlot,MechAssemblyRecord>();
+        private readonly Dictionary<string,MechSlotDefinition> definitionsBySlot=new Dictionary<string,MechSlotDefinition>(System.StringComparer.Ordinal);
+        private List<MechSlotDefinition> compiledSlots;
+        private void EnsureAssemblyIndex()
+        {
+            if(assemblyIndexReady)return;
+            recordsBySlot.Clear();recordsByRole.Clear();definitionsBySlot.Clear();
+            compiledSlots=currentLoadout?.GetSlots()??new List<MechSlotDefinition>();
+            foreach(var slot in compiledSlots)if(slot!=null&&!definitionsBySlot.ContainsKey(slot.id))definitionsBySlot.Add(slot.id,slot);
+            foreach(var record in assembledParts)
+            {
+                if(record==null)continue;
+                if(!recordsBySlot.ContainsKey(record.SlotId))recordsBySlot.Add(record.SlotId,record);
+                if(!recordsByRole.ContainsKey(record.slot))recordsByRole.Add(record.slot,record);
+            }
+            assemblyIndexReady=true;
+        }
+        public IReadOnlyList<MechSlotDefinition> CompiledSlots {get{EnsureAssemblyIndex();return compiledSlots;}}
+        public MechSlotDefinition FindCompiledSlot(string id){EnsureAssemblyIndex();return id!=null&&definitionsBySlot.TryGetValue(id,out var slot)?slot:null;}
+        public MechAssemblyRecord FindAssembledPart(MechEquipmentSlot slot)
+        {
+            EnsureAssemblyIndex();if(slot.Id==null)return null;if(recordsBySlot.TryGetValue(slot.Id,out var record))return record;
+            return slot.LegacyRole!=MechPartSlot.None&&slot.Id==MechSlotGraph.LegacyId(slot.LegacyRole)&&recordsByRole.TryGetValue(slot.LegacyRole,out record)?record:null;
+        }
 
         public void Apply(
             MechLoadoutDefinition loadout,
@@ -26,6 +54,7 @@ namespace ACunicombat.Mechs
             List<MechAssemblyRecord> records,
             List<MechMountPoint> mounts)
         {
+            assemblyIndexReady=false;
             currentLoadout = loadout;
             loadoutValid = validation != null && validation.IsValid;
 

@@ -15,6 +15,7 @@ namespace ACunicombat.Mechs
         }
         private void RecordOutcome(string eventName,string reason,int hits,int kills)
         {
+            if(owner!=null&&eventName=="airburst")owner.GetComponent<MechOwnshipEventLog>()?.AddEvent("aps/burst/"+reason,kills>0?"APS：拦截成功":hits>0?"APS：命中来弹，尚未摧毁":"APS：空爆，未命中",kills==0);
             if(!telemetryActive)return;
             telemetryData.Reason=reason;telemetryData.Phase=burstTrigger;telemetryData.BurstPosition=transform.position;telemetryData.Hits=hits;telemetryData.Kills=kills;telemetryData.Detail=BlastDiagnostic;
             telemetryData.OwnerDistance=owner!=null?Vector3.Distance(transform.position,owner.position):-1;

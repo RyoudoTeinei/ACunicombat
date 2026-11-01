@@ -10,7 +10,7 @@ using System.Collections.Generic;
 
 public static class MechMissileContactReplayReview
 {
-    [Serializable] private sealed class Result {public int frames,failures,permutationFailures;public string firstFailure;public bool passed;}
+    [Serializable] private sealed class Result {public double wallSeconds,simulatedSeconds,replaySpeedup;public int frames,failures,permutationFailures;public string firstFailure;public bool passed;}
     [Serializable] private sealed class StateRecord {public string manager,operation;public double time;public RadarReplayTrack[] tracks;}
     private static string Option(string[] args,string name,string fallback="")
     {int at=Array.IndexOf(args,name);return at>=0&&at+1<args.Length?args[at+1]:fallback;}
@@ -25,16 +25,16 @@ public static class MechMissileContactReplayReview
             {string line;while((line=reader.ReadLine())!=null)yield return line;}
         }
     }
-    public static void Run()
+    [Serializable] private sealed class BatchConfig {public string[] files;}
+    [Serializable] private sealed class BatchResult {public string scope="Fixed-input contact replay only; timings exclude Unity startup, not live-battle acceleration.";public string[] files;public Result[] results;public bool passed;}
+    private static Result EvaluateContacts(string path)
     {
-        var args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-contactReplay");
-        if(at<0||at+1>=args.Length){EditorApplication.Exit(2);return;}
-        string path=args[at+1];var result=new Result();
+        var result=new Result();var timer=System.Diagnostics.Stopwatch.StartNew();double first=double.NaN,last=0;
         try
         {
             foreach(string line in ReadLines(path))
             {
-                var frame=JsonUtility.FromJson<MissileContactReplayFrame>(line).RestoreExact();
+                var frame=JsonUtility.FromJson<MissileContactReplayFrame>(line).RestoreExact();if(double.IsNaN(first))first=frame.time;last=Math.Max(last,frame.time);
                 if(!frame.Matches(out string detail)){result.failures++;if(result.firstFailure==null)result.firstFailure=$"t={frame.time:R}: {detail}";}
                 Array.Reverse(frame.observations);
                 if(!frame.Matches(out detail)){result.permutationFailures++;if(result.firstFailure==null)result.firstFailure=$"reversed input t={frame.time:R}: {detail}";}
@@ -43,15 +43,26 @@ public static class MechMissileContactReplayReview
             result.passed=result.frames>0&&result.failures==0&&result.permutationFailures==0;
         }
         catch(Exception ex){result.failures++;result.firstFailure=ex.ToString();}
-        File.WriteAllText(path+".result.json",JsonUtility.ToJson(result,true));
-        EditorApplication.Exit(result.passed?0:1);
+        timer.Stop();result.wallSeconds=timer.Elapsed.TotalSeconds;result.simulatedSeconds=double.IsNaN(first)?0:Math.Max(0,last-first);result.replaySpeedup=result.wallSeconds>0?result.simulatedSeconds/result.wallSeconds:0;return result;
+    }
+    public static void Run()
+    {
+        string path=Option(Environment.GetCommandLineArgs(),"-contactReplay");if(path.Length==0){EditorApplication.Exit(2);return;}
+        var result=EvaluateContacts(path);File.WriteAllText(path+".result.json",JsonUtility.ToJson(result,true));EditorApplication.Exit(result.passed?0:1);
+    }
+    public static void RunBatch()
+    {
+        var args=Environment.GetCommandLineArgs();string path=Option(args,"-contactReplayList");
+        var config=JsonUtility.FromJson<BatchConfig>(File.ReadAllText(path));var batch=new BatchResult{files=config.files,results=new Result[config.files.Length],passed=true};
+        for(int i=0;i<config.files.Length;i++){batch.results[i]=EvaluateContacts(config.files[i]);batch.passed&=batch.results[i].passed;}
+        File.WriteAllText(Option(args,"-contactReplayBatchOutput",path+".result.json"),JsonUtility.ToJson(batch,true));EditorApplication.Exit(batch.passed?0:1);
     }
 
     public static void RunRadar()
     {
         var args=Environment.GetCommandLineArgs();int at=Array.IndexOf(args,"-radarReplay");
         if(at<0||at+1>=args.Length){EditorApplication.Exit(2);return;}
-        string path=args[at+1];var result=new Result();var managers=new Dictionary<string,RadarTrackManager>();
+        string path=args[at+1];var result=new Result();var timer=System.Diagnostics.Stopwatch.StartNew();double first=double.NaN,last=0;var managers=new Dictionary<string,RadarTrackManager>();
         string output=Option(args,"-radarReplayResultPrefix",path),selectedManager=Option(args,"-radarReplayManager");
         StreamWriter decisions=Array.IndexOf(args,"-radarReplayAssociations")>=0?new StreamWriter(output+".associations.jsonl"):null;
         StreamWriter states=Array.IndexOf(args,"-radarReplaySnapshots")>=0?new StreamWriter(output+".snapshots.jsonl"):null;

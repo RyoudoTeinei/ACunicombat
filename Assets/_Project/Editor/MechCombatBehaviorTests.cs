@@ -100,23 +100,23 @@ public sealed class MechCombatBehaviorTests
  public void SuspiciousBehaviorsDoNotDirectlyAuthorizeHostileFire(CombatBehaviorKind kind)
  {
   var reducer=new MechIdentityEvidence();var track=Source().TrackId;reducer.Submit(track,new IdentityEvidence{OriginalId="event",Kind=MechIdentityController.BehaviorEvidenceKind(kind),Quality=.9f,Association=1,ObservedAt=0,ExpiresAt=10},0);
-  Assert.That(reducer.Evaluate(track,0).Relation,Is.EqualTo(IdentityRelation.Unknown));var state=reducer.Evaluate(track,3);Assert.That(state.Relation,Is.EqualTo(IdentityRelation.SuspectedHostile));Assert.That(state.CanAttackPlatform,Is.False);
+  Assert.That(reducer.Evaluate(track,0).Relation,Is.EqualTo(kind==CombatBehaviorKind.FireControlLock?IdentityRelation.SuspectedHostile:IdentityRelation.Unknown));var state=reducer.Evaluate(track,3);Assert.That(state.Relation,Is.EqualTo(IdentityRelation.SuspectedHostile));Assert.That(state.CanAttackPlatform,Is.False);
  }
- [Test] public void AuthenticatedFriendlyLaunchAloneDoesNotTurnYellowButAttackStillTurnsRed()
+ [Test] public void AuthenticatedFriendlyLaunchAndAttackKeepStableIdentityWithConflict()
  {
   var reducer=new MechIdentityEvidence();var track=Source().TrackId;
   reducer.Submit(track,new IdentityEvidence{OriginalId="friend",Kind=IdentityEvidenceKind.FriendlyAuthentication,Quality=1,Association=1,ObservedAt=0,ExpiresAt=30},0);
   reducer.Submit(track,new IdentityEvidence{OriginalId="launch",Kind=IdentityEvidenceKind.WeaponLaunch,Quality=.9f,Association=1,ObservedAt=0,ExpiresAt=10},0);
   reducer.Evaluate(track,0);Assert.That(reducer.Evaluate(track,3).Relation,Is.EqualTo(IdentityRelation.Friendly));
   reducer.Submit(track,new IdentityEvidence{OriginalId="attack",Kind=IdentityEvidenceKind.ObservedAttack,Quality=1,Association=1,ObservedAt=4,ExpiresAt=15},4);
-  var result=reducer.Evaluate(track,4);Assert.That(result.Relation,Is.EqualTo(IdentityRelation.Hostile));Assert.That(result.Conflict,Is.True);
+  var result=reducer.Evaluate(track,4);Assert.That(result.Relation,Is.EqualTo(IdentityRelation.Friendly));Assert.That(result.Conflict,Is.True);Assert.That(result.CanAttackPlatform,Is.False);
  }
- [Test] public void TrustedCommandAndConfirmedFriendlyAttackOverrideFriendlyRelation()
+ [Test] public void TrustedCommandAndConfirmedAttackCannotOverrideStableFriendlyRelation()
  {
   foreach(var kind in new[]{IdentityEvidenceKind.MissionHostile,IdentityEvidenceKind.ObservedAttack})
   {var reducer=new MechIdentityEvidence();var track=Source().TrackId;reducer.Submit(track,new IdentityEvidence{OriginalId="friend",Kind=IdentityEvidenceKind.FriendlyAuthentication,Quality=1,Association=1,ObservedAt=0,ExpiresAt=30},0);
    reducer.Submit(track,new IdentityEvidence{OriginalId="attack",Kind=kind,Quality=1,Association=1,ObservedAt=0,ExpiresAt=1},0);var result=reducer.Evaluate(track,0);
-   Assert.That(result.Relation,Is.EqualTo(IdentityRelation.Hostile));Assert.That(result.Conflict,Is.True);Assert.That(result.CanAttackPlatform,Is.True);Assert.That(reducer.Evaluate(track,10).Relation,Is.EqualTo(IdentityRelation.Hostile));}
+   Assert.That(result.Relation,Is.EqualTo(IdentityRelation.Friendly));Assert.That(result.Conflict,Is.True);Assert.That(result.CanAttackPlatform,Is.False);Assert.That(reducer.Evaluate(track,10).Relation,Is.EqualTo(IdentityRelation.Friendly));}
  }
  [Test] public void ExpiredFutureAndUnauthorizedCommanderReportsAreRejected()
  {
@@ -152,12 +152,12 @@ public sealed class MechCombatBehaviorTests
   Assert.That(f.Submit(id,evidence,11),Is.False);Assert.That(f.Evaluate(id,11).Relation,Is.EqualTo(IdentityRelation.Unknown));
   evidence.OriginalId="new-shot";evidence.ObservedAt=12;Assert.That(f.Submit(id,evidence,12),Is.True);Assert.That(f.Evaluate(id,12).Relation,Is.EqualTo(IdentityRelation.Hostile));
  }
- [Test] public void FriendlyRadarLockCreatesSuspicionAndConflictNotConfirmedHostility()
+ [Test] public void FriendlyRadarLockRetainsStableIdentityAndReportsConflict()
  {
   var f=new MechIdentityEvidence{AllowUnknownPlatformAttack=true};var id=Source().TrackId;
   f.Submit(id,new IdentityEvidence{OriginalId="auth",Kind=IdentityEvidenceKind.FriendlyAuthentication,Quality=1,Association=1,ObservedAt=0,ExpiresAt=20},0);
   f.Submit(id,new IdentityEvidence{OriginalId="lock",Kind=IdentityEvidenceKind.FireControlIllumination,Quality=1,Association=1,ObservedAt=0,ExpiresAt=20},0);
-  f.Evaluate(id,0);var state=f.Evaluate(id,2);Assert.That(state.Relation,Is.EqualTo(IdentityRelation.SuspectedHostile));Assert.That(state.Conflict,Is.True);Assert.That(state.CanAttackPlatform,Is.False);
+  f.Evaluate(id,0);var state=f.Evaluate(id,2);Assert.That(state.Relation,Is.EqualTo(IdentityRelation.Friendly));Assert.That(state.Conflict,Is.True);Assert.That(state.CanAttackPlatform,Is.False);
  }
  [Test] public void TrainingPermissionDoesNotOscillateWhenUnknownBecomesSuspicious()
  {
@@ -167,7 +167,7 @@ public sealed class MechCombatBehaviorTests
  }
  [Test] public void CommunicationAndUnknownEmittersCannotBeMistakenForRadarLock()
  {
-  var t=new ThreatSnapshot{Level=EsmThreatLevel.Locked,ContinuousMainlobeIlluminationSeconds=2,LastSeenTime=1,WaveformClass=EsmWaveformClass.Unknown};
+  var t=new ThreatSnapshot{Level=EsmThreatLevel.Locked,ContinuousMainlobeIlluminationSeconds=2,LastSeenTime=1,LastMainlobeSeenTime=1,MainlobeContactCount=5,WaveformClass=EsmWaveformClass.Unknown};
   Assert.That(MechIdentityController.IsRadarLockEvidence(t,1),Is.False);t.WaveformClass=EsmWaveformClass.DataLinkUplink;Assert.That(MechIdentityController.IsRadarLockEvidence(t,1),Is.False);
   t.WaveformClass=EsmWaveformClass.FireControlRadar;Assert.That(MechIdentityController.IsRadarLockEvidence(t,1),Is.True);Assert.That(MechIdentityController.IsRadarLockEvidence(t,2),Is.False);
   t.Level=EsmThreatLevel.Tracked;Assert.That(MechIdentityController.IsRadarLockEvidence(t,1),Is.False);

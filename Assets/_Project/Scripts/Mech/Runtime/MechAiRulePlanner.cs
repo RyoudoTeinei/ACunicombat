@@ -1,3 +1,4 @@
+using ACunicombat.Sensing.Contracts;
 using UnityEngine;
 
 namespace ACunicombat.Mechs
@@ -50,6 +51,15 @@ namespace ACunicombat.Mechs
 
     public static class MechAiRulePlanner
     {
+        public static bool ShouldYieldCombatToNavigation(
+            bool hasTask,
+            bool returning,
+            bool moveTask,
+            bool escortMission)
+        {
+            return hasTask && (returning || moveTask || escortMission);
+        }
+
         public static Vector3 ResolveOrbitTangent(
             Vector3 radial, Vector3 previousTangent, Vector3 preferredUp)
         {
@@ -80,7 +90,8 @@ namespace ACunicombat.Mechs
             float awayAcceleration,
             float maximumAcceleration,
             float responseSeconds,
-            out bool urgentBraking)
+            out bool urgentBraking,
+            float engagementLeadSeconds = 0f)
         {
             urgentBraking = false;
             if (!IsFinite(relativePosition) || !IsFinite(relativeVelocity) ||
@@ -91,6 +102,17 @@ namespace ACunicombat.Mechs
             if (range < 0.01f)
                 return Vector3.ClampMagnitude(relativeVelocity / response, maxAcceleration);
             var radial = relativePosition / range;
+            var controlRadial = radial;
+            var leadSeconds = state == MechAiTargetController.CombatState.Intercept
+                ? Mathf.Clamp(range / MechFleetState.MaxCruiseSpeed, 0f, 6f)
+                : Mathf.Clamp(engagementLeadSeconds, 0f, 2f);
+            if (leadSeconds > 0f)
+            {
+                // Lead using only the observed relative track. Range and braking
+                // still use the current observation, not the lead point.
+                var leadPosition = relativePosition + relativeVelocity * leadSeconds;
+                if (leadPosition.sqrMagnitude > 0.01f) controlRadial = leadPosition.normalized;
+            }
             var preferredRange = Mathf.Max(100f, doctrine.EngagementBand.PreferredRangeMeters);
             if (state == MechAiTargetController.CombatState.Defensive)
                 preferredRange = Mathf.Max(preferredRange, range + Mathf.Max(300f, range * 0.15f));
@@ -98,6 +120,7 @@ namespace ACunicombat.Mechs
             var holdRadius = Mathf.Clamp(preferredRange * 0.025f, 20f, 120f);
             var remainingDistance = Mathf.Max(0f, Mathf.Abs(rangeError) - holdRadius);
             var closingSpeed = -Vector3.Dot(relativeVelocity, radial);
+            var controlClosingSpeed = -Vector3.Dot(relativeVelocity, controlRadial);
             var brakingAcceleration = rangeError >= 0f ? awayAcceleration : towardAcceleration;
             // Margin reserves authority for turns, allocation losses and track
             // latency. The small floor permits attitude acquisition with weak RCS.
@@ -105,15 +128,17 @@ namespace ACunicombat.Mechs
             var stoppingSpeed = Mathf.Sqrt(2f * safeBrakingAcceleration * remainingDistance);
             var cruiseSpeed = state switch
             {
-                MechAiTargetController.CombatState.Intercept => 320f,
-                MechAiTargetController.CombatState.Extend => 280f,
-                MechAiTargetController.CombatState.Defensive => 160f,
+                MechAiTargetController.CombatState.Intercept => MechFleetState.MaxCruiseSpeed,
+                MechAiTargetController.CombatState.Extend => Mathf.Max(280f, doctrine.OrbitSpeedMetersPerSecond * 2f),
+                MechAiTargetController.CombatState.Defensive => Mathf.Max(240f, doctrine.OrbitSpeedMetersPerSecond * 1.5f),
                 _ => 170f,
             };
             var desiredRadialSpeed = Mathf.Sign(rangeError) * Mathf.Min(
                 cruiseSpeed, stoppingSpeed, remainingDistance * 0.35f);
+            var movingAwayFromBand = closingSpeed * rangeError > 0f;
+            var closingInsideMinimum = closingSpeed > 0f && rangeError < 0f;
             urgentBraking = Mathf.Abs(closingSpeed) > 20f &&
-                (closingSpeed * rangeError > 0f || remainingDistance <= 0.01f) &&
+                (movingAwayFromBand || closingInsideMinimum || remainingDistance <= 0.01f) &&
                 Mathf.Abs(closingSpeed) > stoppingSpeed + 10f;
 
             var orbitFactor = state switch
@@ -126,19 +151,50 @@ namespace ACunicombat.Mechs
             var orbitSpeed = Mathf.Min(doctrine.OrbitSpeedMetersPerSecond * orbitFactor,
                 Mathf.Sqrt(maxAcceleration * 0.35f * range));
             if (urgentBraking) orbitSpeed *= 0.25f;
-            var tangent = Vector3.ProjectOnPlane(orbitTangent, radial).normalized;
-            var relativeTangentialVelocity = Vector3.ProjectOnPlane(relativeVelocity, radial);
+            var tangent = Vector3.ProjectOnPlane(orbitTangent, controlRadial).normalized;
+            var relativeTangentialVelocity = Vector3.ProjectOnPlane(relativeVelocity, controlRadial);
             var centripetalAcceleration = orbitSpeed > 0.01f
                 ? Mathf.Min(relativeTangentialVelocity.sqrMagnitude / range, maxAcceleration * 0.35f)
                 : 0f;
             var radialAcceleration = Mathf.Clamp(
-                (desiredRadialSpeed - closingSpeed) / response + centripetalAcceleration,
+                (desiredRadialSpeed - controlClosingSpeed) / response + centripetalAcceleration,
                 -maxAcceleration, maxAcceleration);
             var transverseBudget = Mathf.Sqrt(Mathf.Max(0f,
                 maxAcceleration * maxAcceleration - radialAcceleration * radialAcceleration));
             var transverseAcceleration = Vector3.ClampMagnitude(
                 (relativeTangentialVelocity + tangent * orbitSpeed) / response, transverseBudget);
-            return radial * radialAcceleration + transverseAcceleration;
+            return controlRadial * radialAcceleration + transverseAcceleration;
+        }
+
+        public static Vector3 CalculateNavigationAcceleration(
+            Vector3 relativePosition,
+            Vector3 targetVelocity,
+            Vector3 ownVelocity,
+            float maximumSpeed,
+            float towardAcceleration,
+            float awayAcceleration,
+            float maximumAcceleration,
+            float responseSeconds)
+        {
+            if (!IsFinite(relativePosition) || !IsFinite(targetVelocity) ||
+                !IsFinite(ownVelocity)) return Vector3.zero;
+            var response = Mathf.Max(0.2f, responseSeconds);
+            var maxAcceleration = Mathf.Max(0f, maximumAcceleration);
+            var relativeVelocity = targetVelocity - ownVelocity;
+            var distance = relativePosition.magnitude;
+            if (distance < 0.01f)
+                return Vector3.ClampMagnitude(relativeVelocity / response, maxAcceleration);
+            var direction = relativePosition / distance;
+            var closingSpeed = -Vector3.Dot(relativeVelocity, direction);
+            var brakingAcceleration = closingSpeed > 0f ? awayAcceleration : towardAcceleration;
+            var safeBrakingAcceleration = Mathf.Max(0.1f, brakingAcceleration) * 0.65f;
+            var remainingDistance = Mathf.Max(0f, distance - 2f);
+            var stoppingSpeed = Mathf.Sqrt(2f * safeBrakingAcceleration * remainingDistance);
+            var desiredSpeed = Mathf.Min(
+                Mathf.Max(0f, maximumSpeed), stoppingSpeed, remainingDistance * 0.75f);
+            var desiredVelocity = targetVelocity + direction * desiredSpeed;
+            return Vector3.ClampMagnitude(
+                (desiredVelocity - ownVelocity) / response, maxAcceleration);
         }
 
         private static bool IsFinite(Vector3 value) =>
@@ -306,6 +362,54 @@ namespace ACunicombat.Mechs
                     (fallbackMin + fallbackMax) * 0.5f,
                     fallbackMax),
                 120f);
+        }
+
+        public static MechAiCombatDoctrine ApplyMissionDoctrine(
+            in MechAiCombatDoctrine doctrine,
+            FleetTaskGroup taskGroup,
+            bool hasTask,
+            bool hasSpatialMission)
+        {
+            var band = doctrine.EngagementBand;
+            var passiveWithoutAttack = !hasTask &&
+                (taskGroup == FleetTaskGroup.Reconnaissance ||
+                 taskGroup == FleetTaskGroup.ElectronicWarfare ||
+                 taskGroup == FleetTaskGroup.EarlyWarningCommand ||
+                 taskGroup == FleetTaskGroup.Logistics);
+            if (passiveWithoutAttack)
+            {
+                var standOff = Mathf.Max(1000f, band.MaximumRangeMeters);
+                return new MechAiCombatDoctrine(
+                    doctrine.TacticalRole,
+                    new MechAiEngagementBand(standOff, standOff * 1.2f, standOff * 1.5f),
+                    Mathf.Min(100f, doctrine.OrbitSpeedMetersPerSecond));
+            }
+
+            var missileMission = hasSpatialMission &&
+                (taskGroup == FleetTaskGroup.Strike ||
+                 taskGroup == FleetTaskGroup.AirDefenseSuppression) &&
+                (doctrine.TacticalRole == MechAiTacticalWeaponRole.CloseRangeMissile ||
+                 doctrine.TacticalRole == MechAiTacticalWeaponRole.StandoffMissile);
+            if (missileMission)
+            {
+                return new MechAiCombatDoctrine(
+                    doctrine.TacticalRole,
+                    new MechAiEngagementBand(
+                        band.MinimumRangeMeters * 1.05f,
+                        band.PreferredRangeMeters * 1.1f,
+                        band.MaximumRangeMeters * 1.12f),
+                    doctrine.OrbitSpeedMetersPerSecond * 0.85f);
+            }
+
+            if (hasSpatialMission &&
+                (taskGroup == FleetTaskGroup.Escort || taskGroup == FleetTaskGroup.Support))
+            {
+                return new MechAiCombatDoctrine(
+                    doctrine.TacticalRole,
+                    band,
+                    Mathf.Min(90f, doctrine.OrbitSpeedMetersPerSecond));
+            }
+            return doctrine;
         }
 
         public static MechAiTacticalWeaponRole ClassifyTacticalRole(

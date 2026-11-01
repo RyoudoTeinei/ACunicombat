@@ -13,7 +13,7 @@ namespace ACunicombat.Mechs
 	{
         // Optional review telemetry emitted by the actual Repaint path, not a parallel UI approximation.
         private readonly MechMissileMarkerPresentation missilePresentation=new MechMissileMarkerPresentation();
-        private double MissileDisplayTime => radar.SimTimeSeconds-Time.fixedDeltaTime+Math.Max(0,Time.timeAsDouble-Time.fixedTimeAsDouble);
+        private double MissileDisplayTime => MechMissileMarkerPresentation.RenderTime(radar.SimTimeSeconds, Time.timeAsDouble, Time.fixedTimeAsDouble);
         public event Action<MechMissileMarkerObservation> MissileMarkerDrawn;
         public event Action<int> HudRepainted;
         private void ObserveMissileMarker(uint trackId,string localId,string source,string style,Vector3 world,Vector2 hud)
@@ -478,7 +478,7 @@ namespace ACunicombat.Mechs
 			if (!systemsMenuVisible &&
 				(aimController == null || !aimController.FreeLookViewOffsetActive))
 			{
-				radar.UpdateDesignation(viewCamera, GetAimViewportPoint(), Time.unscaledDeltaTime);
+				radar.UpdateDesignation(viewCamera, GetAimViewportPoint(), Time.deltaTime);
 			}
             int presentationCount=radar.CopyMissileTracks(missileTracks);
             for(int p=0;p<presentationCount;p++)missilePresentation.Sample(in missileTracks[p],MissileDisplayTime);
@@ -540,6 +540,10 @@ namespace ACunicombat.Mechs
 
 		private void OnGUI()
 		{
+            // Fixed-rectangle, non-interactive display: Layout/input events do not
+            // need a second set of sensor queries and release/geometry previews.
+            if(Event.current==null||Event.current.type!=EventType.Repaint)return;
+            using var costScope=ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Hud);
             if(Event.current.type==EventType.Repaint)HudRepainted?.Invoke(Time.frameCount);
 			if (MechSolarSystemMap.IsAnyMapVisible ||
 				MechAssemblyMenu.IsAnyMenuVisible || radar == null || viewCamera == null)
@@ -742,31 +746,45 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private void DrawWeaponStatus()
-		{
-			if (!(weaponSystem == null))
-			{
-				float centerGaugeWidth = Mathf.Clamp(MechHudLayout.Width * 0.34f, 300f, 520f);
-				float availableLeft = MechHudLayout.Width * 0.5f + centerGaugeWidth * 0.5f + 28f;
-				float availableWidth = MechHudLayout.Width - 560f - 34f - availableLeft;
-				bool num = availableWidth >= 300f;
-				float panelWidth = (num ? Mathf.Min(420f, availableWidth) : Mathf.Min(420f, MechHudLayout.Width - 32f));
-				float entryWidth = (panelWidth - 20f) * 0.5f;
-				float panelX = (num ? (availableLeft + (availableWidth - panelWidth) * 0.5f) : (MechHudLayout.Width - 560f - panelWidth - 42f));
-				float firstRowY = (num ? Mathf.Max(12f, MechHudLayout.Height - 148f) : Mathf.Max(12f, MechHudLayout.Height - 440f - 126f));
-				Rect leftMissileRect = new Rect(panelX, firstRowY, entryWidth, 40f);
-				Rect cannonRect = new Rect(panelX, firstRowY + 44f, entryWidth, 40f);
-				Rect rightMissileRect = new Rect(leftMissileRect.xMax + 20f, firstRowY, entryWidth, 40f);
-				Rect rifleRect = new Rect(rightMissileRect.x, firstRowY + 44f, entryWidth, 40f);
-				DrawWeaponSlotAmmo(leftMissileRect, MechPartSlot.LeftBackWeapon, "L");
-				DrawWeaponSlotAmmo(cannonRect, MechPartSlot.LeftHandWeapon, "L");
-				DrawWeaponSlotAmmo(rightMissileRect, MechPartSlot.RightBackWeapon, "R");
-				DrawWeaponSlotAmmo(rifleRect, MechPartSlot.RightHandWeapon, "R");
-			}
-		}
+        private MechRuntimeState weaponHudRuntime;
+        private GameObject weaponHudCore;
+        private Renderer[] weaponHudCoreRenderers;
+        private void DrawWeaponStatus()
+        {
+            if (weaponSystem == null || viewCamera == null) return;
+            if (weaponHudRuntime == null) weaponHudRuntime = GetComponent<MechRuntimeState>();
+            var core = weaponHudRuntime?.FindAssembledPart(MechPartSlot.Core)?.instance;
+            if (core == null) return;
+            if (weaponHudCore != core)
+            {
+                weaponHudCore = core;
+                weaponHudCoreRenderers = core.GetComponentsInChildren<Renderer>(true);
+            }
+            Bounds bounds = new Bounds(core.transform.position, Vector3.zero);
+            bool found = false;
+            foreach (var renderer in weaponHudCoreRenderers)
+            {
+                if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy ||
+                    renderer is ParticleSystemRenderer || renderer is TrailRenderer || renderer is LineRenderer) continue;
+                if (found) bounds.Encapsulate(renderer.bounds);
+                else bounds = renderer.bounds;
+                found = true;
+            }
+            if (!found) return;
+            var screen = viewCamera.WorldToScreenPoint(bounds.center);
+            if (screen.z <= 0) return;
+            var center = MechHudLayout.ScreenToHudPoint(screen);
+            const float columnWidth = 190f, gap = 8f, rowHeight = 44f;
+            float x = Mathf.Clamp(center.x - columnWidth - gap * .5f, 12f,
+                MechHudLayout.Width - columnWidth * 2f - gap - 12f);
+            float y = Mathf.Clamp(center.y - rowHeight, 12f, MechHudLayout.Height - rowHeight * 2f - 12f);
+            DrawWeaponSlotAmmo(new Rect(x, y, columnWidth, rowHeight), MechPartSlot.LeftBackWeapon);
+            DrawWeaponSlotAmmo(new Rect(x + columnWidth + gap, y, columnWidth, rowHeight), MechPartSlot.RightBackWeapon);
+            DrawWeaponSlotAmmo(new Rect(x, y + rowHeight, columnWidth, rowHeight), MechPartSlot.LeftHandWeapon);
+            DrawWeaponSlotAmmo(new Rect(x + columnWidth + gap, y + rowHeight, columnWidth, rowHeight), MechPartSlot.RightHandWeapon);
+        }
 
-        private GUIStyle missileBankStatusStyle;
-		private void DrawWeaponSlotAmmo(Rect bounds, MechPartSlot slot, string sideLabel)
+		private void DrawWeaponSlotAmmo(Rect bounds, MechPartSlot slot)
 		{
 			if (weaponSystem == null || !weaponSystem.TryGetWeaponHudState(slot, out var state))
 			{
@@ -777,22 +795,11 @@ namespace ACunicombat.Mechs
                 weaponSystem.TryGetEquipmentHeatFraction(MechSlotGraph.LegacyId(slot),out float heat);
                 bool overheated=weaponSystem.IsEquipmentOverheated(slot);
                 weaponStatusStyle.normal.textColor=overheated?HudAmber:state.RoundsRemaining>0?HudGreen:HudRed;
-                GUI.Label(bounds,$"{sideLabel} {state.Label} 弹链 {state.RoundsRemaining}  热{heat:P0} {(overheated?"过热":"")}",weaponStatusStyle);return;
-            }
-            string bankStatus=weaponSystem.GetMissileBankStatus(slot);
-            if(bankStatus!=null)
-            {
-                missileBankStatusStyle??=new GUIStyle(weaponStatusStyle){fontSize=12,alignment=TextAnchor.MiddleCenter};
-                weaponStatusStyle.alignment=TextAnchor.MiddleCenter;
-                weaponStatusStyle.normal.textColor=state.RoundsRemaining>0?HudGreen:state.MagazinesRemaining>0?HudAmber:HudRed;
-                GUI.Label(new Rect(bounds.x,bounds.y,bounds.width,24),$"{sideLabel} INT [{state.RoundsRemaining:00}/{state.MagazineCapacity:00}]",weaponStatusStyle);
-                missileBankStatusStyle.normal.textColor=HudGreen;
-                GUI.Label(new Rect(bounds.x,bounds.y+22,bounds.width,17),bankStatus,missileBankStatusStyle);
-                return;
+                GUI.Label(bounds,$"{state.Label} 弹链 {state.RoundsRemaining}  热{heat:P0} {(overheated?"过热":"")}",weaponStatusStyle);return;
             }
 			DrawWeaponAmmoEntry(
 				bounds,
-				$"{sideLabel} {state.Label}",
+				$"{state.Label}",
 				state.RoundsRemaining,
 				state.MagazineCapacity,
 				state.MagazinesRemaining,
@@ -1849,6 +1856,7 @@ namespace ACunicombat.Mechs
 				bool emphasizedThreat =
 					confirmedOwnshipThreat || identifiedAirToAir;
 				bool inferredInterceptor = IsInferredInterceptor(in track);
+				bool unknownIdentity = track.Affiliation == TrackAffiliation.Unknown;
 				bool interceptorAssigned = HasFriendlyInterceptorAssigned(track.TrackId);
 				bool interceptorSolutionAvailable =
 					weaponSystem != null &&
@@ -1871,7 +1879,7 @@ namespace ACunicombat.Mechs
 					markerCenter,
 					markerRadius,
 					markerColor,
-					dashed: false,
+					dashed: unknownIdentity,
 					emphasizedThreat ? 2.2f : 1.6f);
 				bool shaoWeiTrackSelected = weaponSystem != null && weaponSystem.HasShaoWeiPointDefenseTrack && weaponSystem.ShaoWeiPointDefenseTrackId.Equals(track.TrackId);
 				bool handPointDefenseTrackSelected = weaponSystem != null && weaponSystem.HasPointDefenseTrack && weaponSystem.PointDefenseTrackId.Equals(track.TrackId);
@@ -1909,7 +1917,9 @@ namespace ACunicombat.Mechs
 						? "导弹"
 						: inferredInterceptor
 							? "拦截弹"
-							: string.Empty;
+							: unknownIdentity
+								? "未知导弹"
+								: string.Empty;
 				if (interceptorAssigned)
 				{
 					missileLabel = string.IsNullOrEmpty(missileLabel)
@@ -2631,20 +2641,26 @@ namespace ACunicombat.Mechs
 			}
 		}
 
-		private static void DrawCircle(Vector2 center, float radius, Color color, float thickness, bool dashed)
-		{
-			Vector2 previous = center + new Vector2(0f, 0f - radius);
-			for (int i = 1; i <= 256; i++)
-			{
-				float angle = (float)i * MathF.PI * 2f / 256f;
-				Vector2 current = center + new Vector2(Mathf.Sin(angle), 0f - Mathf.Cos(angle)) * radius;
-				if (!dashed || i / 3 % 2 == 0)
-				{
-					DrawLine(previous, current, color, thickness);
-				}
-				previous = current;
-			}
-		}
+        public static int CircleSegmentCount(float radius,float pixelScale)
+        {
+            float pixels=Mathf.Max(1,Mathf.Abs(radius)*Mathf.Max(.01f,pixelScale));
+            return Mathf.Clamp(Mathf.CeilToInt(Mathf.PI/Mathf.Acos(Mathf.Clamp(1-.25f/pixels,-1,1))),12,256);
+        }
+        private static void DrawCircle(Vector2 center, float radius, Color color, float thickness, bool dashed)
+        {
+            // Keep the authored dash cadence. Solid circles need only sub-pixel geometric accuracy.
+            var matrix=GUI.matrix;
+            float scale=Mathf.Max(new Vector2(matrix.m00,matrix.m10).magnitude,new Vector2(matrix.m01,matrix.m11).magnitude);
+            int segments=dashed?256:CircleSegmentCount(radius,scale);
+            Vector2 previous=center+new Vector2(0,-radius);
+            for(int i=1;i<=segments;i++)
+            {
+                float angle=i*Mathf.PI*2/segments;
+                var current=center+new Vector2(Mathf.Sin(angle),-Mathf.Cos(angle))*radius;
+                if(!dashed||i/3%2==0)DrawLine(previous,current,color,thickness);
+                previous=current;
+            }
+        }
 
         public static Vector3 SmoothOperationDirection(Vector3 previous,Vector3 target,float deltaTime)
         {

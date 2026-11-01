@@ -24,9 +24,9 @@ public sealed class MechTracerRoundTests
         MechTracerRound.VisualProfile profile = MechTracerRound.ResolveVisualProfile(7.62f, velocityMetersPerSecond);
         float visibleLengthMeters = profile.TrailLifetimeSeconds * velocityMetersPerSecond;
 
-        Assert.That(visibleLengthMeters, Is.EqualTo(24f).Within(0.1f));
+        Assert.That(visibleLengthMeters, Is.EqualTo(12f).Within(0.1f));
         Assert.That(profile.HeadSizeMeters, Is.InRange(0.18f, 0.2f));
-        Assert.That(profile.TrailWidthMeters, Is.EqualTo(profile.HeadSizeMeters).Within(0.001f));
+        Assert.That(profile.TrailWidthMeters, Is.EqualTo(profile.HeadSizeMeters * .65f).Within(0.001f));
     }
 
     [Test]
@@ -37,11 +37,30 @@ public sealed class MechTracerRoundTests
         {
             projectile.AddComponent<MechTracerRound>().Build(Color.white, 20f, 1000f);
 
-            Transform streak = projectile.transform.Find("TracerStreak");
+            Transform streak = projectile.transform.Find("TracerPresentation/TracerStreak");
             Assert.That(streak, Is.Not.Null);
             Assert.That(streak.GetComponents<TrailRenderer>(), Is.Empty);
             Assert.That(streak.Find("Core")?.GetComponents<TrailRenderer>(), Has.Length.EqualTo(1));
             Assert.That(streak.Find("Glow")?.GetComponents<TrailRenderer>(), Has.Length.EqualTo(1));
+        }
+        finally
+        {
+            Object.DestroyImmediate(projectile);
+        }
+    }
+
+    [Test]
+    public void PresentationInterpolation_DoesNotMovePhysicsTransform()
+    {
+        var projectile = new GameObject("TracerInterpolation");
+        try
+        {
+            projectile.AddComponent<MechTestProjectile>();
+            projectile.AddComponent<MechTracerRound>().Build(Color.white, 20f, 1500f);
+            Vector3 before = projectile.transform.position;
+            typeof(MechTracerRound).GetMethod("LateUpdate", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .Invoke(projectile.GetComponent<MechTracerRound>(), null);
+            Assert.That(projectile.transform.position, Is.EqualTo(before));
         }
         finally
         {

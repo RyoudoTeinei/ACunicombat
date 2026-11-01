@@ -8,6 +8,7 @@ using ACunicombat.Sensing.Contracts;
 // Additive acceptance checks over the real playable scene. Commands are issued through the player API.
 public static class MechFleetCombatReview
 {
+    static double stageEnteredAt;
     static bool initialized;static MechFleetController player;static MechFleetController[] actors,wingmen;
     static StreamWriter trace;static string output;static int stage;static double nextSample;
     static Guid attack;static bool linked,acknowledged,detached,returning,freeMode,radarOffLinked;
@@ -50,18 +51,18 @@ public static class MechFleetCombatReview
         if(stage==0&&elapsed>20)
         {
             var tracks=new TrackSnapshot[96];var radar=own.GetComponent<MechRadarController>();int n=radar.CopyTracks(tracks);
-            var target=tracks.Take(n).FirstOrDefault(t=>t.ObjectClass==TrackObjectClass.AirVehicle&&t.Affiliation==TrackAffiliation.Hostile&&(!t.Identity.Available||t.Identity.CanAttackPlatform));
+            var target=tracks.Take(n).FirstOrDefault(t=>t.ObjectClass==TrackObjectClass.AirVehicle&&t.Affiliation!=TrackAffiliation.Friendly&&(t.Identity.Available?t.Identity.CanAttackPlatform:t.Affiliation==TrackAffiliation.Hostile));
             var capability=player.State.Capabilities.Values.FirstOrDefault(p=>p.Sender==wingmen[0].MemberId&&p.Role==(int)MechWeaponRole.AirToAirMissile&&p.Available&&player.State.Fresh(p,now));
-            if(target.TrackId.IsValid&&capability.Weapon!=Guid.Empty){specifiedWeapon=capability.Weapon;attack=player.Issue(wingmen[0].MemberId,FleetOrderKind.AttackWithWeapon,target,capability.Weapon);stage++;}
+            if(target.TrackId.IsValid&&capability.Weapon!=Guid.Empty){specifiedWeapon=capability.Weapon;attack=player.Issue(wingmen[0].MemberId,FleetOrderKind.AttackWithWeapon,target,capability.Weapon);stage++;stageEnteredAt=elapsed;}
         }
         if(attack!=Guid.Empty&&player.Results.TryGetValue(attack,out var reply))acknowledged|=reply.Phase==FleetTaskPhase.Acquiring||reply.Phase==FleetTaskPhase.Executing||reply.Phase==FleetTaskPhase.Returning||reply.Phase==FleetTaskPhase.Completed;
         detached|=wingmen.Any(w=>w.Detached);returning|=wingmen.Any(w=>w.State.Task?.Phase==FleetTaskPhase.Returning);
-        if(stage==1&&elapsed>50){player.SetFormationMode(FleetAttackMode.Free);stage++;}
+        if(stage==1&&elapsed-stageEnteredAt>=30){player.SetFormationMode(FleetAttackMode.Free);stage++;stageEnteredAt=elapsed;}
         freeMode|=wingmen.All(w=>w.State.Mode==FleetAttackMode.Free);
-        if(stage==2&&elapsed>65){player.Issue(wingmen[0].MemberId,FleetOrderKind.Return);stage++;}
-        if(stage==3&&elapsed>75){own.GetComponent<MechRadarController>().SetRadarPowerEnabled(false);stage++;}
-        if(stage==4&&elapsed>80){radarOffLinked=player.State.Members.Values.Any(p=>player.State.Fresh(p,now)&&now-p.ObservedAt<1);own.GetComponent<MechRadarController>().SetRadarPowerEnabled(true);priorLinkPolicy=own.GetComponent<MechRadarController>().DataLinkPolicy;while(own.GetComponent<MechRadarController>().DataLinkPolicy!=MechDataLinkPolicy.Silent)own.GetComponent<MechRadarController>().CycleDataLinkPolicy();player.LinkEnabled=false;stage++;}
-        if(stage==5&&elapsed>87){if(wingmen.Any(w=>w.State.Members.TryGetValue(player.MemberId,out var report)&&w.State.Fresh(report,w.GetComponent<MechRadarController>().SimTimeSeconds)))failures.Add("Leader report incorrectly fresh during link outage");player.LinkEnabled=true;while(own.GetComponent<MechRadarController>().DataLinkPolicy!=priorLinkPolicy)own.GetComponent<MechRadarController>().CycleDataLinkPolicy();stage++;}
+        if(stage==2&&elapsed-stageEnteredAt>=15){player.Issue(wingmen[0].MemberId,FleetOrderKind.Return);stage++;stageEnteredAt=elapsed;}
+        if(stage==3&&elapsed-stageEnteredAt>=10){own.GetComponent<MechRadarController>().SetRadarPowerEnabled(false);stage++;stageEnteredAt=elapsed;}
+        if(stage==4&&elapsed-stageEnteredAt>=5){radarOffLinked=player.State.Members.Values.Any(p=>player.State.Fresh(p,now)&&now-p.ObservedAt<1);own.GetComponent<MechRadarController>().SetRadarPowerEnabled(true);priorLinkPolicy=own.GetComponent<MechRadarController>().DataLinkPolicy;while(own.GetComponent<MechRadarController>().DataLinkPolicy!=MechDataLinkPolicy.Silent)own.GetComponent<MechRadarController>().CycleDataLinkPolicy();player.LinkEnabled=false;stage++;stageEnteredAt=elapsed;}
+        if(stage==5&&elapsed-stageEnteredAt>=7){if(wingmen.Any(w=>w.State.Members.TryGetValue(player.MemberId,out var report)&&w.State.Fresh(report,w.GetComponent<MechRadarController>().SimTimeSeconds)))failures.Add("Leader report incorrectly fresh during link outage");player.LinkEnabled=true;while(own.GetComponent<MechRadarController>().DataLinkPolicy!=priorLinkPolicy)own.GetComponent<MechRadarController>().CycleDataLinkPolicy();stage++;stageEnteredAt=elapsed;}
         foreach(var actor in actors)
         {
             if(!observed.TryGetValue(actor.MemberId,out var seen))observed[actor.MemberId]=seen=new HashSet<string>();

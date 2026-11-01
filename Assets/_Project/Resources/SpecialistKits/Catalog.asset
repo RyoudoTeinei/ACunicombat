@@ -27,6 +27,13 @@ MonoBehaviour:
     resourcePath: SpecialistKits/SupportKit
     testStatus: 5
     statusNote: 独占扩展系统并禁用双肩；专项能力参数仍待设计。
+  - partId: KIT_ELECTRONIC_WARFARE
+    displayName: 电子战套件
+    slot: 200
+    category: 30
+    resourcePath: SpecialistKits/ElectronicWarfareKit
+    testStatus: 5
+    statusNote: 独占扩展系统并禁用双肩；支持自卫与指定目标定向噪声压制。
   - partId: KIT_AEW_RADAR_01
     displayName: 预警雷达 01（性能待定）
     slot: 80

@@ -1065,10 +1065,10 @@ namespace ACunicombat.Tests.EditMode
         {
             var left = IncomingRadarTrack();
             left.TrackId = new TrackId(new Handle(1, 1));
-            left.Position = new double3(-500.0, 0.0, 5_000.0);
+            left.Position = new double3(-160.0, 0.0, 5_000.0);
             var right = IncomingRadarTrack();
             right.TrackId = new TrackId(new Handle(2, 1));
-            right.Position = new double3(500.0, 0.0, 5_000.0);
+            right.Position = new double3(160.0, 0.0, 5_000.0);
             var output = new MissileTrackSnapshot[2];
 
             var count = MissileTrackFusion.Fuse(
@@ -1096,6 +1096,32 @@ namespace ACunicombat.Tests.EditMode
             Assert.That(
                 output[1].MissionRole,
                 Is.EqualTo(MissileMissionRole.Unknown));
+        }
+
+        [Test]
+        public void SeekerWaveform_OutsideRoleGateCorroboratesWithoutAssigningRole()
+        {
+            var track = IncomingRadarTrack();
+            track.Position = new double3(1_000.0, 0.0, 5_000.0);
+            var output = new MissileTrackSnapshot[1];
+
+            var count = MissileTrackFusion.Fuse(
+                MissileTrackFusionConfig.Default,
+                new[] { track },
+                1,
+                new[] { Threat(EsmWaveformClass.InterceptorMissileSeeker, 0.9f) },
+                1,
+                new ElectroOpticalObservation[0],
+                0,
+                double3.zero,
+                double3.zero,
+                10.0,
+                output);
+
+            Assert.That(count, Is.EqualTo(1));
+            Assert.That(output[0].SourceMask & MissileTrackSourceMask.Rwr,
+                Is.EqualTo(MissileTrackSourceMask.Rwr));
+            Assert.That(output[0].MissionRole, Is.EqualTo(MissileMissionRole.Unknown));
         }
 
         [Test]
@@ -1234,6 +1260,32 @@ namespace ACunicombat.Tests.EditMode
             MissileTrackFusion.Fuse(MissileTrackFusionConfig.Default,state,new[]{track},1,new ThreatSnapshot[0],0,new ElectroOpticalObservation[0],0,double3.zero,double3.zero,10.04,output);
             Assert.That(output[0].Acceleration.x,resolved?Is.GreaterThan(500):Is.LessThan(450));
             Assert.That(math.length(output[0].Acceleration),Is.LessThanOrEqualTo(600.0001));
+        }
+
+        [Test]
+        public void UnresolvedVelocityNoiseDoesNotCreateAccelerationOrJerk()
+        {
+            var config = MissileTrackFusionConfig.Default;
+            config.AccelerationFilterTimeSeconds = 0;
+            config.JerkFilterTimeSeconds = 0;
+            var state = new MissileTrackFusionState();
+            var output = new MissileTrackSnapshot[1];
+            var track = IncomingRadarTrack();
+            for (int axis = 3; axis < 6; axis++) track.SetCovariance(axis, axis, 10000);
+            MissileTrackFusion.Fuse(config, state, new[] { track }, 1,
+                new ThreatSnapshot[0], 0, new ElectroOpticalObservation[0], 0,
+                double3.zero, double3.zero, 10, output);
+
+            track.Velocity = new double3(0, 0, -200);
+            track.LastUpdateTime = track.LastPredictTime = 10.04;
+            MissileTrackFusion.Fuse(config, state, new[] { track }, 1,
+                new ThreatSnapshot[0], 0, new ElectroOpticalObservation[0], 0,
+                double3.zero, double3.zero, 10.04, output);
+
+            Assert.That(math.length(output[0].Acceleration), Is.Zero);
+            Assert.That(math.length(output[0].Jerk), Is.Zero);
+            Assert.That(output[0].Position.z,
+                Is.EqualTo(track.PredictPosition(10.04).z).Within(.001));
         }
 
         [Test]

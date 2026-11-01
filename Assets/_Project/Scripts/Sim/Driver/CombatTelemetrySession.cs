@@ -32,6 +32,11 @@ namespace ACunicombat.Simulation.Driver
     /// </summary>
     public sealed class CombatTelemetrySession : IDisposable
     {
+        public static bool EventFocusedSnapshots {get;set;}
+        private static volatile string lastRecordingFailure;
+        public static string LastRecordingFailure=>lastRecordingFailure;
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)] private static void ResetCapturePolicy(){EventFocusedSnapshots=false;lastRecordingFailure=null;}
+        private static int ConfidenceBand(float v)=>v<.5f?0:v<.65f?1:v<.75f?2:v<.9f?3:4;
         private const string Schema = "acunicombat.combat-telemetry.v1";
         private static readonly object SharedLock = new object();
         private static CombatTelemetrySession shared;
@@ -46,15 +51,51 @@ namespace ACunicombat.Simulation.Driver
             new Dictionary<string, MissileRecordState>();
         private readonly Dictionary<string, ThreatRecordState> threatStates =
             new Dictionary<string, ThreatRecordState>();
-        private readonly Dictionary<string, string> friendlyIdentityStates =
-            new Dictionary<string, string>();
+        private readonly Dictionary<string, FriendlyRecordState> friendlyIdentityStates =
+            new Dictionary<string, FriendlyRecordState>();
+        private struct FriendlyRecordState {public string Value;public double Seen;}
+        private readonly List<string> expiredCacheKeys=new List<string>();
+        private double nextCachePrune;
+        public int CachedObservationCount=>missileStates.Count+threatStates.Count+friendlyIdentityStates.Count;
+        private void PruneDiagnosticCaches(double now)
+        {
+            if(!double.IsFinite(now)||now<nextCachePrune)return;
+            nextCachePrune=now+30;
+            expiredCacheKeys.Clear();foreach(var pair in missileStates)if(now-pair.Value.LastRecordTime>120)expiredCacheKeys.Add(pair.Key);
+            foreach(var key in expiredCacheKeys)missileStates.Remove(key);
+            expiredCacheKeys.Clear();foreach(var pair in threatStates)if(now-pair.Value.LastRecordTime>120)expiredCacheKeys.Add(pair.Key);
+            foreach(var key in expiredCacheKeys)threatStates.Remove(key);
+            expiredCacheKeys.Clear();foreach(var pair in friendlyIdentityStates)if(now-pair.Value.Seen>120)expiredCacheKeys.Add(pair.Key);
+            foreach(var key in expiredCacheKeys)friendlyIdentityStates.Remove(key);
+            expiredCacheKeys.Clear();
+        }
         private StreamWriter writer;
         private DateTime nextFlushUtc;
         private long sequence;
         private int part;
-        private bool disposed;
+        private volatile bool disposed;
         private bool eventOpen;
         private double latestSimTime;
+        private bool failureReported;
+        public bool IsRecording=>!disposed&&writer!=null;
+        public string LastWriteFailure {get;private set;}
+        public int BufferedCharacterCount=>line.Length;
+        public bool TryTakeFailure(out string failure)
+        {
+            lock(writeLock){failure=LastWriteFailure;if(failure==null||failureReported)return false;failureReported=true;return true;}
+        }
+        private void StopRecording(Exception failure=null)
+        {
+            disposed=true;eventOpen=false;
+            if(failure!=null)LastWriteFailure=failure.GetType().Name+": "+failure.Message;
+            var closing=writer;writer=null;
+            var stream=closing?.BaseStream;
+            try{closing?.Dispose();}catch(Exception error){LastWriteFailure??=error.GetType().Name+": "+error.Message;}
+            finally{try{stream?.Dispose();}catch(Exception error){LastWriteFailure??=error.GetType().Name+": "+error.Message;}}
+            if(LastWriteFailure!=null)lastRecordingFailure=LastWriteFailure;
+            line.Clear();if(line.Capacity>8192)line.Capacity=2048;
+            missileStates.Clear();threatStates.Clear();friendlyIdentityStates.Clear();expiredCacheKeys.Clear();
+        }
 
         private struct MissileRecordState
         {
@@ -151,6 +192,15 @@ namespace ACunicombat.Simulation.Driver
             }
         }
 
+        public static void RecordOwnshipEvent(double time,string source,string key,string text,bool warning)
+        {
+            lock(SharedLock){shared?.WriteOwnshipEvent(time,source,key,text,warning);}
+        }
+        private void WriteOwnshipEvent(double time,string source,string key,string text,bool warning)
+        {
+            lock(writeLock){if(!IsRecording)return;Begin(time,source,"ownship_events","event");String("key",key);String("message",text);Boolean("warning",warning);End();}
+        }
+
         public static void RecordApsEvent(double time,string source,string eventName,in ApsTelemetryData data)
         {
             lock(SharedLock){shared?.RecordAps(time,source,eventName,in data);}
@@ -158,6 +208,9 @@ namespace ACunicombat.Simulation.Driver
 
         public void RecordAps(double time,string source,string eventName,in ApsTelemetryData data)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(time,source,"aps",eventName);
             String("slotId",data.SlotId);String("equipmentId",data.EquipmentId);String("actionId",data.ActionId);
             String("projectileId",data.ProjectileId);String("reason",data.Reason);String("observerScope",data.ObserverScope);String("phase",data.Phase);
@@ -175,6 +228,7 @@ namespace ACunicombat.Simulation.Driver
             Vector("fragmentDirection",new double3(data.FragmentDirection.x,data.FragmentDirection.y,data.FragmentDirection.z));
             Number("ownerDistanceMeters",data.OwnerDistance);Number("hits",data.Hits);Number("kills",data.Kills);String("detail",data.Detail);
             End();
+                    }
         }
 
         public static void RecordMissileProjectileEvent(
@@ -215,12 +269,16 @@ namespace ACunicombat.Simulation.Driver
             double sensorStep,
             double fusionStep)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "simulation", "driver_start");
             Number("seed", seed);
             Number("motionStepSeconds", motionStep);
             Number("sensorStepSeconds", sensorStep);
             Number("fusionStepSeconds", fusionStep);
             End();
+                    }
         }
 
         public void RecordRadarProfile(
@@ -229,6 +287,9 @@ namespace ACunicombat.Simulation.Driver
             in RadarSensorProfile profile,
             bool auxiliary)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "radar", "sensor_registered");
             Boolean("auxiliary", auxiliary);
             Number("sensorId", profile.SensorId.Packed);
@@ -254,6 +315,7 @@ namespace ACunicombat.Simulation.Driver
             Number("mergeAngleRadians", profile.Resolutions.AngleRadians);
             Number("mergeVelocityMps", profile.Resolutions.VelocityMps);
             End();
+                    }
         }
 
         public void RecordElectroOpticalProfile(
@@ -261,6 +323,9 @@ namespace ACunicombat.Simulation.Driver
             string source,
             in ElectroOpticalReceiverProfile profile)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "electro_optical", "receiver_registered");
             Number("sensorId", profile.SensorId.Packed);
             Vector("forward", profile.Forward);
@@ -271,6 +336,7 @@ namespace ACunicombat.Simulation.Driver
             Number("trackCapacity", profile.TrackCapacity);
             Number("classificationScale", profile.ClassificationScale);
             End();
+                    }
         }
 
         public void RecordLaserProfile(
@@ -278,6 +344,9 @@ namespace ACunicombat.Simulation.Driver
             string source,
             in LaserRangefinderProfile profile)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "laser_rangefinder", "sensor_registered");
             Number("sensorId", profile.SensorId.Packed);
             Number("emitterId", profile.EmitterId.Packed);
@@ -293,6 +362,7 @@ namespace ACunicombat.Simulation.Driver
             Number("frequencyBand", profile.FrequencyBand);
             Number("waveformId", profile.WaveformId);
             End();
+                    }
         }
 
         public void RecordEsmProfile(
@@ -300,6 +370,9 @@ namespace ACunicombat.Simulation.Driver
             string source,
             in EsmReceiverProfile profile)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "esm_maw", "receiver_registered");
             Number("receiverId", profile.ReceiverId.Packed);
             Number("blankedEmitterId", profile.BlankedEmitterId.Packed);
@@ -307,6 +380,7 @@ namespace ACunicombat.Simulation.Driver
             Number("sensitivityFloorDb", profile.SensitivityFloorDb);
             Number("bearingSigmaRadians", profile.BearingSigmaRadians);
             End();
+                    }
         }
 
         public void RecordLinkProfile(
@@ -314,6 +388,9 @@ namespace ACunicombat.Simulation.Driver
             string source,
             in LinkTerminalProfile profile)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "data_link", "terminal_registered");
             Number("terminalId", profile.TerminalId.Packed);
             Number("emitterId", profile.EmitterId.Packed);
@@ -330,6 +407,7 @@ namespace ACunicombat.Simulation.Driver
             Number("frequencyBand", profile.FrequencyBand);
             Number("waveformId", profile.WaveformId);
             End();
+                    }
         }
 
         public void RecordTrackingConfiguration(
@@ -339,11 +417,15 @@ namespace ACunicombat.Simulation.Driver
             float memorySeconds,
             float snapshotIntervalSeconds)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "radar_tracking", "configuration");
             Number("capacity", capacity);
             Number("trackMemorySeconds", memorySeconds);
             Number("snapshotIntervalSeconds", snapshotIntervalSeconds);
             End();
+                    }
         }
 
         public void RecordSensorTick(
@@ -359,6 +441,9 @@ namespace ACunicombat.Simulation.Driver
             int scheduledDwells,
             long deferredDwells)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "simulation", "sensor_tick");
             Number("radarDetections", radarDetections);
             Number("radarEmissions", radarEmissions);
@@ -370,10 +455,14 @@ namespace ACunicombat.Simulation.Driver
             Number("scheduledDwells", scheduledDwells);
             Number("deferredDwells", deferredDwells);
             End();
+                    }
         }
 
         public void RecordDwell(double simTime, string source, in Dwell dwell)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "radar", "dwell_scheduled");
             Number("sensorId", dwell.SensorId.Packed);
             Number("dueTime", dwell.DueTime);
@@ -383,6 +472,7 @@ namespace ACunicombat.Simulation.Driver
             String("priority", dwell.Priority.ToString());
             Number("dwellSequence", dwell.Sequence);
             End();
+                    }
         }
 
         public void RecordEmission(
@@ -391,6 +481,9 @@ namespace ACunicombat.Simulation.Driver
             string system,
             in EmissionEvent emission)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, system, "emission");
             Number("emitterId", emission.EmitterId.Packed);
             String("emissionType", emission.EmissionType.ToString());
@@ -405,6 +498,7 @@ namespace ACunicombat.Simulation.Driver
             Number("mainlobePowerDb", emission.MainlobePowerDb);
             Number("sidelobeLevelDb", emission.SidelobeLevelDb);
             End();
+                    }
         }
 
         public void RecordRadarMeasurement(
@@ -413,6 +507,9 @@ namespace ACunicombat.Simulation.Driver
             int index,
             in Measurement measurement)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "radar", "measurement");
             Number("measurementIndex", index);
             Number("sensorId", measurement.SensorId.Packed);
@@ -430,12 +527,16 @@ namespace ACunicombat.Simulation.Driver
             Number("classificationConfidence", measurement.ClassificationConfidence);
             String("flags", measurement.Flags.ToString());
             End();
+                    }
         }
 
         public void RecordRadarTrackDiagnostic(
             string source,
             in RadarTrackDiagnostic diagnostic)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(diagnostic.Timestamp, source, "radar_tracking", diagnostic.Kind.ToString());
             Number("measurementIndex", diagnostic.MeasurementIndex);
             Number("sensorId", diagnostic.SensorId.Packed);
@@ -455,10 +556,15 @@ namespace ACunicombat.Simulation.Driver
             Number("coastCount", diagnostic.CoastCount);
             String("reason", diagnostic.Reason ?? string.Empty);
             End();
+                    }
         }
 
         public void RecordTrackSnapshot(double simTime, string source, in TrackSnapshot track)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
+            if(EventFocusedSnapshots)return;
             Begin(simTime, source, "radar_tracking", "track_snapshot");
             Number("trackId", track.TrackId.Packed);
             Vector("position", track.Position);
@@ -479,6 +585,7 @@ namespace ACunicombat.Simulation.Driver
             Number("interferenceScore", track.InterferenceScore);
             Covariance(track);
             End();
+                    }
         }
 
         public void RecordElectroOptical(
@@ -486,6 +593,9 @@ namespace ACunicombat.Simulation.Driver
             string source,
             in ElectroOpticalObservation observation)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "electro_optical", "observation");
             Number("sensorId", observation.SensorId.Packed);
             Number("observationTime", observation.Timestamp);
@@ -496,6 +606,7 @@ namespace ACunicombat.Simulation.Driver
             String("objectClass", observation.ObjectClass.ToString());
             Number("classificationConfidence", observation.ClassificationConfidence);
             End();
+                    }
         }
 
         public void RecordLaserObservation(
@@ -505,6 +616,9 @@ namespace ACunicombat.Simulation.Driver
             bool refinementAccepted,
             double normalizedInnovationSquared)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "laser_rangefinder", "observation");
             Number("sensorId", observation.SensorId.Packed);
             Number("cuedTrackId", observation.CuedTrackId.Packed);
@@ -519,6 +633,7 @@ namespace ACunicombat.Simulation.Driver
             Boolean("refinementAccepted", refinementAccepted);
             Number("normalizedInnovationSquared", normalizedInnovationSquared);
             End();
+                    }
         }
 
         public void RecordLaserPulse(
@@ -527,6 +642,9 @@ namespace ACunicombat.Simulation.Driver
             in LaserPulse pulse,
             bool accepted)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "laser_rangefinder", "pulse_scheduled");
             Boolean("accepted", accepted);
             Number("sensorId", pulse.SensorId.Packed);
@@ -535,6 +653,7 @@ namespace ACunicombat.Simulation.Driver
             Vector("direction", pulse.Direction);
             Number("pulseSequence", pulse.Sequence);
             End();
+                    }
         }
 
         public void RecordWarningContact(
@@ -542,6 +661,9 @@ namespace ACunicombat.Simulation.Driver
             string source,
             in WarningObservation contact)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "esm_maw", "contact");
             Number("receiverId", contact.ReceiverId.Packed);
             Number("observationTime", contact.Timestamp);
@@ -554,6 +676,7 @@ namespace ACunicombat.Simulation.Driver
             Boolean("isMainlobe", contact.IsMainlobe);
             Number("receivedPowerDb", contact.ReceivedPowerDb);
             End();
+                    }
         }
 
         public void RecordThreat(
@@ -562,9 +685,12 @@ namespace ACunicombat.Simulation.Driver
             in ThreatSnapshot threat,
             bool includeUnchanged = false)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             var key = source + ":" +
                       threat.ThreatId.Packed.ToString(CultureInfo.InvariantCulture);
-            if (!includeUnchanged &&
+            if ((!includeUnchanged || EventFocusedSnapshots) &&
                 threatStates.TryGetValue(key, out var previous) &&
                 previous.Level == threat.Level &&
                 previous.WaveformClass == threat.WaveformClass &&
@@ -603,6 +729,7 @@ namespace ACunicombat.Simulation.Driver
                 threat.MainlobePowerTrendDbPerSecond);
             Number("mainlobeContactCount", threat.MainlobeContactCount);
             End();
+                    }
         }
 
         public void RecordDataLink(
@@ -612,6 +739,9 @@ namespace ACunicombat.Simulation.Driver
             in LinkMessage message,
             bool accepted)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "data_link", eventName);
             Boolean("accepted", accepted);
             Number("messageSequence", message.Sequence);
@@ -626,6 +756,7 @@ namespace ACunicombat.Simulation.Driver
             if(message.TrackPayload.HasMissileLaunchTime)
                 Number("missileLaunchTime", message.TrackPayload.MissileLaunchTime);
             End();
+                    }
         }
 
         public void RecordUnityLog(
@@ -633,11 +764,15 @@ namespace ACunicombat.Simulation.Driver
             string stackTrace,
             LogType type)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(latestSimTime, "unity", "application", "log");
             String("level", type.ToString());
             String("message", condition ?? string.Empty);
             String("stackTrace", stackTrace ?? string.Empty);
             End();
+                    }
         }
 
         public void RecordMissileTrack(
@@ -645,6 +780,9 @@ namespace ACunicombat.Simulation.Driver
             string source,
             in MissileTrackSnapshot track)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             var key = source + ":" + track.TrackId.Packed.ToString(CultureInfo.InvariantCulture);
             var current = new MissileRecordState
             {
@@ -661,17 +799,15 @@ namespace ACunicombat.Simulation.Driver
             };
             if (missileStates.TryGetValue(key, out var previous) &&
                 previous.Intent == current.Intent &&
-                Math.Abs(previous.IntentConfidence - current.IntentConfidence) < 0.001f &&
+                (EventFocusedSnapshots?ConfidenceBand(previous.IntentConfidence)==ConfidenceBand(current.IntentConfidence):Math.Abs(previous.IntentConfidence - current.IntentConfidence) < 0.001f) &&
                 previous.MissionRole == current.MissionRole &&
-                Math.Abs(
-                    previous.MissionRoleConfidence -
-                    current.MissionRoleConfidence) < 0.001f &&
+                (EventFocusedSnapshots?ConfidenceBand(previous.MissionRoleConfidence)==ConfidenceBand(current.MissionRoleConfidence):Math.Abs(previous.MissionRoleConfidence-current.MissionRoleConfidence)<.001f) &&
                 previous.MissionRoleEvidence ==
                     current.MissionRoleEvidence &&
                 previous.Quality == current.Quality &&
                 previous.Affiliation == current.Affiliation &&
                 previous.Incoming == current.Incoming &&
-                simTime - previous.LastRecordTime < 0.25)
+                simTime - previous.LastRecordTime < (EventFocusedSnapshots?1.0:.25))
             {
                 return;
             }
@@ -718,6 +854,7 @@ namespace ACunicombat.Simulation.Driver
             Number("lastEvidenceTime", track.LastEvidenceTime);
             Number("kinematicUpdateTime", track.KinematicUpdateTime);
             End();
+                    }
         }
 
         private void RecordMissileProjectile(
@@ -733,6 +870,9 @@ namespace ACunicombat.Simulation.Driver
             Vector3 position,
             Vector3 velocity)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(simTime, source, "missile_projectile", eventName);
             String("projectileEntityId", projectileEntityId ?? string.Empty);
             Number("ownerTeamId", ownerTeamId);
@@ -743,6 +883,7 @@ namespace ACunicombat.Simulation.Driver
             Vector("position", new double3(position.x, position.y, position.z));
             Vector("velocity", new double3(velocity.x, velocity.y, velocity.z));
             End();
+                    }
         }
 
         public void RecordFriendlyIdentityResolution(
@@ -755,17 +896,20 @@ namespace ACunicombat.Simulation.Driver
             double score,
             double reportAgeSeconds)
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             var key = source + ":" +
                       sourceTerminal.Packed.ToString(CultureInfo.InvariantCulture);
             var state = resolution + ":" + associatedTrackId.Packed + ":" +
                         resolvedTrackId.Packed;
-            if (friendlyIdentityStates.TryGetValue(key, out var previous) &&
-                string.Equals(previous, state, StringComparison.Ordinal))
+            bool same=friendlyIdentityStates.TryGetValue(key,out var previous)&&string.Equals(previous.Value,state,StringComparison.Ordinal);
+            friendlyIdentityStates[key]=new FriendlyRecordState{Value=state,Seen=simTime};
+            if (same)
             {
                 return;
             }
 
-            friendlyIdentityStates[key] = state;
             Begin(simTime, source, "identity", "friendly_missile_resolution");
             Number("sourceTerminal", sourceTerminal.Packed);
             String("resolution", resolution.ToString());
@@ -774,13 +918,14 @@ namespace ACunicombat.Simulation.Driver
             Number("associationScore", score);
             Number("reportAgeSeconds", reportAgeSeconds);
             End();
+                    }
         }
 
         public void Flush()
         {
             lock (writeLock)
             {
-                writer?.Flush();
+                try{writer?.Flush();}catch(Exception error){StopRecording(error);}
             }
         }
 
@@ -793,15 +938,15 @@ namespace ACunicombat.Simulation.Driver
                     return;
                 }
 
-                disposed = true;
-                writer?.Flush();
-                writer?.Dispose();
-                writer = null;
+                StopRecording();
             }
         }
 
         private void RecordSessionStart()
         {
+            lock (writeLock) // Whole record, including de-duplication and JSON construction.
+            {
+                if(disposed)return;
             Begin(0.0, "session", "telemetry", "session_start");
             String("schema", Schema);
             String("utcStart", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
@@ -812,6 +957,7 @@ namespace ACunicombat.Simulation.Driver
             String("platform", Application.platform.ToString());
             String("gitCommit", TryReadGitCommit());
             End();
+                    }
         }
 
         private void OnUnityLog(
@@ -841,6 +987,7 @@ namespace ACunicombat.Simulation.Driver
                 {
                     latestSimTime = simTime;
                 }
+                PruneDiagnosticCaches(latestSimTime);
                 line.Clear();
                 line.Append('{');
                 AppendRawNumber("sequence", ++sequence, false);
@@ -854,6 +1001,7 @@ namespace ACunicombat.Simulation.Driver
 
         private void End()
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Telemetry);
             lock (writeLock)
             {
                 if (!eventOpen)
@@ -872,17 +1020,9 @@ namespace ACunicombat.Simulation.Driver
                         nextFlushUtc = DateTime.UtcNow.AddSeconds(1.0);
                     }
                 }
-                catch (Exception)
+                catch (Exception error)
                 {
-                    disposed = true;
-                    try
-                    {
-                        writer?.Dispose();
-                    }
-                    catch (Exception)
-                    {
-                    }
-                    writer = null;
+                    StopRecording(error);
                 }
                 finally
                 {
@@ -894,6 +1034,7 @@ namespace ACunicombat.Simulation.Driver
         private void String(string name, string value) => AppendString(name, value, true);
         private void Boolean(string name, bool value)
         {
+            if(!eventOpen)return;
             line.Append(',');
             AppendQuoted(name);
             line.Append(':').Append(value ? "true" : "false");
@@ -901,6 +1042,7 @@ namespace ACunicombat.Simulation.Driver
 
         private void Number(string name, double value)
         {
+            if(!eventOpen)return;
             line.Append(',');
             AppendQuoted(name);
             line.Append(':');
@@ -915,6 +1057,7 @@ namespace ACunicombat.Simulation.Driver
         private void Number(string name, byte value) => Number(name, (double)value);
         private void Number(string name, ulong value)
         {
+            if(!eventOpen)return;
             line.Append(',');
             AppendQuoted(name);
             line.Append(':').Append(value.ToString(CultureInfo.InvariantCulture));
@@ -925,6 +1068,7 @@ namespace ACunicombat.Simulation.Driver
 
         private void Vector(string name, double3 value)
         {
+            if(!eventOpen)return;
             line.Append(',');
             AppendQuoted(name);
             line.Append(":{");
@@ -936,6 +1080,7 @@ namespace ACunicombat.Simulation.Driver
 
         private void Covariance(in TrackSnapshot track)
         {
+            if(!eventOpen)return;
             line.Append(',');
             AppendQuoted("covarianceUpperTriangular");
             line.Append(':').Append('[');
@@ -954,6 +1099,7 @@ namespace ACunicombat.Simulation.Driver
 
         private void AppendRawNumber(string name, double value, bool comma)
         {
+            if(!eventOpen)return;
             if (comma) line.Append(',');
             AppendQuoted(name);
             line.Append(':');
@@ -970,6 +1116,7 @@ namespace ACunicombat.Simulation.Driver
 
         private void AppendString(string name, string value, bool comma)
         {
+            if(!eventOpen)return;
             if (comma) line.Append(',');
             AppendQuoted(name);
             line.Append(':');

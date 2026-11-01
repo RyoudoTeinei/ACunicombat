@@ -9,7 +9,7 @@ namespace ACunicombat.Mechs
  {
   private int missionWaypoint;
   public bool HasSpatialMission=>HasTask&&State.Task.Order.Order==FleetOrderKind.AssignMission&&State.Task.Phase!=FleetTaskPhase.Returning;
-  public static bool MissionAvailable(FleetTaskGroup group)=>group!=FleetTaskGroup.ElectronicWarfare&&group!=FleetTaskGroup.EarlyWarningCommand&&group!=FleetTaskGroup.Logistics;
+  public static bool MissionAvailable(FleetTaskGroup group)=>group!=FleetTaskGroup.EarlyWarningCommand&&group!=FleetTaskGroup.Logistics;
   public List<Guid> RequestFormationMission(Guid root,FleetPacket specification)
   {
    var operations=new List<Guid>();if(!CanEditFormation(root)||!MissionAvailable(specification.TaskGroup))return operations;
@@ -49,9 +49,9 @@ namespace ACunicombat.Mechs
   private bool TryMissionAirTarget(out TrackSnapshot track)
   {
    track=default;if(!HasSpatialMission)return false;var p=State.Task.Order;
-   if(p.TaskGroup!=FleetTaskGroup.Strike&&p.TaskGroup!=FleetTaskGroup.AirSuperiority&&p.TaskGroup!=FleetTaskGroup.AirDefenseSuppression)return false;
+   if(p.TaskGroup!=FleetTaskGroup.Strike&&p.TaskGroup!=FleetTaskGroup.AirSuperiority&&p.TaskGroup!=FleetTaskGroup.AirDefenseSuppression&&p.TaskGroup!=FleetTaskGroup.ElectronicWarfare)return false;
    int n=radar.CopyTracks(air);double now=radar.SimTimeSeconds;
-   if(p.TaskGroup==FleetTaskGroup.Strike||p.TaskGroup==FleetTaskGroup.AirDefenseSuppression)
+   if(p.TaskGroup==FleetTaskGroup.Strike||p.TaskGroup==FleetTaskGroup.AirDefenseSuppression||p.TaskGroup==FleetTaskGroup.ElectronicWarfare)
    {
     int match=MechFleetContactMatcher.Match(p.Target,air,n,now);if(match<0)return false;track=air[match];
     if(track.Affiliation==TrackAffiliation.Friendly||track.Identity.Available&&!track.Identity.CanAttackPlatform)return false;
@@ -74,6 +74,11 @@ namespace ACunicombat.Mechs
     if(!radar.TryAssociatePassiveTarget(track,out _)){LastDecision="SuppressionEmitterUnconfirmedOrSilent";return false;}
    }
    resolvedOrder=track.TrackId;lastSeenOrder=now;return true;
+  }
+  public bool TryGetElectronicWarfareEmitter(out ThreatSnapshot source)
+  {
+   source=default;if(!HasSpatialMission||TaskGroup!=FleetTaskGroup.ElectronicWarfare||!TryMissionAirTarget(out var track))return false;
+   return radar.TryAssociatePassiveTarget(track,out source);
   }
   private bool MissionAllowsOffensiveTarget(TrackId id)
   {
@@ -119,6 +124,14 @@ namespace ACunicombat.Mechs
     if(!TryMissionProtectedState(out var target,out velocity))return true;
     var relative=target-transform.position;float standOff=SuppressionStandOff();
     if(standOff<=0)return true;
+    standOff=Mathf.Max(standOff,relative.magnitude);
+    point=relative.sqrMagnitude>1?target-relative.normalized*standOff:transform.position;return true;
+   }
+   if(p.TaskGroup==FleetTaskGroup.ElectronicWarfare)
+   {
+    if(!TryMissionProtectedState(out var target,out velocity))return true;
+    var relative=target-transform.position;
+    float standOff=GetComponent<MechElectronicWarfareController>() is MechElectronicWarfareController electronicWarfare?electronicWarfare.StandoffRangeMeters:100000f;
     standOff=Mathf.Max(standOff,relative.magnitude);
     point=relative.sqrMagnitude>1?target-relative.normalized*standOff:transform.position;return true;
    }

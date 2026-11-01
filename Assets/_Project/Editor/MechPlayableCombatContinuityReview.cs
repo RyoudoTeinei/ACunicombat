@@ -21,12 +21,14 @@ public static class MechPlayableCombatContinuityReview
     const string Scene="Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Scenes/AC6PlayerControl.unity";
     static StreamWriter writer,contactWriter,radarInputWriter;static string radarCaptureDirectory;static bool radarCaptureSubscribed;static MechPlayerRig player;static MechRadarController radar;static MechRadarHudPresenter hud;
     static EditorWindow gameView;static Camera camera;static double started,wallStarted,nextImage,nextDesignation;static bool detailedConfigured;static int lastFrame=-1,markerCount,frameCount,firePhase=-1,qbPhase=-1;
+    static Vector3 patrolAnchor;
     static readonly Dictionary<string,(string owner,int team)> launchOrigins=new Dictionary<string,(string,int)>();
     static readonly HashSet<string> launched=new HashSet<string>();static readonly HashSet<string> launchers=new HashSet<string>();
     static readonly TrackSnapshot[] raw=new TrackSnapshot[96];static readonly MissileTrackSnapshot[] fused=new MissileTrackSnapshot[MissileContactManager.MaximumContacts];
     static readonly FieldInfo ownerField=typeof(MechTestProjectile).GetField("owner",BindingFlags.Instance|BindingFlags.NonPublic);
-    static double nextWorldAudit;
+    static double nextWorldAudit,nextCombatDiagnostic;
     static readonly List<ACunicombat.Simulation.Driver.BattlefieldEntityIdentity> auditOwners=new();
+    static readonly List<MechActionFeedback> actionEvents=new();
     static MechPlayableCombatContinuityReview()
     {
         EditorApplication.update+=Tick;AssemblyReloadEvents.beforeAssemblyReload+=CloseRadarCapture;
@@ -53,6 +55,7 @@ public static class MechPlayableCombatContinuityReview
     public static void Run()
     {
         var dir=Arg("-combatReviewOutput",Path.GetFullPath("Artifacts/PlayableCombat-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")));Directory.CreateDirectory(dir);Directory.CreateDirectory(dir+"/frames");
+        MechIdentityController.LogDirectoryOverride=dir+"/identity";
         SessionState.SetString("PlayableCombatContinuity.output",dir);SessionState.SetFloat("PlayableCombatContinuity.duration",float.Parse(Arg("-combatReviewDuration","120"),System.Globalization.CultureInfo.InvariantCulture));
         SessionState.SetInt("PlayableCombatContinuity.fps",int.Parse(Arg("-combatReviewFps","60")));
         File.WriteAllText(dir+"/scope.txt","Production playable scene; normal AI, radar scheduling, weapons and identity. Only player input is scripted. Truth is written to a separate record stream for offline adjudication. No scene save or rebuild.\n"+Scene);
@@ -89,6 +92,23 @@ public static class MechPlayableCombatContinuityReview
     static Vector2 HudPoint(Vector3 world)=> (Vector2)typeof(MechRadarHudPresenter).Assembly.GetType("ACunicombat.Mechs.MechHudLayout").GetMethod("ScreenToHudPoint",BindingFlags.Public|BindingFlags.Static).Invoke(null,new object[]{camera.WorldToScreenPoint(world)});
     static void ContactFrame(MissileContactReplayFrame frame){contactWriter.WriteLine(JsonUtility.ToJson(frame));}
     static void Write(Sample data){writer.WriteLine(JsonUtility.ToJson(data));}
+    static void AuditCombatDecisions(double now)
+    {
+        if(now<nextCombatDiagnostic)return;nextCombatDiagnostic=now+1;
+        foreach(var rig in UnityEngine.Object.FindObjectsByType<MechPlayerRig>(FindObjectsInactive.Exclude))
+        {
+            var ai=rig.GetComponent<MechAiTargetController>();
+            if(ai!=null)
+            {
+                Write(new Sample{kind="ai_status",frame=Time.frameCount,time=now,owner=rig.name,quality=ai.LastWeaponDecision,intent=ai.LastManeuverDecision,entity=ai.SelectedAirTrackId.ToString(),alive=ai.HasSelectedAirTrack});
+                var consumed=new TrackSnapshot[96];int consumedCount=ai.CopyConsumedAirInputs(consumed);
+                for(int i=0;i<consumedCount;i++){var track=consumed[i];Write(new Sample{kind="ai_air",frame=Time.frameCount,time=now,owner=rig.name,entity=track.TrackId.ToString(),track=track.TrackId.Packed,affiliation=track.Affiliation.ToString(),quality=track.Lifecycle.ToString(),intent=track.Identity.Relation.ToString(),source=track.Identity.Reason.ToString(),uncertainty=track.IdentityConfidence,cpa=track.Confidence,alive=track.Identity.Available,incoming=track.Identity.CanAttackPlatform});}
+            }
+            var weapons=rig.GetComponent<MechTestWeaponSystem>();if(weapons==null)continue;
+            weapons.Actions.CopyEvents(actionEvents);
+            foreach(var e in actionEvents)if(now-e.Time<=1.1)Write(new Sample{kind="weapon_feedback",frame=Time.frameCount,time=e.Time,owner=rig.name,source=e.Id.Source.ToString(),quality=e.Phase.ToString(),intent=e.Kind.ToString(),style=e.Reason,entity=e.InstanceId.ToString(),affiliation=e.SlotId});
+        }
+    }
     // Offline oracle only: verify the sensor world's projection against the live scene.
     // These records never enter tracking, guidance, identity, or the acceptance thresholds.
     static void AuditSensorWorld(ACunicombat.Simulation.Driver.SimulationDriver driver,double now)
@@ -148,9 +168,9 @@ public static class MechPlayableCombatContinuityReview
                 if(Arg("-fleetDefenseReview","0")=="1")MechFleetCombatReview.ConfigureDefenseEquipment(player);
                 if(Arg("-combatReviewPlayerAam","0")=="1")
                 {
-                    var part=UnityEngine.Object.FindObjectsByType<MechPlayerRig>(FindObjectsInactive.Exclude).Where(x=>x.AiControlled)
+                    var part=UnityEngine.Object.FindObjectsByType<MechPlayerRig>(FindObjectsInactive.Exclude)
                         .SelectMany(x=>x.GetComponent<MechRuntimeState>().CurrentLoadout.EnumerateEnabledAssignments()).Select(x=>x.part)
-                        .First(x=>x.WeaponPerformance.role==MechWeaponRole.AirToAirMissile);
+                        .First(x=>x.Slot==MechPartSlot.LeftBackWeapon&&x.WeaponPerformance.role==MechWeaponRole.AirToAirMissile);
                     var assembler=player.GetComponent<MechAssembler>();var variant=UnityEngine.Object.Instantiate(assembler.Loadout);
                     var slot=variant.GetSlots().First(x=>x.legacyRole==MechPartSlot.LeftBackWeapon);
                     if(!variant.TrySetPart(slot.id,part,out string reason))throw new Exception("AAM loadout rejected: "+reason);
@@ -161,6 +181,7 @@ public static class MechPlayableCombatContinuityReview
                 radar.SetTrackOperationMode(true); // Same operator action as enabling the normal designation mode.
 
                 var ais=UnityEngine.Object.FindObjectsByType<MechAiTargetController>(FindObjectsInactive.Exclude);
+                foreach(var identity in UnityEngine.Object.FindObjectsByType<MechIdentityController>(FindObjectsInactive.Exclude))identity.LogDecisions=true;
                 File.WriteAllLines(dir+"/platforms.txt",ais.Select(a=>$"{a.name}: enabled={a.enabled}, position={a.transform.position}, team={a.GetComponent<CombatTestTarget>()?.TeamId}"));
                 if(ais.Length<4||ais.Any(a=>!a.enabled))throw new Exception("Expected four active production AI platforms");
             }
@@ -174,10 +195,12 @@ public static class MechPlayableCombatContinuityReview
             if(!detailedConfigured&&telemetryDriver!=null){typeof(ACunicombat.Simulation.Driver.SimulationDriver).GetField("telemetryDetail",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(telemetryDriver,ACunicombat.Simulation.Driver.CombatTelemetryDetail.Detailed);detailedConfigured=true;}
             if(Arg("-fleetReview","0")=="1")MechFleetCombatReview.Step(player,t,dir);
             var motion=player.GetComponent<MechFlightMotionController>();var input=default(MechPlayerInputFrame);
-            if(t>6){input.RiseHeld=t<14;input.MoveLocal=new Vector2(t<20?0:(Mathf.FloorToInt((float)(t-20)/8)%2==0?1:-1),t<45?1:.25f);}
+            if(t<=6)patrolAnchor=player.transform.position;
+            else input=MechEndurancePilot.Patrol(t-6,patrolAnchor,player.transform.position,motion.Velocity,motion.LogicalRotation);
+            if(Vector3.Distance(player.transform.position,patrolAnchor)>40000)throw new Exception("Coverage failure: scripted player left the 40 km combat zone");
             int nextFire=(int)(t/.5);input.LeftShoulderFireHeld=t>10&&t%.5<.1;input.LeftShoulderFireEdge=input.LeftShoulderFireHeld&&nextFire!=firePhase;if(input.LeftShoulderFireEdge)firePhase=nextFire;
             int nextQb=(int)(t/9);input.QuickBoostEdge=t>20&&nextQb!=qbPhase;if(input.QuickBoostEdge)qbPhase=nextQb;
-            int n=radar.CopyTracks(raw);var target=raw.Take(n).Where(x=>x.ObjectClass==TrackObjectClass.AirVehicle&&x.Affiliation==TrackAffiliation.Hostile).OrderBy(x=>math.distance(x.Position,(double3)(float3)player.transform.position)).FirstOrDefault();
+            int n=radar.CopyTracks(raw);var target=raw.Take(n).Where(x=>x.ObjectClass==TrackObjectClass.AirVehicle&&x.Affiliation!=TrackAffiliation.Friendly&&(!x.Identity.Available||x.Identity.CanAttackPlatform)).OrderBy(x=>math.distance(x.Position,(double3)(float3)player.transform.position)).FirstOrDefault();
             if(target.TrackId.IsValid)
             {
                 if(t>6&&now>=nextDesignation){radar.SetTrackOperationMode(true);radar.TryAssignFireControlTrack(target.TrackId);nextDesignation=now+2;}
@@ -190,6 +213,7 @@ public static class MechPlayableCombatContinuityReview
             }
             player.GetComponent<MechPlayerInputAdapter>().SubmitExternalFrame(input);
             Write(new Sample{kind="frame",frame=Time.frameCount,time=now,position=player.transform.position,velocity=motion.Velocity,cameraPosition=camera.transform.position,cameraForward=camera.transform.forward,input=input.MoveLocal});
+            AuditCombatDecisions(now);
             for(int i=0;i<n;i++)if(raw[i].ObjectClass==TrackObjectClass.Missile)Write(new Sample{kind="raw",frame=Time.frameCount,time=now,track=raw[i].TrackId.Packed,position=(Vector3)(float3)raw[i].PredictPosition(now),velocity=(Vector3)(float3)raw[i].Velocity,quality=raw[i].Lifecycle.ToString(),affiliation=raw[i].Affiliation.ToString(),velocityUncertainty=(float)Math.Sqrt(raw[i].GetCovariance(3,3)+raw[i].GetCovariance(4,4)+raw[i].GetCovariance(5,5)),uncertainty=(float)raw[i].PredictPositionUncertainty(now),filterTime=raw[i].LastPredictTime,filterUncertainty=Math.Sqrt(raw[i].GetCovariance(0,0)+raw[i].GetCovariance(1,1)+raw[i].GetCovariance(2,2)),evidenceTime=raw[i].LastUpdateTime});
             n=radar.CopyMissileTracks(fused);for(int i=0;i<n;i++){var x=fused[i];Write(new Sample{kind="fused",frame=Time.frameCount,time=now,track=x.TrackId.Packed,position=(Vector3)(float3)x.PredictPosition(now),velocity=(Vector3)(float3)x.Velocity,acceleration=(Vector3)(float3)x.Acceleration,uncertainty=x.PositionUncertaintyMeters,velocityUncertainty=x.VelocityUncertaintyMetersPerSecond,radialVelocityUncertainty=x.RadialVelocityUncertaintyMetersPerSecond,launchIdentity=x.OwnLaunchIdentity.ToString(),evidenceTime=x.LastEvidenceTime,kinematicTime=x.KinematicUpdateTime,affiliation=x.Affiliation.ToString(),quality=x.Quality.ToString(),intent=x.TargetIntent.ToString(),incoming=x.Incoming,cpa=x.ClosestApproachDistanceMeters,tca=x.TimeToClosestApproachSeconds,source=x.SourceMask.ToString()});}
             // Oracle data is logged AFTER inputs were chosen from observed tracks. It never drives gameplay.
@@ -217,5 +241,5 @@ public static class MechPlayableCombatContinuityReview
         }
         catch(Exception ex){File.WriteAllText(dir+"/error.txt",ex.ToString());Debug.LogException(ex);Finish(3);}
     }
-    static void Finish(int code){string dir=SessionState.GetString("PlayableCombatContinuity.output","");if(File.Exists(dir+"/build-manifest.json")&&!VerifyBuildManifest(dir))code=4;if(hud!=null){hud.MissileMarkerDrawn-=Marker;hud.HudRepainted-=Repaint;}if(radar!=null)radar.MissileContactFrameEvaluated-=ContactFrame;contactWriter?.Dispose();contactWriter=null;CloseRadarCapture();writer?.Dispose();writer=null;Time.captureDeltaTime=0;SessionState.SetInt("PlayableCombatContinuity.exit",code);SessionState.SetString(Key,"finish");EditorApplication.isPlaying=false;}
+    static void Finish(int code){string dir=SessionState.GetString("PlayableCombatContinuity.output","");if(File.Exists(dir+"/build-manifest.json")&&!VerifyBuildManifest(dir))code=4;if(hud!=null){hud.MissileMarkerDrawn-=Marker;hud.HudRepainted-=Repaint;}if(radar!=null)radar.MissileContactFrameEvaluated-=ContactFrame;contactWriter?.Dispose();contactWriter=null;CloseRadarCapture();writer?.Dispose();writer=null;MechIdentityController.LogDirectoryOverride=null;Time.captureDeltaTime=0;SessionState.SetInt("PlayableCombatContinuity.exit",code);SessionState.SetString(Key,"finish");EditorApplication.isPlaying=false;}
 }

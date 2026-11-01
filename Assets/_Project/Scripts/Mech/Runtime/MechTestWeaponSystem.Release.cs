@@ -14,7 +14,7 @@ namespace ACunicombat.Mechs
             if(!TryGetWeaponSlotStatus(slot,out var status)||!status.CanAttemptFire)return false;
             var p=BankPerformance(slot,track.TrackId)??GetEquippedWeaponPerformance(slot);if(p==null)return false;
             var target=radarController.PredictTrackPosition(track);float range=UnityEngine.Vector3.Distance(transform.position,target);
-            if(range<status.MinimumRangeMeters||range>status.MaximumRangeMeters)return false;
+            if(range<status.MinimumRangeMeters||!p.IsGuidedMissile&&range>status.MaximumRangeMeters)return false;
             var scaled=MechFireControlPerformanceModel.ScaleTrackForFireSolution(track,radarController.EffectiveFireControlPerformance);
             var velocity=flightMotion!=null?flightMotion.Velocity:UnityEngine.Vector3.zero;
             var solution=p.IsGuidedMissile
@@ -62,13 +62,16 @@ namespace ACunicombat.Mechs
             return ((IMechActionExecutor)this).Check(request,out reason);
         }
         private bool HasMissileReleaseGeometry(MechWeaponPerformance performance,in TrackSnapshot track,Unity.Mathematics.double3 intercept)
+            => CheckMissileReleaseGeometry(performance,track,intercept,out _);
+        private bool CheckMissileReleaseGeometry(MechWeaponPerformance performance,in TrackSnapshot track,Unity.Mathematics.double3 intercept,out string reason)
         {
+            reason="FireControlUnavailable";
             if(radarController==null)return false;
             var flight=performance.missileFlightProfile.IsConfigured?performance.missileFlightProfile:airToAirMissileProfile;
             float minimum=UnityEngine.Mathf.Max(performance.proximityFuseSafeDistanceMeters,flight.ProximityFuseSafeDistanceMeters);
             var origin=(Unity.Mathematics.double3)(Unity.Mathematics.float3)transform.position;
-            return MechMissileLaunchSource.SafeGeometry(Unity.Mathematics.math.distance(track.PredictPosition(radarController.SimTimeSeconds),origin),
-                track.PredictPositionUncertainty(radarController.SimTimeSeconds),minimum,Unity.Mathematics.math.distance(intercept,origin),flight.MaximumRangeMeters);
+            return MechMissileLaunchSource.CheckSafeGeometry(Unity.Mathematics.math.distance(track.PredictPosition(radarController.SimTimeSeconds),origin),
+                track.PredictPositionUncertainty(radarController.SimTimeSeconds),minimum,Unity.Mathematics.math.distance(intercept,origin),double.PositiveInfinity,out reason);
         }
         private void ReleaseRequirements(MechWeaponPerformance performance,TrackId target,out int channels,out MechEmissionRequirement emissions)
         {

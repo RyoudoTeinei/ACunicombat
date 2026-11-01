@@ -7,6 +7,7 @@ namespace ACunicombat.Mechs
         private Phase phase;
         private readonly MechEquipmentAnimationPlayer player;
         private readonly bool canonical;
+        private readonly float cyclePlaybackSpeed=1f;
         private readonly string fallback;
         private bool requested, release;
         private double fallbackAt;
@@ -17,6 +18,11 @@ namespace ACunicombat.Mechs
             if (player == null && record.part.EquipmentAnimations.Count > 0) player = record.instance.AddComponent<MechEquipmentAnimationPlayer>();
             if (player != null && player.Actions.Count == 0)
                 player.Configure(record.part.EquipmentAnimations, record.part.DefaultEquipmentActionId, false);
+            float naturalCycle=0;
+            foreach(var action in record.part.EquipmentAnimations)
+                if(action.Clip!=null&&(action.ActionId=="a000_800120"||action.ActionId=="a000_800210"||action.ActionId=="a000_800320"))naturalCycle+=action.Clip.length;
+            float requestedCycle=MechMissileLauncherCatalog.Find(record.part.PartId)?.LaunchCycleSeconds??record.part.WeaponPerformance.missileLaunchCycleSeconds;
+            if(requestedCycle>0&&naturalCycle>0)cyclePlaybackSpeed=naturalCycle/requestedCycle;
             canonical = player != null;
             foreach (var id in new[] { "a000_800110", "a000_800120", "a000_800210", "a000_800320", "a000_800310" })
                 if (player == null || !player.HasAction(id)) canonical = false;
@@ -63,7 +69,7 @@ namespace ACunicombat.Mechs
         { release = false; requested = false; if (player == null) phase = Phase.Stowed; }
         public void Cancel() { requested = release = false; Rest(); }
         private bool Play(string id, Phase next)
-        { if (player != null && player.PlayActionPreservingPose(id)) { phase = next; return true; } Cancel(); return false; }
+        { if(player!=null)player.SetPlaybackSpeed(next==Phase.Opening||next==Phase.Firing||next==Phase.Closing?cyclePlaybackSpeed:1f); if (player != null && player.PlayActionPreservingPose(id)) { phase = next; return true; } Cancel(); return false; }
         private void Rest()
         {
             if (player != null)

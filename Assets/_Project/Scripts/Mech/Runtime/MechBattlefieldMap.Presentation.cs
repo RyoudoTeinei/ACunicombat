@@ -11,6 +11,9 @@ namespace ACunicombat.Mechs
 
         private Vector3 PresentationPosition(Contact contact, double now)
         {
+            // In the scenario editor Own means "player unit", not the live
+            // observer transform. Rendering and picking must use the same edit.
+            if(ScenarioEditing)return contact.Position;
             Vector3 observed = contact.Own ? transform.position :
                 contact.Observation.TrackId.IsValid ? (Vector3)(Unity.Mathematics.float3)contact.Observation.PredictPosition(now) : contact.Position;
             if (!contact.Missile) return observed;

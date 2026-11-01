@@ -8,6 +8,7 @@ namespace ACunicombat.Mechs
     // Render-only correction filtering. Never feeds radar, guidance, identity, or interception.
     public sealed class MechMissileMarkerPresentation
     {
+        public static double RenderTime(double sensorTime,double renderTime,double physicsTime) => sensorTime + Math.Max(0,renderTime-physicsTime);
         public struct Result { public Vector3 Position; public bool OwnshipThreat,AirToAir; }
         private sealed class State {public double Time,LastSeen,ThreatUntil,RoleUntil;public Vector3 Position,Velocity;}
         private readonly Dictionary<TrackId,State> states=new Dictionary<TrackId,State>();

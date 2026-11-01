@@ -21,15 +21,18 @@ namespace ACunicombat.Mechs
         public int Loading {get{int n=0;foreach(var b in Banks)n+=b.Loading;return n;}}
         public int Total=>Loaded+Reserve+Loading;
         public int LongestLoadedBank()
-        {int best=-1;float maximum=0;for(int i=0;i<Banks.Length;i++){float range=Banks[i].Ammo=="JW7-ER"?ErRange:StandardRange;if(Banks[i].Rounds>0&&range>maximum){maximum=range;best=i;}}return best;}
-        public const double ReloadSeconds=4;
+        {int best=-1;float maximum=0;for(int i=0;i<Banks.Length;i++){float range=Range(Banks[i].Ammo);if(Banks[i].Rounds>0&&range>maximum){maximum=range;best=i;}}return best;}
+        public const double ReloadSeconds=4; // Legacy default; instances use Launcher.ReloadSeconds.
+        public bool UsesRangeSelection=>Launcher.Number is "4250" or "4251" or "4252";
+        private static readonly System.Collections.Generic.Dictionary<string,float> ranges=new();
+        private static float Range(string ammo){if(!ranges.TryGetValue(ammo,out float r)){r=MechMissileAmmunitionCatalog.Create(ammo).maximumRangeMeters;ranges.Add(ammo,r);}return r;}
         private static readonly float StandardRange=MechMissileAmmunitionCatalog.Create("JW7").maximumRangeMeters;
         private static readonly float ErRange=MechMissileAmmunitionCatalog.Create("JW7-ER").maximumRangeMeters;
         public MechMissileBanks(MechMissileLauncherDefinition launcher,string selection)
         {
             Launcher=launcher;Banks=new Bank[launcher.LoadedGroups];
             bool mixed=launcher.Number=="4252"&&selection=="jw7-mixed";
-            string ammo=selection=="jw7-er"&&launcher.Allows("JW7-ER")?"JW7-ER":"JW7";
+            string ammo=UsesRangeSelection?(selection=="jw7-er"&&launcher.Allows("JW7-ER")?"JW7-ER":"JW7"):(launcher.Allows(selection)?selection:launcher.DefaultAmmo);
             if(launcher.Number=="4252")ammo="JW7";
             for(int i=0;i<Banks.Length;i++)Banks[i]=new Bank{Ammo=mixed&&i==0?"JW7-ER":ammo,Rounds=launcher.GroupCapacity};
             Reserve=(launcher.TotalGroups-launcher.LoadedGroups)*launcher.GroupCapacity;
@@ -46,8 +49,8 @@ namespace ACunicombat.Mechs
         {
             int best=-1;float bestRange=float.PositiveInfinity;
             for(int i=0;i<Banks.Length;i++)
-            {var b=Banks[i];if(b.Rounds<=0)continue;float range=b.Ammo=="JW7-ER"?ErRange:StandardRange;
-                if(targetDistance<=range&&range<bestRange){best=i;bestRange=range;}}
+            {var b=Banks[i];if(b.Rounds<=0)continue;float range=Range(b.Ammo);
+                if((!UsesRangeSelection||targetDistance<=range)&&range<bestRange){best=i;bestRange=range;}}
             return best;
         }
         public bool Consume(int bank,double now)
@@ -55,7 +58,7 @@ namespace ACunicombat.Mechs
             if(bank<0||bank>=Banks.Length||Banks[bank].Rounds<=0)return false;
             var b=Banks[bank];b.Rounds--;
             if(b.Rounds==0&&Reserve>0)
-            {b.Loading=Math.Min(Launcher.GroupCapacity,Reserve);Reserve-=b.Loading;b.ReloadAt=now+ReloadSeconds;}
+            {b.Loading=Math.Min(Launcher.GroupCapacity,Reserve);Reserve-=b.Loading;b.ReloadAt=now+Launcher.ReloadSeconds;}
             return true;
         }
     }

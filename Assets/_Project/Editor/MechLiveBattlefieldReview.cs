@@ -116,6 +116,7 @@ public static partial class MechLiveBattlefieldReview
    var rig=UnityEngine.Object.FindObjectsByType<MechPlayerRig>(FindObjectsInactive.Exclude).FirstOrDefault(x=>!x.AiControlled);if(rig==null)return;
    Time.timeScale=adaptiveFrozen?0:1;
    var map=rig.GetComponent<MechBattlefieldMap>();if(map==null)return;
+   if(SessionState.GetBool("LiveBattlefieldReview.tracer",false)){TickTracer(rig,map,dir);return;}
    if(SessionState.GetBool("LiveBattlefieldReview.appearance",false)){TickAppearance(rig,map,dir);return;}
    if(SessionState.GetBool("LiveBattlefieldReview.iffMenu",false)){TickIffMenu(rig,map,dir);return;}
    if(SessionState.GetBool("LiveBattlefieldReview.engagement",false)){TickEngagement(rig,map,dir);return;}

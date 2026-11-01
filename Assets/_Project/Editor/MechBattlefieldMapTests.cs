@@ -234,8 +234,8 @@ public sealed class MechBattlefieldMapTests
  [Test] public void TargetSizeMatchesRequestedEndpointsAndTransitionsSmoothly()
  {
   Assert.That(MechBattlefieldMap.TargetVisualScale(1),Is.EqualTo(.56f).Within(.0001));
-  Assert.That(MechBattlefieldMap.TargetVisualScale(5)*5,Is.EqualTo(1.68f).Within(.0001));
-  Assert.That(MechBattlefieldMap.TargetVisualScale(3)*3,Is.EqualTo(1.12f).Within(.0001));
+  Assert.That(MechBattlefieldMap.TargetVisualScale(5)*5,Is.EqualTo(.896f).Within(.0001));
+  Assert.That(MechBattlefieldMap.TargetVisualScale(3)*3,Is.EqualTo(.728f).Within(.0001));
  }
  [TestCase(0,0)] [TestCase(35,25)] [TestCase(170,75)]
  public void WorldGridProjectionRoundTripsAfterOwnshipMovementAndPan(float yaw,float tilt)

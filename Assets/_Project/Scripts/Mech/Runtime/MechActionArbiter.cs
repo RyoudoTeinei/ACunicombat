@@ -110,6 +110,7 @@ namespace ACunicombat.Mechs
             { Finish(execution, MechActionPhase.Failed, now, "InvalidOrExpiredRequest"); return false; }
             queued.Add(execution); Report(execution, MechActionPhase.Proposed, now, "Queued"); return true;
         }
+        public event Action<MechActionFeedback> FeedbackReported;
         public bool TryGetFeedback(MechActionId id, out MechActionFeedback feedback) => receipts.TryGetValue(id, out feedback);
         public void CopyEvents(List<MechActionFeedback> output) { output.Clear(); output.AddRange(events); }
         public bool TryGetPending(Guid instanceId, out MechActionId id)
@@ -158,7 +159,7 @@ namespace ACunicombat.Mechs
                     var budget = executor.AvailableBudget;
                     if (leasedEquipment.Contains(e.Proposal.InstanceId) || budget.EnergyMj - reservedEnergy + 0.00001f < e.Proposal.EnergyMj ||
                         budget.GuidanceUnits - reservedGuidance < e.Proposal.GuidanceUnits)
-                    { Finish(e, MechActionPhase.Failed, now, "ResourceConflict"); continue; }
+                    { Finish(e, MechActionPhase.Failed, now, leasedEquipment.Contains(e.Proposal.InstanceId)?"EquipmentBusy":budget.EnergyMj-reservedEnergy+0.00001f<e.Proposal.EnergyMj?"InsufficientEnergy":"GuidanceChannelsBusy"); continue; }
                     leasedEquipment.Add(e.Proposal.InstanceId); reservedEnergy += e.Proposal.EnergyMj; reservedGuidance += e.Proposal.GuidanceUnits;
                     e.Reserved = true; Report(e, MechActionPhase.Reserved, now, "Reserved");
                     bool begun;
@@ -178,7 +179,7 @@ namespace ACunicombat.Mechs
             catch (Exception error) { Finish(e, MechActionPhase.Failed, now, "ReadyException:" + error.GetType().Name); return; }
             var budget = executor.AvailableBudget;
             if (budget.EnergyMj + 0.00001f < e.Proposal.EnergyMj || budget.GuidanceUnits < e.Proposal.GuidanceUnits)
-            { Finish(e, MechActionPhase.Failed, now, "ResourcesChanged"); return; }
+            { Finish(e, MechActionPhase.Failed, now, budget.EnergyMj+0.00001f<e.Proposal.EnergyMj?"InsufficientEnergy":"GuidanceChannelsBusy"); return; }
             // Commit is the only irreversible boundary. Executor rechecks physical/fire-control conditions.
             bool committed;
             try { committed = executor.Commit(e.Proposal, out reason); }
@@ -216,6 +217,7 @@ namespace ACunicombat.Mechs
         {
             e.Phase = phase; var feedback = new MechActionFeedback(e.Proposal, phase, now, reason);
             receipts[e.Proposal.Id] = feedback; if (events.Count >= 2048) events.RemoveAt(0); events.Add(feedback);
+            try{FeedbackReported?.Invoke(feedback);}catch(Exception error){UnityEngine.Debug.LogException(error);}
         }
     }
 }

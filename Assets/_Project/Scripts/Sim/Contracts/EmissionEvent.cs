@@ -58,5 +58,9 @@ namespace ACunicombat.Sensing.Contracts
         /// </summary>
         public bool IsMainlobe;
         public float ReceivedPowerDb;
+        /// <summary>被观测发射机的波束几何；不包含辐射源距离或真值实体。</summary>
+        public float3 EmissionDirection;
+        public float EmissionBeamWidth;
+        public double EmissionMaxRangeMeters;
     }
 }

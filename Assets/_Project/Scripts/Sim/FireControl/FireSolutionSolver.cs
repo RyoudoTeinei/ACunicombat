@@ -47,6 +47,46 @@ namespace ACunicombat.FireControl
         public double MainEngineThrust;
         public double MainMassFlow;
         public double SeekerRange;
+        public double FlightTimeLimit;
+        public double SecondPropellantMass;
+        public double SecondEngineThrust;
+        public double SecondMassFlow;
+        public double SecondIgnitionDelay;
+
+        private bool HasSecondStage => SecondPropellantMass > 0 && SecondEngineThrust > 0 && SecondMassFlow > 0;
+        public bool HasSameDynamics(in MissileKinematicProfile other) =>
+            EjectionSpeed == other.EjectionSpeed && InertMass == other.InertMass &&
+            MainPropellantMass == other.MainPropellantMass && MainEngineThrust == other.MainEngineThrust &&
+            MainMassFlow == other.MainMassFlow && FlightTimeLimit == other.FlightTimeLimit &&
+            SecondPropellantMass == other.SecondPropellantMass && SecondEngineThrust == other.SecondEngineThrust &&
+            SecondMassFlow == other.SecondMassFlow && SecondIgnitionDelay == other.SecondIgnitionDelay;
+
+        private static void Burn(ref double distance, ref double speed, ref double mass,
+            double duration, double thrust, double flow)
+        {
+            if(duration <= 0) return;
+            double finalMass = math.max(.001, mass - flow * duration);
+            double exhaustSpeed = thrust / flow;
+            double logRatio = math.log(mass / finalMass);
+            distance += speed * duration + exhaustSpeed * (duration - finalMass / flow * logRatio);
+            speed += exhaustSpeed * logRatio;
+            mass = finalMass;
+        }
+
+        private double StagedDistance(double time, out double speed)
+        {
+            speed = EjectionSpeed;
+            double distance = 0, mass = InertMass + MainPropellantMass + SecondPropellantMass;
+            double first = math.min(time, EffectiveMotorBurnDuration);
+            Burn(ref distance, ref speed, ref mass, first, MainEngineThrust, MainMassFlow);
+            double remaining = math.max(0, time - first);
+            double coast = math.min(remaining, SecondIgnitionDelay);
+            distance += speed * coast;
+            remaining -= coast;
+            double second = math.min(remaining, SecondPropellantMass / SecondMassFlow);
+            Burn(ref distance, ref speed, ref mass, second, SecondEngineThrust, SecondMassFlow);
+            return distance + speed * math.max(0, remaining - second);
+        }
 
         public bool UsesVariableMass =>
             InertMass > 0.0 &&
@@ -63,6 +103,11 @@ namespace ACunicombat.FireControl
         {
             get
             {
+                if(UsesVariableMass && HasSecondStage)
+                {
+                    StagedDistance(EffectiveMotorBurnDuration + SecondIgnitionDelay + SecondPropellantMass / SecondMassFlow, out double speed);
+                    return speed;
+                }
                 if (!UsesVariableMass)
                 {
                     return EjectionSpeed +
@@ -81,6 +126,7 @@ namespace ACunicombat.FireControl
         public double RelativeTravelDistance(double flightTime)
         {
             var time = math.max(0.0, flightTime);
+            if(UsesVariableMass && HasSecondStage) return StagedDistance(time, out _);
             if (!UsesVariableMass)
             {
                 var legacyBurnTime =
@@ -381,8 +427,9 @@ namespace ACunicombat.FireControl
             double3 shooterVelocity,
             in MissileKinematicProfile kinematics,
             double requestTime,
-            double maximumFlightTime = 300.0)
+            double maximumFlightTime = double.PositiveInfinity)
         {
+            maximumFlightTime = math.min(maximumFlightTime, kinematics.FlightTimeLimit > 0 ? kinematics.FlightTimeLimit : 300.0);
             var solution = default(FireSolution);
             if (track.Lifecycle < TrackLifecycle.Confirmed)
             {

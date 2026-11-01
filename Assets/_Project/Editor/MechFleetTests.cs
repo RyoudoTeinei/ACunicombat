@@ -22,6 +22,18 @@ public sealed class MechFleetTests
     [Test] public void UnauthorizedSenderCannotOrder(){var p=Order();p.Sender=Guid.NewGuid();Assert.IsFalse(state.Receive(p,1));Assert.IsNull(state.Task);}
     [Test] public void PlayerNeverReceivesAiOrders(){state=new MechFleetState(wing,fleet,leader,true,true,FleetAttackMode.Confirmed);state.GrantCommand(leader);FleetPacket feedback=default;state.Feedback+=p=>feedback=p;Assert.IsFalse(state.Receive(Order(),1));Assert.AreEqual(FleetTaskReason.PlayerIsNotSubordinate,feedback.Reason);}
     [Test] public void IndependentLeaderRequiresExplicitGrant(){state=new MechFleetState(wing,fleet,wing,false,true,FleetAttackMode.Free);Assert.IsFalse(state.Receive(Order(),1));state.GrantCommand(leader);Assert.IsTrue(state.Receive(Order(),1));Assert.IsFalse(state.Task.Detached);}
+    [Test] public void PlayerLeaderCanCommandIndependentMemberInSameFleet()
+    {
+        var go=new UnityEngine.GameObject("independent command");var controller=go.AddComponent<MechFleetController>();var independent=Guid.NewGuid();
+        try
+        {
+            controller.Configure(fleet,controller.MemberId,true,true);
+            MechFleetController.Roster[independent]=new MechFleetRosterEntry{Member=independent,Fleet=fleet,Leader=independent,FormationRoot=independent,FormationSize=1};
+            Assert.IsTrue(controller.CanCommand(independent));
+            MechFleetController.Roster[independent].Fleet=Guid.NewGuid();Assert.IsFalse(controller.CanCommand(independent));
+        }
+        finally{MechFleetController.Roster.Remove(independent);MechFleetController.Roster.Remove(controller.MemberId);UnityEngine.Object.DestroyImmediate(go);}
+    }
     [Test] public void SingleWingDetachesAndOnlyCompletesOnReturn(){state.Receive(Order(),1);Assert.IsTrue(state.Task.Detached);state.SetPhase(FleetTaskPhase.Returning,FleetTaskReason.EngagementCompleted,2);Assert.IsTrue(state.Task.Detached);state.SetPhase(FleetTaskPhase.Completed,FleetTaskReason.EngagementCompleted,3);Assert.IsFalse(state.Task.Detached);}
     [Test] public void WholeFleetOrderKeepsFormation(){var p=Order();p.WholeFleet=true;state.Receive(p,1);Assert.IsFalse(state.Task.Detached);}
     [Test] public void DuplicateDoesNotResetExecution(){var p=Order();state.Receive(p,1);state.SetPhase(FleetTaskPhase.Executing,FleetTaskReason.None,2);Assert.IsFalse(state.Receive(p,2));Assert.AreEqual(FleetTaskPhase.Executing,state.Task.Phase);}

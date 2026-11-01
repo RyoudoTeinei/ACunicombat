@@ -43,6 +43,24 @@ public sealed class MechEquipmentExecutionTests
         loadout.ConfigureRuntime("test","Test",assignments);loadout.ConfigureLayout(layout);
         var owner=Own(new GameObject("EquipmentTest"));var a=owner.AddComponent<MechAssembler>();a.Loadout=loadout;a.Assemble();return a;
     }
+    [Test] public void PlayerRejectedSlotAndRepeatedPendingRequestHaveVisibleReasons()
+    {
+        var a=Assemble(1,Gun());var w=a.gameObject.AddComponent<MechTestWeaponSystem>();typeof(MechTestWeaponSystem).GetMethod("Awake",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(w,null);
+        Assert.IsFalse(w.CommandFireSlot("missing",MechActionSource.Player));var log=a.GetComponent<MechOwnshipEventLog>();Assert.IsNotNull(log);StringAssert.Contains("不可用",log.Entries.Last().Text);
+        Assert.IsTrue(w.CommandFireSlot("gun.0",MechActionSource.Player));Assert.IsFalse(w.CommandFireSlot("gun.0",MechActionSource.Player));StringAssert.Contains("已有请求",log.Entries.Last().Text);
+    }
+    [Test] public void InventoryBatchDoesNotCacheDisabledOrReplacedEquipmentAcrossCalls()
+    {
+        var assembler=Assemble(2,Gun());var weapons=assembler.gameObject.AddComponent<MechTestWeaponSystem>();
+        typeof(MechTestWeaponSystem).GetMethod("Awake",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(weapons,null);
+        var snapshots=new List<MechEquipmentWeaponSnapshot>();weapons.CopyEquipmentWeaponSnapshots(snapshots);
+        Assert.AreEqual(2,snapshots.Count);Assert.IsTrue(snapshots.All(s=>s.Enabled));
+        var record=assembler.GetComponent<MechRuntimeState>().AssembledParts.First(r=>r.SlotId=="gun.0");
+        var oldId=record.InstanceId;record.instance.SetActive(false);weapons.CopyEquipmentWeaponSnapshots(snapshots);
+        Assert.IsFalse(snapshots.First(s=>s.SlotId=="gun.0").Enabled);Assert.IsTrue(snapshots.First(s=>s.SlotId=="gun.1").Enabled);
+        record.instance.SetActive(true);assembler.Assemble();weapons.CopyEquipmentWeaponSnapshots(snapshots);
+        Assert.IsTrue(snapshots.All(s=>s.Enabled));Assert.AreNotEqual(oldId,snapshots.First(s=>s.SlotId=="gun.0").InstanceId);
+    }
     [UnityTest] public IEnumerator WeaponHeatUsesActualCommittedSlotAndRejectedFireDoesNotHeat()
     {
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);yield return new EnterPlayMode();
@@ -225,7 +243,9 @@ public sealed class MechEquipmentExecutionTests
             Assert.IsFalse(radar.RadarPowerEnabled);Assert.AreEqual(0,radar.GuidanceUplinksUsed);
             var passiveTime=typeof(MechTestProjectile).GetField("passiveLastSeen",BindingFlags.Instance|BindingFlags.NonPublic);
             double firstSeen=(double)passiveTime.GetValue(launched),listeningUntil=radar.SimTimeSeconds+1;
-            while(radar.SimTimeSeconds<listeningUntil)yield return new WaitForFixedUpdate();
+            var launchAxis=(Vector3)typeof(MechTestProjectile).GetField("coldLaunchAxis",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(launched);
+            var flightClock=typeof(MechTestProjectile).GetField("missileFlightTime",BindingFlags.Instance|BindingFlags.NonPublic);
+            while(radar.SimTimeSeconds<listeningUntil){yield return new WaitForFixedUpdate();if((float)flightClock.GetValue(launched)<=1.3f)Assert.Less(Vector3.Angle(launchAxis,launched.transform.forward),.05f,"Listening must not bypass launch attitude hold");}
             Assert.Greater((double)passiveTime.GetValue(launched),firstSeen,"Missile's own passive receiver must continue observing real emissions after launch.");
             Assert.IsFalse(launched.ActiveSeekerEnabled);
             enemyRadar.SetRadarPowerEnabled(false);double stopUntil=radar.SimTimeSeconds+2;
@@ -282,6 +302,8 @@ public sealed class MechEquipmentExecutionTests
             for(int i=0;i<receiverCount;i++)TestContext.WriteLine("RECEIVER TRACK "+tracks[i].TrackId+" observed="+tracks[i].LastUpdateTime+" z="+tracks[i].Position.z+" source="+tracks[i].SourceMask);
             foreach(var line in targetSharing.TargetShareDiagnostics)TestContext.WriteLine("SHARE "+line);
             TestContext.WriteLine("UPLINK now="+radar.SimTimeSeconds+" localObserved="+receiverTarget.LastUpdateTime+" initial="+initial+" received="+updated.LastUpdateTime+" seeker="+launched.ActiveSeekerEnabled+" support="+launched.HasExternalGuidanceSupport+" uplinks="+radar.GuidanceUplinksUsed+" seq="+typeof(MechTestProjectile).GetField("lastLinkSequence",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(launched));
+            var linkDriver=a.GetComponent<ACunicombat.Simulation.Driver.SimulationDriver>();TestContext.WriteLine("UPLINK PIPE pump="+radar.GuidanceUplinkSendAttempts+" accepted="+radar.GuidanceUplinkSendAccepted+" linkAccepted="+linkDriver.AcceptedLinkMessageCount+" rejected="+linkDriver.RejectedLinkMessageCount+" delivered="+linkDriver.DeliveredLinkMessageCount);
+            var missileTerminal=(ACunicombat.Sensing.Contracts.LinkTerminalId)typeof(MechTestProjectile).GetField("linkTerminal",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(launched);TestContext.WriteLine("UPLINK TERMINAL "+missileTerminal+" attempts="+linkDriver.LinkDeliveryAttemptsFor(missileTerminal)+" delivered="+linkDriver.LinkDeliveriesFor(missileTerminal));
             Assert.Greater(updated.LastUpdateTime,initial,"Physical guidance uplink must deliver a newer observation.");
             Assert.IsFalse(radar.RadarPowerEnabled);Assert.IsFalse(radar.SttTrackId.IsValid);
         }

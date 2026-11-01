@@ -43,6 +43,10 @@ namespace ACunicombat.Mechs
         private TrailRenderer streakTrail;
         private TrailRenderer streakGlowTrail;
         private float streakLifetime;
+        private Transform presentationRoot;
+        private MechTestProjectile projectile;
+        private ParticleSystem headParticles;
+        private float coreWidth,glowWidth;
 
         /// <summary>
         /// 光球尺寸由口径决定；拖尾先确定目标物理长度，再按弹速换算保留时间。
@@ -52,6 +56,9 @@ namespace ACunicombat.Mechs
             float caliberMillimeters,
             float muzzleVelocityMetersPerSecond)
         {
+            projectile = GetComponent<MechTestProjectile>();
+            presentationRoot = new GameObject("TracerPresentation").transform;
+            presentationRoot.SetParent(transform, false);
             VisualProfile profile = ResolveVisualProfile(
                 caliberMillimeters,
                 muzzleVelocityMetersPerSecond);
@@ -60,6 +67,29 @@ namespace ACunicombat.Mechs
                 profile.TrailWidthMeters,
                 profile.TrailLifetimeSeconds);
             BuildHead(profile.HeadSizeMeters);
+        }
+
+        private void LateUpdate()
+        {
+            if (presentationRoot == null) return;
+            // Production creates the tracer before attaching/configuring the projectile.
+            if (projectile == null) projectile = GetComponent<MechTestProjectile>();
+            if (projectile != null)
+            {
+                presentationRoot.position = projectile.PositionAtPhysicsTime(Time.timeAsDouble);
+            }
+
+            float distance = Camera.main != null
+                ? Vector3.Distance(Camera.main.transform.position, presentationRoot.position)
+                : 100f;
+            float nearFade = Mathf.Clamp01((distance - 2f) / 12f);
+            if (streakTrail != null) streakTrail.widthMultiplier = coreWidth * nearFade;
+            if (streakGlowTrail != null) streakGlowTrail.widthMultiplier = glowWidth * nearFade;
+            if (headParticles != null)
+            {
+                var main = headParticles.main;
+                main.startColor = new Color(1f, 1f, 1f, nearFade);
+            }
         }
 
         public static VisualProfile ResolveVisualProfile(
@@ -75,13 +105,13 @@ namespace ACunicombat.Mechs
                 0.306f * caliberScale,
                 0.17f,
                 0.578f);
-            float trailWidth = headSize;
+            float trailWidth = headSize * 0.65f;
             float targetTrailLength = Mathf.Lerp(
-                24f,
-                55f,
+                12f,
+                32f,
                 Mathf.InverseLerp(7.62f, 57f, caliber));
             float speed = Mathf.Max(muzzleVelocityMetersPerSecond, 1f);
-            float trailLifetime = Mathf.Clamp(targetTrailLength / speed, 0.012f, 0.09f);
+            float trailLifetime = Mathf.Clamp(targetTrailLength / speed, 0.006f, 0.09f);
             return new VisualProfile(
                 headSize,
                 trailWidth,
@@ -95,9 +125,11 @@ namespace ACunicombat.Mechs
             // 挂在弹体本体上时，Destroy(projectile) 会让整条 135 m 亮痕瞬间消失——
             // 已经在空中的光不会随弹头一起熄灭，那一下"啪"地不见是最明显的失真。
             streakObject = new GameObject("TracerStreak");
-            streakObject.transform.SetParent(transform, false);
-            streakSeconds = Mathf.Max(0.012f, streakSeconds);
+            streakObject.transform.SetParent(presentationRoot, false);
+            streakSeconds = Mathf.Max(0.006f, streakSeconds);
             streakLifetime = streakSeconds;
+            coreWidth = trailWidth;
+            glowWidth = trailWidth * 1.3f;
 
             var columnWidthCurve = new AnimationCurve(
                 new Keyframe(0f, 1f),
@@ -109,14 +141,14 @@ namespace ACunicombat.Mechs
             // 前端需要和弹头形成连续的泛光区，随后迅速回落为橙红色亮痕。
             // 颜色允许超过 1，由战斗 Volume 的 Bloom 处理，不额外创建灯光或粒子层。
             Color frontGlow = new Color(
-                hotColor.r * 2.4f,
-                hotColor.g * 2.4f,
-                hotColor.b * 2.4f,
-                1f);
-            Color frontFalloff = new Color(
                 hotColor.r * 1.35f,
                 hotColor.g * 1.35f,
                 hotColor.b * 1.35f,
+                1f);
+            Color frontFalloff = new Color(
+                hotColor.r * 1.15f,
+                hotColor.g * 1.15f,
+                hotColor.b * 1.15f,
                 1f);
             var gradient = new Gradient();
             gradient.SetKeys(
@@ -146,8 +178,8 @@ namespace ACunicombat.Mechs
                 },
                 new[]
                 {
-                    new GradientAlphaKey(0.5f, 0f),
-                    new GradientAlphaKey(0.28f, 0.42f),
+                    new GradientAlphaKey(0.22f, 0f),
+                    new GradientAlphaKey(0.12f, 0.42f),
                     new GradientAlphaKey(0f, 1f),
                 });
 
@@ -158,7 +190,7 @@ namespace ACunicombat.Mechs
             ConfigureTrailRenderer(
                 glowTrail,
                 streakSeconds,
-                trailWidth * 1.75f,
+                glowWidth,
                 columnWidthCurve,
                 glowGradient,
                 sortingOrder: 0);
@@ -174,14 +206,14 @@ namespace ACunicombat.Mechs
             ConfigureTrailRenderer(
                 trail,
                 streakSeconds,
-                trailWidth,
+                coreWidth,
                 columnWidthCurve,
                 gradient,
                 sortingOrder: 1);
 
             trailMaterial ??= MechEffectResources.CreateAdditiveTrailMaterial(
                 "AC6 Tracer Streak (Runtime)",
-                new Color(2.6f, 1.5f, 0.7f, 1f));
+                new Color(1.25f, 1.0f, 0.62f, 1f));
             trail.sharedMaterial = trailMaterial;
         }
 
@@ -197,7 +229,7 @@ namespace ACunicombat.Mechs
             trail.widthCurve = widthCurve;
             trail.widthMultiplier = width;
             trail.colorGradient = colorGradient;
-            trail.minVertexDistance = 0.35f;
+            trail.minVertexDistance = 0.08f;
             trail.autodestruct = false;
             trail.alignment = LineAlignment.View;
             trail.textureMode = LineTextureMode.Stretch;
@@ -240,9 +272,10 @@ namespace ACunicombat.Mechs
         private void BuildHead(float headSize)
         {
             var child = new GameObject("TracerHead");
-            child.transform.SetParent(transform, false);
+            child.transform.SetParent(presentationRoot, false);
 
             var system = child.AddComponent<ParticleSystem>();
+            headParticles = system;
             system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
             var main = system.main;
@@ -269,7 +302,7 @@ namespace ACunicombat.Mechs
 
             headMaterial ??= MechEffectResources.CreateAdditiveParticleMaterial(
                 "AC6 Tracer Head (Runtime)",
-                new Color(6.48f, 4.59f, 2.295f, 1f));
+                new Color(2.8f, 2.1f, 1.15f, 1f));
             var renderer = child.GetComponent<ParticleSystemRenderer>();
             MechEffectResources.ConfigureUnlitRenderer(renderer, headMaterial);
             renderer.renderMode = ParticleSystemRenderMode.Billboard;

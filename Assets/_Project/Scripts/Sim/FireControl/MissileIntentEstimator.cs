@@ -618,6 +618,24 @@ namespace ACunicombat.FireControl
             track.IntentOwnshipScore = entry.OwnshipScore;
             track.IntentFriendlyMissileScore = entry.FriendlyMissileScore;
             track.SuspectedTargetTrackId = entry.SuspectedTargetTrackId;
+            // Sustained guidance toward a friendly missile is strong interceptor
+            // evidence even before its active seeker radiates. Authenticated and
+            // ESM classifications remain authoritative; a single CPA is not enough.
+            if (entry.Intent == MissileTargetIntent.FriendlyMissile &&
+                entry.Confidence >= 0.65f &&
+                (track.MissionRoleEvidence == MissileMissionRoleEvidence.None ||
+                 track.MissionRoleEvidence == MissileMissionRoleEvidence.KinematicIntent))
+            {
+                track.MissionRole = MissileMissionRole.Interceptor;
+                track.MissionRoleConfidence = entry.Confidence;
+                track.MissionRoleEvidence = MissileMissionRoleEvidence.KinematicIntent;
+            }
+            else if (track.MissionRoleEvidence == MissileMissionRoleEvidence.KinematicIntent)
+            {
+                track.MissionRole = MissileMissionRole.Unknown;
+                track.MissionRoleConfidence = 0f;
+                track.MissionRoleEvidence = MissileMissionRoleEvidence.None;
+            }
         }
     }
 }

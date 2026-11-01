@@ -883,16 +883,18 @@ namespace ACunicombat.Mechs
 			DrawMissileStats(new Rect(right.x + 18f, right.y + 58f, right.width - 36f, right.height - 76f), missile);
 		}
 
+        private string missilePreviewResourcePath;
 		private void DrawMissilePreview(Rect rect, MissileOption missile)
 		{
 			if (previewRenderer == null)
 			{
 				return;
 			}
-			if (previewDirty)
+			if (previewDirty || missilePreviewResourcePath != missile.ResourcePath)
 			{
 				GameObject model = Resources.Load<GameObject>(missile.ResourcePath);
 				previewRenderer.ShowStandaloneModel(model, missile.DisplayName, new Vector3(-90f, 58f, -6f));
+				missilePreviewResourcePath = missile.ResourcePath;
 				previewDirty = false;
 			}
 			previewRenderer.Draw(rect);
@@ -930,7 +932,7 @@ namespace ACunicombat.Mechs
 			DrawPartMetric(view, ref y, "RCS 推力", profile.RcsThrustNewtons, 30000f, $"{profile.RcsThrustNewtons / 1000f:0.0} kN");
 			DrawPartMetric(view, ref y, "最大角速度", profile.MaximumAngularRateDegreesPerSecond, 600f, $"{profile.MaximumAngularRateDegreesPerSecond:0} °/s");
 			DrawPartMetricGroup(view, ref y, "射程与导引头");
-			DrawPartMetric(view, ref y, "最大射程", profile.MaximumRangeMeters, 150000f, FormatDistance(profile.MaximumRangeMeters));
+			DrawPartMetric(view, ref y, "参考航程（计算）", profile.MaximumRangeMeters, 150000f, FormatDistance(profile.MaximumRangeMeters));
             DrawPartTextRow(view,ref y,"有效交战范围","依据本机与目标的位置、速度及制导条件实时计算");
 			DrawPartMetric(view, ref y, "最大飞行时间", profile.MaximumFlightTimeSeconds, 300f, $"{profile.MaximumFlightTimeSeconds:0.#} s");
 			DrawPartMetric(view, ref y, "导引头作用距离", profile.SeekerRangeMeters, 50000f, FormatDistance(profile.SeekerRangeMeters));
@@ -1072,7 +1074,7 @@ namespace ACunicombat.Mechs
 			}
             if(part.SpecialistKit!=MechSpecialistKitKind.None||part.RadarDefinitionPending)
             {
-                string detail=part.RadarDefinitionPending?"预警机专用雷达型号占位：性能待讨论，暂不执行主动探测。":part.SpecialistKit==MechSpecialistKitKind.EarlyWarning?"预警机套件：独占全部扩展槽，禁用左右肩武器；仅可选三款预警机雷达（性能待定）。":"支援机套件：独占全部扩展槽，禁用左右肩武器；补给功能尚未接入。";
+                string detail=part.RadarDefinitionPending?"预警机专用雷达型号占位：性能待讨论，暂不执行主动探测。":part.SpecialistKit switch{MechSpecialistKitKind.EarlyWarning=>"预警机套件：独占全部扩展槽，禁用左右肩武器；仅可选三款预警机雷达（性能待定）。",MechSpecialistKitKind.ElectronicWarfare=>$"电子战套件：独占全部扩展槽，禁用左右肩武器；单通道定向噪声干扰。\n波束 {part.ElectronicWarfarePerformance.beamWidthDegrees:0}° · 带宽 {part.ElectronicWarfarePerformance.noiseBandwidthMHz:0} MHz · 最大作用距离 {part.ElectronicWarfarePerformance.maximumRangeMeters/1000f:0} km",_=>"支援机套件：独占全部扩展槽，禁用左右肩武器；补给功能尚未接入。"};
                 GUI.Label(new Rect(0,y,view.width-8,80),detail,noteStyle);y+=88;
             }
             if(part.Slot==MechPartSlot.Core){GUI.Label(new Rect(0,y,view.width-8,28),$"扩展槽数量：{part.ExtensionSlotCount}",noteStyle);y+=32;}
@@ -1274,6 +1276,8 @@ namespace ACunicombat.Mechs
                 DrawPartTextRow(view,ref y,"总携弹量",(launcher.GroupCapacity*launcher.TotalGroups)+" 发，含在膛");
                 DrawPartTextRow(view,ref y,"兼容弹种",string.Join(" / ",launcher.CompatibleAmmo.Select(id=>MechMissileAmmunitionCatalog.Create(id)?.missileDisplayName??id)));
                 if(launcher.Number=="4252")DrawPartTextRow(view,ref y,"混装限制","两个独立4发组；C型最多4发；备弹4发");
+                DrawPartTextRow(view,ref y,"单发循环",launcher.LaunchCycleSeconds.ToString("0.00")+" s（开盖、发射、关盖；首次展开另计）");
+                DrawPartTextRow(view,ref y,"弹组 / 换仓时间",launcher.ReloadSeconds.ToString("0.00")+" s（当前弹组耗尽后自动装填）");
                 DrawPartTextRow(view,ref y,"弹药性能","进入弹药配置查看对应弹种的射程与推进参数");
                 return;
             }
@@ -1293,9 +1297,9 @@ namespace ACunicombat.Mechs
 				}
 				else
 				{
-					DrawPartTextRow(view, ref y, "有效射程", "未标定", (equippedConfigured && equippedWeapon.HasEffectiveRange) ? FormatDistance(equippedWeapon.EffectiveRangeMeters) : null);
+					DrawPartTextRow(view, ref y, "有效射程", weapon.IsGuidedMissile ? "按双方运动与剩余动力实时计算" : "未标定", (equippedConfigured && equippedWeapon.HasEffectiveRange) ? FormatDistance(equippedWeapon.EffectiveRangeMeters) : null);
 				}
-				DrawPartMetric(view, ref y, "最大射程", weapon.MaximumRangeMeters, 150000f, FormatDistance(weapon.MaximumRangeMeters), Compared(equippedConfigured, equippedWeapon.MaximumRangeMeters), equippedConfigured ? FormatDistance(equippedWeapon.MaximumRangeMeters) : null);
+				DrawPartMetric(view, ref y, weapon.IsGuidedMissile ? "参考航程（计算）" : "最大射程", weapon.MaximumRangeMeters, 150000f, FormatDistance(weapon.MaximumRangeMeters), Compared(equippedConfigured, equippedWeapon.MaximumRangeMeters), equippedConfigured ? FormatDistance(equippedWeapon.MaximumRangeMeters) : null);
 			}
 			else
 			{

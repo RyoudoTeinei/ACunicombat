@@ -167,6 +167,8 @@ namespace ACunicombat.Mechs
         private void Record(State state,string eventName,string reason,string phase,float flightSeconds=0,Vector3 direction=default)
         {
             if(state.Profile.kind!=MechDefenseExtensionKind.ActiveProtection)return;
+            if(eventName=="preparation_started"||eventName=="action_cancelled"||eventName=="component_disabled")
+                GetComponent<MechOwnshipEventLog>()?.AddEvent("aps/"+eventName+"/"+reason,"APS："+DisplayReason(reason),eventName!="preparation_started");
             var data=Telemetry(state,reason,phase);
             data.FlightSeconds=flightSeconds;data.FragmentDirection=direction;
             if(flightSeconds>0)data.BurstPosition=LaunchPosition(state)+(data.OwnVelocity+direction*state.Profile.projectileSpeed)*flightSeconds;
@@ -332,7 +334,7 @@ namespace ACunicombat.Mechs
             shot.BeginTelemetry(name+"#"+GetEntityId(),data);return true;
         }
         public void Cancel(MechActionProposal p){if(states.TryGetValue(p.InstanceId,out var state)&&state.Action.Equals(p.Id)){Record(state,"action_cancelled",Time.timeAsDouble>=p.Deadline?"DeadlineExpired":state.Reason,"cancel");state.Pending=false;if(state.Reason=="Reacting")state.Reason="Cancelled";}}
-        private static string DisplayReason(string reason)=>reason switch
+        public static string DisplayReason(string reason)=>reason switch
         {
             "NoLocalTrack"=>"未发现近距航迹", "TrackQuality"=>"航迹尚未确认", "PositionUncertainty"=>"定位精度不足",
             "OutsideLaunchRange"=>"目标尚未进入拦截范围", "InsideSafetyRange"=>"目标过近", "BurstTooClose"=>"预计引爆点距机体过近", "TooLateAfterReaction"=>"反应时间不足",
@@ -340,15 +342,6 @@ namespace ACunicombat.Mechs
             "MoreUrgentThreat"=>"切换至更紧急威胁", "CoolingDown"=>"冷却中", "NoAmmo"=>"弹药耗尽", "ConcurrencyLimit"=>"拦截弹在飞", "Reacting"=>"准备发射",
             "SensorEmissionDenied"=>"禁止主动探测", "Committed"=>"已发射", "ComponentFailed"=>"组件失效", "Disabled"=>"已关闭", "MissingTrack"=>"航迹丢失", "Friendly"=>"友方目标", "FlightTimeLimit"=>"超出弹射航程", "NoInterceptSolution"=>"无法形成拦截解", "SensorCapacity"=>"探测器资源不足", "NoSensor"=>"探测器未就绪", _=>reason
         };
-        private void OnGUI()
-        {
-            if(GetComponent<MechPlayerRig>()==null||GetComponent<MechAiTargetController>()!=null||MechAssemblyMenu.IsAnyMenuVisible||MechSolarSystemMap.IsAnyMapVisible)return;
-            var matrix=MechHudLayout.BeginScaledGui();var color=GUI.color;GUI.color=new Color(.4f,1,.65f);
-            var statusRect=MechHudLayout.OwnshipDefenseStatusRect;float y=statusRect.y;
-            foreach(var state in states.Values)if(state.Profile.kind==MechDefenseExtensionKind.ActiveProtection)
-            {GUI.Label(new Rect(statusRect.x,y,statusRect.width,25),$"APS {state.Ammo}/{state.Profile.ammunition}  {DisplayReason(state.Reason)}");y+=24;if(!string.IsNullOrEmpty(state.LastRejection)&&state.LastRejection!=state.Reason&&Time.timeAsDouble-state.LastRejectionAt<2){GUI.Label(new Rect(statusRect.x,y,statusRect.width,25),"最近限制："+DisplayReason(state.LastRejection));y+=24;}}
-            GUI.color=color;GUI.matrix=matrix;
-        }
         public void CopySnapshots(List<MechDefenseExtensionSnapshot> destination)
         {
             Sync();destination.Clear();foreach(var state in states.Values)destination.Add(new MechDefenseExtensionSnapshot(state.Record.SlotId,state.Record.InstanceId,state.Profile.kind,state.Profile.kind==MechDefenseExtensionKind.ActiveProtection?state.Ammo:0,state.Shots.FindAll(s=>s!=null&&s.IsFlying).Count,state.ReadyAt,state.NextShot,state.Pending,state.Reason,Operational(state)));

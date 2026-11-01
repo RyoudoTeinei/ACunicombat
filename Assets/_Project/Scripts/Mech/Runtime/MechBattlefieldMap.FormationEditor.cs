@@ -48,7 +48,9 @@ namespace ACunicombat.Mechs
      else if(hit.Root==Guid.Empty)independentUnitsExpanded=!independentUnitsExpanded;else if(!expandedMapFormations.Add(hit.Root))expandedMapFormations.Remove(hit.Root);
      lastFormationClick=hit.Root;lastFormationClickTime=Time.unscaledTimeAsDouble;return true;
     }
-    dragFormationMember=hit.Member;formationDragStart=point;formationDragging=false;return true;
+    dragFormationMember=hit.Member;formationDragStart=point;formationDragging=false;
+    if(TryFormationContact(hit.Member,out var contact))selected=contact.Key;
+    return true;
    }
    if(dragFormationMember==Guid.Empty)return false;
    if(mouse.leftButton.isPressed&&Vector2.Distance(point,formationDragStart)>6)formationDragging=true;
@@ -77,7 +79,7 @@ namespace ACunicombat.Mechs
    var selectedShape=shape??settings.FormationShape;
    if(selectedShape==FleetFormationShape.Custom&&offsets==null)offsets=members.Select(id=>MechFleetController.Roster[id].FormationOffset).ToList();
    var ids=commandFleet.RequestFormationLayout(members,name??settings.FormationName,task??settings.TaskGroup,selectedShape,offsets);
-   formationEditOperations.AddRange(ids);if(ids.Count==0)formationEditMessage="配置未提交：权限或成员资料不足";
+   formationEditOperations.AddRange(ids);formationEditMessage=ids.Count==0?"配置未提交：权限或成员资料不足":"";
    expandedMapFormations.Add(members[0]);
   }
   private void ChangeFormation(string name=null,FleetTaskGroup? task=null,FleetFormationShape? shape=null,List<Vector3> offsets=null)
@@ -86,21 +88,31 @@ namespace ACunicombat.Mechs
    var members=MechFleetController.FormationMembers(editedFormation);if(members.Count==0)return;
    formationEditOperations.Clear();QueueLayout(members.Select(m=>m.Member).ToList(),members[0],name,task,shape,offsets);formationMenu=FormationMenu.None;
   }
+  public static List<Guid> FormationOrderAfterDrop(IReadOnlyList<Guid> members,Guid member,Guid before)
+  {
+   var ids=members.Where(id=>id!=member).ToList();int index=before!=Guid.Empty?ids.IndexOf(before):-1;
+   if(index<0)index=ids.Count;ids.Insert(index,member);return ids;
+  }
   private void MoveFormationMember(Guid member,Guid destination,Guid before)
   {
-   if(FormationBusy||!commandFleet.CanCommand(member)||!MechFleetController.Roster.TryGetValue(member,out var unit)){formationEditMessage="没有调整该成员的权限";return;}
+   if(FormationBusy){formationEditMessage="上一批编队配置仍在等待回执";return;}
+   if(!commandFleet.CanCommand(member)||!MechFleetController.Roster.TryGetValue(member,out var unit)){formationEditMessage="没有调整该成员的权限";return;}
    var sourceRoot=MechFleetController.GroupRoot(unit);var source=MechFleetController.FormationMembers(sourceRoot);
    var target=destination==Guid.Empty?new List<MechFleetRosterEntry>():MechFleetController.FormationMembers(destination);
    if(!source.All(m=>commandFleet.CanCommand(m.Member))||!target.All(m=>commandFleet.CanCommand(m.Member))){formationEditMessage="不能重组无指挥权限的编队";return;}
    var sourceSettings=source.FirstOrDefault()??unit;var targetSettings=target.FirstOrDefault()??unit;
-   var ids=target.Where(m=>m.Member!=member).Select(m=>m.Member).ToList();int index=before!=Guid.Empty?ids.IndexOf(before):-1;
-   if(index<0)index=ids.Count;ids.Insert(index,member);
+   var ids=FormationOrderAfterDrop(target.Select(m=>m.Member).ToList(),member,before);
    formationEditOperations.Clear();
    if(sourceRoot!=destination)QueueLayout(source.Where(m=>m.Member!=member).Select(m=>m.Member).ToList(),sourceSettings);
    QueueLayout(ids,targetSettings);formationMenu=FormationMenu.None;
   }
   private void DrawFormationEditorOverlay()
   {
+   if(formationDragging)
+   {
+    var drop=formationHits.LastOrDefault(h=>h.Bounds.Contains(mapPointer)&&h.Member!=Guid.Empty&&h.Member!=dragFormationMember);
+    if(drop!=null)Fill(new Rect(drop.Bounds.x+3,drop.Bounds.y-1,drop.Bounds.width-6,3),FriendlyColor);
+   }
    if(formationDragging&&MechFleetController.Roster.TryGetValue(dragFormationMember,out var member))
    {var box=new Rect(mapPointer.x+15,mapPointer.y+12,180,28);MenuPanel(box);MenuLabel(box,FormationMemberName(member),PrimaryText,12);}
    if(formationMenu==FormationMenu.None)return;

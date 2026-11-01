@@ -123,7 +123,12 @@ namespace ACunicombat.Sensors
                     // 单向传播：20·log10(R)。对比雷达方程的 40·log10(R)——RWR 的
                     // 告警距离远超辐射方探测距离正是来自这 20 dB/decade 的差。
                     var receivedDb = emitPowerDb - 20f * (float)math.log10(range);
-                    var marginDb = receivedDb - receiver.SensitivityFloorDb;
+                    // Wideband noise has no coherent radar waveform, but the ESM receiver
+                    // can integrate its persistent energy. Keep that processing gain at the
+                    // receiver rather than inflating the jammer's physical emission power.
+                    float sensitivityFloorDb = receiver.SensitivityFloorDb -
+                        (emission.EmissionType == EmissionType.Jamming ? 60f : 0f);
+                    var marginDb = receivedDb - sensitivityFloorDb;
                     if (marginDb <= 0f)
                     {
                         continue;
@@ -165,6 +170,9 @@ namespace ACunicombat.Sensors
                         EmissionType = emission.EmissionType,
                         IsMainlobe = mainlobe,
                         ReceivedPowerDb = receivedDb,
+                        EmissionDirection = emission.Direction,
+                        EmissionBeamWidth = emission.BeamWidth,
+                        EmissionMaxRangeMeters = emission.MaxRangeMeters,
                     });
                 }
             }

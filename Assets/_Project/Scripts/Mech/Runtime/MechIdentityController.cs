@@ -26,6 +26,9 @@ namespace ACunicombat.Mechs
         public bool TransmitterAvailable=>isActiveAndEnabled&&(InterrogatorEnabled||(ResponderEnabled&&ReplyPolicy!=IffReplyPolicy.Off))&&(body==null||body.IsAlive);
         private CombatTestTarget body;
         private MechIffProtocol protocol;
+        private readonly MechObservedFormationIdentity formationIdentity=new MechObservedFormationIdentity();
+        private readonly List<MechObservedFormationIdentity.Inference> formationInferences=new List<MechObservedFormationIdentity.Inference>();
+        private double nextFormationPoll;
         private readonly MechIdentityEvidence identities=new MechIdentityEvidence();
         private readonly TrackSnapshot[] tracks=new TrackSnapshot[96];
         private readonly HashSet<TrackId> active=new HashSet<TrackId>();
@@ -38,6 +41,7 @@ namespace ACunicombat.Mechs
         private int count,queryCursor;private double nextPoll;private Vector3 pendingBearing;private StreamWriter log;
         private readonly ThreatSnapshot[] threats=new ThreatSnapshot[32];
         public string LogPath {get;private set;}
+        public static string LogDirectoryOverride;
         private void Start()
         {
             Radar=GetComponent<MechRadarController>();body=GetComponent<CombatTestTarget>();
@@ -47,10 +51,11 @@ namespace ACunicombat.Mechs
             protocol=new MechIffProtocol(MechIffRadio.Authority,Credential);protocol.Result+=OnIffResult;
             identities.Changed+=(id,state)=>Log("identity_transition",id,state.Iff,state.Relation+":"+state.Reason);
             MechIffRadio.Register(this);
-            MechCombatObservationSensor.Register(this);combat.Report+=AcceptLocalBehavior;combat.Diagnostic+=(id,reason)=>Log("attack_trajectory_pending",default,IffOutcome.None,reason,id.ToString("N"));
+            MechCombatObservationSensor.Register(this);combat.Report+=AcceptLocalBehavior;combat.Diagnostic+=(id,reason)=>Log(reason.StartsWith("confirmed_attack:",StringComparison.Ordinal)?"attack_confirmation":"attack_trajectory_pending",default,IffOutcome.None,reason,id.ToString("N"));
         }
         private void LateUpdate()
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Identity);
             if(protocol==null)return;
             double now=Time.timeAsDouble;MechIffRadio.Tick(now);protocol.Tick(now);
             if(Radar==null||Radar.TelemetryDriver==null)return;
@@ -60,7 +65,7 @@ namespace ACunicombat.Mechs
             {
                 var t=tracks[i];if(t.ObjectClass==TrackObjectClass.Missile||t.ObjectClass==TrackObjectClass.Decoy)continue;active.Add(t.TrackId);
                 var link=t.SourceEvidence.DataLink;
-                if(t.Affiliation==TrackAffiliation.Friendly&&t.IdentityConfidence>=.8f&&(t.SourceMask&TrackSourceMask.DataLink)!=0&&link.Valid&&Radar.SimTimeSeconds-link.Timestamp<=3)
+                if(!identities.HasDecidedIdentity(t.TrackId)&&t.Affiliation==TrackAffiliation.Friendly&&t.IdentityConfidence>=.8f&&(t.SourceMask&TrackSourceMask.DataLink)!=0&&link.Valid&&Radar.SimTimeSeconds-link.Timestamp<=3)
                     identities.Submit(t.TrackId,new IdentityEvidence{OriginalId="cooperative-self-report",Source="authenticated-link",Kind=IdentityEvidenceKind.CooperativeFriendly,Quality=t.IdentityConfidence,Association=1,ObservedAt=now,ExpiresAt=now+3},now);
             }
             protocol.CancelMissing(active,now);
@@ -70,11 +75,23 @@ namespace ACunicombat.Mechs
             PollCombatObservations(now);
             ObserveIllumination(now);
             foreach(var id in active)snapshots[id]=identities.Evaluate(id,now);identities.Prune(now);
+            if(now>=nextFormationPoll)
+            {
+                nextFormationPoll=now+.5;
+                formationIdentity.Update(tracks,count,snapshots,Radar.SimTimeSeconds,formationInferences);
+                foreach(var inferred in formationInferences)
+                {
+                    if(identities.HasDecidedIdentity(inferred.Member))continue;
+                    identities.Submit(inferred.Member,new IdentityEvidence{OriginalId="formation/"+inferred.HostileAnchor,Source="observed-formation",Kind=IdentityEvidenceKind.FormationHostile,Quality=.95f,Association=1,ObservedAt=now,ExpiresAt=now+3},now);
+                    snapshots[inferred.Member]=identities.Evaluate(inferred.Member,now);
+                    Log("formation_hostile",inferred.Member,IffOutcome.None,"observed_anchor="+inferred.HostileAnchor);
+                }
+            }
             if(InterrogatorEnabled&&TransmitterAvailable&&count>0)
             {
                 for(int n=0;n<count;n++)
                 {
-                    var t=tracks[(queryCursor+n)%count];if(!active.Contains(t.TrackId)||t.Lifecycle==TrackLifecycle.Tentative)continue;
+                    var t=tracks[(queryCursor+n)%count];if(!active.Contains(t.TrackId)||identities.HasDecidedIdentity(t.TrackId)||t.Lifecycle==TrackLifecycle.Tentative)continue;
                     var position=(Vector3)(float3)t.PredictPosition(Radar.SimTimeSeconds);var delta=position-transform.position;
                     var query=protocol.Begin(t.TrackId,delta.magnitude,now);if(query==null)continue;
                     queryCursor=(queryCursor+n+1)%count;Log("query_sent",t.TrackId,IffOutcome.Waiting,$"deadline={query.Deadline:F4}; estimatedRange={delta.magnitude:F1}",query.Transaction.ToString("N"));MechIffRadio.Interrogate(this,query,delta.normalized,now);break;
@@ -146,13 +163,15 @@ namespace ACunicombat.Mechs
             int found=-1;for(int i=0;i<count;i++){var t=tracks[i];if(!active.Contains(t.TrackId)||t.Lifecycle==TrackLifecycle.Tentative||t.Lifecycle==TrackLifecycle.Dropped||t.Confidence<.5f||Radar.SimTimeSeconds-t.LastUpdateTime>3)continue;var direction=(Vector3)(float3)t.PredictPosition(Radar.SimTimeSeconds)-transform.position;
                 if(Vector3.Angle(direction,bearing)>degrees)continue;if(found>=0)return -1;found=i;}return found;
         }
+        public const float IlluminationAssociationHalfAngleDegrees=12;
         public static bool IsRadarLockEvidence(ThreatSnapshot threat,double now)=>
-            (threat.WaveformClass==EsmWaveformClass.FireControlRadar||threat.WaveformClass==EsmWaveformClass.SearchRadar)&&threat.Level==EsmThreatLevel.Locked&&threat.ContinuousMainlobeIlluminationSeconds>=1&&now>=threat.LastSeenTime&&now-threat.LastSeenTime<=.5;
+            (threat.WaveformClass==EsmWaveformClass.FireControlRadar||threat.WaveformClass==EsmWaveformClass.SearchRadar)&&(threat.Level==EsmThreatLevel.Locked||threat.Level==EsmThreatLevel.MissileActive)&&threat.MainlobeContactCount>0&&now>=threat.LastMainlobeSeenTime&&now-threat.LastMainlobeSeenTime<=.5&&now>=threat.LastSeenTime&&now-threat.LastSeenTime<=.5;
+        private double nextIlluminationDiagnostic;
         private void ObserveIllumination(double now)
         {
             int n=Radar.CopyThreats(threats);
             for(int i=0;i<n;i++){var threat=threats[i];if(!IsRadarLockEvidence(threat,Radar.SimTimeSeconds))continue;
-                int match=UniqueBearing((Vector3)threat.DirectionWorld,5);if(match<0)continue;
+                int match=UniqueBearing((Vector3)threat.DirectionWorld,IlluminationAssociationHalfAngleDegrees);if(match<0){if(now>=nextIlluminationDiagnostic){nextIlluminationDiagnostic=now+2;Log("illumination_unassociated",default,IffOutcome.None,"fresh_radar_lock_without_unique_platform; threat="+threat.ThreatId);}continue;}
                 PublishContinuousBehavior(tracks[match],CombatBehaviorKind.FireControlLock,"lock/"+threat.ThreatId,now,.75f,.9f);}
         }
         // Call with locally measured incident direction only; never with an attacker scene identity.
@@ -190,7 +209,7 @@ namespace ACunicombat.Mechs
         {
             revokedCredentials.Add(subject);
             if(!certifiedBindings.TryGetValue(subject,out var track))return;
-            identities.RemoveEvidence(track,"iff/"+subject.ToString("N"));identities.SetIff(track,IffOutcome.InvalidProof);
+            identities.RemoveEvidence(track,"iff/"+subject.ToString("N"));identities.RevokeFriendlyIdentity(track);identities.SetIff(track,IffOutcome.InvalidProof);
             iffEvidence.Remove(track);certifiedBindings.Remove(subject);snapshots.Remove(track);Log("credential_revocation",track,IffOutcome.InvalidProof,subject.ToString("N"));
         }
         public bool TryGetIdentity(TrackId id,out ContactIdentitySnapshot state)=>snapshots.TryGetValue(id,out state);
@@ -202,7 +221,7 @@ namespace ACunicombat.Mechs
             identities.AllowUnknownPlatformAttack=AllowUnknownPlatformAttack;
             if(!TryGetIdentity(track.TrackId,out var state))
             {
-                if(track.Affiliation==TrackAffiliation.Friendly&&track.IdentityConfidence>=.8f&&(track.SourceMask&TrackSourceMask.DataLink)!=0)
+                if(!identities.HasDecidedIdentity(track.TrackId)&&track.Affiliation==TrackAffiliation.Friendly&&track.IdentityConfidence>=.8f&&(track.SourceMask&TrackSourceMask.DataLink)!=0)
                     identities.Submit(track.TrackId,new IdentityEvidence{OriginalId="cooperative-self-report",Source="authenticated-link",Kind=IdentityEvidenceKind.CooperativeFriendly,Quality=track.IdentityConfidence,Association=1,ObservedAt=Time.timeAsDouble,ExpiresAt=Time.timeAsDouble+3},Time.timeAsDouble);
                 state=identities.Evaluate(track.TrackId,Time.timeAsDouble);snapshots[track.TrackId]=state;
             }
@@ -221,7 +240,7 @@ namespace ACunicombat.Mechs
         public void Log(string kind,TrackId track,IffOutcome outcome,string reason,string transaction=null)
         {
             if(!LogDecisions)return;
-            try{if(log==null){string folder=Path.Combine(Application.persistentDataPath,"IdentityLogs");Directory.CreateDirectory(folder);LogPath=Path.Combine(folder,DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")+".jsonl");log=new StreamWriter(LogPath){AutoFlush=true};}
+            try{if(log==null){string folder=LogDirectoryOverride??Path.Combine(Application.persistentDataPath,"IdentityLogs");Directory.CreateDirectory(folder);LogPath=Path.Combine(folder,DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")+".jsonl");log=new StreamWriter(LogPath){AutoFlush=true};}
                 log.WriteLine(JsonUtility.ToJson(new LogEntry{time=Time.timeAsDouble,observer=Credential?.Subject.ToString("N")??name,kind=kind,track=track.ToString(),result=outcome.ToString(),reason=reason,transaction=transaction??"",pending=protocol?.PendingCount??0}));}
             catch(IOException){LogDecisions=false;}
         }

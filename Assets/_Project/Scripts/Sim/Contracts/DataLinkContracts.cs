@@ -32,6 +32,16 @@ namespace ACunicombat.Sensing.Contracts
         CombatBehaviorReport = 4,
         FleetCoordination = 5,
         TargetObservation = 6,
+        /// <summary>发送方自身雷达或电子战辐射的几何自报，用于协同态势显示。</summary>
+        EmissionReport = 7,
+    }
+
+    [Serializable]
+    public struct EmissionReport
+    {
+        public EmissionEvent Emission;
+        public double ObservedAt;
+        public double ExpiresAt;
     }
 
     /// <summary>
@@ -61,5 +71,6 @@ namespace ACunicombat.Sensing.Contracts
         public TrackSnapshot TrackPayload;
         public CombatBehaviorReport BehaviorPayload;
         public FleetPacket FleetPayload;
+        public EmissionReport EmissionPayload;
     }
 }

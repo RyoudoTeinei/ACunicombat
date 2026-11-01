@@ -5,7 +5,7 @@ using UnityEngine.Serialization;
 
 namespace ACunicombat.Mechs
 {
-    public enum MechSpecialistKitKind { None, EarlyWarning, Support }
+    public enum MechSpecialistKitKind { None, EarlyWarning, Support, ElectronicWarfare }
 
     public enum MechVisualRigMode
     {
@@ -83,6 +83,7 @@ namespace ACunicombat.Mechs
         [SerializeField] private MechRadarPerformance radarPerformance = new MechRadarPerformance();
         [SerializeField] private MechFireControlPerformance fireControlPerformance = new MechFireControlPerformance();
         [SerializeField] private MechDataLinkPerformance dataLinkPerformance = new MechDataLinkPerformance();
+        [SerializeField] private MechElectronicWarfarePerformance electronicWarfarePerformance = new MechElectronicWarfarePerformance();
         [SerializeField] private MechWeaponPerformance weaponPerformance = new MechWeaponPerformance();
         [SerializeField] private List<MechMountPointDefinition> mountPoints = new List<MechMountPointDefinition>();
         [SerializeField] private List<MechPartSlot> requiredInstalledSlots = new List<MechPartSlot>();
@@ -148,7 +149,11 @@ namespace ACunicombat.Mechs
         public MechRadarPerformance RadarPerformance => radarPerformance;
         public MechFireControlPerformance FireControlPerformance => fireControlPerformance;
         public MechDataLinkPerformance DataLinkPerformance => dataLinkPerformance;
-        public MechWeaponPerformance WeaponPerformance => weaponPerformance;
+        public MechElectronicWarfarePerformance ElectronicWarfarePerformance => electronicWarfarePerformance;
+        public MechWeaponPerformance WeaponPerformance
+        {
+            get { weaponPerformance?.RefreshMissileEnvelope(); return weaponPerformance; }
+        }
         public IReadOnlyList<MechMountPointDefinition> MountPoints => mountPoints;
         public IReadOnlyList<MechPartSlot> RequiredInstalledSlots => requiredInstalledSlots;
         public IReadOnlyList<string> RequiredLoadoutTags => requiredLoadoutTags;
@@ -220,7 +225,8 @@ namespace ACunicombat.Mechs
             MechFireControlPerformance newFireControlPerformance = null,
             MechWeaponPerformance newWeaponPerformance = null,
             MechDataLinkPerformance newDataLinkPerformance = null,
-            MechRadiatorPerformance newRadiatorPerformance = null)
+            MechRadiatorPerformance newRadiatorPerformance = null,
+            MechElectronicWarfarePerformance newElectronicWarfarePerformance = null)
         {
             partId = newPartId;
             displayName = newDisplayName;
@@ -278,6 +284,7 @@ namespace ACunicombat.Mechs
             radarPerformance = newRadarPerformance?.Clone() ?? new MechRadarPerformance();
             fireControlPerformance = newFireControlPerformance?.Clone() ?? new MechFireControlPerformance();
             dataLinkPerformance = newDataLinkPerformance?.Clone() ?? new MechDataLinkPerformance();
+            electronicWarfarePerformance = newElectronicWarfarePerformance?.Clone() ?? new MechElectronicWarfarePerformance();
             weaponPerformance = newWeaponPerformance?.Clone() ?? new MechWeaponPerformance();
             mountPoints = newMountPoints == null
                 ? new List<MechMountPointDefinition>()

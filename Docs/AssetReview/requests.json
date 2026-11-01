@@ -1,0 +1,662 @@
+[
+  {
+    "id": "05e94569674047a6982424c50825022d",
+    "assetId": "",
+    "comment": "[\u804A\u5929\u4EFB\u52A1\u8865\u8BB0] \u533A\u5206\u5BFC\u5F39\u4ED3\u7684\u5355\u53D1\u53D1\u5C04\u5FAA\u73AF\u4E0E\u5F39\u7EC4/\u6362\u4ED3\u65F6\u95F4\uFF0C\u5E76\u5B9E\u88C5\u6E38\u620F\u5185\u6362\u4ED3\u7B49\u5F85\u3002\u521D\u59CB\u6362\u4ED3\u7EDF\u4E004\u79D2\uFF0C\u5355\u53D1\u5FAA\u73AF\u6CBF\u7528\u539F\u751F\u52A8\u4F5C\u65F6\u957F\u3002",
+    "status": "done",
+    "revision": 2,
+    "changes": [],
+    "history": [
+      {
+        "at": "2026-10-25T20:57:59.3627844\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "[\u804A\u5929\u4EFB\u52A1\u8865\u8BB0] \u533A\u5206\u5BFC\u5F39\u4ED3\u7684\u5355\u53D1\u53D1\u5C04\u5FAA\u73AF\u4E0E\u5F39\u7EC4/\u6362\u4ED3\u65F6\u95F4\uFF0C\u5E76\u5B9E\u88C5\u6E38\u620F\u5185\u6362\u4ED3\u7B49\u5F85\u3002\u521D\u59CB\u6362\u4ED3\u7EDF\u4E004\u79D2\uFF0C\u5355\u53D1\u5FAA\u73AF\u6CBF\u7528\u539F\u751F\u52A8\u4F5C\u65F6\u957F\u3002",
+        "status": "pending",
+        "changes": [],
+        "evidence": ""
+      },
+      {
+        "at": "2026-10-25T20:57:59.3697376\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "[\u804A\u5929\u4EFB\u52A1\u8865\u8BB0] \u533A\u5206\u5BFC\u5F39\u4ED3\u7684\u5355\u53D1\u53D1\u5C04\u5FAA\u73AF\u4E0E\u5F39\u7EC4/\u6362\u4ED3\u65F6\u95F4\uFF0C\u5E76\u5B9E\u88C5\u6E38\u620F\u5185\u6362\u4ED3\u7B49\u5F85\u3002\u521D\u59CB\u6362\u4ED3\u7EDF\u4E004\u79D2\uFF0C\u5355\u53D1\u5FAA\u73AF\u6CBF\u7528\u539F\u751F\u52A8\u4F5C\u65F6\u957F\u3002",
+        "status": "done",
+        "changes": [],
+        "evidence": "\u5DF2\u5B9E\u73B0\u6240\u670913\u6B3E\u5BFC\u5F39\u4ED3\u7684\u771F\u5B9E\u6362\u4ED3\u8BA1\u65F6\u3001HUD\u5012\u8BA1\u65F6\u3001\u52A8\u4F5C\u5FAA\u73AF\u72EC\u7ACB\u914D\u7F6E\uFF1B4252\u4FDD\u7559\u72EC\u7ACB\u5F39\u7EC4\u300277\u9879\u56DE\u5F52\u53CA1\u9879\u52A8\u753B\u5468\u671F\u72EC\u7ACB\u6027\u6D4B\u8BD5\u901A\u8FC7\u3002\u62A5\u544A\uFF1AArtifacts/MissileMagazineTiming-20261025/results.xml \u4E0E cycle/results2.xml\u3002"
+      }
+    ]
+  },
+  {
+    "id": "575ea9af6b054432973b175e136bbf05",
+    "assetId": "AC6_NATIVE_WP_L_4250",
+    "comment": "",
+    "status": "done",
+    "revision": 3,
+    "changes": [
+      {
+        "field": "weaponPerformance.reloadSeconds",
+        "before": "4",
+        "after": "8"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-26T05:36:38.8745067\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "weaponPerformance.reloadSeconds",
+            "before": "4",
+            "after": "8"
+          }
+        ],
+        "evidence": ""
+      },
+      {
+        "at": "2026-10-26T05:45:14.1274774\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "",
+        "status": "working",
+        "changes": [
+          {
+            "field": "weaponPerformance.reloadSeconds",
+            "before": "4",
+            "after": "8"
+          }
+        ],
+        "evidence": "\u5DF2\u8BFB\u53D6\uFF0C\u6B63\u5728\u68C0\u67E5\u8FD0\u884C\u65F6\u914D\u7F6E\u3001\u53D1\u5C04\u884C\u4E3A\u548C\u56DE\u5F52\u3002"
+      },
+      {
+        "at": "2026-10-26T05:54:54.0962385\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "",
+        "status": "done",
+        "changes": [
+          {
+            "field": "weaponPerformance.reloadSeconds",
+            "before": "4",
+            "after": "8"
+          }
+        ],
+        "evidence": "\u5DE6\u80A94250\u771F\u5B9E\u6362\u4ED3\u6539\u4E3A8\u79D2\uFF0C\u53F3\u80A9\u4FDD\u63014\u79D2\uFF1B\u5E93\u5B58\u8017\u5C3D\u3001\u8BA1\u65F6\u548C\u5DE6\u53F3\u72EC\u7ACB\u6027\u6D4B\u8BD5\u901A\u8FC7\u3002 \u9A8C\u8BC1\uFF1AArtifacts/AssetFeedback-20261026/results.xml 53/53\uFF1B\u6700\u7EC8\u590D\u6D4B final-results.xml 2/2\u3002"
+      }
+    ]
+  },
+  {
+    "id": "fd4fdd8f544046a49d18f01674d3fbae",
+    "assetId": "AMMO:DPL-15",
+    "comment": "\u6218\u6597\u90E8\u8D28\u91CF \u4E3A\u4EC0\u4E48\u662F0\uFF1F",
+    "status": "done",
+    "revision": 3,
+    "changes": [],
+    "history": [
+      {
+        "at": "2026-10-26T05:37:46.4517370\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "\u6218\u6597\u90E8\u8D28\u91CF \u4E3A\u4EC0\u4E48\u662F0\uFF1F",
+        "status": "pending",
+        "changes": [],
+        "evidence": ""
+      },
+      {
+        "at": "2026-10-26T05:45:14.1419071\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "\u6218\u6597\u90E8\u8D28\u91CF \u4E3A\u4EC0\u4E48\u662F0\uFF1F",
+        "status": "working",
+        "changes": [],
+        "evidence": "\u5DF2\u8BFB\u53D6\uFF0C\u6B63\u5728\u68C0\u67E5\u8FD0\u884C\u65F6\u914D\u7F6E\u3001\u53D1\u5C04\u884C\u4E3A\u548C\u56DE\u5F52\u3002"
+      },
+      {
+        "at": "2026-10-26T05:54:54.1032044\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "\u6218\u6597\u90E8\u8D28\u91CF \u4E3A\u4EC0\u4E48\u662F0\uFF1F",
+        "status": "done",
+        "changes": [],
+        "evidence": "\u539F\u59CB\u76EE\u5F55\u6F0F\u586B0\uFF0C\u65E2\u6709\u89E3\u6790\u9ED8\u8BA424kg\uFF1B\u73B0\u660E\u786E\u5199\u4E3A24kg\u5E76\u5237\u65B0\u8D44\u4EA7\u8868\uFF0C\u4FDD\u6301\u539F\u5E72\u8D28\u91CF\u548C\u4F24\u5BB3\u3002\u6D41\u661F\u540C\u7C7B\u6F0F\u586B\u4E5F\u4FEE\u6B63\u4E3A\u539F\u9ED8\u8BA424kg\u3002 \u9A8C\u8BC1\uFF1AArtifacts/AssetFeedback-20261026/results.xml 53/53\uFF1B\u6700\u7EC8\u590D\u6D4B final-results.xml 2/2\u3002"
+      }
+    ]
+  },
+  {
+    "id": "ec19d940edcb42ff9b83064cd4173baa",
+    "assetId": "",
+    "comment": "\u6240\u6709\u70ED\u53D1\u5C04\u5BFC\u5F39\uFF0C\u6211\u5E0C\u671B\u589E\u52A0\u4E00\u6BB5\u51FA\u819B\u540E\u7684\u76F4\u98DE\uFF0C\u4E0D\u8981\u4E00\u4E0A\u6765\u5C31\u5F80\u76EE\u6807\u65B9\u5411\u98DE\uFF0C\u5E94\u8BE5\u662F\u5F80\u5916\u4FA7\u76F4\u98DE1s\u7136\u540E\u5F00\u59CB\u8C03\u6574\u65B9\u5411\u3002",
+    "status": "done",
+    "revision": 3,
+    "changes": [],
+    "history": [
+      {
+        "at": "2026-10-26T05:40:07.5677394\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "\u6240\u6709\u70ED\u53D1\u5C04\u5BFC\u5F39\uFF0C\u6211\u5E0C\u671B\u589E\u52A0\u4E00\u6BB5\u51FA\u819B\u540E\u7684\u76F4\u98DE\uFF0C\u4E0D\u8981\u4E00\u4E0A\u6765\u5C31\u5F80\u76EE\u6807\u65B9\u5411\u98DE\uFF0C\u5E94\u8BE5\u662F\u5F80\u5916\u4FA7\u76F4\u98DE1s\u7136\u540E\u5F00\u59CB\u8C03\u6574\u65B9\u5411\u3002",
+        "status": "pending",
+        "changes": [],
+        "evidence": ""
+      },
+      {
+        "at": "2026-10-26T05:45:14.1454224\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "\u6240\u6709\u70ED\u53D1\u5C04\u5BFC\u5F39\uFF0C\u6211\u5E0C\u671B\u589E\u52A0\u4E00\u6BB5\u51FA\u819B\u540E\u7684\u76F4\u98DE\uFF0C\u4E0D\u8981\u4E00\u4E0A\u6765\u5C31\u5F80\u76EE\u6807\u65B9\u5411\u98DE\uFF0C\u5E94\u8BE5\u662F\u5F80\u5916\u4FA7\u76F4\u98DE1s\u7136\u540E\u5F00\u59CB\u8C03\u6574\u65B9\u5411\u3002",
+        "status": "working",
+        "changes": [],
+        "evidence": "\u5DF2\u8BFB\u53D6\uFF0C\u6B63\u5728\u68C0\u67E5\u8FD0\u884C\u65F6\u914D\u7F6E\u3001\u53D1\u5C04\u884C\u4E3A\u548C\u56DE\u5F52\u3002"
+      },
+      {
+        "at": "2026-10-26T05:54:54.1081303\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "\u6240\u6709\u70ED\u53D1\u5C04\u5BFC\u5F39\uFF0C\u6211\u5E0C\u671B\u589E\u52A0\u4E00\u6BB5\u51FA\u819B\u540E\u7684\u76F4\u98DE\uFF0C\u4E0D\u8981\u4E00\u4E0A\u6765\u5C31\u5F80\u76EE\u6807\u65B9\u5411\u98DE\uFF0C\u5E94\u8BE5\u662F\u5F80\u5916\u4FA7\u76F4\u98DE1s\u7136\u540E\u5F00\u59CB\u8C03\u6574\u65B9\u5411\u3002",
+        "status": "done",
+        "changes": [],
+        "evidence": "\u70ED\u53D1\u5C04\u4E0D\u518D\u9884\u5148\u671D\u76EE\u6807\u504F\u8F6C\uFF0C\u6CBF\u51FA\u8231\u8F74\u7EBF\u4FDD\u63011\u79D2\u4E14\u53D1\u52A8\u673A\u6B63\u5E38\u71C3\u70E7\uFF0C\u7136\u540E\u6062\u590D\u5236\u5BFC\uFF1B\u5B9E\u9645\u5DE6\u53F34230/4340/4290\u53D1\u5C04\u9A8C\u8BC1\u901A\u8FC7\u3002 \u9A8C\u8BC1\uFF1AArtifacts/AssetFeedback-20261026/results.xml 53/53\uFF1B\u6700\u7EC8\u590D\u6D4B final-results.xml 2/2\u3002"
+      }
+    ]
+  },
+  {
+    "id": "9f9b25b3491f455a822ed1718af3c5ed",
+    "assetId": "",
+    "comment": "\u5BFC\u5F39\u7CFB\u52171\u7684\u4E09\u4E2A\u7A7A\u7A7A\u5BFC\u5F39\u6539\u4E3A\u51B7\u53D1\u5C04",
+    "status": "done",
+    "revision": 3,
+    "changes": [],
+    "history": [
+      {
+        "at": "2026-10-26T05:40:55.8306717\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "\u5BFC\u5F39\u7CFB\u52171\u7684\u4E09\u4E2A\u7A7A\u7A7A\u5BFC\u5F39\u6539\u4E3A\u51B7\u53D1\u5C04",
+        "status": "pending",
+        "changes": [],
+        "evidence": ""
+      },
+      {
+        "at": "2026-10-26T05:45:14.1489990\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "\u5BFC\u5F39\u7CFB\u52171\u7684\u4E09\u4E2A\u7A7A\u7A7A\u5BFC\u5F39\u6539\u4E3A\u51B7\u53D1\u5C04",
+        "status": "working",
+        "changes": [],
+        "evidence": "\u5DF2\u8BFB\u53D6\uFF0C\u6B63\u5728\u68C0\u67E5\u8FD0\u884C\u65F6\u914D\u7F6E\u3001\u53D1\u5C04\u884C\u4E3A\u548C\u56DE\u5F52\u3002"
+      },
+      {
+        "at": "2026-10-26T05:54:54.1124764\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "\u5BFC\u5F39\u7CFB\u52171\u7684\u4E09\u4E2A\u7A7A\u7A7A\u5BFC\u5F39\u6539\u4E3A\u51B7\u53D1\u5C04",
+        "status": "done",
+        "changes": [],
+        "evidence": "\u7B2C\u4E00\u7CFB\u52174301\u30014302\u30014310\u5DE6\u53F3\u5747\u6539\u4E3A\u51B7\u629B\u5C04\u3001\u5B89\u5168\u5206\u79BB\u3001\u59FF\u6001\u8C03\u6574\u3001\u70B9\u706B\uFF1B\u97F3\u6548\u6CBF\u7528\u51B7\u53D1\u5C04\uFF0C\u53D6\u6D88\u70ED\u53D1\u5C04\u8231\u53E3\u95EA\u5149\u30026\u4E2A\u5B9E\u9645\u53D1\u5C04\u914D\u7F6E\u901A\u8FC7\u3002 \u9A8C\u8BC1\uFF1AArtifacts/AssetFeedback-20261026/results.xml 53/53\uFF1B\u6700\u7EC8\u590D\u6D4B final-results.xml 2/2\u3002"
+      }
+    ]
+  },
+  {
+    "id": "b6184b3421254c9cbdb30aafc56add27",
+    "assetId": "AC6_FULL_WP_L_4302",
+    "comment": "4302\u51B7\u53D1\u5C04\u540E\u5BFC\u5F39\u770B\u8D77\u6765\u5728\u673A\u4F53\u811A\u4E0B\u51FA\u73B0\u3002\u590D\u73B0\u53D1\u73B0\u9AD8\u901F\u4E0A\u5347\u65F6\u53EF\u89C1\u6A21\u578B\u843D\u540E\u4E00\u4E2A\u7269\u7406\u5E27\u3002",
+    "status": "done",
+    "revision": 2,
+    "changes": [],
+    "history": [
+      {
+        "at": "2026-10-26T07:46:56.7524239\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "4302\u51B7\u53D1\u5C04\u540E\u5BFC\u5F39\u770B\u8D77\u6765\u5728\u673A\u4F53\u811A\u4E0B\u51FA\u73B0\u3002\u590D\u73B0\u53D1\u73B0\u9AD8\u901F\u4E0A\u5347\u65F6\u53EF\u89C1\u6A21\u578B\u843D\u540E\u4E00\u4E2A\u7269\u7406\u5E27\u3002",
+        "status": "pending",
+        "changes": [],
+        "evidence": ""
+      },
+      {
+        "at": "2026-10-26T07:49:00.1480515\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "4302\u51B7\u53D1\u5C04\u540E\u5BFC\u5F39\u770B\u8D77\u6765\u5728\u673A\u4F53\u811A\u4E0B\u51FA\u73B0\u3002\u590D\u73B0\u53D1\u73B0\u9AD8\u901F\u4E0A\u5347\u65F6\u53EF\u89C1\u6A21\u578B\u843D\u540E\u4E00\u4E2A\u7269\u7406\u5E27\u3002",
+        "status": "done",
+        "changes": [],
+        "evidence": "\u5DF2\u5728\u4FDD\u5B58\u914D\u88C5\u7684\u5B8C\u6574\u53EF\u73A9\u573A\u666F\u590D\u73B0\uFF1A\u7EA6818m/s\u4E0A\u5347\u65F6\u7269\u7406\u5F39\u4F53\u5728\u80A9\u90E8\uFF0C\u65E7\u663E\u793A\u63D2\u503C\u843D\u540E\u4E00\u5E27\uFF0C\u6700\u5927\u9519\u4F4D16.3685m\u3002\u5DF2\u7EDF\u4E00\u663E\u793A\u65F6\u95F4\u57FA\u51C6\uFF1B\u4FEE\u590D\u540E\u7EA61372m/s\u4E0A\u5347\u6700\u5927\u504F\u5DEE0.0141m\uFF0C\u8FDE\u7EED\u753B\u9762\u786E\u8BA4\u80A9\u90E8\u51FA\u8231\u300224/24\u81EA\u52A8\u56DE\u5F52\u901A\u8FC7\uFF0C\u542B30/60/120Hz\u9AD8\u901F\u663E\u793A\u300112\u4E2A\u5B9E\u9645\u53D1\u5C04\u914D\u7F6E\u53CA\u6362\u4ED3\u3002\u5BF9\u7167\uFF1AArtifacts/ColdLaunchPlacement-20261026/review.html\u3002"
+      }
+    ]
+  },
+  {
+    "id": "a8f216b499d946339103eb5fa552d7aa",
+    "assetId": "",
+    "comment": "[\u804A\u5929\u8981\u6C42\u8865\u8BB0] \u51B7\u53D1\u5C04\u89D2\u5EA6\u7A0D\u5FAE\u659C\u5411\u4E0A\u3002",
+    "status": "done",
+    "revision": 2,
+    "changes": [],
+    "history": [
+      {
+        "at": "2026-10-26T07:56:21.5023152\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "[\u804A\u5929\u8981\u6C42\u8865\u8BB0] \u51B7\u53D1\u5C04\u89D2\u5EA6\u7A0D\u5FAE\u659C\u5411\u4E0A\u3002",
+        "status": "pending",
+        "changes": [],
+        "evidence": ""
+      },
+      {
+        "at": "2026-10-26T07:56:21.5246493\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "[\u804A\u5929\u8981\u6C42\u8865\u8BB0] \u51B7\u53D1\u5C04\u89D2\u5EA6\u7A0D\u5FAE\u659C\u5411\u4E0A\u3002",
+        "status": "done",
+        "changes": [],
+        "evidence": "\u975E\u5782\u76F4\u51B7\u53D1\u5C04\u7EDF\u4E00\u4E3A\u673A\u4F53\u5E73\u9762\u4E0A\u4EF015\u00B0\uFF0C\u5782\u76F4\u5251\u536B\u7CFB\u5217\u4FDD\u7559\u5782\u76F4\uFF1B\u629B\u5C04\u901F\u5EA6\u3001\u5B89\u5168\u5206\u79BB\u548C\u70B9\u706B\u6761\u4EF6\u4E0D\u53D8\u3002\u9996\u8F6E\u53D1\u73B0\u6A21\u578B\u539F\u6709\u4EF0\u89D2\u53E0\u52A0\u95EE\u9898\u540E\u4FEE\u6B63\uFF0C\u6700\u7EC832/32\u56DE\u5F52\u901A\u8FC7\u3002Artifacts/ColdLaunchElevation-20261026/final-results.xml"
+      }
+    ]
+  },
+  {
+    "id": "f6b611c5080543ed9abd1e02fce93fb4",
+    "assetId": "",
+    "comment": "[\u804A\u5929\u8981\u6C42\u8865\u8BB0] \u9664\u4E3B\u63A8\u8FDB\u5668\u5916\u7684\u63A8\u8FDB\u5668\u5728\u5F53\u524D\u57FA\u7840\u4E0A\u518D\u63D0\u534750%\u63A8\u529B\u3002",
+    "status": "done",
+    "revision": 2,
+    "changes": [],
+    "history": [
+      {
+        "at": "2026-10-26T17:52:38.5684484\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "[\u804A\u5929\u8981\u6C42\u8865\u8BB0] \u9664\u4E3B\u63A8\u8FDB\u5668\u5916\u7684\u63A8\u8FDB\u5668\u5728\u5F53\u524D\u57FA\u7840\u4E0A\u518D\u63D0\u534750%\u63A8\u529B\u3002",
+        "status": "pending",
+        "changes": [],
+        "evidence": ""
+      },
+      {
+        "at": "2026-10-26T17:52:38.5870913\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "[\u804A\u5929\u8981\u6C42\u8865\u8BB0] \u9664\u4E3B\u63A8\u8FDB\u5668\u5916\u7684\u63A8\u8FDB\u5668\u5728\u5F53\u524D\u57FA\u7840\u4E0A\u518D\u63D0\u534750%\u63A8\u529B\u3002",
+        "status": "done",
+        "changes": [],
+        "evidence": "23\u4E2A\u914D\u7F6E\u8F85\u52A9\u55B7\u53E3\u989D\u5B9A\u63A8\u529B\u00D71.5\uFF0C\u9ED8\u8BA4\u8F85\u52A9\u55B7\u53E3600\u2192900kN\uFF1B\u540C\u6B65\u673A\u5E93\u80FD\u529B\u8BC4\u4F30\u4E0E\u8F85\u52A9\u63A7\u5236\u8BF7\u6C42\u9884\u7B97\u3002\u4E3B\u63A8\u8FDB\u5668\u3001AB/QB\u989D\u5B9A\u503C\u4E0D\u53D8\u3002\u5B9E\u9645\u5206\u914D\u6D4B\u8BD5\u6392\u9664\u91CD\u590D\u653E\u5927\uFF0C13/13\u56DE\u5F52\u901A\u8FC7\uFF1AArtifacts/AuxiliaryThrust50-20261026/results.xml\u3002"
+      }
+    ]
+  },
+  {
+    "id": "5a3127ed404b431b81fb0295bb5f59aa",
+    "assetId": "AMMO:DPL-15",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "launchReview.coldMinimumDelaySeconds",
+        "before": "0.5",
+        "after": "0.37"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T20:44:28.3173753\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "launchReview.coldMinimumDelaySeconds",
+            "before": "0.5",
+            "after": "0.37"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "7a44ee27d5524197a9efbeba741b2eeb",
+    "assetId": "AMMO:DPL-17",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "launchReview.coldMinimumDelaySeconds",
+        "before": "0.5",
+        "after": "0.62"
+      },
+      {
+        "field": "weaponPerformance.muzzleVelocityMetersPerSecond",
+        "before": "40",
+        "after": "44"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T20:44:52.0643493\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "launchReview.coldMinimumDelaySeconds",
+            "before": "0.5",
+            "after": "0.62"
+          },
+          {
+            "field": "weaponPerformance.muzzleVelocityMetersPerSecond",
+            "before": "40",
+            "after": "44"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "d552a1fb3bcb4f789efc52fe4872917a",
+    "assetId": "AMMO:JW7",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "weaponPerformance.missileDisplayName",
+        "before": "\u5251\u536B7",
+        "after": "\u5251\u536B 7"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T20:47:32.6289185\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "weaponPerformance.missileDisplayName",
+            "before": "\u5251\u536B7",
+            "after": "\u5251\u536B 7"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "37fe077fc7b64b1bb66b5731b883a457",
+    "assetId": "AMMO:JW7-ER",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "weaponPerformance.missileDisplayName",
+        "before": "\u5251\u536B7C",
+        "after": "\u5251\u536B 7C"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T20:47:37.8610666\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "weaponPerformance.missileDisplayName",
+            "before": "\u5251\u536B7C",
+            "after": "\u5251\u536B 7C"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "feaa09b721f342f7b295091557067f54",
+    "assetId": "AMMO:SIM-29",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "launchReview.hotTurnDelaySeconds",
+        "before": "1.3",
+        "after": "0.67"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T20:47:58.4351664\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "launchReview.hotTurnDelaySeconds",
+            "before": "1.3",
+            "after": "0.67"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "cb16eca70e8d400d9babf760f7efa67b",
+    "assetId": "AMMO:SIM-29M",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "launchReview.hotTurnDelaySeconds",
+        "before": "1.3",
+        "after": "0.67"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T20:48:08.4844801\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "launchReview.hotTurnDelaySeconds",
+            "before": "1.3",
+            "after": "0.67"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "bb37270b3d4c4613b994b3bcfcee4977",
+    "assetId": "AMMO:SIM-57",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "launchReview.hotTurnDelaySeconds",
+        "before": "1.3",
+        "after": "1.02"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T20:48:21.4591508\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "launchReview.hotTurnDelaySeconds",
+            "before": "1.3",
+            "after": "1.02"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "d17caf3cc7f74f10bb5767b55b737f88",
+    "assetId": "AMMO:SIM-57R",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "launchReview.hotTurnDelaySeconds",
+        "before": "1.3",
+        "after": "1.02"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T20:48:23.9575973\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "launchReview.hotTurnDelaySeconds",
+            "before": "1.3",
+            "after": "1.02"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "694eb1a3c548446882f799755afb4208",
+    "assetId": "AMMO:SIM-57R",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "launchReview.hotTurnDelaySeconds",
+        "before": "1.3",
+        "after": "1.38"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T20:48:27.5748291\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "launchReview.hotTurnDelaySeconds",
+            "before": "1.3",
+            "after": "1.38"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "155e20f33f344157b6e5a4af4e82d15e",
+    "assetId": "AMMO:DPL-17",
+    "comment": "",
+    "status": "pending",
+    "revision": 1,
+    "changes": [
+      {
+        "field": "weaponPerformance.missileFlightProfile.MainEngineThrustNewtons",
+        "before": "90000",
+        "after": "91300"
+      },
+      {
+        "field": "weaponPerformance.missileFlightProfile.SecondStageThrustNewtons",
+        "before": "60000",
+        "after": "65700"
+      }
+    ],
+    "history": [
+      {
+        "at": "2026-10-31T21:57:43.4238290\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "",
+        "status": "pending",
+        "changes": [
+          {
+            "field": "weaponPerformance.missileFlightProfile.MainEngineThrustNewtons",
+            "before": "90000",
+            "after": "91300"
+          },
+          {
+            "field": "weaponPerformance.missileFlightProfile.SecondStageThrustNewtons",
+            "before": "60000",
+            "after": "65700"
+          }
+        ],
+        "evidence": ""
+      }
+    ]
+  },
+  {
+    "id": "8f61fc342d9642739d83d925ed38b9f1",
+    "assetId": "",
+    "comment": "57\u548C57r\u6539\u621077\u548C77r\uFF0C\u5C04\u7A0B\u4E5F\u63D0\u9AD8\u5230\u5BF9\u5E94\u7684\u6570\u5B57\u3002",
+    "status": "done",
+    "revision": 4,
+    "changes": [],
+    "history": [
+      {
+        "at": "2026-11-01T06:39:40.8340418\u002B11:00",
+        "actor": "user",
+        "action": "created",
+        "comment": "57\u548C57r\u6539\u621077\u548C77r\uFF0C\u5C04\u7A0B\u4E5F\u63D0\u9AD8\u5230\u5BF9\u5E94\u7684\u6570\u5B57\u3002",
+        "status": "pending",
+        "changes": [],
+        "evidence": ""
+      },
+      {
+        "at": "2026-11-01T06:50:04.2790345\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "57\u548C57r\u6539\u621077\u548C77r\uFF0C\u5C04\u7A0B\u4E5F\u63D0\u9AD8\u5230\u5BF9\u5E94\u7684\u6570\u5B57\u3002",
+        "status": "working",
+        "changes": [],
+        "evidence": "\u5DF2\u5B9E\u73B0SIM-77\u3001SIM-77R\u6539\u540D\u53CA\u65E7\u914D\u88C5\u517C\u5BB9\uFF1BSIM-77\u630977km\u6807\u5B9A\u3002SIM-77R\u6682\u4FDD\u7559\u539F82km\uFF0C\u7B49\u5F85\u660E\u786E\u76EE\u6807\u5C04\u7A0B\u3002\u6B63\u5728\u5B8C\u6210\u53D1\u5C04\u4ED3\u5E8F\u5217\u5316\u6570\u636E\u540C\u6B65\u548C\u56DE\u5F52\u3002"
+      },
+      {
+        "at": "2026-11-01T06:52:26.1310652\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "57\u548C57r\u6539\u621077\u548C77r\uFF0C\u5C04\u7A0B\u4E5F\u63D0\u9AD8\u5230\u5BF9\u5E94\u7684\u6570\u5B57\u3002",
+        "status": "working",
+        "changes": [],
+        "evidence": "\u6309\u7528\u6237\u672C\u8F6E\u804A\u5929\u4FEE\u6B63\uFF1A\u64A4\u56DESIM-77/77R\u6539\u540D\uFF0CSIM-57\u4FDD\u6301\u539F\u540D\u4E0E57km\u3002\u4EC5\u5C06SIM-57R\u8BA1\u7B97\u53C2\u8003\u822A\u7A0B\u6539\u4E3A77km\uFF0C\u5BFF\u547D30.57\u79D2\uFF0C\u4FDD\u7559\u539F82km\u5386\u53F2\u5BF9\u7167\u3002\u56DE\u5F52\u4E0E\u7F51\u9875\u6838\u5BF9\u8FDB\u884C\u4E2D\u3002"
+      },
+      {
+        "at": "2026-11-01T06:56:01.1922498\u002B11:00",
+        "actor": "agent",
+        "action": "status",
+        "comment": "57\u548C57r\u6539\u621077\u548C77r\uFF0C\u5C04\u7A0B\u4E5F\u63D0\u9AD8\u5230\u5BF9\u5E94\u7684\u6570\u5B57\u3002",
+        "status": "done",
+        "changes": [],
+        "evidence": "\u5DF2\u6309\u7528\u6237\u540E\u7EED\u804A\u5929\u4FEE\u6B63\u6267\u884C\uFF1A\u64A4\u56DESIM-77/77R\u6539\u540D\uFF0CSIM-57\u4FDD\u6301\u539F\u540D\u300157km\u4E0E27.34\u79D2\u5BFF\u547D\uFF1BSIM-57R\u4FDD\u6301\u539F\u540D\uFF0C\u8BA1\u7B97\u53C2\u8003\u822A\u7A0B77km\u3001\u5BFF\u547D30.57\u79D2\uFF0C\u539F82km\u4FDD\u7559\u4E3A\u53EA\u8BFB\u5BF9\u7167\u3002\u5DF2\u540C\u6B65\u6E38\u620F\u3001\u53D1\u5C04\u4ED3\u5E8F\u5217\u5316\u6570\u636E\u4E0E\u8D44\u4EA7\u7F51\u9875\u300266/66\u56DE\u5F52\u901A\u8FC7\uFF0C\u5B9E\u9645\u6D4F\u89C8\u5668\u6838\u5BF9\u540D\u79F0\u3001\u5C04\u7A0B\u3001\u5BFF\u547D\u548C\u5386\u53F2\u5BF9\u7167\u3002\u7ED3\u679C\uFF1AArtifacts/MissileModels-20261031/sim57r-77km.xml\uFF1B\u8BF4\u660E\uFF1ADocs/AssetReview/Sim57R-77km-20261101.md\u3002"
+      }
+    ]
+  }
+]

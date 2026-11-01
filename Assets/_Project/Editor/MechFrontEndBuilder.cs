@@ -64,7 +64,7 @@ public static class MechFrontEndBuilder
    var unit=definition.units.FirstOrDefault(u=>u.key==MechScenarioStore.UnitKey(assembler.transform));if(unit==null)continue;
    assembler.transform.position+=new Vector3(123,456,789);
    bool overridden=MechScenarioStore.ApplySpawn(assembler,out var loadout);
-   if(Vector3.Distance(assembler.transform.position,unit.position)>.001f||overridden==unit.player)throw new InvalidOperationException("Spawn application failed: "+unit.name+" position="+assembler.transform.position.ToString("F6")+" expected="+unit.position.ToString("F6")+" overridden="+overridden+" player="+unit.player);
+   if(Vector3.Distance(assembler.transform.position,unit.position)>.001f||!overridden)throw new InvalidOperationException("Spawn application failed: "+unit.name+" position="+assembler.transform.position.ToString("F6")+" expected="+unit.position.ToString("F6")+" overridden="+overridden+" player="+unit.player);
    if(loadout!=null)UnityEngine.Object.DestroyImmediate(loadout);
   }
   EditorSceneManager.OpenScene(MenuScene);

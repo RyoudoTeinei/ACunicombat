@@ -71,7 +71,7 @@ MonoBehaviour:
     signalBandwidthMHz: 20
     searchAzimuthDeg: 100
     searchElevationDeg: 60
-    trackCapacity: 16
+    trackCapacity: 32
     sttChannelCapacity: 1
     maximumTrackingRateDegPerSecond: 140
     trackMemorySeconds: 3

@@ -11,7 +11,7 @@ namespace ACunicombat.Mechs
     /// </summary>
     public static class MechThrusterCapabilityEvaluator
     {
-        private const float DefaultAuxiliaryThrustKn = 600f;
+        private const float DefaultAuxiliaryThrustKn = 900f;
         private const float TorqueWeight = 0.03f;
         private const int AllocatorIterations = 32;
 

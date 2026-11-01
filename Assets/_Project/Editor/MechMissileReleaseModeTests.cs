@@ -77,6 +77,16 @@ public class MechMissileReleaseModeTests
         Assert.AreEqual(10,output[0].SourceEvidence.DataLink.Timestamp);
         Assert.AreEqual(0,shared.Merge(output,0,12.1));
     }
+    [Test] public void MatchedThenMismatchedDoesNotPublishDuplicateTrackIds()
+    {
+        var shared=new MechSharedTargetTracks();var remote=Track(4,10);var local=Track(2,10);
+        var terminal=new LinkTerminalId(new Handle(3,1));shared.Receive(terminal,remote,10);
+        var output=new TrackSnapshot[8];output[0]=local;Assert.AreEqual(1,shared.Merge(output,1,10));
+        Assert.AreEqual(1,shared.Merge(output,1,10.1));
+        Assert.AreEqual(local.TrackId,output[0].TrackId);
+        Assert.AreEqual(1,shared.Merge(output,0,10.2));
+        Assert.AreEqual(local.TrackId,output[0].TrackId);
+    }
     [Test] public void SharedUnknownCannotDuplicateAnAlreadyIdentifiedFriend()
     {
         var shared=new MechSharedTargetTracks();var remote=Track(4,10);var friend=Track(2,10);friend.Affiliation=TrackAffiliation.Friendly;

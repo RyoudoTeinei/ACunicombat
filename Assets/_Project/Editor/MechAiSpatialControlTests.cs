@@ -354,6 +354,84 @@ public sealed class MechAiSpatialControlTests
         AssertVector(motion.CurrentControlForceNewtons, Vector3.zero, 0.001f);
     }
 
+    [Test]
+    public void CombatNavigationYield_IsLimitedToExplicitNavigationTasks()
+    {
+        Assert.That(MechAiRulePlanner.ShouldYieldCombatToNavigation(
+            false, false, false, false), Is.False);
+        Assert.That(MechAiRulePlanner.ShouldYieldCombatToNavigation(
+            true, false, false, false), Is.False);
+        Assert.That(MechAiRulePlanner.ShouldYieldCombatToNavigation(
+            true, true, false, false), Is.True);
+        Assert.That(MechAiRulePlanner.ShouldYieldCombatToNavigation(
+            true, false, true, false), Is.True);
+        Assert.That(MechAiRulePlanner.ShouldYieldCombatToNavigation(
+            true, false, false, true), Is.True);
+    }
+
+    [Test]
+    public void Intercept_LeadsCrossingTargetInsteadOfOnlyMatchingItsVelocity()
+    {
+        var doctrine = Doctrine(0f);
+        var acceleration = MechAiRulePlanner.CalculateSpatialAcceleration(
+            Vector3.forward * 10000f, Vector3.right * 400f, Vector3.zero,
+            MechAiTargetController.CombatState.Intercept, in doctrine,
+            20f, 20f, 30f, 2f, out _);
+        Assert.That(acceleration.x, Is.GreaterThan(1f));
+        Assert.That(acceleration.z, Is.GreaterThan(0f));
+    }
+
+    [Test]
+    public void Intercept_UsesCombatClosingSpeedInsteadOfOld320MeterCap()
+    {
+        var doctrine = Doctrine(0f);
+        var acceleration = MechAiRulePlanner.CalculateSpatialAcceleration(
+            Vector3.forward * 100000f, Vector3.zero, Vector3.zero,
+            MechAiTargetController.CombatState.Intercept, in doctrine,
+            20f, 20f, 1000f, 2f, out _);
+        Assert.That(acceleration.z, Is.GreaterThan(350f));
+        Assert.That(acceleration.z, Is.LessThanOrEqualTo(400.001f));
+    }
+
+    [Test]
+    public void Navigation_UsesAvailableAccelerationFarAwayAndBrakesOnArrival()
+    {
+        var far = MechAiRulePlanner.CalculateNavigationAcceleration(
+            Vector3.forward * 10000f, Vector3.zero, Vector3.zero,
+            300f, 20f, 20f, 100f, 2f);
+        Assert.That(far.z, Is.EqualTo(100f).Within(0.001f));
+
+        var near = MechAiRulePlanner.CalculateNavigationAcceleration(
+            Vector3.forward * 10f, Vector3.zero, Vector3.forward * 100f,
+            300f, 20f, 20f, 100f, 2f);
+        Assert.That(near.z, Is.LessThan(0f));
+    }
+
+    [Test]
+    public void Navigation_MatchesReportedLeaderVelocityAtFormationPoint()
+    {
+        var leaderVelocity = new Vector3(20f, 10f, -5f);
+        var acceleration = MechAiRulePlanner.CalculateNavigationAcceleration(
+            Vector3.zero, leaderVelocity, Vector3.zero,
+            300f, 20f, 20f, 100f, 2f);
+        AssertVector(acceleration, leaderVelocity / 2f, 0.001f);
+    }
+
+    [Test]
+    public void DefensiveFlightFrame_UsesIncomingMissileAxisWithoutAirTarget()
+    {
+        SetField(ai, "incomingThreat", true);
+        SetField(ai, "hasIncomingThreatObservation", true);
+        SetField(ai, "incomingThreatPosition", ownship.transform.position + Vector3.up * 500f);
+        SetField(ai, "incomingThreatVelocity", Vector3.down * 1000f);
+
+        var frame = (MechPlayerInputFrame)Invoke(ai, "BuildIncomingThreatFlightFrame",
+            0, Vector3.zero, Vector3.zero);
+
+        Assert.That(frame.HasAutonomousFlightCommand, Is.True);
+        Assert.That(frame.AutonomousAccelerationWorld.y, Is.LessThan(-0.1f));
+    }
+
     private void SettleAttitude(Vector3 targetDirection)
     {
         var noTranslation = default(MechPlayerInputFrame);

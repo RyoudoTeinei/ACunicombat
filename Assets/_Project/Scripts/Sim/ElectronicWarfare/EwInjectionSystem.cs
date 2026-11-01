@@ -2,6 +2,7 @@ using System;
 using ACunicombat.Simulation.Core;
 using ACunicombat.Sensing.Contracts;
 using Unity.Collections;
+using Unity.Mathematics;
 
 namespace ACunicombat.ElectronicWarfare
 {
@@ -59,8 +60,55 @@ namespace ACunicombat.ElectronicWarfare
                    && hasLosRate == ((capability & SensorCapability.LosRate) != 0);
         }
 
-        // TODO(阶段 4)：噪声干扰功率场写入（JamContribution，含波束/旁瓣耦合）、
-        // 距离/速度/角度欺骗（测量生成后偏移，需波形匹配成功）、诱饵实体登记、
+        /// <summary>
+        /// Builds one physical noise contribution at the victim receiver input.
+        /// ERP includes the transmit antenna; receiverGainLinear is the victim's
+        /// boresight receive gain. Aspect and spectral coupling remain in Sensors.
+        /// </summary>
+        public static bool TryCreateNoiseContribution(
+            SensorId victimSensor,
+            EmitterId sourceEmitter,
+            double3 jammerPosition,
+            double3 victimPosition,
+            float3 emissionDirection,
+            float beamWidthRadians,
+            float maximumRangeMeters,
+            float equivalentRadiatedPowerWatts,
+            float receiverGainLinear,
+            ushort frequencyBand,
+            float centerFrequencyHz,
+            float bandwidthHz,
+            out JamContribution contribution)
+        {
+            contribution = default;
+            var relative = victimPosition - jammerPosition;
+            double range = math.length(relative);
+            if (!victimSensor.IsValid || range < 1.0 || range > maximumRangeMeters ||
+                !math.all(math.isfinite(relative)) || !math.all(math.isfinite(emissionDirection)) ||
+                math.lengthsq(emissionDirection) < 1e-8f || beamWidthRadians <= 0f ||
+                equivalentRadiatedPowerWatts <= 0f || receiverGainLinear <= 0f ||
+                centerFrequencyHz <= 0f || bandwidthHz <= 0f) return false;
+            var toVictim = math.normalizesafe((float3)(relative / range));
+            if (math.dot(math.normalize(emissionDirection), toVictim) <
+                math.cos(beamWidthRadians * .5f)) return false;
+            float powerDbw = 10f * math.log10(equivalentRadiatedPowerWatts * receiverGainLinear) -
+                             20f * (float)math.log10(range);
+            if (!float.IsFinite(powerDbw)) return false;
+            contribution = new JamContribution
+            {
+                VictimSensorId = victimSensor,
+                SourceEmitterId = sourceEmitter,
+                ArrivalDirection = -toVictim,
+                FrequencyBand = frequencyBand,
+                PowerDb = powerDbw,
+                PowerIsDbw = true,
+                CenterFrequencyHz = centerFrequencyHz,
+                BandwidthHz = bandwidthHz,
+            };
+            return true;
+        }
+
+        // TODO：距离/速度/角度欺骗（测量生成后偏移，需波形匹配成功）、诱饵实体登记、
         // 数据链丢包率注入。所有注入登记 EmissionEvent 供 ESM 反制（13 节）。
     }
 }

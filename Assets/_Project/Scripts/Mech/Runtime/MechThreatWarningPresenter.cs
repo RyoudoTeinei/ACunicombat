@@ -616,6 +616,7 @@ namespace ACunicombat.Mechs
                 EsmWaveformClass.AirToAirMissileSeeker => 42f,
                 EsmWaveformClass.InterceptorMissileSeeker => 38f,
                 EsmWaveformClass.InfraredPlume => 35f,
+                EsmWaveformClass.NoiseJammer => 32f,
                 EsmWaveformClass.FireControlRadar => 30f,
                 EsmWaveformClass.DataLinkUplink => 20f,
                 EsmWaveformClass.SearchRadar => 10f,
@@ -639,6 +640,7 @@ namespace ACunicombat.Mechs
             {
                 EsmWaveformClass.SearchRadar => $"SR{threat.WaveformId:D2}",
                 EsmWaveformClass.FireControlRadar => $"FCR{threat.WaveformId:D2}",
+                EsmWaveformClass.NoiseJammer => "JAM",
                 EsmWaveformClass.MissileSeeker => "MSL",
                 EsmWaveformClass.AirToAirMissileSeeker => "AAM",
                 EsmWaveformClass.InterceptorMissileSeeker => "INT",

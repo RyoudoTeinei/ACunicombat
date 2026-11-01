@@ -82,6 +82,31 @@ namespace ACunicombat.Tests.EditMode
         }
 
         [Test]
+        public void OwnLaunchBindingSurvivesTelemetryCoastWindowWithoutCreatingUnknownDuplicate()
+        {
+            var manager=new MissileContactManager();var id=System.Guid.NewGuid();
+            var terminal=new LinkTerminalId(new Handle(0,1));var sensorTrack=new TrackId(new Handle(7,1));
+            manager.RegisterOwnLaunch(id,new double3(0,0,1000),new double3(0,0,1000),MissileMissionRole.AirToAir,10);
+            manager.BindOwnTerminal(id,terminal);
+            manager.Reports[0]=new FriendlyMissileLinkReport{Active=true,SourceTerminal=terminal,Position=new double3(0,0,1000),Velocity=new double3(0,0,1000),StateTimestamp=10,HasLaunchTimestamp=true,LaunchTimestamp=10};
+            var output=new MissileTrackSnapshot[128];
+            output[0]=new MissileTrackSnapshot{TrackId=sensorTrack,Position=new double3(0,0,1000),Velocity=new double3(0,0,1000),FirstObservationTime=10,LastUpdateTime=10,LastEvidenceTime=10,KinematicUpdateTime=10,PositionUncertaintyMeters=3,Quality=MissileTrackQuality.Warning};
+            Assert.That(manager.ResolveIdentities(10,double3.zero,output,1),Is.EqualTo(1));
+            Assert.That(manager.OwnLaunches[id].Track,Is.EqualTo(sensorTrack));
+
+            output=new MissileTrackSnapshot[128];
+            output[0]=new MissileTrackSnapshot{TrackId=sensorTrack,Position=new double3(0,0,5000),Velocity=new double3(0,0,1000),FirstObservationTime=10,LastUpdateTime=14,LastEvidenceTime=14,KinematicUpdateTime=14,PositionUncertaintyMeters=3,Quality=MissileTrackQuality.Warning};
+            Assert.That(manager.ResolveIdentities(14,double3.zero,output,1),Is.EqualTo(1));
+            Assert.That(output[0].OwnLaunchIdentity,Is.EqualTo(id));
+            Assert.That(output[0].IsFriendly,Is.True);
+            Assert.That(output[0].AssociatedSensorTrackId,Is.EqualTo(sensorTrack));
+
+            manager.EndOwnLaunch(id,14.1);
+            Assert.That(manager.OwnLaunches.ContainsKey(id),Is.False);
+            Assert.That(manager.Retired.ContainsKey(sensorTrack),Is.True);
+        }
+
+        [Test]
         public void IntentProjectionDoesNotTreatEvidenceAgeAsStateAge()
         {
             var candidate=new FriendlyMissileIntentCandidate{Position=new double3(0,0,100),Velocity=new double3(0,0,100),LastEvidenceTime=9,StateTime=10};

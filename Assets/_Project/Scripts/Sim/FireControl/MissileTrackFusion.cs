@@ -9,6 +9,7 @@ namespace ACunicombat.FireControl
     public struct MissileTrackFusionConfig
     {
         public float ThreatAssociationRadians;
+        public float ThreatRoleAssociationRadians;
         public float ThreatRoleAssociationSeparationRadians;
         public float ThreatRoleMinimumConfidence;
         public double ThreatMaximumAgeSeconds;
@@ -45,6 +46,7 @@ namespace ACunicombat.FireControl
             new MissileTrackFusionConfig
             {
                 ThreatAssociationRadians = math.radians(20f),
+                ThreatRoleAssociationRadians = math.radians(6f),
                 ThreatRoleAssociationSeparationRadians =
                     math.radians(4f),
                 ThreatRoleMinimumConfidence = 0.45f,
@@ -101,6 +103,7 @@ namespace ACunicombat.FireControl
             public double3 PreviousRawAcceleration;
             public bool HasVelocitySample;
             public bool HasAccelerationSample;
+            public bool PreviousAccelerationResolved;
             public MissileMissionRole SensorMissionRole;
             public float SensorMissionRoleConfidence;
             public double SensorMissionRoleUntil;
@@ -179,6 +182,23 @@ namespace ACunicombat.FireControl
         private static double3x3 PropagatedPositionCovariance(in TrackSnapshot track,double age)
         {
             return track.PredictPositionCovariance(track.LastPredictTime+math.max(0,age));
+        }
+
+        // Repeated precise radar observations can independently support engagement.
+        public static bool IsIndependentRadarWeaponsQuality(in TrackSnapshot track,double3 observer,double now,double3 observerVelocity=default)
+        {
+            if(!double.IsFinite(now)||!double.IsFinite(track.LastUpdateTime)||!double.IsFinite(track.FirstObservationTime)||!float.IsFinite(track.Confidence)||!float.IsFinite(track.Classification)||(track.SourceMask&TrackSourceMask.Radar)==0||track.ObjectClass!=TrackObjectClass.Missile||track.Lifecycle!=TrackLifecycle.Confirmed||track.HitCount<4||track.Classification<.65f||track.Confidence<.7f||track.AssociationClosed||now<track.LastUpdateTime||now-track.LastUpdateTime>.6||track.LastUpdateTime-track.FirstObservationTime<.12||!math.all(math.isfinite(track.Position))||!math.all(math.isfinite(track.Velocity)))return false;
+            double p=0,v=0;for(int k=0;k<3;k++){double a=track.GetCovariance(k,k),b=track.GetCovariance(k+3,k+3);if(!double.IsFinite(a)||!double.IsFinite(b)||a<0||b<0)return false;p+=a;v+=b;}
+            double gate=math.clamp(math.distance(track.PredictPosition(now),observer)*.002,60,250);
+            var relative=track.Velocity-observerVelocity;
+            var los=math.normalizesafe(track.PredictPosition(now)-observer);
+            double radialVariance=0;
+            for(int a=0;a<3;a++)for(int b=0;b<3;b++)radialVariance+=los[a]*track.GetCovariance(a+3,b+3)*los[b];
+            // Range/Doppler precision and transverse uncertainty are distinct. At long range
+            // lateral speed converges more slowly; bound it relative to the observed motion.
+            double velocityGate=math.clamp(math.length(relative)*.15,60,200);
+            return p>0&&p<=gate*gate&&v>0&&v<=velocityGate*velocityGate&&
+                double.IsFinite(radialVariance)&&radialVariance>=-1e-6&&radialVariance<=20*20;
         }
 
         public static bool TryScoreFriendlyDataLinkAssociation(
@@ -916,8 +936,9 @@ namespace ACunicombat.FireControl
                 // Independent short-range panels provide repeated, precise local range/Doppler observations.
                 var closeProtectionConfirmed=(track.SourceMask&TrackSourceMask.CloseProtectionRadar)!=0 &&
                     now-track.LastCloseProtectionTime<=.15 && track.HitCount>=3 && radarMissileClassified;
-                var corroborated = closeProtectionConfirmed ||
-                    (sourceMask & ~MissileTrackSourceMask.Radar) != 0;
+                var radarIndependentlyConfirmed=IsIndependentRadarWeaponsQuality(in track,ownshipPosition,now,ownshipVelocity);
+                var independentCorroborated=closeProtectionConfirmed||(sourceMask & ~MissileTrackSourceMask.Radar)!=0;
+                var corroborated=radarIndependentlyConfirmed||independentCorroborated;
                 var radarClassCanBeMissile =
                     track.ObjectClass ==
                         TrackObjectClass.Missile ||
@@ -992,7 +1013,7 @@ namespace ACunicombat.FireControl
                 // over and a missile that has flown past is no longer held as
                 // incoming indefinitely.
                 var passiveCueIncoming =
-                    corroborated && !velocityResolved;
+                    !radarIndependentlyConfirmed && corroborated && !velocityResolved;
                 var incoming =
                     ballisticIncoming ||
                     guidedIncoming ||
@@ -1020,7 +1041,7 @@ namespace ACunicombat.FireControl
                     entry.LastEvidenceTime = math.max(
                         entry.LastEvidenceTime,
                         lastEvidenceTime);
-                    if (corroborated)
+                    if (independentCorroborated)
                     {
                         entry.CorroborationUntil =
                             now + math.max(
@@ -1082,7 +1103,7 @@ namespace ACunicombat.FireControl
 
                     var confirmationEntry =
                         radarFireControlUsable &&
-                        corroborationHeld &&
+                        (radarIndependentlyConfirmed||corroborationHeld) &&
                         confidence >=
                             config.MinimumConfirmationConfidence;
                     if (confirmationEntry)
@@ -1096,7 +1117,7 @@ namespace ACunicombat.FireControl
                     else if (entry.WeaponsQuality &&
                              now > entry.WeaponsQualityUntil &&
                              (!radarFireControlUsable ||
-                              !corroborationHeld ||
+                              (!radarIndependentlyConfirmed&&!corroborationHeld) ||
                               confidence <
                                   config.ConfirmationExitConfidence))
                     {
@@ -1155,7 +1176,8 @@ namespace ACunicombat.FireControl
                 // Publish every derivative at the same epoch as Position. Rebasing
                 // only position to 'now' silently discarded the acceleration accrued
                 // since the filter epoch and made short-fuse interception lag turns.
-                double poseAge=propagationAge;
+                double poseAge = math.min(propagationAge,
+                    closeProtectionConfirmed ? .24 : .08);
                 estimatedPosition+=.5*estimatedAcceleration*poseAge*poseAge
                     +(1.0/6.0)*estimatedJerk*poseAge*poseAge*poseAge;
                 var estimatedVelocity=track.Velocity+estimatedAcceleration*poseAge
@@ -1262,8 +1284,14 @@ namespace ACunicombat.FireControl
                 return;
             }
 
-            var rawAcceleration =
-                (velocity - entry.PreviousVelocity) / elapsed;
+            var velocityChange = velocity - entry.PreviousVelocity;
+            var resolvedChange = math.lengthsq(velocityChange) >
+                9 * math.max(1e-6,
+                    velocityVariance + entry.PreviousVelocityVariance);
+            var rawAcceleration = velocityChange / elapsed;
+            // Unresolved radar velocity noise must not become a physical turn command.
+            // Precise local receivers retain their existing fast-response path.
+            if (!preciseLocalVelocity && !resolvedChange) rawAcceleration = double3.zero;
             var maximumAcceleration = math.max(
                 0.0,
                 config.MaximumTrackAccelerationMetersPerSecondSquared);
@@ -1280,20 +1308,19 @@ namespace ACunicombat.FireControl
             var blend = filterTime <= 1e-4
                 ? 1.0
                 : 1.0 - math.exp(-elapsed / filterTime);
-            // Resolved local LOS-rate/Doppler changes should not incur the same lag
-            // as noisy distant velocity estimates. Require a statistically resolved
-            // change; keep the configured physical acceleration bound in either case.
-            if(preciseLocalVelocity && math.lengthsq(velocity-entry.PreviousVelocity)>
-                9*math.max(1e-6,velocityVariance+entry.PreviousVelocityVariance))blend=1;
+            if (preciseLocalVelocity && resolvedChange) blend = 1;
             entry.FilteredAcceleration = math.lerp(
                 entry.FilteredAcceleration,
                 rawAcceleration,
                 blend);
+            var accelerationResolved = preciseLocalVelocity || resolvedChange;
             if (entry.HasAccelerationSample)
             {
                 var rawJerk =
                     (rawAcceleration -
                      entry.PreviousRawAcceleration) / elapsed;
+                if (!accelerationResolved || !entry.PreviousAccelerationResolved)
+                    rawJerk = double3.zero;
                 var maximumJerk = math.max(
                     0.0,
                     config.MaximumTrackJerkMetersPerSecondCubed);
@@ -1321,6 +1348,7 @@ namespace ACunicombat.FireControl
                 entry.HasAccelerationSample = true;
             }
 
+            entry.PreviousAccelerationResolved = accelerationResolved;
             entry.PreviousRawAcceleration = rawAcceleration;
             entry.PreviousVelocity = velocity;
             entry.PreviousVelocityTime = sampleTime;
@@ -1687,9 +1715,12 @@ namespace ACunicombat.FireControl
                 }
             }
 
+            var roleGate = config.ThreatRoleAssociationRadians > 0f
+                ? config.ThreatRoleAssociationRadians
+                : config.ThreatAssociationRadians;
             var gate = math.max(
                 math.radians(0.1f),
-                config.ThreatAssociationRadians);
+                math.min(config.ThreatAssociationRadians, roleGate));
             if (bestIndex != expectedTrackIndex ||
                 bestAngle > gate ||
                 (math.isfinite(secondBestAngle) &&
@@ -1733,6 +1764,7 @@ namespace ACunicombat.FireControl
                 new float3(0f, 0f, 1f));
             var bestIndex = -1;
             var bestAngle = float.PositiveInfinity;
+            var secondBestAngle = float.PositiveInfinity;
             var count =
                 math.min(observationCount, observations.Length);
             for (var i = 0; i < count; i++)
@@ -1762,15 +1794,22 @@ namespace ACunicombat.FireControl
                             observation.AngleVar,
                             1e-8f)) *
                     4f);
-                if (angle <= associationGate &&
-                    angle < bestAngle)
+                if (angle > associationGate) continue;
+                if (angle < bestAngle)
                 {
+                    secondBestAngle = bestAngle;
                     bestIndex = i;
                     bestAngle = angle;
                 }
+                else if (angle < secondBestAngle)
+                {
+                    secondBestAngle = angle;
+                }
             }
 
-            if (bestIndex < 0)
+            if (bestIndex < 0 ||
+                (math.isfinite(secondBestAngle) &&
+                 secondBestAngle - bestAngle < math.radians(.25f)))
             {
                 return false;
             }

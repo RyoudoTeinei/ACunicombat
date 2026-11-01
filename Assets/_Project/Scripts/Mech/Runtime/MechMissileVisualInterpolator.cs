@@ -3,13 +3,14 @@ using UnityEngine;
 namespace ACunicombat.Mechs
 {
     /// <summary>
-    /// Smooths only the missile presentation hierarchy between fixed simulation ticks.
+    /// Presents missiles at the current render epoch using bounded physics extrapolation.
     /// Guidance, collision and sensor state continue to use the simulation transform.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class MechMissileVisualInterpolator : MonoBehaviour
     {
         private Transform simulationTransform;
+        private MechTestProjectile projectile;
         private Vector3 previousPosition;
         private Vector3 currentPosition;
         private Quaternion previousRotation;
@@ -19,6 +20,7 @@ namespace ACunicombat.Mechs
         public void Configure(Transform source)
         {
             simulationTransform = source;
+            projectile = source != null ? source.GetComponent<MechTestProjectile>() : null;
             if (simulationTransform == null)
             {
                 initialized = false;
@@ -48,7 +50,9 @@ namespace ACunicombat.Mechs
             currentRotation = rotation;
         }
 
-        private void LateUpdate()
+        private void LateUpdate() => PresentAt(Time.timeAsDouble);
+
+        private void PresentAt(double renderTime)
         {
             if (!initialized)
             {
@@ -56,10 +60,14 @@ namespace ACunicombat.Mechs
             }
 
             float fixedStep = Mathf.Max(Time.fixedDeltaTime, 0.0001f);
-            float alpha = Mathf.Clamp01((Time.time - Time.fixedTime) / fixedStep);
+            float alpha = Mathf.Clamp01((float)(renderTime - (projectile != null ? projectile.PhysicsStateTime : Time.fixedTimeAsDouble)) / fixedStep);
             transform.SetPositionAndRotation(
-                Vector3.Lerp(previousPosition, currentPosition, alpha),
-                Quaternion.Slerp(previousRotation, currentRotation, alpha));
+                // The carrier/camera are rendered at the current frame, so a delayed physics
+                // interpolation loses speed * fixedStep metres at high carrier velocity.
+                // Predict only the presentation to that same epoch; physics is untouched.
+                projectile != null ? projectile.PositionAtPhysicsTime(renderTime) :
+                    currentPosition + (currentPosition - previousPosition) * alpha,
+                Quaternion.SlerpUnclamped(previousRotation, currentRotation, 1f + alpha));
         }
     }
 }

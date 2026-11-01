@@ -202,6 +202,8 @@ namespace ACunicombat.Mechs
 		private float secondStageIgnitionDelaySeconds;
 
 		private float secondStageMinimumThrottle;
+        private float nextSustainThrottleReview;
+        private float sustainBudgetThrottle;
 
 		private float firstStageBurnoutTime = -1f;
 
@@ -464,9 +466,10 @@ namespace ACunicombat.Mechs
 
 		public float ManeuverDeltaVRemaining => EstimateRcsDeltaVRemaining();
 
-        private double physicsStateTime,previousPhysicsTime;private Vector3 previousPhysicsPosition;
+        private double birthStateTime,physicsStateTime,previousPhysicsTime;private Vector3 previousPhysicsPosition;
         public Vector3 PositionAtPhysicsTime(double time)
         {
+            time=Math.Max(time,birthStateTime);
             if(physicsStateTime>previousPhysicsTime&&time>=previousPhysicsTime&&time<=physicsStateTime)
                 return Vector3.Lerp(previousPhysicsPosition,transform.position,(float)((time-previousPhysicsTime)/(physicsStateTime-previousPhysicsTime)));
             return transform.position+velocity*(float)Math.Max(-.1,Math.Min(.1,time-physicsStateTime));
@@ -605,7 +608,7 @@ namespace ACunicombat.Mechs
 			interceptionHealth = (IsMissile ? 80f : 0f);
 			interceptionResolved = false;
 			velocity = initialVelocity;
-            physicsStateTime=previousPhysicsTime=Time.fixedTimeAsDouble;previousPhysicsPosition=transform.position;
+            birthStateTime=physicsStateTime=previousPhysicsTime=Time.timeAsDouble;previousPhysicsPosition=transform.position;
 			desiredAttitudeForward = ((base.transform.forward.sqrMagnitude > 0.001f) ? base.transform.forward.normalized : ((initialVelocity.sqrMagnitude > 0.001f) ? initialVelocity.normalized : Vector3.forward));
 			if (hasInitialGuidanceEstimate)
 			{
@@ -624,7 +627,7 @@ namespace ACunicombat.Mechs
 			coldLaunchCarrierPreviousPosition = ((owner != null) ? owner.position : Vector3.zero);
 			coldLaunchElapsedSeconds = 0f;
 			coldLaunchRelativeDistanceMeters = 0f;
-			coldLaunchSafeSeparationSeconds = Mathf.Max(0f, newColdLaunchSafeSeparationSeconds);
+			coldLaunchSafeSeparationSeconds = Mathf.Max(0f, newColdLaunchSafeSeparationSeconds) + (newInterceptorMissile ? 0f : 0.25f);
 			coldLaunchSafeSeparationMeters = Mathf.Max(0f, newColdLaunchSafeSeparationMeters);
 			coldLaunchIgnitionAlignmentRadians = Mathf.Clamp(newColdLaunchIgnitionAlignmentDegrees, 0.5f, 45f) * (MathF.PI / 180f);
 			coldLaunchAlignmentTimeoutRemaining = Mathf.Max(0.05f, newColdLaunchAlignmentTimeoutSeconds);
@@ -635,7 +638,7 @@ namespace ACunicombat.Mechs
 			maximumTravelDistance = Mathf.Max(0f, newMaximumTravelDistance);
 			distanceTravelled = 0f;
 			projectileFlightTime = 0f;
-            missileLaunchTimestamp = Time.fixedTimeAsDouble;
+            missileLaunchTimestamp = birthStateTime;
             guidanceTimeOffset = radarController != null ? radarController.SimTimeSeconds : 0.0;
 			cannonProximityFuseEnabled = false;
 			effectLibrary = newEffectLibrary;
@@ -673,7 +676,7 @@ namespace ACunicombat.Mechs
 					out linkTerminal,
                     source: BattlefieldEntityIdentity.GetOrAdd(gameObject)))
 			{
-                dataLinkController.RecordOwnMissileLaunch(linkTerminal,transform.position,velocity,interceptorMissile?MissileMissionRole.Interceptor:MissileMissionRole.AirToAir,knownMissileModel);
+                dataLinkController.RecordOwnMissileLaunch(linkTerminal,transform.position,velocity,interceptorMissile?MissileMissionRole.Interceptor:MissileMissionRole.AirToAir,knownMissileModel,birthStateTime);
 				friendlyLinkReportRemaining = 0f;
 				if (targetTrackId.IsValid)
 				{
@@ -709,7 +712,7 @@ namespace ACunicombat.Mechs
 				motorVisualActive = !motorStartsImmediately;
 				SetMotorVisual(motorStartsImmediately);
 			}
-            if(weaponKind==TestWeaponKind.Missile){LaunchIdentity=System.Guid.NewGuid();dataLinkController?.RecordOwnedMissileLaunch(LaunchIdentity,transform.position,velocity,interceptorMissile?MissileMissionRole.Interceptor:MissileMissionRole.AirToAir,knownMissileModel);dataLinkController?.SetOwnedMissileAssignedTarget(LaunchIdentity,GuidanceTrackId);dataLinkController?.BindOwnedMissileTerminal(LaunchIdentity,linkTerminal);}
+            if(weaponKind==TestWeaponKind.Missile){LaunchIdentity=System.Guid.NewGuid();dataLinkController?.RecordOwnedMissileLaunch(LaunchIdentity,transform.position,velocity,interceptorMissile?MissileMissionRole.Interceptor:MissileMissionRole.AirToAir,knownMissileModel,birthStateTime);dataLinkController?.SetOwnedMissileAssignedTarget(LaunchIdentity,GuidanceTrackId);dataLinkController?.BindOwnedMissileTerminal(LaunchIdentity,linkTerminal);}
 			configured = true;
             MechCombatObservationSensor.Launched(this);
 			if (weaponKind == TestWeaponKind.Missile)
@@ -770,6 +773,9 @@ namespace ACunicombat.Mechs
 			secondStageMassFlowKgPerSecond = profile.SecondStageMassFlowKgPerSecond;
 			secondStageIgnitionDelaySeconds = profile.SecondStageIgnitionDelaySeconds;
 			secondStageMinimumThrottle = profile.SecondStageMinimumThrottle;
+            nextSustainThrottleReview = 0;
+            sustainBudgetThrottle = 0;
+            pulseObservationTime = double.NegativeInfinity;
 			firstStageBurnoutTime = -1f;
 			secondStageIgnited = false;
             adaptiveSecondPulse=profile.AdaptiveSecondPulse&&profile.PropulsionMode==MissilePropulsionMode.DualPulseSolid;
@@ -1034,10 +1040,14 @@ namespace ACunicombat.Mechs
 
 		private void FixedUpdate()
 		{
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Projectile);
             if (!configured) return;
+            // Update may create a projectile between physics ticks. Integrate only
+            // the portion of the first tick during which it actually existed.
+            float dt=Application.isPlaying ? Mathf.Min(Time.fixedDeltaTime,(float)(Time.fixedTimeAsDouble-physicsStateTime)) : Time.fixedDeltaTime;
+            if(dt<=0)return;
             previousPhysicsTime=physicsStateTime;previousPhysicsPosition=transform.position;
             if (hasCachedGuidanceTrack) guidanceMemoryRemaining = Mathf.Max(0f, (float)(guidanceMemoryExpiresAt - GuidanceTime));
-			float dt = Time.fixedDeltaTime;
 			bool cannonFuseArmedAtTickStart = cannonProximityFuseEnabled && projectileFlightTime >= proximityFuseArmTime && distanceTravelled >= proximityFuseSafeDistance;
 			projectileFlightTime += dt;
 			lifeRemaining -= dt;
@@ -1086,7 +1096,7 @@ namespace ACunicombat.Mechs
 				UpdateRcsThrusterVisuals(dt);
 			}
 			Vector3 travel = velocity * dt;
-			if (maximumTravelDistance > 0f && distanceTravelled + travel.magnitude >= maximumTravelDistance)
+			if (weaponKind != TestWeaponKind.Missile && maximumTravelDistance > 0f && distanceTravelled + travel.magnitude >= maximumTravelDistance)
 			{
 				ReportInterceptorOutcome(
 					InterceptorEngagementOutcome.Missed,
@@ -1235,6 +1245,14 @@ namespace ACunicombat.Mechs
 				{
 					return false;
 				}
+                // Forward-ejected AAMs ignite on the cleared launch axis. A far
+                // future intercept point is not a pre-ignition attitude command.
+                // Interceptors retain their deliberate pre-ignition alignment.
+                if(!interceptorMissile)
+                {
+                    coldLaunchMotorIgnited=true;missilePhase=MissileFlightPhase.Boost;
+                    SetMotorVisual(active:true);return true;
+                }
 				missilePhase = MissileFlightPhase.AttitudeAlignment;
 				currentAngularRateRadians = 0f;
 			}
@@ -1312,6 +1330,10 @@ namespace ACunicombat.Mechs
 					secondStagePropellantMassRemainingKg -= consumedPropellant;
 				}
 			}
+            // Launch-tube attitude hold must not drop already delivered guidance packets.
+            // Consume them before the early return; the normal guidance path below
+            // will consume any newer packets and reuse this cached observation.
+            TryUpdateDatalinkTrack(deltaTime, out _);
 			if (engagementState == MissileEngagementState.Spent)
 			{
 				desiredAttitudeForward = base.transform.forward;
@@ -1337,6 +1359,14 @@ namespace ACunicombat.Mechs
                     passiveBearing=passiveBearing.sqrMagnitude>.5f?Vector3.Slerp(passiveBearing,fused,.2f):fused;
                     passiveLastSeen=GuidanceTime;guidanceMemoryExpiresAt=GuidanceTime+GetGuidanceMemorySeconds();
                 }
+            }
+            // Attitude hold does not mute the passive receiver.
+            // AAMs hold the tube axis for 1.3 s; interceptor timing and inherited velocity are unchanged.
+			if (!coldLaunchEnabled && missileFlightTime <= (interceptorMissile ? 1f : 1.3f))
+            {
+                desiredAttitudeForward = coldLaunchAxis;
+                currentAngularRateRadians = 0f;
+                return;
             }
 			if (!seekerActivated &&
 				missileFlightTime >= MinimumSeekerActivationDelaySeconds &&
@@ -1470,7 +1500,42 @@ namespace ACunicombat.Mechs
 
 			// Preserve propellant during midcourse, then command full thrust for the terminal run.
 			float terminalDemand = 1f - Mathf.InverseLerp(6_000f, 35_000f, lastGuidanceRangeMeters);
-			return Mathf.Lerp(minimum, 1f, terminalDemand);
+            float terminalThrottle = Mathf.Lerp(minimum, 1f, terminalDemand);
+            if(!double.IsFinite(pulseObservationTime))return terminalThrottle;
+            if(missileFlightTime>=nextSustainThrottleReview)
+            {
+                nextSustainThrottleReview=missileFlightTime+.2f;
+                // Spend enough energy to arrive within the remaining service life,
+                // leaving one second for terminal correction and detonation.
+                double availableTime=Math.Max(.01,lifeRemaining-1);
+                var toTarget=pulseObservedPosition+pulseObservedVelocity*(float)(GuidanceTime-pulseObservationTime)-transform.position;
+                var futureTarget=toTarget+pulseObservedVelocity*(float)availableTime;
+                var predictedDirection=futureTarget.sqrMagnitude>1?futureTarget.normalized:transform.forward;
+                var budget=new MissileKinematicProfile
+                {
+                    EjectionSpeed=Math.Max(0,Vector3.Dot(velocity,predictedDirection)),
+                    InertMass=Math.Max(.1,CurrentMassKg-secondStagePropellantMassRemainingKg),
+                    MainPropellantMass=secondStagePropellantMassRemainingKg
+                };
+                budget.MainEngineThrust=secondStageThrustNewtons*minimum;
+                budget.MainMassFlow=secondStageMassFlowKgPerSecond*minimum;
+                if(budget.RelativeTravelDistance(availableTime)>=futureTarget.magnitude)
+                {
+                    sustainBudgetThrottle=minimum;
+                    return terminalThrottle;
+                }
+                float low=minimum,high=1;
+                for(int i=0;i<8;i++)
+                {
+                    float throttle=(low+high)*.5f;
+                    budget.MainEngineThrust=secondStageThrustNewtons*throttle;
+                    budget.MainMassFlow=secondStageMassFlowKgPerSecond*throttle;
+                    if(budget.RelativeTravelDistance(availableTime)>=futureTarget.magnitude)high=throttle;
+                    else low=throttle;
+                }
+                sustainBudgetThrottle=high;
+            }
+			return Mathf.Max(terminalThrottle,sustainBudgetThrottle);
 		}
 
 		private void EvaluateClosestApproachDetonation(
@@ -1585,7 +1650,7 @@ namespace ACunicombat.Mechs
 				engagementFailureEvidenceSeconds = 0f;
 				return;
 			}
-			float remainingTravelDistance = ((maximumTravelDistance > 0f) ? Mathf.Max(0f, maximumTravelDistance - distanceTravelled) : Mathf.Max(1000f, velocity.magnitude * lifeRemaining));
+			float remainingTravelDistance = Mathf.Max(1000f, velocity.magnitude * lifeRemaining + .5f * EstimateMainEngineDeltaVRemaining() * lifeRemaining);
 			float availableDeltaV = EstimateMainEngineDeltaVRemaining() + EstimateRcsDeltaVRemaining() + Mathf.Max(75f, velocity.magnitude * 0.08f);
 			if (MissileEngagementMath.HasReachableIntercept(ToFloat3(relativePosition), ToFloat3(targetVelocity), ToFloat3(velocity), lifeRemaining, remainingTravelDistance, availableDeltaV))
 			{
@@ -2329,7 +2394,7 @@ namespace ACunicombat.Mechs
 					continue;
 				}
 				eligibleMissileCount++;
-				Vector3 relativePosition = candidate.transform.position - base.transform.position;
+				Vector3 relativePosition = candidate.transform.position - detonationPoint;
 				Vector3 relativeVelocity = candidate.velocity - velocity;
 				float relativeSpeedSquared = relativeVelocity.sqrMagnitude;
 				float physicalCpaTime = ((relativeSpeedSquared > 0.001f) ? Mathf.Clamp((0f - Vector3.Dot(relativePosition, relativeVelocity)) / relativeSpeedSquared, 0f, predictionWindow) : 0f);
@@ -2337,7 +2402,7 @@ namespace ACunicombat.Mechs
 				nearestPhysicalMissDistance = Mathf.Min(nearestPhysicalMissDistance, distance);
 				if (!(distance > warheadLethalRadius))
 				{
-					Vector3 physicalDetonationPoint = base.transform.position + velocity * physicalCpaTime;
+					Vector3 physicalDetonationPoint = detonationPoint + velocity * physicalCpaTime;
 					float falloff = Mathf.Lerp(0.45f, 1f, 1f - distance / warheadLethalRadius);
 					float healthBefore = candidate.interceptionHealth;
 					if (candidate.ApplyPointDefenseDamage(damage * falloff, physicalDetonationPoint, (velocity.sqrMagnitude > 0.001f) ? velocity.normalized : base.transform.forward, TestWeaponKind.Missile, effectLibrary, impactFfxId))

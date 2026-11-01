@@ -5,7 +5,7 @@ namespace ACunicombat.Sensing.Contracts
 {
     public enum IdentityRelation : byte { Unknown, Friendly, Neutral, SuspectedHostile, Hostile }
     public enum IdentityParty : byte { Unknown, OwnAlliance, ThirdParty }
-    public enum IdentityReason : byte { None, Authenticated, CooperativeReport, MissionIntelligence, SustainedIllumination, ObservedAttack, EvidenceConflict, EvidenceExpired }
+    public enum IdentityReason : byte { None, Authenticated, CooperativeReport, MissionIntelligence, SustainedIllumination, ObservedAttack, EvidenceConflict, EvidenceExpired, CombinedBehavior, FormationAssociation }
     public enum IffOutcome : byte { None, Waiting, Authenticated, AuthenticatedUnassociated, NoResponse, Untrusted, InvalidProof, Replay, Expired, Corrupt, Cancelled, CapacityLimited }
     [Serializable]
     public struct ContactIdentitySnapshot
@@ -16,6 +16,8 @@ namespace ACunicombat.Sensing.Contracts
         public IdentityReason Reason;
         public IffOutcome Iff;
         public float Confidence;
+        /// <summary>独立于阵营结论的行为可疑度，0–1；不表示攻击许可。</summary>
+        public float Suspicion;
         public double EvidenceTime, ValidUntil;
     }
 

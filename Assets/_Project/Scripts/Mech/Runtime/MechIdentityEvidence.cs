@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using ACunicombat.Sensing.Contracts;
 namespace ACunicombat.Mechs
 {
-    public enum IdentityEvidenceKind { FriendlyAuthentication, NeutralAuthentication, ThirdPartyAuthentication, CooperativeFriendly, MissionHostile, ObservedAttack, FireControlIllumination, AuthenticationConflict, IncomingFireBearing, OpticalIdentity, WaveformIdentity, WeaponLaunch, LaserIllumination, DirectedJamming }
+    public enum IdentityEvidenceKind { FriendlyAuthentication, NeutralAuthentication, ThirdPartyAuthentication, CooperativeFriendly, MissionHostile, ObservedAttack, FireControlIllumination, AuthenticationConflict, IncomingFireBearing, OpticalIdentity, WaveformIdentity, WeaponLaunch, LaserIllumination, DirectedJamming, FormationHostile }
     public struct IdentityEvidence
     {
         public string OriginalId, Source;
@@ -18,7 +18,9 @@ namespace ACunicombat.Mechs
         {
             public readonly Dictionary<string,IdentityEvidence> Evidence=new Dictionary<string,IdentityEvidence>();
             public bool HostileMemory,ProtectedIdentityMemory,FriendlyIdentityMemory;public IdentityReason HostileReason;
+            public IdentityRelation? DecidedRelation;
             public double SuspicionSince=double.NaN, SuspicionLost=double.NaN, LastSeen;
+            public double LockSince=double.NaN, LastLockObservation=double.NegativeInfinity;
             public double HostilityClearedAt=double.NegativeInfinity;
             public IdentityRelation LastRelation;public ContactIdentitySnapshot LastSnapshot;
             public IffOutcome Iff;public IdentityRelation? ManualRelation;public double ManualTime;
@@ -47,9 +49,12 @@ namespace ACunicombat.Mechs
             var r=Get(id);r.ManualRelation=relation;r.ManualTime=now;r.LastSeen=now;return true;
         }
         public void SetIff(TrackId id,IffOutcome result){if(id.IsValid)Get(id).Iff=result;}
+        public bool HasDecidedIdentity(TrackId id)=>records.TryGetValue(id,out var r)&&(r.DecidedRelation.HasValue||r.ManualRelation==IdentityRelation.Friendly||r.ManualRelation==IdentityRelation.Hostile);
         public void CorrectHostility(TrackId id)=>CorrectHostility(id,previousTime);
         public void CorrectHostility(TrackId id,double now)
-        {if(!id.IsValid)return;var r=Get(id);r.HostileMemory=false;r.HostilityClearedAt=now;expired.Clear();foreach(var pair in r.Evidence)if(pair.Value.Kind==IdentityEvidenceKind.MissionHostile||pair.Value.Kind==IdentityEvidenceKind.ObservedAttack)expired.Add(pair.Key);foreach(var k in expired)r.Evidence.Remove(k);}
+        {if(!id.IsValid)return;var r=Get(id);if(r.DecidedRelation==IdentityRelation.Hostile)r.DecidedRelation=null;r.HostileMemory=false;r.LockSince=double.NaN;r.LastLockObservation=double.NegativeInfinity;r.HostilityClearedAt=now;expired.Clear();foreach(var pair in r.Evidence)if(pair.Value.Kind==IdentityEvidenceKind.MissionHostile||pair.Value.Kind==IdentityEvidenceKind.ObservedAttack)expired.Add(pair.Key);foreach(var k in expired)r.Evidence.Remove(k);}
+        public void RevokeFriendlyIdentity(TrackId id)
+        {if(!id.IsValid||!records.TryGetValue(id,out var r))return;if(r.DecidedRelation==IdentityRelation.Friendly)r.DecidedRelation=null;r.FriendlyIdentityMemory=false;}
         public void RemoveEvidence(TrackId id,string originalId){if(records.TryGetValue(id,out var r))r.Evidence.Remove(originalId);}
         public void Forget(TrackId id)=>records.Remove(id);
         public ContactIdentitySnapshot Evaluate(TrackId id,double now)
@@ -57,25 +62,55 @@ namespace ACunicombat.Mechs
             if(now<previousTime)records.Clear();previousTime=now;
             var r=Get(id);r.LastSeen=now;expired.Clear();
             float friendly=0,neutral=0,third=0,attack=0,hostile=0,suspicion=0,launchSuspicion=0,conflict=0;double latest=0,until=0;
+            float formationHostile=0; bool clearAttack=false; double lockObservation=double.NegativeInfinity; bool recentLaunch=false;
             foreach(var pair in r.Evidence)
             {
                 var e=pair.Value;if(e.ExpiresAt<=now){expired.Add(pair.Key);continue;}
                 float score=e.Quality*e.Association;latest=Math.Max(latest,e.ObservedAt);until=Math.Max(until,e.ExpiresAt);
+                // Fresh observations only: retained packets cannot manufacture sustained locking.
+                if(e.ObservedAt>r.HostilityClearedAt)
+                {
+                    if(e.Kind==IdentityEvidenceKind.ObservedAttack&&e.Quality>=.95f&&e.Association>=.8f)clearAttack=true;
+                    if(e.Kind==IdentityEvidenceKind.FireControlIllumination&&score>=.65f&&e.Association>=.8f&&now-e.ObservedAt<=.5)
+                        lockObservation=Math.Max(lockObservation,e.ObservedAt);
+                    if(e.Kind==IdentityEvidenceKind.WeaponLaunch&&score>=.65f&&e.Association>=.8f&&now-e.ObservedAt<=5)recentLaunch=true;
+                }
                 switch(e.Kind){case IdentityEvidenceKind.FriendlyAuthentication:case IdentityEvidenceKind.CooperativeFriendly:friendly=Math.Max(friendly,score);break;
                 case IdentityEvidenceKind.NeutralAuthentication:neutral=Math.Max(neutral,score);third=Math.Max(third,score);break;
                 case IdentityEvidenceKind.ThirdPartyAuthentication:third=Math.Max(third,score);break;
                 case IdentityEvidenceKind.ObservedAttack:attack=Math.Max(attack,score);break;
+                case IdentityEvidenceKind.FormationHostile:if(e.ObservedAt>r.HostilityClearedAt)formationHostile=Math.Max(formationHostile,score);break;
                 case IdentityEvidenceKind.MissionHostile:hostile=Math.Max(hostile,score);break;
                 case IdentityEvidenceKind.IncomingFireBearing:suspicion=Math.Max(suspicion,score);break;
-                case IdentityEvidenceKind.FireControlIllumination:suspicion=Math.Max(suspicion,score);break;
+                case IdentityEvidenceKind.FireControlIllumination:suspicion=Math.Max(suspicion,Math.Min(.7f,score));break;
                 case IdentityEvidenceKind.WeaponLaunch:launchSuspicion=Math.Max(launchSuspicion,score);break;
                 case IdentityEvidenceKind.LaserIllumination:case IdentityEvidenceKind.DirectedJamming:suspicion=Math.Max(suspicion,score);break;
                 case IdentityEvidenceKind.AuthenticationConflict:conflict=Math.Max(conflict,score);suspicion=Math.Max(suspicion,score);break;}
             }
             foreach(var k in expired)r.Evidence.Remove(k);
-            // Bearing-only impacts remain suspicion; confirmed attack needs a causal observed weapon history.
-            if(attack>=.8f||hostile>=.9f){r.HostileMemory=true;r.HostileReason=attack>=.8f?IdentityReason.ObservedAttack:IdentityReason.MissionIntelligence;}
-            if(friendly>=.8f){r.FriendlyIdentityMemory=true;r.ProtectedIdentityMemory=true;}
+            bool combined=false;
+            if(!r.DecidedRelation.HasValue)
+            {
+                if(double.IsNegativeInfinity(lockObservation)){r.LockSince=double.NaN;r.LastLockObservation=double.NegativeInfinity;}
+                else if(lockObservation>r.LastLockObservation)
+                {
+                    if(double.IsNaN(r.LockSince)||lockObservation-r.LastLockObservation>.75)r.LockSince=lockObservation;
+                    r.LastLockObservation=lockObservation;
+                }
+                combined=recentLaunch&&!double.IsNaN(r.LockSince)&&r.LastLockObservation-r.LockSince>=2;
+            }
+            bool illuminated=!double.IsNegativeInfinity(lockObservation);
+            double lockDuration=illuminated&&!double.IsNaN(r.LockSince)?r.LastLockObservation-r.LockSince:0;
+            bool sustainedHostile=illuminated&&lockDuration>=5;
+            if(illuminated&&lockDuration>=2)suspicion=Math.Max(suspicion,.85f);
+            bool confirmedAttack=attack>=.8f||clearAttack;
+            // The first decisive identification is stable. Subsequent evidence remains
+            // available as conflict diagnostics but cannot flip an ally or an enemy.
+            if(!r.DecidedRelation.HasValue)
+            {
+                if(friendly>=.8f){r.DecidedRelation=IdentityRelation.Friendly;r.FriendlyIdentityMemory=true;r.ProtectedIdentityMemory=true;}
+                else if(confirmedAttack||hostile>=.9f||combined||sustainedHostile||formationHostile>=.9f){r.DecidedRelation=IdentityRelation.Hostile;r.HostileMemory=true;r.HostileReason=confirmedAttack?IdentityReason.ObservedAttack:combined?IdentityReason.CombinedBehavior:sustainedHostile?IdentityReason.SustainedIllumination:hostile>=.9f?IdentityReason.MissionIntelligence:IdentityReason.FormationAssociation;}
+            }
             if(neutral>=.8f||third>=.8f)r.ProtectedIdentityMemory=true;
             // Authenticated allies firing weapons is normal; a launch alone is not evidence against their allegiance.
             if(friendly<.8f)suspicion=Math.Max(suspicion,launchSuspicion);
@@ -83,21 +118,21 @@ namespace ACunicombat.Mechs
             if(suspect){if(double.IsNaN(r.SuspicionSince))r.SuspicionSince=now;r.SuspicionLost=double.NaN;}
             else{r.SuspicionSince=double.NaN;if(double.IsNaN(r.SuspicionLost))r.SuspicionLost=now;}
             bool hold=r.LastRelation==IdentityRelation.SuspectedHostile&&now-r.SuspicionLost<5;
-            bool established=suspect&&now-r.SuspicionSince>=2;
-            var relation=r.HostileMemory?IdentityRelation.Hostile:(established||hold)?IdentityRelation.SuspectedHostile:friendly>=.8f?IdentityRelation.Friendly:neutral>=.8f?IdentityRelation.Neutral:IdentityRelation.Unknown;
-            bool disputed=((friendly>=.8f||r.FriendlyIdentityMemory)&&(r.HostileMemory||conflict>=.7f||neutral>=.8f||established||hold));
-            var snapshot=new ContactIdentitySnapshot{Available=true,Relation=relation,Party=friendly>=.8f?IdentityParty.OwnAlliance:third>=.8f?IdentityParty.ThirdParty:IdentityParty.Unknown,
-                Conflict=disputed,UnderAttack=attack>=.8f,CanInterceptThreat=attack>=.8f,
+            bool established=illuminated||(suspect&&now-r.SuspicionSince>=2);
+            var relation=r.DecidedRelation??((established||hold)?IdentityRelation.SuspectedHostile:neutral>=.8f?IdentityRelation.Neutral:IdentityRelation.Unknown);
+            bool disputed=((friendly>=.8f||r.FriendlyIdentityMemory)&&(r.HostileMemory||confirmedAttack||hostile>=.9f||conflict>=.7f||neutral>=.8f||established||hold));
+            var snapshot=new ContactIdentitySnapshot{Available=true,Relation=relation,Party=friendly>=.8f||r.FriendlyIdentityMemory?IdentityParty.OwnAlliance:third>=.8f?IdentityParty.ThirdParty:IdentityParty.Unknown,
+                Conflict=disputed,UnderAttack=confirmedAttack,CanInterceptThreat=confirmedAttack,
                 CanAttackPlatform=relation==IdentityRelation.Hostile||(!disputed&&AllowUnknownPlatformAttack&&(relation==IdentityRelation.Unknown||relation==IdentityRelation.SuspectedHostile)&&third<.8f&&!r.ProtectedIdentityMemory),
-                Confidence=Math.Max(r.HostileMemory?.8f:0,Math.Max(Math.Max(friendly,neutral),Math.Max(attack,Math.Max(hostile,suspicion)))),EvidenceTime=latest,ValidUntil=until,Iff=r.Iff,
-                Reason=disputed?IdentityReason.EvidenceConflict:attack>=.8f?IdentityReason.ObservedAttack:relation==IdentityRelation.Hostile?r.HostileReason:relation==IdentityRelation.SuspectedHostile?IdentityReason.SustainedIllumination:friendly>=.8f||neutral>=.8f||third>=.8f?IdentityReason.Authenticated:r.ProtectedIdentityMemory||r.LastRelation!=IdentityRelation.Unknown?IdentityReason.EvidenceExpired:IdentityReason.None};
+                Confidence=r.DecidedRelation.HasValue?1:Math.Max(r.HostileMemory?.8f:0,Math.Max(Math.Max(friendly,neutral),Math.Max(attack,Math.Max(hostile,suspicion)))),Suspicion=r.HostileMemory?1:suspicion,EvidenceTime=latest,ValidUntil=r.DecidedRelation.HasValue?double.MaxValue:until,Iff=r.Iff,
+                Reason=disputed?IdentityReason.EvidenceConflict:confirmedAttack?IdentityReason.ObservedAttack:relation==IdentityRelation.Hostile?r.HostileReason:relation==IdentityRelation.SuspectedHostile?IdentityReason.SustainedIllumination:relation==IdentityRelation.Friendly||friendly>=.8f||neutral>=.8f||third>=.8f?IdentityReason.Authenticated:r.ProtectedIdentityMemory||r.LastRelation!=IdentityRelation.Unknown?IdentityReason.EvidenceExpired:IdentityReason.None};
             if(r.ManualRelation.HasValue)
             {
                 relation=r.ManualRelation.Value;snapshot.Conflict|=snapshot.Relation!=IdentityRelation.Unknown&&snapshot.Relation!=relation;
                 snapshot.Relation=relation;snapshot.Reason=IdentityReason.MissionIntelligence;
                 snapshot.CanAttackPlatform=relation==IdentityRelation.Hostile;
                 snapshot.Party=relation==IdentityRelation.Friendly?IdentityParty.OwnAlliance:relation==IdentityRelation.Neutral?IdentityParty.ThirdParty:IdentityParty.Unknown;
-                snapshot.Confidence=1;snapshot.EvidenceTime=r.ManualTime;snapshot.ValidUntil=double.MaxValue;
+                snapshot.Confidence=1;snapshot.Suspicion=relation==IdentityRelation.Hostile?1:0;snapshot.EvidenceTime=r.ManualTime;snapshot.ValidUntil=double.MaxValue;
             }
             if(relation!=r.LastRelation||snapshot.Conflict!=r.LastSnapshot.Conflict||snapshot.CanAttackPlatform!=r.LastSnapshot.CanAttackPlatform||snapshot.UnderAttack!=r.LastSnapshot.UnderAttack||snapshot.Party!=r.LastSnapshot.Party){Changed?.Invoke(id,snapshot);}
             r.LastRelation=relation;r.LastSnapshot=snapshot;return snapshot;

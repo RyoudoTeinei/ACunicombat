@@ -913,6 +913,90 @@ namespace ACunicombat.Tracking
         }
 
         /// <summary>
+        /// Refines an existing confirmed track with an anonymous monocular bearing.
+        /// The prior range supplies geometry only; EO neither creates a track nor
+        /// supplies an independent range measurement. Ambiguous candidates are rejected.
+        /// </summary>
+        public bool TryRefineConfirmedTrackWithBearing(
+            in ElectroOpticalObservation observation,
+            double3 sensorPosition,
+            double simTime,
+            out double normalizedAngle,
+            double3 sensorVelocity = default)
+        {
+            normalizedAngle = double.PositiveInfinity;
+            if (observation.Timestamp > simTime + 1e-6 || simTime - observation.Timestamp > 1 ||
+                observation.ClassificationConfidence < .25f || observation.AngleVar <= 0 ||
+                !math.all(math.isfinite(observation.Direction)) ||
+                math.lengthsq(observation.Direction) < .5f) return false;
+            int best = -1;
+            double bestAngle = double.PositiveInfinity, secondAngle = double.PositiveInfinity;
+            for (int i = 0; i < slots.Length; i++)
+            {
+                if (!slots[i].Active || slots[i].AssociationClosed ||
+                    slots[i].Lifecycle.State != TrackLifecycle.Confirmed ||
+                    slots[i].ObjectClass != observation.ObjectClass) continue;
+                var predicted = slots[i].Filter;
+                Cmkf.PredictCv(ref predicted, math.max(0, observation.Timestamp - predicted.Time),
+                    observation.ObjectClass == TrackObjectClass.Missile ? MissilePositionProcessNoise : MissilePositionProcessNoise,
+                    observation.ObjectClass == TrackObjectClass.Missile ? MissileVelocityProcessNoise : AircraftVelocityProcessNoise);
+                var relative = predicted.Position - sensorPosition;
+                double range = math.length(relative);
+                if (range <= 1) continue;
+                double angle = math.acos(math.clamp(math.dot(math.normalizesafe(relative),
+                    math.normalizesafe(observation.Direction)), -1, 1));
+                double gate = math.max(math.radians(.5), 4 * math.sqrt(observation.AngleVar));
+                if (angle > gate) continue;
+                if (angle < bestAngle)
+                {
+                    secondAngle = bestAngle;
+                    bestAngle = angle;
+                    best = i;
+                }
+                else if (angle < secondAngle) secondAngle = angle;
+            }
+            if (best < 0 || secondAngle - bestAngle < math.radians(.25)) return false;
+            normalizedAngle = bestAngle;
+            var slot = slots[best];
+            var candidate = slot.Filter;
+            Cmkf.PredictCv(ref candidate, math.max(0, observation.Timestamp - candidate.Time),
+                observation.ObjectClass == TrackObjectClass.Missile ? MissilePositionProcessNoise : MissilePositionProcessNoise,
+                observation.ObjectClass == TrackObjectClass.Missile ? MissileVelocityProcessNoise : AircraftVelocityProcessNoise);
+            double priorRange = math.distance(candidate.Position, sensorPosition);
+            if (!Cmkf.TryUpdateRadarPosition(ref candidate, sensorPosition, (float)priorRange,
+                    observation.Direction, 0, observation.AngleVar)) return false;
+            if (observation.HasLosRate && observation.LosRateVar > 0 &&
+                math.all(math.isfinite(observation.LosRate)))
+            {
+                var los = math.normalizesafe(observation.Direction, new float3(0, 0, 1));
+                var tangentA = math.normalizesafe(math.cross(los,
+                    math.abs(los.y) < .9f ? new float3(0, 1, 0) : new float3(1, 0, 0)));
+                var tangentB = math.cross(los, tangentA);
+                var transverse = sensorVelocity +
+                    (double3)math.cross(observation.LosRate, los * (float)priorRange);
+                double rangeVariance = 0;
+                for (int row = 0; row < 3; row++)
+                for (int col = 0; col < 3; col++)
+                    rangeVariance += los[row] * candidate.P[row, col] * los[col];
+                float variance = (float)math.max(.1,
+                    priorRange * priorRange * observation.LosRateVar +
+                    math.max(0, rangeVariance) * math.lengthsq(observation.LosRate));
+                Cmkf.UpdateRadialVelocity(ref candidate, tangentA,
+                    (float)math.dot(transverse, (double3)tangentA), variance);
+                Cmkf.UpdateRadialVelocity(ref candidate, tangentB,
+                    (float)math.dot(transverse, (double3)tangentB), variance);
+            }
+            slot.Filter = candidate;
+            slot.LastMeasuredFilter = candidate;
+            slot.LastUpdateTime = observation.Timestamp;
+            slot.SourceMask |= TrackSourceMask.ElectroOptical;
+            slot.SourceEvidence.Record(TrackSourceMask.ElectroOptical,
+                observation.ClassificationConfidence, observation.Timestamp);
+            slots[best] = slot;
+            return true;
+        }
+
+        /// <summary>
         /// Applies a cued laser return to an already confirmed missile track.
         /// The update cannot create, confirm, revive, or keep a radar track
         /// alive. A strict NIS gate protects the high-gain position update from

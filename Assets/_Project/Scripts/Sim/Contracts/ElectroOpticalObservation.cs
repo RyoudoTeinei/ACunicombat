@@ -14,6 +14,9 @@ namespace ACunicombat.Sensing.Contracts
         public double Timestamp;
         public float3 Direction;
         public float AngleVar;
+        public bool HasLosRate;
+        public float3 LosRate;
+        public float LosRateVar;
         public float ApparentDiameterRadians;
         public float SignalMarginDb;
         public TrackObjectClass ObjectClass;

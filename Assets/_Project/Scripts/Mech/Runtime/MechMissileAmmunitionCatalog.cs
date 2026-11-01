@@ -4,6 +4,9 @@ namespace ACunicombat.Mechs {
 public static class MechMissileAmmunitionCatalog {
 public const string Jianwei="JW7", JianweiEr="JW7-ER";
 public static MechWeaponPerformance Create(string id) {
+var result=CreateProfile(id);result?.RefreshMissileEnvelope();return result;
+}
+private static MechWeaponPerformance CreateProfile(string id) {
 if(id=="ABM-12"||id=="ABM-18")return BuildAbm(id=="ABM-18");
 if(id=="SIM-29"||id=="SIM-29M"||id=="SIM-57"||id=="SIM-57R")return BuildSim(id);
 if(id=="AAM-4290C"||id=="AAM-4290R")return MechMissileVariantCatalog.CreateLegacy4290Variant(Create("AAM-4290"),id=="AAM-4290C"?1:2).Performance;
@@ -34,7 +37,7 @@ if(id==Jianwei||id==JianweiEr)return BuildJianwei(id==JianweiEr);
                 "Projectiles/wp4300_interceptor_hellfire",
                 1.65f,
                 warheadMassKg: 8f);
-            profile.effectiveRangeMeters = 8_000f;
+
             return profile;
         }
 
@@ -50,7 +53,8 @@ if(id==Jianwei||id==JianweiEr)return BuildJianwei(id==JianweiEr);
                 "Projectiles/wp4301_dogfight_aim7",
                 2.35f,
                 warheadMassKg: 12f);
-            profile.effectiveRangeMeters = 16_000f;
+            profile.coldLaunch = true;
+
             return profile;
         }
 
@@ -64,8 +68,9 @@ if(id==Jianwei||id==JianweiEr)return BuildJianwei(id==JianweiEr);
                 DualPulseLongRangeMissile(),
                 "火石 15",
                 "Projectiles/r77_gridfin",
-                3.6f);
-            profile.effectiveRangeMeters = 65_000f;
+                3.6f, warheadMassKg: 24f);
+            profile.coldLaunch = true;
+
             return profile;
         }
 
@@ -76,7 +81,8 @@ if(id==Jianwei||id==JianweiEr)return BuildJianwei(id==JianweiEr);
                 ExtendedDualPulseMissile(), "火石 17", "Projectiles/r77_gridfin", 5.5f,
                 warheadMassKg: 35f);
             profile.supportsPassiveRfHoming = true;
-            profile.effectiveRangeMeters = 220_000f;
+            profile.coldLaunch = true;
+
             return profile;
         }
 
@@ -87,7 +93,7 @@ if(id==Jianwei||id==JianweiEr)return BuildJianwei(id==JianweiEr);
                 HeavySinglePulseMissile(), "SIM-240 LR", "Projectiles/r27_white", 5.0f,
                 warheadMassKg: 45f);
             profile.supportsPassiveRfHoming = true;
-            profile.effectiveRangeMeters = 160_000f;
+
             return profile;
         }
 
@@ -102,9 +108,9 @@ if(id==Jianwei||id==JianweiEr)return BuildJianwei(id==JianweiEr);
                 id == "MTR-4340-ER" ? "流星-ER" : "流星",
                 "Projectiles/kh38mt_meteor_proxy",
                 4.2f,
-                Vector3.right);
+                Vector3.right, warheadMassKg: 24f);
             profile.supportsPassiveRfHoming = true;
-            profile.effectiveRangeMeters = 200_000f;
+
             return profile;
         }
 
@@ -113,15 +119,15 @@ return null;
 private static MechWeaponPerformance BuildJianwei(bool er) {
  var f=MissileFlightProfile.InterceptorDefault;
  f.DryMassKg=48;f.MainPropellantMassKg=er?64:48;f.MainEngineThrustNewtons=48000;f.MainMassFlowKgPerSecond=12;
- f.RcsPropellantMassKg=er?18:16;f.MaximumFlightTimeSeconds=er?130:105;f.MaximumRangeMeters=er?64000:47000;f.SeekerRangeMeters=16000;
+ f.RcsPropellantMassKg=er?18:16;f.MaximumFlightTimeSeconds=er?26.05f:22.63f;f.SeekerRangeMeters=16000;
  var p=Missile(MechWeaponRole.InterceptorMissile,"拦截导弹","INT",300,f,er?"剑卫7C":"剑卫7","Projectiles/r27_white",4f,warheadMassKg:9f);
  p.verticalColdLaunch=true;return p;
 }
 private static MechWeaponPerformance BuildAbm(bool extended)
 {
     var f=CompactInterceptorMissile();
-    f.MaximumRangeMeters=extended?18000:12000;
-    if(extended){f.MainPropellantMassKg=28;f.RcsPropellantMassKg=10;f.MaximumFlightTimeSeconds=45;}
+
+    if(extended){f.MainPropellantMassKg=28;f.RcsPropellantMassKg=10;f.MaximumFlightTimeSeconds=9.02f;}
     return Missile(MechWeaponRole.InterceptorMissile,"近程拦截导弹","INT",300,f,
         extended?"ABM-18":"ABM-12","Projectiles/wp4300_interceptor_hellfire",1.65f,warheadMassKg:8);
 }
@@ -134,20 +140,20 @@ private static MechWeaponPerformance BuildSim(string id)
         case "SIM-29":
             f.DryMassKg=108;f.MainPropellantMassKg=58;f.MainMassFlowKgPerSecond=14;
             f.RcsPropellantMassKg=16;f.RcsThrustNewtons=16000;f.PitchYawInertiaKgM2=120;
-            f.MaximumFlightTimeSeconds=160;f.MaximumRangeMeters=29000;break;
+            f.MaximumFlightTimeSeconds=19.95f;break;
         case "SIM-29M":
             f.DryMassKg=104;f.MainPropellantMassKg=68;f.MainMassFlowKgPerSecond=14;
             f.RcsPropellantMassKg=22;f.RcsThrustNewtons=24000;f.RcsMassFlowKgPerSecond=1;
             f.PitchYawInertiaKgM2=100;f.MaximumAngularRateDegreesPerSecond=330;
-            f.MaximumFlightTimeSeconds=180;f.MaximumRangeMeters=35000;break;
+            f.MaximumFlightTimeSeconds=21.7f;break;
         case "SIM-57":
             f.DryMassKg=120;f.MainPropellantMassKg=110;f.MainMassFlowKgPerSecond=14;
             f.RcsPropellantMassKg=18;f.PitchYawInertiaKgM2=165;f.MaximumAngularRateDegreesPerSecond=200;
-            f.MaximumFlightTimeSeconds=300;f.MaximumRangeMeters=57000;break;
+            f.MaximumFlightTimeSeconds=27.34f;break;
         case "SIM-57R":
             f.DryMassKg=120;f.MainPropellantMassKg=145;f.MainMassFlowKgPerSecond=13.5f;
             f.RcsPropellantMassKg=18;f.PitchYawInertiaKgM2=180;f.MaximumAngularRateDegreesPerSecond=190;
-            f.MaximumFlightTimeSeconds=420;f.MaximumRangeMeters=82000;break;
+            f.MaximumFlightTimeSeconds=30.57f;break;
     }
     return Missile(MechWeaponRole.AirToAirMissile,"通用空空导弹","MSL",3120,f,id,
         "Projectiles/aam4290_white_blackband",3.7f,warheadMassKg:24);
@@ -167,6 +173,7 @@ private static MechWeaponPerformance BuildSim(string id)
         return new MechWeaponPerformance
         {
             configured = true,
+            coldLaunch = role == MechWeaponRole.InterceptorMissile,
             role = role,
             weaponType = weaponType,
             hudLabel = hudLabel,
@@ -174,7 +181,7 @@ private static MechWeaponPerformance BuildSim(string id)
             muzzleVelocityMetersPerSecond = flightProfile.EjectionSpeedMps,
             projectileLifetimeSeconds = flightProfile.MaximumFlightTimeSeconds,
             maximumRangeMeters = flightProfile.MaximumRangeMeters,
-            effectiveRangeMeters = flightProfile.MaximumRangeMeters,
+            effectiveRangeMeters = 0,
             magazineCapacity = 0,
             magazineCount = 0,
             proximityFuseMode = "常规近炸",
@@ -208,8 +215,8 @@ private static MechWeaponPerformance BuildSim(string id)
         profile.RcsPropellantMassKg = 16f;
         profile.RcsThrustNewtons = 15_000f;
         profile.MaximumAngularRateDegreesPerSecond = 220f;
-        profile.MaximumFlightTimeSeconds = 360f;
-        profile.MaximumRangeMeters = 90_000f;
+        profile.MaximumFlightTimeSeconds = 57.7f;
+
         profile.SeekerActivationDelaySeconds = 4f;
         profile.SeekerRangeMeters = 18_000f;
         profile.SeekerSearchHalfAngleDegrees = 32f;
@@ -230,7 +237,7 @@ private static MechWeaponPerformance BuildSim(string id)
         p.RcsPropellantMassKg = 35f; p.RcsThrustNewtons = 24_000f;
         p.PitchYawInertiaKgM2 = 420f; p.RcsMomentArmMeters = 2f;
         p.MaximumAngularRateDegreesPerSecond = 170f;
-        p.MaximumFlightTimeSeconds = 600f; p.MaximumRangeMeters = 320_000f;
+        p.MaximumFlightTimeSeconds = 95.09f;
         p.SeekerRangeMeters = 35_000f;
         p.PassiveMemorySeconds = 12f;
         p.WarheadLethalRadiusMeters = 28f;
@@ -245,7 +252,7 @@ private static MechWeaponPerformance BuildSim(string id)
         p.RcsPropellantMassKg = 28f; p.RcsThrustNewtons = 22_000f;
         p.PitchYawInertiaKgM2 = 480f; p.RcsMomentArmMeters = 1.8f;
         p.MaximumAngularRateDegreesPerSecond = 150f;
-        p.MaximumFlightTimeSeconds = 540f; p.MaximumRangeMeters = 240_000f;
+        p.MaximumFlightTimeSeconds = 68.84f;
         p.SeekerActivationDelaySeconds = 4f; p.SeekerRangeMeters = 30_000f;
         p.PassiveMemorySeconds = 12f;
         p.ProximityFuseRadiusMeters = 16f; p.WarheadLethalRadiusMeters = 32f;
@@ -266,8 +273,8 @@ private static MechWeaponPerformance BuildSim(string id)
         profile.RcsMomentArmMeters = 0.8f;
         profile.MaximumAngularRateDegreesPerSecond = 720f;
         profile.EjectionSpeedMps = 60f;
-        profile.MaximumFlightTimeSeconds = 32f;
-        profile.MaximumRangeMeters = 12_000f;
+        profile.MaximumFlightTimeSeconds = 7.72f;
+
         profile.SeekerActivationDelaySeconds = 0.08f;
         profile.SeekerRangeMeters = 15_000f;
         profile.SeekerSearchHalfAngleDegrees = 55f;
@@ -293,8 +300,8 @@ private static MechWeaponPerformance BuildSim(string id)
         profile.RcsMomentArmMeters = 0.9f;
         profile.MaximumAngularRateDegreesPerSecond = 480f;
         profile.EjectionSpeedMps = 50f;
-        profile.MaximumFlightTimeSeconds = 90f;
-        profile.MaximumRangeMeters = 24_000f;
+        profile.MaximumFlightTimeSeconds = 14.42f;
+
         profile.SeekerActivationDelaySeconds = 0.15f;
         profile.SeekerRangeMeters = 10_000f;
         profile.SeekerSearchHalfAngleDegrees = 50f;
@@ -322,8 +329,8 @@ private static MechWeaponPerformance BuildSim(string id)
         profile.RcsPropellantMassKg = 30f;
         profile.RcsThrustNewtons = 14_000f;
         profile.MaximumAngularRateDegreesPerSecond = 200f;
-        profile.MaximumFlightTimeSeconds = 600f;
-        profile.MaximumRangeMeters = extended ? 340_000f : 300_000f;
+        profile.MaximumFlightTimeSeconds = extended ? 109.79f : 101.2f;
+
         profile.SeekerActivationDelaySeconds = 6f;
         profile.SeekerRangeMeters = 25_000f;
         profile.PassiveMemorySeconds = 12f;

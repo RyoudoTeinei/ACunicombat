@@ -36,7 +36,7 @@ public class MechUncappedThrustTests
         }
         finally{UnityEngine.Object.DestroyImmediate(go);}
     }
-    [Test] public void SavedSceneHasNoOldSpeedCapsAndLayoutDoubled()
+    [Test] public void SavedSceneHasNoOldSpeedCapsAndApprovedLayoutThrust()
     {
         string scene=File.ReadAllText("Assets/_Project/LocalSamples/AC6SkinnedModular/Generated/Scenes/AC6PlayerControl.unity");
         var matches=Regex.Matches(scene,@"technicalSafetySpeed: ([^\r\n]+)");Assert.GreaterOrEqual(matches.Count,5);
@@ -44,7 +44,7 @@ public class MechUncappedThrustTests
         const string path="Assets/_Project/Resources/Mech/ThrusterNozzleLayout.json";
         var old=JsonUtility.FromJson<MechThrusterNozzleLayoutData>(File.ReadAllText("Artifacts/ThrustX2-Uncapped-20261025/before/"+path));
         var current=JsonUtility.FromJson<MechThrusterNozzleLayoutData>(File.ReadAllText(path));Assert.AreEqual(old.nozzles.Count,current.nozzles.Count);
-        for(int i=0;i<old.nozzles.Count;i++){Assert.AreEqual(old.nozzles[i].id,current.nozzles[i].id);Assert.AreEqual(old.nozzles[i].ratedThrustKn*2,current.nozzles[i].ratedThrustKn,.001f);}
+        for(int i=0;i<old.nozzles.Count;i++){Assert.AreEqual(old.nozzles[i].id,current.nozzles[i].id);Assert.AreEqual(old.nozzles[i].ratedThrustKn*3,current.nozzles[i].ratedThrustKn,.001f);}
     }
     [TestCase("AC6_Skinned_Uniform1010")] [TestCase("AC6_Skinned_Uniform2010")] [TestCase("AC6_Skinned_Uniform3010")]
     public void AggregatedComponentThrustIsExactlyTwiceHalfStrengthCopy(string name)

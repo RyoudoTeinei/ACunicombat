@@ -1875,7 +1875,7 @@ public static class AC6SkinnedModularSampleBuilder
             signalBandwidthMHz = 20f,
 			searchAzimuthDeg = 100f,
 			searchElevationDeg = 60f,
-			trackCapacity = 16,
+			trackCapacity = 32,
 			sttChannelCapacity = 1,
 			maximumTrackingRateDegPerSecond = 140f,
 			trackMemorySeconds = 3f,

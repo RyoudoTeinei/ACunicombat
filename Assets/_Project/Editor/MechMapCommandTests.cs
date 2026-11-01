@@ -14,11 +14,12 @@ public sealed class MechMapCommandTests
   policy.Sender=Guid.NewGuid();Assert.That(state.Receive(policy,2),Is.False);Assert.That(state.RadarControl,Is.EqualTo(FleetRadarControl.Active));
   policy.Sender=leader;Assert.That(state.Receive(policy,2),Is.True);Assert.That(state.RadarControl,Is.EqualTo(FleetRadarControl.RadiationSilence));Assert.That(state.Task,Is.SameAs(task));
  }
- [Test] public void IntelligentModeIsExplicitlyRejectedNotPretendedActive()
+ [Test] public void IntelligentModeIsAcceptedAndPreservesExistingAttackTask()
  {
   var leader=Guid.NewGuid();var wing=Guid.NewGuid();var fleet=Guid.NewGuid();var state=new MechFleetState(wing,fleet,leader,false,false,FleetAttackMode.Confirmed);FleetPacket reply=default;state.Feedback+=p=>reply=p;
-  Assert.That(state.Receive(new FleetPacket{Kind=FleetPacketKind.Order,Sender=leader,Recipient=wing,Fleet=fleet,Operation=Guid.NewGuid(),Revision=1,Order=FleetOrderKind.SetRadarControl,RadarControl=FleetRadarControl.Intelligent,ObservedAt=1,ExpiresAt=5},1),Is.False);
-  Assert.That(reply.Reason,Is.EqualTo(FleetTaskReason.UnsupportedRadarMode));Assert.That(state.RadarControl,Is.EqualTo(FleetRadarControl.Active));
+  Assert.That(state.Receive(new FleetPacket{Kind=FleetPacketKind.Order,Sender=leader,Recipient=wing,Fleet=fleet,Operation=Guid.NewGuid(),Revision=1,Order=FleetOrderKind.Attack,ObservedAt=1,ExpiresAt=5,TaskDeadline=30},1),Is.True);var task=state.Task;
+  Assert.That(state.Receive(new FleetPacket{Kind=FleetPacketKind.Order,Sender=leader,Recipient=wing,Fleet=fleet,Operation=Guid.NewGuid(),Revision=2,Order=FleetOrderKind.SetRadarControl,RadarControl=FleetRadarControl.Intelligent,ObservedAt=2,ExpiresAt=6},2),Is.True);
+  Assert.That(reply.Reason,Is.EqualTo(FleetTaskReason.None));Assert.That(state.RadarControl,Is.EqualTo(FleetRadarControl.Intelligent));Assert.That(state.Task,Is.SameAs(task));
  }
  [Test] public void PlatformStatusRemainsBoundToAuthenticatedFreshReport()
  {
@@ -42,5 +43,28 @@ public sealed class MechMapCommandTests
   Assert.That(state.ReceiveLocalPlayerOrder(Speed(MechFleetState.MaxCruiseSpeed+1,3),1),Is.False);Assert.That(state.CruiseSpeed,Is.EqualTo(400));
   Assert.That(state.ReceiveLocalPlayerOrder(Speed(-1,4),1),Is.False);Assert.That(state.CruiseSpeed,Is.EqualTo(400));
   Assert.That(MechFleetState.DefaultCruiseSpeed,Is.EqualTo(300));
+ }
+ [Test] public void FormationDropMovesLeaderBehindWingWithoutDuplication()
+ {
+  var leader=Guid.NewGuid();var wing=Guid.NewGuid();var third=Guid.NewGuid();
+  var result=MechBattlefieldMap.FormationOrderAfterDrop(new[]{leader,wing,third},leader,Guid.Empty);
+  CollectionAssert.AreEqual(new[]{wing,third,leader},result);Assert.That(new System.Collections.Generic.HashSet<Guid>(result).Count,Is.EqualTo(3));
+ }
+ [Test] public void FormationDropInsertsWingBeforeNewLeader()
+ {
+  var leader=Guid.NewGuid();var wing=Guid.NewGuid();var third=Guid.NewGuid();
+  var result=MechBattlefieldMap.FormationOrderAfterDrop(new[]{leader,wing,third},wing,leader);
+  CollectionAssert.AreEqual(new[]{wing,leader,third},result);Assert.That(new System.Collections.Generic.HashSet<Guid>(result).Count,Is.EqualTo(3));
+ }
+ [Test] public void AttackPreviewAcceptsUnknownAndHostileTargetsAllowedByRulesOfEngagement()
+ {
+  Assert.IsTrue(MechBattlefieldMap.CanPreviewAttackTarget(false,TrackAffiliation.Unknown,default));
+  Assert.IsTrue(MechBattlefieldMap.CanPreviewAttackTarget(false,TrackAffiliation.Hostile,new ContactIdentitySnapshot{Available=true,CanAttackPlatform=true}));
+ }
+ [Test] public void AttackPreviewRejectsFriendlyAndProtectedTargets()
+ {
+  Assert.IsFalse(MechBattlefieldMap.CanPreviewAttackTarget(false,TrackAffiliation.Friendly,default));
+  Assert.IsFalse(MechBattlefieldMap.CanPreviewAttackTarget(false,TrackAffiliation.Unknown,new ContactIdentitySnapshot{Available=true,CanAttackPlatform=false}));
+  Assert.IsFalse(MechBattlefieldMap.CanPreviewAttackTarget(true,TrackAffiliation.Hostile,new ContactIdentitySnapshot{Available=true,CanAttackPlatform=true}));
  }
 }

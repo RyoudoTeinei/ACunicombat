@@ -71,17 +71,17 @@ namespace ACunicombat.Mechs
         private void DrawTrail(Contact c,Vector2 head,Color color,double now)
         {
             if(!trails.TryGetValue(c.Key,out var trail))return;
-            Vector2 start=head;float walked=0;float clearance=15*TargetVisualScale(ContentZoom);
-            for(int i=trail.Samples.Count-1;i>=0&&walked<80;i--)
+            Vector2 start=head;float walked=0;float scale=MapAnnotationScale(ContentZoom);float clearance=15*TargetVisualScale(ContentZoom);
+            for(int i=trail.Samples.Count-1;i>=0&&walked<80*scale;i--)
             {
                 var sample=trail.Samples[i];var end=ScreenToContent(Project(sample.Position));
                 float length=Vector2.Distance(start,end);
                 if(!float.IsFinite(length))break;
                 if(length<.001f){start=end;continue;}
-                var direction=(end-start)/length;float segment=Mathf.Min(length,80-walked);
-                BuildTrailDashIntervals(walked,segment,clearance,trailDashIntervals);
+                var direction=(end-start)/length;float segment=Mathf.Min(length,80*scale-walked);
+                BuildTrailDashIntervals(walked/scale,segment/scale,clearance/scale,trailDashIntervals);
                 var tint=color;tint.a*=Mathf.Lerp(.25f,.75f,Mathf.Clamp01(1-(float)(now-sample.Time)/ObservedTrail.RetentionSeconds));
-                foreach(var interval in trailDashIntervals)Line(start+direction*interval.x,start+direction*interval.y,tint,1);
+                foreach(var interval in trailDashIntervals)Line(start+direction*(interval.x*scale),start+direction*(interval.y*scale),tint,1);
                 walked+=segment;start=end;
             }
         }
@@ -142,8 +142,9 @@ namespace ACunicombat.Mechs
         private Vector2 targetAnchor;
         // Counteract world zoom while allowing a restrained, sublinear marker size increase.
         public static float TargetVisualScale(float zoom)
-        {float z=Mathf.Clamp(zoom,.25f,8);return .56f*(z<1?1f:1f+.5f*(z-1f))/z;}
+        {float z=Mathf.Clamp(zoom,.25f,8);return .56f*(z<1?1f:1f+.15f*(z-1f))/z;}
         public static bool ShowContactLabels(float zoom)=>zoom>=.5f;
+        public static float MapAnnotationScale(float zoom)=>TargetVisualScale(zoom)/TargetVisualScale(1);
         private Vector2 ScaleTargetPoint(Vector2 p)=>targetAnchor+(p-targetAnchor)*TargetVisualScale(ContentZoom);
         private const int W=1600,H=1000,MapLayer=30;
         private Action<Vector2,Vector2,Color,float> symbolLine;
@@ -442,6 +443,7 @@ namespace ACunicombat.Mechs
             if(drawingWorld)
             {
                 a=ContentToScreen(a);b=ContentToScreen(b);width*=ContentZoom;
+                if(!drawingTarget)width*=MapAnnotationScale(ContentZoom);
                 if(!ClipWorldLine(ref a,ref b))return;
             }
             var image=Stroke();image.color=color;var r=image.rectTransform;r.anchorMin=r.anchorMax=new Vector2(0,1);r.pivot=new Vector2(.5f,.5f);r.anchoredPosition=new Vector2((a.x+b.x)*.5f,-(a.y+b.y)*.5f);r.sizeDelta=new Vector2(Vector2.Distance(a,b),width);r.localRotation=Quaternion.Euler(0,0,-Mathf.Atan2(b.y-a.y,b.x-a.x)*Mathf.Rad2Deg);
@@ -505,7 +507,7 @@ namespace ACunicombat.Mechs
             float minZ=Mathf.Floor(Mathf.Min(a.z,b.z,c.z,d.z)/step)*step-step;
             float maxZ=Mathf.Ceil(Mathf.Max(a.z,b.z,c.z,d.z)/step)*step+step;
             int columns=Mathf.CeilToInt((maxX-minX)/step),rows=Mathf.CeilToInt((maxZ-minZ)/step);
-            float gridWidth=.8f/ContentZoom;
+            float gridWidth=.8f/(ContentZoom*MapAnnotationScale(ContentZoom));
             for(int i=0;i<=columns;i++)
             {
                 float x=minX+i*step;bool major=Mathf.RoundToInt(x/WorldGridSpacingMeters)%4==0;
@@ -570,6 +572,26 @@ namespace ACunicombat.Mechs
             string relation=identity.Relation==IdentityRelation.Friendly?"友方":identity.Relation==IdentityRelation.Neutral?"中立":identity.Relation==IdentityRelation.SuspectedHostile?"疑似敌对":identity.Relation==IdentityRelation.Hostile?"敌对":"未知";
             return identity.Party==IdentityParty.ThirdParty?"第三方·"+relation:relation;
         }
+        public static int IdentitySuspicionLevel(ContactIdentitySnapshot identity)
+        {
+            if(!identity.Available)return 0;
+            if(identity.Relation==IdentityRelation.Hostile)return 3;
+            float suspicion=Mathf.Max(identity.Suspicion,identity.Relation==IdentityRelation.SuspectedHostile?.65f:0);
+            int level=suspicion>=.85f?3:suspicion>=.65f?2:suspicion>=.2f?1:0;
+            if(identity.Relation!=IdentityRelation.SuspectedHostile)level=Mathf.Min(1,level);
+            return identity.Conflict?Mathf.Max(1,level):level;
+        }
+        private void DrawIdentitySuspicion(ContactIdentitySnapshot identity,Vector2 point)
+        {
+            int level=IdentitySuspicionLevel(identity);if(level<=0)return;
+            var color=level>=3?HostileColor:level==2?new Color(1f,.48f,.16f,.95f):new Color(.95f,.7f,.22f,.9f);
+            Label(point.x-23,point.y-31,"!",color,14);
+            for(int i=0;i<level;i++)
+            {
+                float x=point.x-22+i*5;
+                Line(new Vector2(x,point.y-12),new Vector2(x,point.y-7),color,2);
+            }
+        }
         public static string FormatType(bool identified,ObservedWeightClass weight,ObservedCombatRole role)
         {
             if(!identified)return "未知类型";
@@ -596,7 +618,7 @@ namespace ACunicombat.Mechs
             double now=radar!=null?radar.SimTimeSeconds:Time.timeAsDouble;
             drawingWorld=true;
             DrawWorldGrid();
-            if(!ScenarioEditing){DrawMissionRegionsWorld();DrawRadarScan(now);}
+            if(!ScenarioEditing){DrawMissionRegionsWorld();DrawRadarScan(now);DrawObservedEmissions(now);}
             foreach(var c in contacts)
             {
                 Vector3 presentedPosition=PresentationPosition(c,now);
@@ -604,14 +626,14 @@ namespace ACunicombat.Mechs
                 var p=ScreenToContent(screenPoint);
                 Color color=c.Own?PrimaryText:c.Identity.Available&&c.Identity.Relation==IdentityRelation.Neutral?new Color(.55f,.58f,.57f):c.Affiliation==TrackAffiliation.Friendly?FriendlyColor:c.Affiliation==TrackAffiliation.Hostile?HostileColor:UnknownColor;
                 DrawTrail(c,p,color,now);
-                var ground=ScreenToContent(Project(presentedPosition,true));if(Vector2.Distance(p,ground)>3){Line(p,ground,MutedColor);Line(ground-new Vector2(4,0),ground+new Vector2(4,0),MutedColor);}
+                var ground=ScreenToContent(Project(presentedPosition,true));if(Vector2.Distance(p,ground)>3){Line(p,ground,MutedColor);Line(ground-new Vector2(4,0)*MapAnnotationScale(ContentZoom),ground+new Vector2(4,0)*MapAnnotationScale(ContentZoom),MutedColor);}
                 targetAnchor=p;drawingTarget=true;
                 symbolLine??=Line;
                 MechTacticalSymbols.Draw(symbolLine,p,c.Affiliation,c.Missile,color,c.Missile?.8f:1);
                 drawingTarget=false;
                 var v=ScreenToContent(Project(presentedPosition+c.Velocity*20))-p;
                 float clearance=15.3f*TargetVisualScale(ContentZoom)*(c.Missile?.8f:1);
-                float length=Mathf.Min(v.magnitude,80)*(c.Missile?.65f:1);
+                float length=Mathf.Min(v.magnitude,80)*MapAnnotationScale(ContentZoom)*(c.Missile?.65f:1);
                 if(length>clearance)
                 {
                     var start=p+v.normalized*clearance;
@@ -636,7 +658,7 @@ namespace ACunicombat.Mechs
                         PlatformLabel(p.x+24,p.y+22.8f,$"R {rel.magnitude/1000:0.0} km ({c.Source})",color,13);
                         PlatformLabel(p.x+24,p.y+41.5f,$"Z {rel.y/1000:+0.0;-0.0;+0.0} km",SecondaryText,13);
                     }
-                    if(c.Identity.Available&&(c.Identity.Conflict||c.Identity.Relation==IdentityRelation.SuspectedHostile))Label(p.x-5,p.y-27,"!",HostileColor,14);
+                    if(c.Identity.Available&&(c.Identity.Party==IdentityParty.ThirdParty||c.Affiliation==TrackAffiliation.Unknown))DrawIdentitySuspicion(c.Identity,p);
                 }
                 if(c.Key==selected)SelectionCorners(p);
                 drawingTarget=false;

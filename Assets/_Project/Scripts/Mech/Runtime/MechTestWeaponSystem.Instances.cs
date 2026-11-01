@@ -43,12 +43,7 @@ namespace ACunicombat.Mechs
         private MechAssemblyRecord FindEquipmentRecord(MechEquipmentSlot slot)
         {
             if (runtimeState == null) runtimeState = GetComponent<MechRuntimeState>();
-            if (runtimeState == null) return null;
-            foreach (var record in runtimeState.AssembledParts)
-                if (record != null && record.SlotId == slot.Id) return record;
-            if(slot.LegacyRole!=MechPartSlot.None && slot.Id==MechSlotGraph.LegacyId(slot.LegacyRole))
-                foreach(var record in runtimeState.AssembledParts)if(record!=null&&record.slot==slot.LegacyRole)return record;
-            return null;
+            return runtimeState!=null?runtimeState.FindAssembledPart(slot):null;
         }
         private MechEquipmentSlot ResolveEquipmentSlot(MechEquipmentSlot slot)
         {
@@ -57,7 +52,8 @@ namespace ACunicombat.Mechs
         }
         private InstanceWeaponState GetInstanceState(MechEquipmentSlot slot)
         {
-            var record = FindEquipmentRecord(slot); slot = ResolveEquipmentSlot(slot);
+            var record = FindEquipmentRecord(slot);
+            if(record!=null)slot=new MechEquipmentSlot(record.SlotId,record.slot);
             Guid id = record?.InstanceId ?? Guid.Empty;
             if (!instanceStates.TryGetValue(slot, out var state) || state.InstanceId != id)
             { state = new InstanceWeaponState { InstanceId = id }; instanceStates[slot] = state; muzzlesBySlot.Remove(slot); }

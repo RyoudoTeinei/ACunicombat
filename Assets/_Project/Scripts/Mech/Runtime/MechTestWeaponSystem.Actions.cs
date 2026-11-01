@@ -58,6 +58,8 @@ namespace ACunicombat.Mechs
                 Time.timeAsDouble+approachWait+Math.Max(.1,profile.reactionSeconds)+Math.Max(1,profile.maximumFlightSeconds),profile.energyPerShotMj,0,MechEmissionRequirement.Radar),Time.timeAsDouble);
         }
         private MechPartDamageController partDamage;
+        private readonly TrackSnapshot[] automaticSafetyContacts=new TrackSnapshot[MechRadarController.MaximumPublicTracks];
+        private string automaticFireWithholdReason;
         public float GetEquipmentEfficiency(MechEquipmentSlot slot)
         {
             if(MechSpecialistKits.ShoulderBlocked(runtimeState,ResolveEquipmentSlot(slot)))return 0;
@@ -70,7 +72,19 @@ namespace ACunicombat.Mechs
         private bool committingAction;
         private int committedProjectileCount;
         private MechActionProposal currentCommit;
-        public MechActionArbiter Actions => actionArbiter ?? (actionArbiter = new MechActionArbiter(this));
+        public MechActionArbiter Actions {get{if(actionArbiter==null){actionArbiter=new MechActionArbiter(this);actionArbiter.FeedbackReported+=OnEquipmentFeedback;}return actionArbiter;}}
+        private string EventSlotName(MechEquipmentSlot slot)=>slot.LegacyRole switch{MechPartSlot.LeftHandWeapon=>"左手",MechPartSlot.RightHandWeapon=>"右手",MechPartSlot.LeftBackWeapon=>"左肩",MechPartSlot.RightBackWeapon=>"右肩",MechPartSlot.Extension or MechPartSlot.Extension2=>"APS/扩展组件",_=>runtimeState?.FindCompiledSlot(slot.Id)?.displayName??slot.Id};
+        private void OnEquipmentFeedback(MechActionFeedback feedback)
+        {
+            if(feedback.Id.Source!=MechActionSource.Player&&!IsOwnship())return;
+            var log=GetComponent<MechOwnshipEventLog>();if(log==null&&isActiveAndEnabled)log=MechOwnshipEventLog.Ensure(gameObject);if(log==null)return;
+            var slot=ResolveEquipmentSlot(new MechEquipmentSlot(feedback.SlotId));var record=FindEquipmentRecord(slot);
+            log.Record(feedback,EventSlotName(slot),record?.part?.WeaponPerformance.IsGuidedMissile==true);
+        }
+        private bool RejectEquipmentRequest(MechEquipmentSlot slot,MechActionKind kind,MechActionSource source,string reason)
+        {if(source==MechActionSource.Player)MechOwnshipEventLog.Ensure(gameObject).AddEvent("reject/"+slot.Id+"/"+reason,EventSlotName(slot)+"：未"+(kind==MechActionKind.Reload?"换弹":"发射")+" · "+MechOwnshipEventLog.Reason(reason),true);return false;}
+        private string lastMissileReleaseFailure;
+        private bool RejectMissileCommit(string reason){lastMissileReleaseFailure=reason;return false;}
         public void ConfigureEmissionPolicy(MechEmissionMode mode, bool allowAutomaticDefense)
         { Actions.Emissions.Mode = mode; Actions.Emissions.AllowAutomaticDefense = allowAutomaticDefense; }
         private MechActionSource DefaultCommandSource => IsOwnship() ? MechActionSource.Player : MechActionSource.AI;
@@ -87,7 +101,7 @@ namespace ACunicombat.Mechs
         {
             int accepted = 0; var loadout = runtimeState?.CurrentLoadout;
             if (loadout == null || string.IsNullOrWhiteSpace(group)) return 0;
-            foreach (var slot in loadout.GetSlots())
+            foreach (var slot in runtimeState.CompiledSlots)
                 if (slot.weaponGroup == group && CommandFireSlot(slot.id, source)) accepted++;
             return accepted;
         }
@@ -95,9 +109,13 @@ namespace ACunicombat.Mechs
             ObserverTrackRef targetRef = default, bool hasEstimate = false, Vector3 position = default, Vector3 velocity = default)
         {
             if (!Enum.IsDefined(typeof(MechActionSource), source)) return false;
-            slot = ResolveEquipmentSlot(slot);if(MechSpecialistKits.ShoulderBlocked(runtimeState,slot))return false; var record = FindEquipmentRecord(slot);
+            slot = ResolveEquipmentSlot(slot);
+            if(source==MechActionSource.Player)MechOwnshipEventLog.Ensure(gameObject);
+            if(!AreWeaponsOperational())return RejectEquipmentRequest(slot,kind,source,engineController!=null&&engineController.StartupActive?"EngineStartup":"WeaponsUnavailable");
+            if(MechSpecialistKits.ShoulderBlocked(runtimeState,slot))return RejectEquipmentRequest(slot,kind,source,"ShoulderBlocked"); var record = FindEquipmentRecord(slot);
             if (record == null || record.instance == null || !record.instance.activeInHierarchy || record.part == null ||
-                !record.part.WeaponPerformance.IsConfigured || Actions.HasPending(record.InstanceId)) return false;
+                !record.part.WeaponPerformance.IsConfigured) return RejectEquipmentRequest(slot,kind,source,"EquipmentUnavailable");
+            if(Actions.HasPending(record.InstanceId))return RejectEquipmentRequest(slot,kind,source,"PendingAction");
             RefreshHandWeaponState(slot); RefreshShoulderAmmunition(slot);
             var performance = GetEquippedWeaponPerformance(slot);
             bool missile = performance.IsGuidedMissile;
@@ -140,7 +158,7 @@ namespace ACunicombat.Mechs
             if (GetEquipmentEfficiency(p.Slot)<=0) { reason="ComponentFailed"; return false; }
             if (DefenseExtensions.Handles(FindEquipmentRecord(p.Slot))) return DefenseExtensions.Check(p,out reason);
             var state = GetInstanceState(p.Slot); var performance = GetEquippedWeaponPerformance(p.Slot);
-            if(p.Kind==MechActionKind.Fire && !BankCanRelease(p.Slot,p.Target.TrackId)){reason="NoCompatibleLoadedMissileBank";return false;}
+            if(p.Kind==MechActionKind.Fire && !BankCanRelease(p.Slot,p.Target.TrackId)){reason=IsMissileMagazineReloading(p.Slot)?"MissileMagazineReloading":"NoCompatibleLoadedMissileBank";return false;}
             performance=BankPerformance(p.Slot,p.Target.TrackId)??performance;
             if (performance == null || !performance.IsConfigured) return false;
             if(p.Kind==MechActionKind.Fire&&NeedsInterceptorUplink(performance)&&
@@ -154,8 +172,7 @@ namespace ACunicombat.Mechs
             if(p.Kind==MechActionKind.Fire&&performance.role==MechWeaponRole.AirToAirMissile)
             {
                 if(radarController==null||!radarController.PreviewMissileRelease(p.Target.TrackId,BuildMissileKinematics(performance.missileFlightProfile),performance.supportsPassiveRfHoming,out var releaseTrack,out var releaseSolution,out _,out reason,PreferPassiveRelease(performance)))return false;
-                if(!HasMissileReleaseGeometry(performance,releaseTrack,releaseSolution.InterceptPoint))
-                {reason="OutsideMissileSafeFlightEnvelope";return false;}
+                if(!CheckMissileReleaseGeometry(performance,releaseTrack,releaseSolution.InterceptPoint,out reason))return false;
             }
             if (p.EnergyMj != expectedEnergy || (p.GuidanceUnits < expectedGuidance || p.GuidanceUnits > 1) || p.Emissions != expectedEmission)
             { reason = "InvalidResourceDeclaration"; return false; }
@@ -170,6 +187,12 @@ namespace ACunicombat.Mechs
                 {
                     var identity=GetComponent<MechIdentityController>();
                     if(identity!=null&&!identity.CanAttackPlatform(identityTrack)){reason="IdentityRulesOfEngagement";return false;}
+                    if(p.Id.Source==MechActionSource.AI&&MechAutomaticTargetSafety.NeedsDisambiguation(identityTrack))
+                    {
+                        int n=radarController.CopyTracks(automaticSafetyContacts);
+                        if(MechAutomaticTargetSafety.OverlapsFriendly(identityTrack,automaticSafetyContacts,n,radarController.SimTimeSeconds,out var conflictingTrack))
+                        {reason=conflictingTrack.IsValid?"FriendlyContactAmbiguity:target="+identityTrack.TrackId+";friendly="+conflictingTrack:"InvalidAutomaticTargetUncertainty";return false;}
+                    }
                 }
             }
             if(p.Id.Source==MechActionSource.AutomaticDefense)
@@ -189,12 +212,12 @@ namespace ACunicombat.Mechs
             reason = "AmmoOrCooldown";
             if (performance.IsGuidedMissile)
             {
-                if (state.Rounds <= 0 || state.Magazines <= 0 || Time.time < state.WeaponCooldownUntil) return false;
+                if(state.Rounds<=0||state.Magazines<=0){reason="NoAmmo";return false;}if(Time.time<state.WeaponCooldownUntil){reason="CoolingDown";return false;}
                 if (state.Deployment != null && !state.Deployment.CanRequest && !state.ActiveCommand.Equals(p.Id)) { reason = "DeployingOrRecovering"; return false; }
             }
             else if (performance.role == MechWeaponRole.PointDefenseCannon)
-            { if (state.Defense.RoundsRemaining <= 0 || state.Defense.Reloading || state.Defense.Overheated || Time.time < state.Defense.NextFireTime) return false; }
-            else if (state.Hand.Overheated || state.Hand.RoundsRemaining <= 0 || state.Hand.Reloading || Time.time < state.Hand.NextFireTime) return false;
+            { if(state.Defense.Reloading){reason="Reloading";return false;}if(state.Defense.Overheated){reason="Overheated";return false;}if(state.Defense.RoundsRemaining<=0){reason="NoAmmo";return false;}if(Time.time<state.Defense.NextFireTime){reason="CoolingDown";return false;} }
+            else {if(state.Hand.Reloading){reason="Reloading";return false;}if(state.Hand.Overheated){reason="Overheated";return false;}if(state.Hand.RoundsRemaining<=0){reason="NoAmmo";return false;}if(Time.time<state.Hand.NextFireTime){reason="CoolingDown";return false;}}
             reason = null; return true;
         }
         bool IMechActionExecutor.Begin(MechActionProposal p, out string reason)
@@ -204,7 +227,7 @@ namespace ACunicombat.Mechs
             var banks=EnsureMissileBanks(p.Slot);
             if(p.Kind==MechActionKind.Fire&&banks!=null)
             {
-                state.ActiveMissileBank=banks.Select(MissileTargetDistance(p.Target.TrackId));
+                state.ActiveMissileBank=SelectMissileBankForTarget(banks,p.Target.TrackId);
                 if(state.ActiveMissileBank<0){reason="NoCompatibleLoadedMissileBank";return false;}
             }
             if (p.Kind == MechActionKind.Reload)
@@ -235,7 +258,8 @@ namespace ACunicombat.Mechs
         bool IMechActionExecutor.Commit(MechActionProposal p, out string reason)
         {
             if(DefenseExtensions.Handles(FindEquipmentRecord(p.Slot)))return DefenseExtensions.Commit(p,out reason);
-            reason = "ExecutionRejected";
+            lastMissileReleaseFailure=null;reason = "ExecutionRejected";
+            automaticFireWithholdReason=null;
             var state = GetInstanceState(p.Slot); var performance = GetEquippedWeaponPerformance(p.Slot);
             if (p.Target.IsValid && performance.role != MechWeaponRole.InterceptorMissile && performance.role != MechWeaponRole.PointDefenseCannon && performance.role != MechWeaponRole.AirToAirMissile && !state.HasExternalAim)
                 if (!(GetComponent<MechFleetController>()?.PlayerAutopilotActive==true&&!radarController.TrackOperationMode ? radarController.TryAssignAutopilotFireControlTrack(p.Target.TrackId) : radarController.TryAssignFireControlTrack(p.Target.TrackId))) { reason = "TrackChanged"; return false; }
@@ -253,7 +277,7 @@ namespace ACunicombat.Mechs
                 {
                     if (performance.role == MechWeaponRole.InterceptorMissile)
                     {
-                        if (!radarController.TryGetMissileTrack(p.Target.TrackId, out interceptorTarget)) return false;
+                        if (!radarController.TryGetMissileTrack(p.Target.TrackId, out interceptorTarget)){reason="StaleObserverTrack";return false;}
                         interceptorTargetManuallyDesignated = false;
                     }
                     committed = CommandFireMissile(p.Slot);
@@ -284,7 +308,7 @@ namespace ACunicombat.Mechs
                     GetComponent<MechAiTargetController>()?.NotifyWeaponCommitted(p.InstanceId,p.Slot.Id,performance.role);
                     GetComponent<MechFleetController>()?.NotifyShot(p.InstanceId,p.Target,performance.role);
                 }
-                reason = committed ? "Committed" : "ExecutionRejected"; return committed;
+                reason = committed ? "Committed" : lastMissileReleaseFailure??automaticFireWithholdReason??"ExecutionRejected"; return committed;
             }
             finally { committingAction = false; currentCommit = null; if (committed){state.ActiveCommand = default;state.ActiveMissileBank=-1;} }
         }
@@ -305,7 +329,7 @@ namespace ACunicombat.Mechs
         private void UpdateExtraEquipmentInput(MechPlayerInputFrame frame)
         {
             var loadout = runtimeState?.CurrentLoadout; if (loadout?.Platform == null) return;
-            foreach (var definition in loadout.GetSlots())
+            foreach (var definition in runtimeState.CompiledSlots)
             {
                 if (definition.legacyRole != MechPartSlot.None || string.IsNullOrEmpty(definition.weaponGroup)) continue;
                 bool held = false, edge = false, reload = false;
@@ -327,7 +351,7 @@ namespace ACunicombat.Mechs
         {
             var loadout = runtimeState?.CurrentLoadout;
             if (loadout?.Platform == null) return true;
-            var definition = loadout.GetSlots().Find(x => x.id == ResolveEquipmentSlot(slot).Id);
+            var definition = runtimeState.FindCompiledSlot(ResolveEquipmentSlot(slot).Id);
             var record = FindEquipmentRecord(slot);
             if (definition == null || record?.parentMount == null || direction.sqrMagnitude < 0.000001f) return false;
             var local = Quaternion.Inverse(record.parentMount.rotation) * direction.normalized;
@@ -338,18 +362,17 @@ namespace ACunicombat.Mechs
 
         private bool EquipmentIsEnabled(MechAssemblyRecord record)
         {
-            var loadout = runtimeState?.CurrentLoadout;
-            var slots = loadout?.GetSlots();
             for (int depth = 0; depth <= MechSlotGraph.MaxDepth; depth++)
             {
                 if (record?.instance == null || !record.instance.activeInHierarchy) return false;
-                var parent = slots?.Find(x => x.id == record.SlotId)?.parentSlotId;
+                var parent = runtimeState?.FindCompiledSlot(record.SlotId)?.parentSlotId;
                 if (string.IsNullOrEmpty(parent)) return true;
                 record = FindEquipmentRecord(new MechEquipmentSlot(parent));
             }
             return false;
         }
 
+        private readonly List<InstanceWeaponState> deploymentTickScratch=new List<InstanceWeaponState>();
         private void TickEquipmentActions()
         {
             foreach (var support in supportedMissiles)
@@ -359,7 +382,8 @@ namespace ACunicombat.Mechs
             }
             supportedMissiles.RemoveAll(x => x.Projectile == null || !x.Projectile.HasExternalGuidanceSupport);
             foreach(var state in instanceStates.Values)if(state.MissileBanks!=null){state.MissileBanks.Tick(Time.timeAsDouble);SyncMissileBankCounts(state);}
-            foreach (var state in new List<InstanceWeaponState>(instanceStates.Values))
+            deploymentTickScratch.Clear();deploymentTickScratch.AddRange(instanceStates.Values);
+            foreach (var state in deploymentTickScratch)
                 state.Deployment?.Tick(Time.timeAsDouble, (radarController != null && radarController.HasStt) ||
                     (state.Hand.Role == MechWeaponRole.InterceptorMissile && HasShaoWeiPredeploymentWarning()));
             if (Time.timeScale > 0) { DefenseExtensions.TickRequests(this); Actions.Tick(Time.timeAsDouble); }
@@ -380,7 +404,9 @@ namespace ACunicombat.Mechs
         }
         public void CopyEquipmentWeaponSnapshots(List<MechEquipmentWeaponSnapshot> output)
         {
+            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.WeaponInventory);
             output.Clear(); if (runtimeState == null) return;
+            bool operational = isActiveAndEnabled && AreWeaponsOperational() && (ownCombatTarget==null||ownCombatTarget.IsAlive);
             foreach (var record in runtimeState.AssembledParts)
             {
                 if (record?.part == null || !record.part.WeaponPerformance.IsConfigured) continue;
@@ -389,8 +415,8 @@ namespace ACunicombat.Mechs
                 output.Add(new MechEquipmentWeaponSnapshot(slot.Id, record.InstanceId, p.role,
                     missile ? state.Rounds : defense ? state.Defense.RoundsRemaining : state.Hand.RoundsRemaining,
                     missile ? state.Magazines : defense ? state.Defense.MagazinesRemaining : state.Hand.MagazinesRemaining,
-                    isActiveAndEnabled && AreWeaponsOperational() && (ownCombatTarget==null||ownCombatTarget.IsAlive) && EquipmentIsEnabled(record) && GetEquipmentEfficiency(slot)>0,
-                    defense ? state.Defense.Reloading : state.Hand.Reloading, Actions.HasPending(record.InstanceId) || (state.Deployment != null && !state.Deployment.CanRequest),
+                    operational && EquipmentIsEnabled(record) && GetEquipmentEfficiency(slot)>0,
+                    missile ? IsMissileMagazineReloading(slot) : defense ? state.Defense.Reloading : state.Hand.Reloading, Actions.HasPending(record.InstanceId) || (state.Deployment != null && !state.Deployment.CanRequest),
                     defense ? state.Defense.HeatMj : state.Hand.HeatMj, missile ? state.WeaponCooldownUntil : defense ? state.Defense.NextFireTime : state.Hand.NextFireTime));
             }
         }
