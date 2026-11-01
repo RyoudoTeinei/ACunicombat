@@ -21,6 +21,7 @@ public static class MechStressReview
     static double started, nextSample, wallStarted, settleUntil;
     static readonly Stopwatch frameClock = new();
     static readonly List<double> frameMs = new();
+    static readonly FrameTiming[] timingScratch = new FrameTiming[8];
 
     static MechStressReview() { EditorApplication.update += Tick; }
     static string Arg(string name, string fallback)
@@ -117,6 +118,8 @@ public static class MechStressReview
                 Application.runInBackground = true; QualitySettings.vSyncCount = 0;
                 Time.captureDeltaTime = 1f / 60f;
                 SimulationCostProbe.Reset(); SimulationCostProbe.Enabled = true;
+                ACunicombat.Simulation.Driver.SimulationDriver.ParallelTracking = Arg("-stressSerialTracking", "0") != "1";
+                File.AppendAllText(dir + "/scope.txt", $"ParallelTracking={ACunicombat.Simulation.Driver.SimulationDriver.ParallelTracking}; graphics={SystemInfo.graphicsDeviceType}\n");
                 costs = new StreamWriter(dir + "/system-costs.jsonl");
                 frames = new StreamWriter(dir + "/frames.jsonl");
                 started = Time.timeAsDouble; nextSample = started + 1; wallStarted = EditorApplication.timeSinceStartup;
@@ -139,7 +142,13 @@ public static class MechStressReview
                 int alive = UnityEngine.Object.FindObjectsByType<CombatTestTarget>(FindObjectsInactive.Exclude).Count(b => b.IsAlive);
                 frameMs.Sort();
                 double p50 = frameMs.Count > 0 ? frameMs[frameMs.Count / 2] : 0, p99 = frameMs.Count > 0 ? frameMs[Math.Min(frameMs.Count - 1, (int)(frameMs.Count * .99))] : 0;
-                frames.WriteLine($"{{\"sim\":{t:F2},\"frames\":{frameMs.Count},\"p50\":{p50:F2},\"p99\":{p99:F2},\"max\":{(frameMs.Count > 0 ? frameMs[^1] : 0):F2},\"missiles\":{missiles},\"alive\":{alive}}}");
+                // Split wall time into CPU main thread, render thread and GPU (when supported).
+                FrameTimingManager.CaptureFrameTimings();
+                uint got = FrameTimingManager.GetLatestTimings((uint)timingScratch.Length, timingScratch);
+                double main = 0, render = 0, gpu = 0;
+                for (int i = 0; i < got; i++) { main += timingScratch[i].cpuMainThreadFrameTime; render += timingScratch[i].cpuRenderThreadFrameTime; gpu += timingScratch[i].gpuFrameTime; }
+                if (got > 0) { main /= got; render /= got; gpu /= got; }
+                frames.WriteLine($"{{\"sim\":{t:F2},\"frames\":{frameMs.Count},\"p50\":{p50:F2},\"p99\":{p99:F2},\"max\":{(frameMs.Count > 0 ? frameMs[^1] : 0):F2},\"mainMs\":{main:F2},\"renderMs\":{render:F2},\"gpuMs\":{gpu:F2},\"missiles\":{missiles},\"alive\":{alive}}}");
                 frameMs.Clear(); costs.Flush(); frames.Flush();
             }
             if (t >= SessionState.GetFloat("MechStress.seconds", 60) || EditorApplication.timeSinceStartup - wallStarted > 3600) Finish();

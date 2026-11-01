@@ -37,7 +37,7 @@ namespace ACunicombat.Tests.EditMode
                 if (classes[i] == TrackObjectClass.Missile) velocities[i] = new double3(rng.NextDouble(-60, 60), 0, -700);
             }
             var sensor = new SensorId(new Handle(0, 1));
-            using var measurements = new NativeList<Measurement>(Targets, Allocator.Temp);
+            using var measurements = new NativeList<Measurement>(Targets, Allocator.Persistent);
             ulong fingerprint = 1469598103934665603UL;
             var snapshot = new TrackSnapshot[RadarTrackManager.MaxTracks];
             var watch = new Stopwatch();
@@ -73,6 +73,27 @@ namespace ACunicombat.Tests.EditMode
             }
             int finalCount = manager.CopyTracks(snapshot);
             return new Result { Milliseconds = watch.Elapsed.TotalMilliseconds, Fingerprint = fingerprint, Tracks = finalCount };
+        }
+
+        /// <summary>
+        /// Many independent observers advanced in parallel on worker threads must produce the
+        /// same decisions as one observer alone: trackers share no mutable state.
+        /// </summary>
+        [Test]
+        public void IndependentTrackersInParallel_MatchSerialFingerprint()
+        {
+            const int observers = 16;
+            var results = new Result[observers];
+            var watch = Stopwatch.StartNew();
+            System.Threading.Tasks.Parallel.For(0, observers, i => results[i] = Run());
+            watch.Stop();
+            double serial = 0;
+            for (int i = 0; i < observers; i++)
+            {
+                Assert.That(results[i].Fingerprint, Is.EqualTo(ReferenceFingerprint), $"Observer {i} diverged on a worker thread");
+                serial += results[i].Milliseconds;
+            }
+            TestContext.WriteLine($"PARALLEL_BENCH observers={observers} wall={watch.Elapsed.TotalMilliseconds:F0}ms summedTracker={serial:F0}ms speedup={serial / watch.Elapsed.TotalMilliseconds:F1}x");
         }
 
         /// <summary>Decisions of the reference managed tracker (commit 2026-11-02). Any tracker

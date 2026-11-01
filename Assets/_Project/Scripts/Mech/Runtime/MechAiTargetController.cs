@@ -839,6 +839,19 @@ namespace ACunicombat.Mechs
                 hasCurrent = true;
             }
 
+            // Re-scoring every contact each frame is wasted work: switching is rate-limited to
+            // MinimumSwitchIntervalSeconds anyway. A held, still-usable target is kept between
+            // staggered re-evaluations; losing it re-evaluates at once.
+            if (hasCurrent && Time.time < nextTargetEvaluationTime)
+            {
+                selected = retained;
+                selectedAirTrackId = radar.Reference(selected.TrackId);
+                lastAirTrack = selected;
+                hasLastAirTrack = true;
+                return true;
+            }
+            nextTargetEvaluationTime = Time.time + TargetEvaluationIntervalSeconds;
+
             var count = radar.CopyTracks(airTrackScratch);
             consumedAirCount=count;LastAirInputsTime=radar.SimTimeSeconds;
             var best = default(TrackSnapshot);

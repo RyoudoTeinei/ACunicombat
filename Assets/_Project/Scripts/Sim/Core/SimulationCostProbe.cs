@@ -11,7 +11,11 @@ namespace ACunicombat.Simulation.Core
         static readonly string[] labels=System.Enum.GetNames(typeof(SystemId));
         public static Action<string> BeginSample;
         public static Action EndSample;
-        public static bool Enabled {get;set;}
+        // Counters are plain static arrays: worker threads must not touch them.
+        [ThreadStatic] static bool workerThread;
+        public static void MarkWorkerThread(bool value)=>workerThread=value;
+        static bool enabled;
+        public static bool Enabled {get=>enabled&&!workerThread;set=>enabled=value;}
         public readonly struct Scope:IDisposable
         {
             readonly int index;readonly long started;

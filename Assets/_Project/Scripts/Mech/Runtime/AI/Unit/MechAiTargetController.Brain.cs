@@ -42,6 +42,7 @@ namespace ACunicombat.Mechs
 
         private void BuildBrain()
         {
+            nextTargetEvaluationTime = Time.time + (GetEntityId().GetHashCode() & 1023) / 1024f * TargetEvaluationIntervalSeconds;
             brain = new MechAiStateMachine();
             stateDisabled = new DisabledState(this);
             stateEvade = new EvadeState(this);
@@ -116,6 +117,11 @@ namespace ACunicombat.Mechs
         /// It is a penalty, not a veto, so a lone target is still engaged.
         /// </summary>
         public const float DeconflictionScorePenalty = 2.5f;
+
+        /// <summary>Full contact re-scoring cadence (10 Hz), staggered per unit.</summary>
+        public const float TargetEvaluationIntervalSeconds = 0.1f;
+        // Staggered per unit in BuildBrain so re-scoring does not land on the same frame for everyone.
+        private float nextTargetEvaluationTime;
 
         /// <summary>
         /// Drop a self-selected chase that is out of every weapon's reach and not

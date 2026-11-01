@@ -576,262 +576,361 @@ namespace ACunicombat.Simulation.Driver
             return count;
         }
 
+        // ---- Fixed step: every observer driver is advanced together so the tracker phase
+        // (B) of all observers can run in parallel. Per observer the order is unchanged.
+        private static readonly System.Collections.Generic.List<SimulationDriver> activeDrivers = new();
+        private static double scheduledStep = double.NaN;
+        /// <summary>Run observer trackers on worker threads (identical results; see crowd benchmark).</summary>
+        public static bool ParallelTracking { get; set; } = true;
+        private void OnEnable() { if (!activeDrivers.Contains(this)) activeDrivers.Add(this); }
+        private void OnDisable() { activeDrivers.Remove(this); }
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetScheduler() { activeDrivers.Clear(); scheduledStep = double.NaN; }
+
+        private int stepSensorTicks, stepMotionTicks;
+        private double roundTickTime;
+        private double stepDt;
+
         private void FixedUpdate()
         {
-            if(telemetry!=null&&telemetry.TryTakeFailure(out var recordingFailure))Debug.LogWarning("[CombatTelemetry] Recording stopped: "+recordingFailure);
-            using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Driver);
-            sceneEntities?.PruneRetired();
-            var dt = Time.fixedDeltaTime;
-            var motionTicks = motionClock.Advance(dt);
-
-            var sensorTicks = sensorClock.Advance(dt);
-            for (var i = 0; i < sensorTicks; i++)
+            if (!ParallelTracking || activeDrivers.Count < 2 || RadarReplayJournal.Enabled || RadarReplayJournal.BatchEnabled)
             {
-                // Advance 已把时钟推到最终时刻；追帧时回推出每个 tick 的实际时间。
-                // 两个追赶 tick 共用最终时间戳会让第二个消费不到任何到期驻留，
-                // 还清空上一 tick 的探测环——等于白丢一帧探测。
-                // This driver runs before the scene's physics movers. Their published
-                // poses and velocities belong to the last completed physics step.
-                // Labelling them 'now' made velocity one step stale during acceleration.
-                var tickTime = SimTimeSeconds - dt
-                               - SensorStepSeconds * (sensorTicks - 1 - i);
-                var sections=ACunicombat.Simulation.Core.SimulationCostProbe.Sections.Begin(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorRadarTick);
-                radar.Tick(tickTime);
-                if (DetailedTelemetry)
+                using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Driver);
+                BeginFixedStep();
+                for (var i = 0; i < stepSensorTicks; i++)
                 {
-                    for (var emissionIndex = 0;
-                         emissionIndex < radar.Emissions.Length;
-                         emissionIndex++)
-                    {
-                        telemetry.RecordEmission(
-                            tickTime,
-                            telemetrySource,
-                            "radar",
-                            in radar.Emissions.ElementAt(emissionIndex));
-                    }
-                    for (var detectionIndex = 0;
-                         detectionIndex < radar.Detections.Length;
-                         detectionIndex++)
-                    {
-                        telemetry.RecordRadarMeasurement(
-                            tickTime,
-                            telemetrySource,
-                            detectionIndex,
-                            in radar.Detections.ElementAt(detectionIndex));
-                    }
+                    var tickTime = StepTickTime(i);
+                    SensorTickA(tickTime);
+                    tickSections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorTracking);
+                    SensorTickB(tickTime);
+                    SensorTickC(tickTime);
                 }
-                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorOptics);
-                if (combatContext.HasOpticalReceiver)
-                {
-                    var effectiveOptical=combatContext.OpticalReceiver;
-                    effectiveOptical.MaximumRangeMeters*=math.sqrt(opticalEfficiency);
-                    effectiveOptical.BearingSigmaRadians/=math.max(.05f,opticalEfficiency);
-                    effectiveOptical.ClassificationScale*=opticalEfficiency;
-                    if(opticalEfficiency>0)electroOpticalSensor.Tick(in effectiveOptical,tickTime);
-                    else electroOpticalSensor.Observations.Clear();
-                    if (DetailedTelemetry)
-                    {
-                        for (var observationIndex = 0;
-                             observationIndex < electroOpticalSensor.Observations.Length;
-                             observationIndex++)
-                        {
-                            telemetry.RecordElectroOptical(
-                                tickTime,
-                                telemetrySource,
-                                in electroOpticalSensor.Observations.ElementAt(observationIndex));
-                        }
-                    }
-                }
-                laserRangefinder.Tick(tickTime);
-                if (DetailedTelemetry)
-                {
-                    for (var emissionIndex = 0;
-                         emissionIndex < laserRangefinder.Emissions.Length;
-                         emissionIndex++)
-                    {
-                        telemetry.RecordEmission(
-                            tickTime,
-                            telemetrySource,
-                            "laser_rangefinder",
-                            in laserRangefinder.Emissions.ElementAt(emissionIndex));
-                    }
-                }
-                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorTracking);
-                var sensorPosition = double3.zero;
-                var sensorVelocity = double3.zero;
-                if (trackContext.OriginEntity.IsValid
-                    && world.TryGetReadState(trackContext.OriginEntity, out var sensorState))
-                {
-                    sensorPosition = sensorState.PositionWorld;
-                    sensorVelocity = sensorState.VelocityWorld;
-                }
-
-                trackContext.Process(radar.Detections, radar.Emissions,
-                    sensorPosition, sensorVelocity, tickTime);
-
-                if (combatContext.HasOpticalReceiver)
-                {
-                    for (int opticalIndex = 0; opticalIndex < electroOpticalSensor.Observations.Length; opticalIndex++)
-                    {
-                        trackContext.TryRefineConfirmedTrackWithBearing(
-                            electroOpticalSensor.Observations[opticalIndex], sensorPosition, tickTime,
-                            out _, sensorVelocity);
-                    }
-                }
-
-                // Laser returns refine only the confirmed missile track that
-                // cued the pulse. They do not create tracks, count as radar
-                // hits, or keep a coasting radar track alive.
-                if (laserRangefinder != null)
-                {
-                    var laserObservations = laserRangefinder.Observations;
-                    for (var laserIndex = 0;
-                         laserIndex < laserObservations.Length;
-                         laserIndex++)
-                    {
-                        var laserObservation =
-                            laserObservations[laserIndex];
-                        var refinementAccepted =
-                            trackContext.TryRefineConfirmedTrackWithLaser(
-                            in laserObservation,
-                            sensorPosition,
-                            tickTime,
-                            out var normalizedInnovationSquared);
-                        telemetry?.RecordLaserObservation(
-                            tickTime,
-                            telemetrySource,
-                            in laserObservation,
-                            refinementAccepted,
-                            normalizedInnovationSquared);
-                    }
-                }
-
-                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorDataLink);
-                // 数据链：投递队列中的报文（写链路辐射 + 按物理条件投递）。
-                dataLink.Tick(tickTime);
-                if (DetailedTelemetry)
-                {
-                    for (var emissionIndex = 0;
-                         emissionIndex < dataLink.Emissions.Length;
-                         emissionIndex++)
-                    {
-                        telemetry.RecordEmission(
-                            tickTime,
-                            telemetrySource,
-                            "data_link",
-                            in dataLink.Emissions.ElementAt(emissionIndex));
-                    }
-                }
-
-                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorEsm);
-                // 被动告警：同 Tick 消费全部辐射环（每环每 Tick 清空，接收必须
-                // 与辐射同步）——雷达环 + 数据链环 + MAW 红外通道，汇入同一
-                // 接触环后由相关器按本机接收机 Id 过滤处理。
-                esmReceiver.BeginTick();
-                if(externalIff.Count>0)
-                {
-                    using(var iffEvents=new NativeList<EmissionEvent>(externalIff.Count,Allocator.Temp))
-                    {for(int pendingExternalIndex=externalIff.Count-1;pendingExternalIndex>=0;pendingExternalIndex--)if(externalIff[pendingExternalIndex].StartTime<=tickTime){iffEvents.Add(externalIff[pendingExternalIndex]);externalIff.RemoveAt(pendingExternalIndex);}esmReceiver.Consume(iffEvents,tickTime);}
-                }
-                esmReceiver.Consume(radar.Emissions, tickTime);
-                esmReceiver.Consume(dataLink.Emissions, tickTime);
-                esmReceiver.Consume(
-                    laserRangefinder.Emissions,
-                    tickTime);
-                if (combatContext.WarningReceiver.IsValid)
-                {
-                    mawSensor.AppendContacts(
-                        combatContext.WarningOwner,
-                        combatContext.WarningReceiver,
-                        esmReceiver.Contacts,
-                        tickTime);
-                }
-
-                if (DetailedTelemetry)
-                {
-                    for (var contactIndex = 0;
-                         contactIndex < esmReceiver.Contacts.Length;
-                         contactIndex++)
-                    {
-                        telemetry.RecordWarningContact(
-                            tickTime,
-                            telemetrySource,
-                            in esmReceiver.Contacts.ElementAt(contactIndex));
-                    }
-                }
-
-                threatCorrelator.Process(
-                    esmReceiver.Contacts,
-                    combatContext.WarningReceiver,
-                    tickTime);
-
-                sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorTelemetry);
-                var telemetryThreatCount = 0;
-                if (telemetry != null && telemetry.IsRecording)
-                {
-                    telemetryThreatCount = threatCorrelator.CopyThreats(
-                        telemetryThreatScratch);
-                    for (var threatIndex = 0;
-                         threatIndex < telemetryThreatCount;
-                         threatIndex++)
-                    {
-                        telemetry.RecordThreat(
-                            tickTime,
-                            telemetrySource,
-                            in telemetryThreatScratch[threatIndex],
-                            DetailedTelemetry);
-                    }
-
-                    if (tickTime + 1e-9 >= nextTelemetryTrackSnapshotTime)
-                    {
-                        var telemetryTrackCount = trackContext.CopyTracks(
-                            telemetryTrackScratch);
-                        for (var trackIndex = 0;
-                             trackIndex < telemetryTrackCount;
-                             trackIndex++)
-                        {
-                            telemetry.RecordTrackSnapshot(
-                                tickTime,
-                                telemetrySource,
-                                in telemetryTrackScratch[trackIndex]);
-                        }
-                        nextTelemetryTrackSnapshotTime = tickTime +
-                            math.max(
-                                telemetryDetail == CombatTelemetryDetail.Detailed
-                                    ? SensorStepSeconds
-                                    : 0.5,
-                                telemetryTrackSnapshotIntervalSeconds);
-                    }
-
-                    if (DetailedTelemetry ||
-                        tickTime + 1e-9 >= nextTelemetrySensorSummaryTime)
-                    {
-                        telemetry.RecordSensorTick(
-                            tickTime,
-                            telemetrySource,
-                            radar.Detections.Length,
-                            radar.Emissions.Length,
-                            combatContext.HasOpticalReceiver
-                                ? electroOpticalSensor.Observations.Length
-                                : 0,
-                            laserRangefinder.Observations.Length,
-                            esmReceiver.Contacts.Length,
-                            trackContext.Count,
-                            telemetryThreatCount,
-                            dwellScheduler.Count,
-                            dwellScheduler.DeferredCount);
-                        nextTelemetrySensorSummaryTime = tickTime + 1.0;
-                    }
-                }
-                sections.End();
+                EndFixedStep();
+                return;
             }
+            // The first driver to reach this physics step advances all of them.
+            var step = Time.fixedTimeAsDouble;
+            if (step == scheduledStep) return;
+            scheduledStep = step;
+            RunScheduledStep();
+        }
 
-            fusionClock.Advance(dt);
+        private static readonly System.Collections.Generic.List<SimulationDriver> stepDrivers = new();
+        private static void RunScheduledStep()
+        {
+            stepDrivers.Clear();
+            foreach (var driver in activeDrivers) if (driver != null && driver.isActiveAndEnabled) stepDrivers.Add(driver);
+            int rounds = 0;
+            foreach (var driver in stepDrivers)
+            {
+                using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Driver);
+                driver.BeginFixedStep();
+                rounds = System.Math.Max(rounds, driver.stepSensorTicks);
+            }
+            for (var round = 0; round < rounds; round++)
+            {
+                foreach (var driver in stepDrivers)
+                {
+                    if (round >= driver.stepSensorTicks) continue;
+                    // Unity time is main-thread only: resolve the tick time here for phase B.
+                    driver.roundTickTime = driver.StepTickTime(round);
+                    using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Driver);
+                    driver.SensorTickA(driver.roundTickTime);
+                }
+                using (var trackScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorTracking))
+                {
+                    var currentRound = round;
+                    System.Threading.Tasks.Parallel.For(0, stepDrivers.Count, index =>
+                    {
+                        var driver = stepDrivers[index];
+                        if (currentRound >= driver.stepSensorTicks) return;
+                        ACunicombat.Simulation.Core.SimulationCostProbe.MarkWorkerThread(true);
+                        try { driver.SensorTickB(driver.roundTickTime); }
+                        finally { ACunicombat.Simulation.Core.SimulationCostProbe.MarkWorkerThread(false); }
+                    });
+                }
+                foreach (var driver in stepDrivers)
+                {
+                    if (round >= driver.stepSensorTicks) continue;
+                    using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Driver);
+                    driver.SensorTickC(driver.roundTickTime);
+                }
+            }
+            foreach (var driver in stepDrivers) driver.EndFixedStep();
+        }
+
+        private void BeginFixedStep()
+        {
+            if(telemetry!=null&&telemetry.TryTakeFailure(out var recordingFailure))Debug.LogWarning("[CombatTelemetry] Recording stopped: "+recordingFailure);
+            sceneEntities?.PruneRetired();
+            stepDt = Time.fixedDeltaTime;
+            stepMotionTicks = motionClock.Advance(stepDt);
+            stepSensorTicks = sensorClock.Advance(stepDt);
+        }
+
+        // Advance 已把时钟推到最终时刻；追帧时回推出每个 tick 的实际时间。
+        // 两个追赶 tick 共用最终时间戳会让第二个消费不到任何到期驻留，
+        // 还清空上一 tick 的探测环——等于白丢一帧探测。
+        // This driver runs before the scene's physics movers. Their published
+        // poses and velocities belong to the last completed physics step.
+        // Labelling them 'now' made velocity one step stale during acceleration.
+        private double StepTickTime(int i) => SimTimeSeconds - stepDt - SensorStepSeconds * (stepSensorTicks - 1 - i);
+
+        private void EndFixedStep()
+        {
+            fusionClock.Advance(stepDt);
             ObservationRevision++;
-            if (motionClock.OverrunTicks > 0 && motionTicks == maxMotionCatchUpTicks)
+            if (motionClock.OverrunTicks > 0 && stepMotionTicks == maxMotionCatchUpTicks)
             {
                 Debug.LogWarning($"[SimDriver] motion tick overrun total={motionClock.OverrunTicks}");
             }
+        }
+
+        // Sensor tick split for parallel tracking: A (sensors) and C (links, warning,
+        // telemetry) run on the main thread; B touches only this observer's tracker and may
+        // run on a worker thread. Order within one observer is unchanged: A, B, C.
+        private ACunicombat.Simulation.Core.SimulationCostProbe.Sections tickSections;
+        private readonly System.Collections.Generic.List<(LaserRangeObservation observation, bool accepted, double nis)> pendingLaserTelemetry = new();
+        internal void SensorTickA(double tickTime)
+        {
+            var sections=ACunicombat.Simulation.Core.SimulationCostProbe.Sections.Begin(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorRadarTick);
+            radar.Tick(tickTime);
+            if (DetailedTelemetry)
+            {
+                for (var emissionIndex = 0;
+                     emissionIndex < radar.Emissions.Length;
+                     emissionIndex++)
+                {
+                    telemetry.RecordEmission(
+                        tickTime,
+                        telemetrySource,
+                        "radar",
+                        in radar.Emissions.ElementAt(emissionIndex));
+                }
+                for (var detectionIndex = 0;
+                     detectionIndex < radar.Detections.Length;
+                     detectionIndex++)
+                {
+                    telemetry.RecordRadarMeasurement(
+                        tickTime,
+                        telemetrySource,
+                        detectionIndex,
+                        in radar.Detections.ElementAt(detectionIndex));
+                }
+            }
+            sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorOptics);
+            if (combatContext.HasOpticalReceiver)
+            {
+                var effectiveOptical=combatContext.OpticalReceiver;
+                effectiveOptical.MaximumRangeMeters*=math.sqrt(opticalEfficiency);
+                effectiveOptical.BearingSigmaRadians/=math.max(.05f,opticalEfficiency);
+                effectiveOptical.ClassificationScale*=opticalEfficiency;
+                if(opticalEfficiency>0)electroOpticalSensor.Tick(in effectiveOptical,tickTime);
+                else electroOpticalSensor.Observations.Clear();
+                if (DetailedTelemetry)
+                {
+                    for (var observationIndex = 0;
+                         observationIndex < electroOpticalSensor.Observations.Length;
+                         observationIndex++)
+                    {
+                        telemetry.RecordElectroOptical(
+                            tickTime,
+                            telemetrySource,
+                            in electroOpticalSensor.Observations.ElementAt(observationIndex));
+                    }
+                }
+            }
+            laserRangefinder.Tick(tickTime);
+            if (DetailedTelemetry)
+            {
+                for (var emissionIndex = 0;
+                     emissionIndex < laserRangefinder.Emissions.Length;
+                     emissionIndex++)
+                {
+                    telemetry.RecordEmission(
+                        tickTime,
+                        telemetrySource,
+                        "laser_rangefinder",
+                        in laserRangefinder.Emissions.ElementAt(emissionIndex));
+                }
+            }
+            tickSections=sections;
+        }
+
+        /// <summary>Tracker update only. Thread-safe with respect to every other observer.</summary>
+        internal void SensorTickB(double tickTime)
+        {
+            var sensorPosition = double3.zero;
+            var sensorVelocity = double3.zero;
+            if (trackContext.OriginEntity.IsValid
+                && world.TryGetReadState(trackContext.OriginEntity, out var sensorState))
+            {
+                sensorPosition = sensorState.PositionWorld;
+                sensorVelocity = sensorState.VelocityWorld;
+            }
+
+            trackContext.Process(radar.Detections, radar.Emissions,
+                sensorPosition, sensorVelocity, tickTime);
+
+            if (combatContext.HasOpticalReceiver)
+            {
+                for (int opticalIndex = 0; opticalIndex < electroOpticalSensor.Observations.Length; opticalIndex++)
+                {
+                    trackContext.TryRefineConfirmedTrackWithBearing(
+                        electroOpticalSensor.Observations[opticalIndex], sensorPosition, tickTime,
+                        out _, sensorVelocity);
+                }
+            }
+
+            // Laser returns refine only the confirmed missile track that
+            // cued the pulse. They do not create tracks, count as radar
+            // hits, or keep a coasting radar track alive.
+            if (laserRangefinder != null)
+            {
+                var laserObservations = laserRangefinder.Observations;
+                for (var laserIndex = 0;
+                     laserIndex < laserObservations.Length;
+                     laserIndex++)
+                {
+                    var laserObservation =
+                        laserObservations[laserIndex];
+                    var refinementAccepted =
+                        trackContext.TryRefineConfirmedTrackWithLaser(
+                        in laserObservation,
+                        sensorPosition,
+                        tickTime,
+                        out var normalizedInnovationSquared);
+                    if (telemetry != null) pendingLaserTelemetry.Add((laserObservation, refinementAccepted, normalizedInnovationSquared));
+                }
+            }
+
+        }
+
+        internal void SensorTickC(double tickTime)
+        {
+            var sections=tickSections;
+            sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorDataLink);
+            foreach (var laser in pendingLaserTelemetry)
+                telemetry?.RecordLaserObservation(tickTime, telemetrySource, in laser.observation, laser.accepted, laser.nis);
+            pendingLaserTelemetry.Clear();
+            FlushTrackDiagnostics();
+            // 数据链：投递队列中的报文（写链路辐射 + 按物理条件投递）。
+            dataLink.Tick(tickTime);
+            if (DetailedTelemetry)
+            {
+                for (var emissionIndex = 0;
+                     emissionIndex < dataLink.Emissions.Length;
+                     emissionIndex++)
+                {
+                    telemetry.RecordEmission(
+                        tickTime,
+                        telemetrySource,
+                        "data_link",
+                        in dataLink.Emissions.ElementAt(emissionIndex));
+                }
+            }
+
+            sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorEsm);
+            // 被动告警：同 Tick 消费全部辐射环（每环每 Tick 清空，接收必须
+            // 与辐射同步）——雷达环 + 数据链环 + MAW 红外通道，汇入同一
+            // 接触环后由相关器按本机接收机 Id 过滤处理。
+            esmReceiver.BeginTick();
+            if(externalIff.Count>0)
+            {
+                using(var iffEvents=new NativeList<EmissionEvent>(externalIff.Count,Allocator.Temp))
+                {for(int pendingExternalIndex=externalIff.Count-1;pendingExternalIndex>=0;pendingExternalIndex--)if(externalIff[pendingExternalIndex].StartTime<=tickTime){iffEvents.Add(externalIff[pendingExternalIndex]);externalIff.RemoveAt(pendingExternalIndex);}esmReceiver.Consume(iffEvents,tickTime);}
+            }
+            esmReceiver.Consume(radar.Emissions, tickTime);
+            esmReceiver.Consume(dataLink.Emissions, tickTime);
+            esmReceiver.Consume(
+                laserRangefinder.Emissions,
+                tickTime);
+            if (combatContext.WarningReceiver.IsValid)
+            {
+                mawSensor.AppendContacts(
+                    combatContext.WarningOwner,
+                    combatContext.WarningReceiver,
+                    esmReceiver.Contacts,
+                    tickTime);
+            }
+
+            if (DetailedTelemetry)
+            {
+                for (var contactIndex = 0;
+                     contactIndex < esmReceiver.Contacts.Length;
+                     contactIndex++)
+                {
+                    telemetry.RecordWarningContact(
+                        tickTime,
+                        telemetrySource,
+                        in esmReceiver.Contacts.ElementAt(contactIndex));
+                }
+            }
+
+            threatCorrelator.Process(
+                esmReceiver.Contacts,
+                combatContext.WarningReceiver,
+                tickTime);
+
+            sections.Next(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.SensorTelemetry);
+            var telemetryThreatCount = 0;
+            if (telemetry != null && telemetry.IsRecording)
+            {
+                telemetryThreatCount = threatCorrelator.CopyThreats(
+                    telemetryThreatScratch);
+                for (var threatIndex = 0;
+                     threatIndex < telemetryThreatCount;
+                     threatIndex++)
+                {
+                    telemetry.RecordThreat(
+                        tickTime,
+                        telemetrySource,
+                        in telemetryThreatScratch[threatIndex],
+                        DetailedTelemetry);
+                }
+
+                if (tickTime + 1e-9 >= nextTelemetryTrackSnapshotTime)
+                {
+                    var telemetryTrackCount = trackContext.CopyTracks(
+                        telemetryTrackScratch);
+                    for (var trackIndex = 0;
+                         trackIndex < telemetryTrackCount;
+                         trackIndex++)
+                    {
+                        telemetry.RecordTrackSnapshot(
+                            tickTime,
+                            telemetrySource,
+                            in telemetryTrackScratch[trackIndex]);
+                    }
+                    nextTelemetryTrackSnapshotTime = tickTime +
+                        math.max(
+                            telemetryDetail == CombatTelemetryDetail.Detailed
+                                ? SensorStepSeconds
+                                : 0.5,
+                            telemetryTrackSnapshotIntervalSeconds);
+                }
+
+                if (DetailedTelemetry ||
+                    tickTime + 1e-9 >= nextTelemetrySensorSummaryTime)
+                {
+                    telemetry.RecordSensorTick(
+                        tickTime,
+                        telemetrySource,
+                        radar.Detections.Length,
+                        radar.Emissions.Length,
+                        combatContext.HasOpticalReceiver
+                            ? electroOpticalSensor.Observations.Length
+                            : 0,
+                        laserRangefinder.Observations.Length,
+                        esmReceiver.Contacts.Length,
+                        trackContext.Count,
+                        telemetryThreatCount,
+                        dwellScheduler.Count,
+                        dwellScheduler.DeferredCount);
+                    nextTelemetrySensorSummaryTime = tickTime + 1.0;
+                }
+            }
+            sections.End();
         }
 
         private void OnDestroy()
@@ -854,6 +953,9 @@ namespace ACunicombat.Simulation.Driver
             world?.Dispose();
         }
 
+        // Tracker diagnostics may be raised on a worker thread during tick phase B; they are
+        // queued here and written on the main thread in phase C of the same tick.
+        private readonly System.Collections.Generic.List<RadarTrackDiagnostic> pendingTrackDiagnostics = new();
         private void OnRadarTrackDiagnostic(RadarTrackDiagnostic diagnostic)
         {
             if (!DetailedTelemetry &&
@@ -863,9 +965,17 @@ namespace ACunicombat.Simulation.Driver
                 return;
             }
 
-            telemetry?.RecordRadarTrackDiagnostic(
-                telemetrySource,
-                in diagnostic);
+            if (telemetry != null) pendingTrackDiagnostics.Add(diagnostic);
+        }
+
+        private void FlushTrackDiagnostics()
+        {
+            for (var i = 0; i < pendingTrackDiagnostics.Count; i++)
+            {
+                var diagnostic = pendingTrackDiagnostics[i];
+                telemetry?.RecordRadarTrackDiagnostic(telemetrySource, in diagnostic);
+            }
+            pendingTrackDiagnostics.Clear();
         }
     }
 }
