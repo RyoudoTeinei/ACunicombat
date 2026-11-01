@@ -48,7 +48,7 @@ namespace ACunicombat.Mechs
             if(!HasTask)return;
             if(State.Task.Phase==FleetTaskPhase.Returning)
             {
-                if(State.Leader==MemberId){State.SetPhase(FleetTaskPhase.Completed,State.Task.Reason,now);return;}
+                if(IsActingLeader){State.SetPhase(FleetTaskPhase.Completed,State.Task.Reason,now);return;}
                 if(TryFormationPoint(now,out var point,out var velocity)&&Vector3.Distance(point,transform.position)<150&&(motion==null||(motion.Velocity-velocity).magnitude<20))State.SetPhase(FleetTaskPhase.Completed,State.Task.Reason,now);
                 return;
             }
@@ -86,7 +86,7 @@ namespace ACunicombat.Mechs
         {
             objective=default;if(!Configured||(IsPlayer&&!PlayerAutopilotActive)||motion==null)return false;
             double now=radar.SimTimeSeconds;Vector3 point,velocity;
-            bool follow=State.Leader!=MemberId&&(!Detached||HasTask&&State.Task.Phase==FleetTaskPhase.Returning);
+            bool follow=!IsActingLeader&&(!Detached||HasTask&&State.Task.Phase==FleetTaskPhase.Returning);
             if(HasTask&&State.Task.Order.Order==FleetOrderKind.Move&&State.Task.Phase!=FleetTaskPhase.Returning)
             {point=MoveDestination();velocity=Vector3.zero;}
             else if(HasSpatialMission&&TryMissionNavigation(out point,out velocity)){}
@@ -110,7 +110,7 @@ namespace ACunicombat.Mechs
             if(HasTask&&State.Task.Order.Order==FleetOrderKind.Move&&State.Task.Phase!=FleetTaskPhase.Returning){point=MoveDestination();return true;}
             if(attackPlanValid&&HasTask&&State.Task.Order.Operation==planOrder&&State.Task.Phase!=FleetTaskPhase.Returning){point=attackPlanPoint;return true;}
             if(HasSpatialMission&&TryMissionNavigation(out point,out _))return true;
-            if(State.Leader!=MemberId&&(!Detached||HasTask&&State.Task.Phase==FleetTaskPhase.Returning))return TryFormationPoint(radar.SimTimeSeconds,out point,out _);
+            if(!IsActingLeader&&(!Detached||HasTask&&State.Task.Phase==FleetTaskPhase.Returning))return TryFormationPoint(radar.SimTimeSeconds,out point,out _);
             var ai=GetComponent<MechAiTargetController>();return ai!=null&&ai.TryGetObservedNavigationGoal(out point);
         }
         private Vector3 MoveDestination()
@@ -122,12 +122,12 @@ namespace ACunicombat.Mechs
         private bool TryFormationPoint(double now,out Vector3 point,out Vector3 velocity)
         {
             point=velocity=Vector3.zero;
-            if(!State.Members.TryGetValue(State.Leader,out var leader)||!State.Fresh(leader,now)||!leader.Available)return false;
+            if(!State.Members.TryGetValue(ActiveLeader,out var leader)||!State.Fresh(leader,now)||!leader.Available)return false;
             velocity=(Vector3)(float3)leader.Velocity;
             var offset=OwnFormationOffset();
-            if(Roster.TryGetValue(State.Leader,out var leaderEntry)&&GroupRoot(leaderEntry)==State.FormationRoot)
+            if(Roster.TryGetValue(ActiveLeader,out var leaderEntry)&&GroupRoot(leaderEntry)==State.FormationRoot)
                 offset-=leaderEntry.FormationShape==FleetFormationShape.Custom?leaderEntry.FormationOffset:FormationSlotOffset(leaderEntry.FormationShape,leaderEntry.FormationIndex,leaderEntry.FormationSize,StyledSpacing);
-            formationCourse.Resolve(State.Leader,now,velocity,offset,out var worldOffset,out velocity);
+            formationCourse.Resolve(ActiveLeader,now,velocity,offset,out var worldOffset,out velocity);
             point=(Vector3)(float3)(leader.Position+leader.Velocity*Math.Max(0,now-leader.ObservedAt))+worldOffset;return true;
         }
         private void RefreshIssuedTargets(double now)

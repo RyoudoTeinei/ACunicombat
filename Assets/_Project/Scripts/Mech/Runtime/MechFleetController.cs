@@ -68,7 +68,7 @@ namespace ACunicombat.Mechs
         {
             using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Fleet);
             if(!Configured||radar?.TelemetryDriver==null||body!=null&&!body.IsAlive)return;
-            double now=radar.SimTimeSeconds;State.Tick(now);UpdateRadarDoctrine();RefreshStationRole(now);
+            double now=radar.SimTimeSeconds;State.Tick(now);UpdateSuccession(now);UpdateRadarDoctrine();RefreshStationRole(now);
             for(int i=outbox.Count-1;i>=0;i--)if(outbox[i].Packet.ExpiresAt<now)outbox.RemoveAt(i);
             if(now>=nextHeartbeat){nextHeartbeat=now+MemberReportSeconds;Send(GetOwnStatus());}
             if(now>=nextInventory){nextInventory=now+1;weapons?.CopyEquipmentWeaponSnapshots(equipment);foreach(var e in equipment){weapons.TryGetWeaponSlotStatus(new MechEquipmentSlot(e.SlotId),out var status);Send(new FleetPacket{Kind=FleetPacketKind.Capability,Weapon=e.InstanceId,WeaponMount=(int)GetEquipmentMount(e.SlotId),Role=(int)e.Role,Ammunition=e.Rounds,WeaponName=new Unity.Collections.FixedString512Bytes(GetEquipmentDisplayName(e.SlotId)),Available=e.Enabled&&!e.Reloading,MaximumRange=status.MaximumRangeMeters,MinimumRange=status.MinimumRangeMeters,EffectiveRange=status.EffectiveRangeMeters,ProjectileSpeed=weapons.EstimatedProjectileSpeed(e.SlotId),ObservedAt=now,ExpiresAt=now+3});}}

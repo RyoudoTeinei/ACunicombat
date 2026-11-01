@@ -31,13 +31,13 @@ namespace ACunicombat.Mechs
 
   private Vector3 PackagePosition(double now)
   {
-   if(State.Leader==MemberId||!State.Members.TryGetValue(State.Leader,out var leader)||!State.Fresh(leader,now))return transform.position;
+   if(IsActingLeader||!State.Members.TryGetValue(ActiveLeader,out var leader)||!State.Fresh(leader,now))return transform.position;
    return (Vector3)(float3)(leader.Position+leader.Velocity*Math.Max(0,now-leader.ObservedAt));
   }
 
   private void CountPackage(double now,out int fresh,out int onStation)
   {
-   fresh=1;onStation=StationBand==MechStationBand.OnStation||State.Leader==MemberId?1:0;
+   fresh=1;onStation=StationBand==MechStationBand.OnStation||IsActingLeader?1:0;
    var leaderPosition=PackagePosition(now);float join=MechFormationDoctrine.Parameters(FormationStyle).JoinRadius;
    foreach(var pair in State.Members)
    {
@@ -45,7 +45,7 @@ namespace ACunicombat.Mechs
     if(!State.Fresh(m,now)||!m.Available||m.FormationRoot!=State.FormationRoot)continue;
     fresh++;
     var position=(Vector3)(float3)(m.Position+m.Velocity*Math.Max(0,now-m.ObservedAt));
-    if(pair.Key==State.Leader||Vector3.Distance(position,leaderPosition)<=join)onStation++;
+    if(pair.Key==ActiveLeader||Vector3.Distance(position,leaderPosition)<=join)onStation++;
    }
   }
 
@@ -60,10 +60,10 @@ namespace ACunicombat.Mechs
    {
     case MechStrikePhase.Assemble:
     case MechStrikePhase.Rejoin:
-     if(State.Leader==MemberId){point=transform.position;return true;}
+     if(IsActingLeader){point=transform.position;return true;}
      return TryFormationPoint(now,out point,out velocity);
     case MechStrikePhase.Ingress:
-     if(State.Leader==MemberId){point=MechStrikeMission.IngressPoint(transform.position,target,reach);return true;}
+     if(IsActingLeader){point=MechStrikeMission.IngressPoint(transform.position,target,reach);return true;}
      return TryFormationPoint(now,out point,out velocity);
     case MechStrikePhase.Attack:
      if(IsStrikeAttacker)return false;

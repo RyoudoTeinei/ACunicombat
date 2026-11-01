@@ -49,7 +49,7 @@ namespace ACunicombat.Mechs
             stateNavigate = new NavigateState(this);
             stateSearch = new SearchState(this);
 
-            brain.AddAny(stateDisabled, () => !Alive);
+            brain.AddAny(stateDisabled, () => !Alive, interrupt: true);
             brain.Add(stateDisabled, stateSearch, () => Alive);
             brain.AddAny(stateEvade, () => EvadeNow, interrupt: true);
             brain.Add(stateEvade, stateEngage, () => !EvadeNow && perception.HasTarget && !perception.NavigationRequired);

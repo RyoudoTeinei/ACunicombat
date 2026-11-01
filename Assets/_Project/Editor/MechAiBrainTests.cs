@@ -53,6 +53,27 @@ public sealed class MechAiBrainTests
     }
 
     [Test]
+    public void BasePreemption_RespectsDwell_InterruptsDoNot()
+    {
+        // Real-scene regression: Engage->Navigate->Engage within 0.02 s.
+        var fsm = new MechAiStateMachine();
+        var engage = new Probe(3, 0.6f); var navigate = new Probe(6, 0.4f); var evade = new Probe(1);
+        bool target = true, navReq = false, threat = false;
+        fsm.AddAny(engage, () => target && !navReq);
+        fsm.Add(engage, navigate, () => navReq);
+        fsm.AddAny(evade, () => threat, interrupt: true);
+        fsm.Start(engage, 0f);
+        navReq = true; fsm.Tick(1f);
+        Assert.That(fsm.Current, Is.SameAs(navigate));
+        navReq = false; fsm.Tick(1.02f);
+        Assert.That(fsm.Current, Is.SameAs(navigate), "Engage must not re-preempt inside Navigate's dwell");
+        fsm.Tick(1.41f);
+        Assert.That(fsm.Current, Is.SameAs(engage));
+        threat = true; fsm.Tick(1.42f);
+        Assert.That(fsm.Current, Is.SameAs(evade), "Interrupts ignore dwell");
+    }
+
+    [Test]
     public void Switch_CallsExitThenEnter_AndCountsTransitions()
     {
         var fsm = new MechAiStateMachine();

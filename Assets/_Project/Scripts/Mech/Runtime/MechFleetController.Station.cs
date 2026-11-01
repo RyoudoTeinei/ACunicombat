@@ -35,7 +35,7 @@ namespace ACunicombat.Mechs
     }
    }
    bool jammer=GetComponent<MechElectronicWarfareController>()!=null;
-   StationRole=MechFormationDoctrine.ResolveRole(TaskGroup,State.FormationIndex,State.Leader==MemberId,heavy,passiveRf,jammer,ForcedStationRole);
+   StationRole=MechFormationDoctrine.ResolveRole(TaskGroup,State.FormationIndex,IsActingLeader,heavy,passiveRf,jammer,ForcedStationRole);
   }
 
   // The AI's own engagement target is reported in heartbeats so members can

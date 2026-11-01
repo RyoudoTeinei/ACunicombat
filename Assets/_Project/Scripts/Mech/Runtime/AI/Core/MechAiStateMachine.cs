@@ -97,9 +97,12 @@ namespace ACunicombat.Mechs
         public bool Evaluate(float now)
         {
             if (Current == null) return false;
+            bool dwellElapsed = Current.IsFinished || now - EnteredAt >= Current.MinimumDwellSeconds;
             foreach (var t in anyTransitions)
             {
-                if (t.To == Current || t.To.Priority >= Current.Priority || !t.Condition()) continue;
+                // Only interrupts (evasion, death) may cut a state's minimum dwell short;
+                // base-behaviour preemption waits, which stops E->N->E bounces.
+                if (t.To == Current || t.To.Priority >= Current.Priority || !t.Interrupt && !dwellElapsed || !t.Condition()) continue;
                 // Remember the base behaviour the interrupt displaced. A nested
                 // interrupt (preempting an interrupt) keeps the original base.
                 if (t.Interrupt) { if (!enteredByInterrupt) Interrupted = Current; }
@@ -108,7 +111,6 @@ namespace ACunicombat.Mechs
                 enteredByInterrupt = t.Interrupt;
                 return true;
             }
-            bool dwellElapsed = Current.IsFinished || now - EnteredAt >= Current.MinimumDwellSeconds;
             if (!dwellElapsed) return false;
             foreach (var t in current)
             {
