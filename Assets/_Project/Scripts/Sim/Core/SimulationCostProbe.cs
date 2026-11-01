@@ -5,7 +5,7 @@ namespace ACunicombat.Simulation.Core
     // Main-thread, opt-in diagnostic counters. Disabled in normal gameplay.
     public static class SimulationCostProbe
     {
-        public enum SystemId {Driver,RadarPhysics,RadarPresentation,AI,Projectile,Weapons,WeaponPresentation,Identity,Fleet,Telemetry,AiInventory,AiTargetSelection,WeaponInventory,FleetRange,Hud,PlayerHud,Plume,EquipmentAnimation,PlayerUpdate,PlayerLate,SensorRadarTick,SensorTracking,SensorEsm,SensorDataLink,SensorOptics,SensorTelemetry,SceneSync,TrackPredict,TrackObservation,TrackBatchPlan,TrackAssociate,TrackLifecycle,RadarEoCue,RadarValidateStt,RadarScheduleDwells,RadarGuidance,RadarFriendlyReports,RadarMissileFusion,Count}
+        public enum SystemId {Driver,RadarPhysics,RadarPresentation,AI,Projectile,Weapons,WeaponPresentation,Identity,Fleet,Telemetry,AiInventory,AiTargetSelection,WeaponInventory,FleetRange,Hud,PlayerHud,Plume,EquipmentAnimation,PlayerUpdate,PlayerLate,SensorRadarTick,SensorTracking,SensorEsm,SensorDataLink,SensorOptics,SensorTelemetry,SceneSync,TrackPredict,TrackObservation,TrackBatchPlan,TrackAssociate,TrackLifecycle,RadarEoCue,RadarValidateStt,RadarScheduleDwells,RadarGuidance,RadarFriendlyReports,RadarMissileFusion,MissileFusionCompute,Count}
         public struct Reading {public long Calls;public double Milliseconds,MaximumMilliseconds;}
         static readonly long[] calls=new long[(int)SystemId.Count],ticks=new long[(int)SystemId.Count],maximum=new long[(int)SystemId.Count];
         static readonly string[] labels=System.Enum.GetNames(typeof(SystemId));

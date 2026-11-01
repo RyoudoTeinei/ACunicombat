@@ -30,20 +30,41 @@ namespace ACunicombat.Mechs
             for(int i=0;i<3;i++){state.P[i,i]+=4;state.P[i+3,i+3]+=25;}
             Cmkf.PredictCv(ref state,math.max(0,now-t.LastPredictTime),4,16);return state;
         }
+        // A radar track eligible to be authenticated by a report, with its prediction to 'now'.
+        private static bool Eligible(in TrackSnapshot radar,double now,out FilterState a)
+        {
+            a=default;
+            if(!Fresh(radar,now)||radar.Lifecycle==TrackLifecycle.Tentative||radar.ObjectClass==TrackObjectClass.Missile||radar.ObjectClass==TrackObjectClass.Decoy)return false;
+            if(radar.Affiliation==TrackAffiliation.Hostile&&radar.IdentityConfidence>=.9f)return false;
+            a=Predict(radar,now);
+            if(!Cmkf.Healthy(a))return false;
+            // An almost unconstrained radar return cannot authenticate an arbitrary nearby actor.
+            return !(a.P[0,0]+a.P[1,1]+a.P[2,2]>3*5000.0*5000.0);
+        }
         private static double Score(in TrackSnapshot radar,in TrackSnapshot report,double now)
         {
-            if(!Fresh(radar,now)||radar.Lifecycle==TrackLifecycle.Tentative||radar.ObjectClass==TrackObjectClass.Missile||radar.ObjectClass==TrackObjectClass.Decoy)return double.PositiveInfinity;
-            if(radar.Affiliation==TrackAffiliation.Hostile&&radar.IdentityConfidence>=.9f)return double.PositiveInfinity;
-            var a=Predict(radar,now);var b=Predict(report,now);
-            if(!Cmkf.Healthy(a)||!Cmkf.Healthy(b))return double.PositiveInfinity;
-            // An almost unconstrained radar return cannot authenticate an arbitrary nearby actor.
-            if(a.P[0,0]+a.P[1,1]+a.P[2,2]>3*5000.0*5000.0)return double.PositiveInfinity;
+            if(!Eligible(radar,now,out var a))return double.PositiveInfinity;
+            var b=Predict(report,now);
+            return Cmkf.Healthy(b)?Score(in a,in b):double.PositiveInfinity;
+        }
+        /// <summary>Gated position+velocity NIS between two predicted states.</summary>
+        private static double Score(in FilterState a,in FilterState b)
+        {
             if(!Cmkf.TryCalculatePositionInnovationNis(a,b.Position,b.P,out double positionNis))return double.PositiveInfinity;
             var av=new FilterState{Position=a.Velocity};var bv=new Matrix6();
             for(int i=0;i<3;i++)for(int j=0;j<3;j++){av.P[i,j]=a.P[i+3,j+3];bv[i,j]=b.P[i+3,j+3];}
             if(!Cmkf.TryCalculatePositionInnovationNis(av,b.Velocity,bv,out double velocityNis))return double.PositiveInfinity;
             double sum=positionNis+velocityNis;return sum<=Gate?sum:double.PositiveInfinity;
         }
+        private double[] scores=new double[0];
+        private FilterState[] radarPredicted=new FilterState[0];
+        private bool[] radarEligible=new bool[0];
+        private void EnsureScratch(int reportCount,int radarCount)
+        {
+            if(scores.Length<reportCount*radarCount)scores=new double[System.Math.Max(64,reportCount*radarCount*2)];
+            if(radarPredicted.Length<radarCount){radarPredicted=new FilterState[radarCount*2];radarEligible=new bool[radarCount*2];}
+        }
+        private int IndexOfReport(TrackId id){for(int i=0;i<reports.Count;i++)if(reports[i].TrackId.Equals(id))return i;return -1;}
         public void Update(TrackSnapshot[] local,int count,IReadOnlyList<TrackSnapshot> received,double now)
         {
             contacts.Clear();reports.Clear();decisions.Clear();
@@ -52,18 +73,28 @@ namespace ACunicombat.Mechs
             {
                 if(!Fresh(report,now)||report.ObjectClass!=TrackObjectClass.AirVehicle||report.Affiliation!=TrackAffiliation.Friendly||
                     report.IdentityConfidence<.9f||(report.SourceMask&TrackSourceMask.DataLink)==0)continue;
-                int existing=reports.FindIndex(x=>x.TrackId.Equals(report.TrackId));
+                int existing=IndexOfReport(report.TrackId);
                 if(existing<0)reports.Add(report);else if(report.LastUpdateTime>reports[existing].LastUpdateTime)reports[existing]=report;
             }
-            obsolete.Clear();foreach(var key in history.Keys)if(!reports.Exists(x=>x.TrackId.Equals(key)))obsolete.Add(key);
+            obsolete.Clear();foreach(var key in history.Keys)if(IndexOfReport(key)<0)obsolete.Add(key);
             foreach(var key in obsolete)history.Remove(key);
-            var matched=new bool[reports.Count];
+            // Every (report, radar) score is needed for best/second and again for the
+            // cross-report uniqueness test: predict each state once and score each pair once.
+            int reportCount=reports.Count;
+            EnsureScratch(reportCount,count);
+            for(int i=0;i<count;i++)radarEligible[i]=Eligible(local[i],now,out radarPredicted[i]);
+            for(int j=0;j<reportCount;j++)
+            {
+                var b=Predict(reports[j],now);bool healthy=Cmkf.Healthy(b);
+                for(int i=0;i<count;i++)scores[j*count+i]=healthy&&radarEligible[i]?Score(in radarPredicted[i],in b):double.PositiveInfinity;
+            }
+            var matched=new bool[reportCount];
             for(int j=0;j<reports.Count;j++)
             {
                 int best=-1;double score=double.PositiveInfinity,second=double.PositiveInfinity;
-                for(int i=0;i<count;i++){double candidate=Score(local[i],reports[j],now);if(candidate<score){second=score;score=candidate;best=i;}else if(candidate<second)second=candidate;}
+                for(int i=0;i<count;i++){double candidate=scores[j*count+i];if(candidate<score){second=score;score=candidate;best=i;}else if(candidate<second)second=candidate;}
                 bool unique=best>=0 && second-score>=AmbiguityMargin;
-                if(unique)for(int other=0;other<reports.Count;other++)if(other!=j && Score(local[best],reports[other],now)<score+AmbiguityMargin){unique=false;break;}
+                if(unique)for(int other=0;other<reports.Count;other++)if(other!=j && scores[other*count+best]<score+AmbiguityMargin){unique=false;break;}
                 if(!history.TryGetValue(reports[j].TrackId,out var state)){state=new History();history.Add(reports[j].TrackId,state);}
                 if(!unique){state.Radar=default;state.Confirmations=0;decisions.Add($"{reports[j].TrackId}: {(best<0?"outside_gate":"ambiguous")}");continue;}
                 if(!state.Radar.Equals(local[best].TrackId)){state.Radar=local[best].TrackId;state.Confirmations=0;state.ReportTime=-1;state.RadarTime=-1;}

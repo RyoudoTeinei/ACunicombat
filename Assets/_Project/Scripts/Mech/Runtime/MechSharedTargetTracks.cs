@@ -36,30 +36,48 @@ namespace ACunicombat.Mechs
             if(old==null){if(reports.Count>=128)return false;old=new Entry{Local=new TrackId(new Handle(next++,1))};reports[key]=old;}
             old.Track=track;return true;
         }
+        readonly List<(uint,uint)> stale=new(),orderedKeys=new();
+        readonly List<Entry> groupEntries=new();
+        double3[] localPosition=new double3[0];double3x3[] localCovariance=new double3x3[0];
         public int Merge(TrackSnapshot[] output,int count,double now)
         {
-            foreach(var key in reports.Where(p=>now-p.Value.Track.LastUpdateTime>2).Select(p=>p.Key).ToArray())reports.Remove(key);
+            stale.Clear();foreach(var p in reports)if(now-p.Value.Track.LastUpdateTime>2)stale.Add(p.Key);
+            foreach(var key in stale)reports.Remove(key);
+            // Sender-ascending, then track-ascending: the same order as the former OrderBy/GroupBy.
+            orderedKeys.Clear();foreach(var key in reports.Keys)orderedKeys.Add(key);orderedKeys.Sort();
+            // Predictions of the published contacts are reused for every report row; those
+            // contacts only change after their own group has been assigned (see below).
+            if(localPosition.Length<output.Length){localPosition=new double3[output.Length];localCovariance=new double3x3[output.Length];}
+            int predicted=0;
             // A sender has already resolved its distinct tracks. They must not be
             // collapsed into each other while processing that sender's report batch.
             // Different observers may corroborate the same public contact.
-            foreach(var group in reports.OrderBy(p=>p.Key.Item1).ThenBy(p=>p.Key.Item2).GroupBy(p=>p.Key.Item1))
+            for(int start=0;start<orderedKeys.Count;)
             {
-                var entries=group.Select(p=>p.Value).ToArray();int priorCount=count;
-                var costs=new double[entries.Length,priorCount];
-                for(int row=0;row<entries.Length;row++)for(int i=0;i<priorCount;i++)
+                uint sender=orderedKeys[start].Item1;int end=start;groupEntries.Clear();
+                while(end<orderedKeys.Count&&orderedKeys[end].Item1==sender){groupEntries.Add(reports[orderedKeys[end]]);end++;}
+                start=end;
+                var entries=groupEntries;int priorCount=count;
+                for(;predicted<priorCount;predicted++){localPosition[predicted]=output[predicted].PredictPosition(now);localCovariance[predicted]=output[predicted].PredictPositionCovariance(now);}
+                var costs=new double[entries.Count,priorCount];
+                for(int row=0;row<entries.Count;row++)
                 {
-                    costs[row,i]=OneToOneAssignment.Rejected;var remote=entries[row].Track;
+                var remote=entries[row].Track;var remotePosition=remote.PredictPosition(now);var remoteCovariance=remote.PredictPositionCovariance(now);
+                for(int i=0;i<priorCount;i++)
+                {
+                    costs[row,i]=OneToOneAssignment.Rejected;
                     var local=output[i];if(local.ObjectClass!=TrackObjectClass.AirVehicle)continue;
-                    var delta=remote.PredictPosition(now)-local.PredictPosition(now);
-                    var covariance=remote.PredictPositionCovariance(now)+local.PredictPositionCovariance(now)+double3x3.identity*4;
+                    var delta=remotePosition-localPosition[i];
+                    var covariance=remoteCovariance+localCovariance[i]+double3x3.identity*4;
                     double det=math.determinant(covariance);if(!double.IsFinite(det)||det<=1e-9)continue;
                     double score=math.dot(delta,math.mul(math.inverse(covariance),delta));
                     double velocityVariance=25;for(int axis=0;axis<3;axis++)velocityVariance+=remote.GetCovariance(axis+3,axis+3)+local.GetCovariance(axis+3,axis+3);
                     score+=math.lengthsq(remote.Velocity-local.Velocity)/math.max(25,velocityVariance);
                     if(double.IsFinite(score)&&score<=11.345)costs[row,i]=score;
                 }
+                }
                 var assignment=OneToOneAssignment.Solve(costs,4,out _);
-                for(int row=0;row<entries.Length;row++)
+                for(int row=0;row<entries.Count;row++)
                 {
                 var e=entries[row];var remote=e.Track;int match=assignment[row];
                 if(match<0&&count>=output.Length)continue;
@@ -82,7 +100,8 @@ namespace ACunicombat.Mechs
                     bool duplicate=false;for(int i=0;i<count;i++)if(output[i].TrackId.Packed==result.TrackId.Packed){duplicate=true;break;}
                     if(duplicate)continue;
                 }
-                output[match>=0?match:count++]=result;
+                if(match>=0){output[match]=result;localPosition[match]=result.PredictPosition(now);localCovariance[match]=result.PredictPositionCovariance(now);}
+                else output[count++]=result;
                 }
             }
             return count;

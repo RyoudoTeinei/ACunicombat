@@ -25,7 +25,6 @@ namespace ACunicombat.Mechs
         private readonly MechSharedTargetTracks sharedTargets=new();
         private readonly EmissionEvent[] outgoingEmissions=new EmissionEvent[64];
         private readonly TrackSnapshot[] outgoingTargets=new TrackSnapshot[MechRadarController.MaximumPublicTracks];
-        private readonly TrackSnapshot[] lookupTargets=new TrackSnapshot[MechRadarController.MaximumPublicTracks];
         private readonly TrackSnapshot[] publishedTargets=new TrackSnapshot[MechRadarController.MaximumPublicTracks];
         private int publishedCount,publishedReports=-1;
         private ulong publishedRevision=ulong.MaxValue;
@@ -81,13 +80,22 @@ namespace ACunicombat.Mechs
         }
         public int CopyFusedTracks(TrackSnapshot[] output)
         {
-            RefreshFusion();if(radar==null)return 0;
-            if(publishedTime!=fusedTime||publishedRevision!=fusedRevision||publishedReports!=reportRevision)
-            {publishedCount=sharedTargets.Merge(publishedTargets,fusion.CopyTo(publishedTargets),radar.SimTimeSeconds);publishedTime=fusedTime;publishedRevision=fusedRevision;publishedReports=reportRevision;}
+            EnsurePublished();if(radar==null)return 0;
             int count=Math.Min(output.Length,publishedCount);Array.Copy(publishedTargets,output,count);return count;
         }
+        // Single-track lookup searches the published set in place. Copying every (large)
+        // snapshot first made each lookup ~1 ms in crowded scenes; the result is identical.
         public bool TryGetFusedTrack(TrackId id,out TrackSnapshot track)
-        {var output=lookupTargets;int count=CopyFusedTracks(output);for(int i=0;i<count;i++)if(output[i].TrackId.Equals(id)){track=output[i];return true;}track=default;return false;}
+        {
+            EnsurePublished();if(radar!=null)for(int i=0;i<publishedCount;i++)if(publishedTargets[i].TrackId.Equals(id)){track=publishedTargets[i];return true;}
+            track=default;return false;
+        }
+        private void EnsurePublished()
+        {
+            RefreshFusion();if(radar==null)return;
+            if(publishedTime!=fusedTime||publishedRevision!=fusedRevision||publishedReports!=reportRevision)
+            {publishedCount=sharedTargets.Merge(publishedTargets,fusion.CopyTo(publishedTargets),radar.SimTimeSeconds);publishedTime=fusedTime;publishedRevision=fusedRevision;publishedReports=reportRevision;}
+        }
         public bool IdentifiesFriendly(in TrackSnapshot track)=>TryGetFusedTrack(track.TrackId,out var fused)&&fused.Affiliation==TrackAffiliation.Friendly;
         private void LateUpdate()
         {

@@ -983,6 +983,7 @@ namespace ACunicombat.Mechs
                 return;
             }
 
+            using var fusionScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.MissileFusionCompute);
             var trackCount = CopyRawTracks(trackScratch);
             PruneRetiredFriendlyMissileTracks(trackCount);
             var threatCount = CopyThreats(threatScratch);
