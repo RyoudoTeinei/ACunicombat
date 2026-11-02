@@ -59,10 +59,12 @@ namespace ACunicombat.Mechs
         private double[] scores=new double[0];
         private FilterState[] radarPredicted=new FilterState[0];
         private bool[] radarEligible=new bool[0];
+        private FilterState[] reportPredicted=new FilterState[0];private bool[] reportHealthy=new bool[0];
         private void EnsureScratch(int reportCount,int radarCount)
         {
             if(scores.Length<reportCount*radarCount)scores=new double[System.Math.Max(64,reportCount*radarCount*2)];
             if(radarPredicted.Length<radarCount){radarPredicted=new FilterState[radarCount*2];radarEligible=new bool[radarCount*2];}
+            if(reportPredicted.Length<reportCount){reportPredicted=new FilterState[Math.Max(8,reportCount*2)];reportHealthy=new bool[reportPredicted.Length];}
         }
         private int IndexOfReport(TrackId id){for(int i=0;i<reports.Count;i++)if(reports[i].TrackId.Equals(id))return i;return -1;}
         public void Update(TrackSnapshot[] local,int count,IReadOnlyList<TrackSnapshot> received,double now)
@@ -83,11 +85,9 @@ namespace ACunicombat.Mechs
             int reportCount=reports.Count;
             EnsureScratch(reportCount,count);
             for(int i=0;i<count;i++)radarEligible[i]=Eligible(local[i],now,out radarPredicted[i]);
-            for(int j=0;j<reportCount;j++)
-            {
-                var b=Predict(reports[j],now);bool healthy=Cmkf.Healthy(b);
-                for(int i=0;i<count;i++)scores[j*count+i]=healthy&&radarEligible[i]?Score(in radarPredicted[i],in b):double.PositiveInfinity;
-            }
+            for(int j=0;j<reportCount;j++){reportPredicted[j]=Predict(reports[j],now);reportHealthy[j]=Cmkf.Healthy(reportPredicted[j]);}
+            // Burst batch with the same per-pair arithmetic as Score(in FilterState,in FilterState).
+            CmkfBurst.PairNisScores(radarPredicted,radarEligible,count,reportPredicted,reportHealthy,reportCount,Gate,scores);
             var matched=new bool[reportCount];
             for(int j=0;j<reports.Count;j++)
             {

@@ -140,7 +140,9 @@ public static class MechStressReview
                 Time.captureDeltaTime = 1f / 60f;
                 SimulationCostProbe.Reset(); SimulationCostProbe.Enabled = true;
                 ACunicombat.Simulation.Driver.SimulationDriver.ParallelTracking = Arg("-stressSerialTracking", "0") != "1";
-                File.AppendAllText(dir + "/scope.txt", $"ParallelTracking={ACunicombat.Simulation.Driver.SimulationDriver.ParallelTracking}; graphics={SystemInfo.graphicsDeviceType}\n");
+                ACunicombat.Tracking.CmkfBurst.Enabled = Arg("-stressBurst", "1") != "0";
+                ACunicombat.Tracking.CmkfBurst.PairScoresEnabled = Arg("-stressBurst", "1") != "2";
+                File.AppendAllText(dir + "/scope.txt", $"ParallelTracking={ACunicombat.Simulation.Driver.SimulationDriver.ParallelTracking}; burst={ACunicombat.Tracking.CmkfBurst.Enabled}; graphics={SystemInfo.graphicsDeviceType}\n");
                 costs = new StreamWriter(dir + "/system-costs.jsonl");
                 frames = new StreamWriter(dir + "/frames.jsonl");
                 started = Time.timeAsDouble; nextSample = started + 1; wallStarted = EditorApplication.timeSinceStartup;
@@ -219,15 +221,19 @@ public static class MechStressReview
         var stack = new List<(string path, int end)>();
         for (int frame = UnityEditorInternal.ProfilerDriver.firstFrameIndex; frame <= UnityEditorInternal.ProfilerDriver.lastFrameIndex; frame++)
         {
-            using var view = UnityEditorInternal.ProfilerDriver.GetRawFrameDataView(frame, 0);
-            if (view == null || !view.valid) continue;
-            frameCount++;
+          frameCount++;
+          // Every profiled thread: worker-thread allocations (trackers, prewarm) count too.
+          for (int thread = 0; thread < 64; thread++)
+          {
+            using var view = UnityEditorInternal.ProfilerDriver.GetRawFrameDataView(frame, thread);
+            if (view == null || !view.valid) { if (thread > 0) break; continue; }
+            var threadName = thread == 0 ? "" : "[" + view.threadName + "] ";
             // Samples are stored depth-first; each carries its descendant count.
             stack.Clear();
             for (int i = 0; i < view.sampleCount; i++)
             {
                 while (stack.Count > 0 && i > stack[^1].end) stack.RemoveAt(stack.Count - 1);
-                var name = view.GetSampleName(i);
+                var name = view.GetSampleName(i) ?? "?";
                 if (name == "GC.Alloc")
                 {
                     long bytes = view.GetSampleMetadataCount(i) > 0 ? view.GetSampleMetadataAsLong(i, 0) : 0;
@@ -243,6 +249,7 @@ public static class MechStressReview
                         if (frames.Count == 3) break;
                     }
                     if (frames.Count > 0) owner = string.Join(" < ", frames);
+                    owner = threadName + owner;
                     totals[owner] = (totals.TryGetValue(owner, out var t) ? t : 0) + bytes;
                 }
                 var parent = stack.Count > 0 ? stack[^1].path : "";
@@ -250,6 +257,7 @@ public static class MechStressReview
                 var parts = (parent.Length == 0 ? name : parent + " > " + name).Split(" > ");
                 stack.Add((string.Join(" > ", parts.Skip(System.Math.Max(0, parts.Length - 4))), i + view.GetSampleChildrenCountRecursive(i)));
             }
+          }
         }
         File.WriteAllLines(dir + "/gc-alloc.tsv", totals.OrderByDescending(p => p.Value).Take(120).Select(p => $"{p.Value / System.Math.Max(1, frameCount):F0}	{p.Key}").Prepend($"frames={frameCount}"));
     }

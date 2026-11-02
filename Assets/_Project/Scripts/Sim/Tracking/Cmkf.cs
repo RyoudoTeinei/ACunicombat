@@ -38,6 +38,11 @@ namespace ACunicombat.Tracking
         /// <summary>常速度模型预测：x' = x + v·dt；P' = FPFᵀ + Q（Q 对角，按机动档位）。</summary>
         public static void PredictCv(ref FilterState s, double dt, double qPosition, double qVelocity, bool integrateAccelerationNoise = false)
         {
+            if(CmkfBurst.Enabled){CmkfBurst.PredictCv(ref s,dt,qPosition,qVelocity,integrateAccelerationNoise);return;}
+            PredictCvManaged(ref s,dt,qPosition,qVelocity,integrateAccelerationNoise);
+        }
+        internal static void PredictCvManaged(ref FilterState s, double dt, double qPosition, double qVelocity, bool integrateAccelerationNoise)
+        {
             s.Position += s.Velocity * dt;
             s.Time += dt;
 
@@ -119,6 +124,8 @@ namespace ACunicombat.Tracking
             TryUpdatePosition(ref s,z,r3x3);
         }
         public static bool TryUpdatePosition(ref FilterState s,double3 z,in Matrix6 r3x3)
+            =>CmkfBurst.Enabled?CmkfBurst.TryUpdatePosition(ref s,in z,in r3x3):TryUpdatePositionManaged(ref s,z,r3x3);
+        internal static bool TryUpdatePositionManaged(ref FilterState s,double3 z,in Matrix6 r3x3)
         {
             if(!math.all(math.isfinite(z))||!ValidCovariance(r3x3,3)||!Healthy(s))return false;
             var candidate=s;
@@ -127,6 +134,8 @@ namespace ACunicombat.Tracking
             s=candidate;return true;
         }
         public static bool TryUpdateRadarPosition(ref FilterState state,double3 observer,float range,float3 direction,float rangeVariance,float angleVariance)
+            =>CmkfBurst.Enabled?CmkfBurst.TryUpdateRadarPosition(ref state,in observer,range,in direction,rangeVariance,angleVariance):TryUpdateRadarPositionManaged(ref state,observer,range,direction,rangeVariance,angleVariance);
+        internal static bool TryUpdateRadarPositionManaged(ref FilterState state,double3 observer,float range,float3 direction,float rangeVariance,float angleVariance)
         {
             // Relinearize the curved range/bearing observation after a large angular
             // correction. Every candidate starts from the SAME prior: this is one
@@ -140,13 +149,13 @@ namespace ACunicombat.Tracking
             if(math.dot(priorLos,observedLos)<math.cos(.35)||positionVariance>.25*range*range)
             {
                 ConvertMeasurement(observer,range,direction,rangeVariance,angleVariance,out var observed,out var noise);
-                return TryUpdatePosition(ref state,observed,noise);
+                return TryUpdatePositionManaged(ref state,observed,noise);
             }
             for(int iteration=0;iteration<6;iteration++)
             {
                 BuildSphericalInnovation(linearization,observer,range,direction,rangeVariance,angleVariance,out var position,out var covariance);
                 var candidate=prior;
-                if(!TryUpdatePosition(ref candidate,position,covariance))return false;
+                if(!TryUpdatePositionManaged(ref candidate,position,covariance))return false;
                 double change=math.distance(candidate.Position,linearization.Position);
                 result=candidate;linearization=candidate;
                 if(change<1e-5)break;
@@ -154,12 +163,20 @@ namespace ACunicombat.Tracking
             state=result;return true;
         }
 
+        /// <summary>Radar range/bearing (+ Doppler) update; compiled with Burst when available (see CmkfBurst).</summary>
         public static bool TryUpdateRadarMeasurement(ref FilterState state,double3 observer,double3 observerVelocity,
             float range,float3 direction,float rangeVariance,float angleVariance,float radialVelocity,float velocityVariance)
         {
+            if(CmkfBurst.Enabled)return CmkfBurst.TryUpdateRadarMeasurement(ref state,in observer,in observerVelocity,range,in direction,rangeVariance,angleVariance,radialVelocity,velocityVariance);
+            return TryUpdateRadarMeasurementManaged(ref state,observer,observerVelocity,range,direction,rangeVariance,angleVariance,radialVelocity,velocityVariance);
+        }
+
+        internal static bool TryUpdateRadarMeasurementManaged(ref FilterState state,double3 observer,double3 observerVelocity,
+            float range,float3 direction,float rangeVariance,float angleVariance,float radialVelocity,float velocityVariance)
+        {
             var candidate=state;
-            if(!TryUpdateRadarPosition(ref candidate,observer,range,direction,rangeVariance,angleVariance))return false;
-            if(float.IsFinite(radialVelocity) && !TryUpdateRadarDoppler(ref candidate,observer,observerVelocity,
+            if(!TryUpdateRadarPositionManaged(ref candidate,observer,range,direction,rangeVariance,angleVariance))return false;
+            if(float.IsFinite(radialVelocity) && !TryUpdateRadarDopplerManaged(ref candidate,observer,observerVelocity,
                 radialVelocity,math.max(velocityVariance,1e-3f)))return false;
             state=candidate;return true;
         }
@@ -355,6 +372,12 @@ namespace ACunicombat.Tracking
         public static void UpdateRadialVelocity(
             ref FilterState s, float3 direction, float measuredRadialVelocity, float velocityVar)
         {
+            if(CmkfBurst.Enabled){CmkfBurst.UpdateRadialVelocity(ref s,in direction,measuredRadialVelocity,velocityVar);return;}
+            UpdateRadialVelocityManaged(ref s,direction,measuredRadialVelocity,velocityVar);
+        }
+        internal static void UpdateRadialVelocityManaged(
+            ref FilterState s, float3 direction, float measuredRadialVelocity, float velocityVar)
+        {
             if(!math.all(math.isfinite(direction))||math.lengthsq(direction)<1e-12f||!float.IsFinite(measuredRadialVelocity)||!float.IsFinite(velocityVar)||velocityVar<=0)return;
             var candidate=s;
             UpdateRadialVelocityCandidate(ref candidate,direction,measuredRadialVelocity,velocityVar);
@@ -366,6 +389,8 @@ namespace ACunicombat.Tracking
             =>TryUpdateRadarDoppler(ref state,observerPosition,observerVelocity,measured,variance);
 
         public static bool TryUpdateRadarDoppler(ref FilterState state,double3 observerPosition,double3 observerVelocity,float measured,float variance)
+            =>CmkfBurst.Enabled?CmkfBurst.TryUpdateRadarDoppler(ref state,in observerPosition,in observerVelocity,measured,variance):TryUpdateRadarDopplerManaged(ref state,observerPosition,observerVelocity,measured,variance);
+        internal static bool TryUpdateRadarDopplerManaged(ref FilterState state,double3 observerPosition,double3 observerVelocity,float measured,float variance)
         {
             if(!float.IsFinite(measured)||!float.IsFinite(variance)||variance<=0)return false;
             var relative=state.Position-observerPosition;double range=math.length(relative);if(range<1)return false;
