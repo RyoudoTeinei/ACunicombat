@@ -591,6 +591,7 @@ namespace ACunicombat.Simulation.Driver
 
         private int stepSensorTicks, stepMotionTicks;
         private double roundTickTime;
+        private bool roundParallelA;
         private double stepDt;
 
         private void FixedUpdate()
@@ -636,6 +637,10 @@ namespace ACunicombat.Simulation.Driver
                     if (round >= driver.stepSensorTicks) continue;
                     // Unity time is main-thread only: resolve the tick time here for phase B.
                     driver.roundTickTime = driver.StepTickTime(round);
+                    // Phase A (radar, optics, laser physics) only touches this observer's world.
+                    // It joins the worker phase unless detailed telemetry records its products.
+                    driver.roundParallelA = !driver.DetailedTelemetry;
+                    if (driver.roundParallelA) continue;
                     using var costScope = ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.Driver);
                     driver.SensorTickA(driver.roundTickTime);
                 }
@@ -647,7 +652,11 @@ namespace ACunicombat.Simulation.Driver
                         var driver = stepDrivers[index];
                         if (currentRound >= driver.stepSensorTicks) return;
                         ACunicombat.Simulation.Core.SimulationCostProbe.MarkWorkerThread(true);
-                        try { driver.SensorTickB(driver.roundTickTime); }
+                        try
+                        {
+                            if (driver.roundParallelA) driver.SensorTickA(driver.roundTickTime);
+                            driver.SensorTickB(driver.roundTickTime);
+                        }
                         finally { ACunicombat.Simulation.Core.SimulationCostProbe.MarkWorkerThread(false); }
                     });
                 }
