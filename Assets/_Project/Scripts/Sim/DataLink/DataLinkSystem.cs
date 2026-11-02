@@ -44,7 +44,7 @@ namespace ACunicombat.DataLink
     /// </summary>
     public sealed class DataLinkSystem : IDisposable
     {
-        public const int MaxTerminals = 64;
+        public const int MaxTerminals = 128;
         public const int OutboxCapacity = 256;
         public const int InboxCapacity = 512;
         public const float EstimatedMessageKilobits = 2f;

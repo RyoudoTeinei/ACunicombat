@@ -228,7 +228,7 @@ namespace ACunicombat.Sensors
                     math.radians(0.01f),
                     sensor.BeamWidthRadians) * 0.5f);
             for (var i = 0;
-                 i < targetRegistered.Length &&
+                 i < math.min(targetRegistered.Length, world.EntityCapacityInUse) &&
                  observations.Length < ObservationCapacity;
                  i++)
             {

@@ -13,7 +13,7 @@ namespace ACunicombat.Simulation.World
     /// </summary>
     public sealed class SimWorld : IDisposable
     {
-        public const int MaxEntities = 256;
+        public const int MaxEntities = 512;
 
         private NativeArray<KinematicState> bufferA;
         private NativeArray<KinematicState> bufferB;

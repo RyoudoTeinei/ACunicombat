@@ -175,7 +175,7 @@ namespace ACunicombat.Sensors
             int observationLimit = math.clamp(
                 receiver.TrackCapacity > 0 ? receiver.TrackCapacity : ObservationCapacity,
                 1, ObservationCapacity);
-            for (var i = 0; i < registered.Length; i++)
+            for (int i = 0, end = math.min(registered.Length, world.EntityCapacityInUse); i < end; i++)
             {
                 if (!registered[i] || !world.IsAlive(targets[i].EntityId) ||
                     !world.GetEntityIdAt(i).Equals(targets[i].EntityId)) continue;

@@ -53,7 +53,7 @@ namespace ACunicombat.Simulation.Driver
         public SensorId OpticalReceiverIdentity=>radarIdentities.OpticalReceiver;
         public SensorId LaserRangefinderIdentity=>radarIdentities.LaserRangefinder;
         public LinkTerminalId PrimaryLinkIdentity=>new LinkTerminalId(new Handle(1,1));
-        private readonly DeviceHandleAllocator emitterIdentities=new DeviceHandleAllocator(256);
+        private readonly DeviceHandleAllocator emitterIdentities=new DeviceHandleAllocator(512);
         private readonly System.Collections.Generic.Dictionary<SensorId,EmitterId> sensorEmitters=new System.Collections.Generic.Dictionary<SensorId,EmitterId>();
         private readonly System.Collections.Generic.Dictionary<LinkTerminalId,EmitterId> linkEmitters=new System.Collections.Generic.Dictionary<LinkTerminalId,EmitterId>();
         public EmitterId GetSensorEmitterId(SensorId sensor)
