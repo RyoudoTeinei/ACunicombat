@@ -49,14 +49,13 @@ namespace ACunicombat.Simulation.Driver
         private readonly StringBuilder line = new StringBuilder(2048);
         private char[] lineBuffer = new char[4096];
         private readonly char[] numberBuffer = new char[64];
-        private readonly Dictionary<string, MissileRecordState> missileStates =
-            new Dictionary<string, MissileRecordState>();
-        private readonly Dictionary<string, ThreatRecordState> threatStates =
-            new Dictionary<string, ThreatRecordState>();
-        private readonly Dictionary<string, FriendlyRecordState> friendlyIdentityStates =
-            new Dictionary<string, FriendlyRecordState>();
-        private struct FriendlyRecordState {public string Value;public double Seen;}
-        private readonly List<string> expiredCacheKeys=new List<string>();
+        // De-duplication keys: (recording source, object id). Value tuples instead of the
+        // former "source:id" strings, which were built on every record call.
+        private readonly Dictionary<(string, uint), MissileRecordState> missileStates = new();
+        private readonly Dictionary<(string, uint), ThreatRecordState> threatStates = new();
+        private readonly Dictionary<(string, uint), FriendlyRecordState> friendlyIdentityStates = new();
+        private struct FriendlyRecordState {public FriendlyIdentityResolution Resolution;public uint Associated,Resolved;public double Seen;}
+        private readonly List<(string, uint)> expiredCacheKeys=new();
         private double nextCachePrune;
         public int CachedObservationCount=>missileStates.Count+threatStates.Count+friendlyIdentityStates.Count;
         private void PruneDiagnosticCaches(double now)
@@ -690,8 +689,7 @@ namespace ACunicombat.Simulation.Driver
             lock (writeLock) // Whole record, including de-duplication and JSON construction.
             {
                 if(disposed)return;
-            var key = source + ":" +
-                      threat.ThreatId.Packed.ToString(CultureInfo.InvariantCulture);
+            var key = (source, threat.ThreatId.Packed);
             if ((!includeUnchanged || EventFocusedSnapshots) &&
                 threatStates.TryGetValue(key, out var previous) &&
                 previous.Level == threat.Level &&
@@ -785,7 +783,7 @@ namespace ACunicombat.Simulation.Driver
             lock (writeLock) // Whole record, including de-duplication and JSON construction.
             {
                 if(disposed)return;
-            var key = source + ":" + track.TrackId.Packed.ToString(CultureInfo.InvariantCulture);
+            var key = (source, track.TrackId.Packed);
             var current = new MissileRecordState
             {
                 KinematicUpdateTime = track.KinematicUpdateTime,
@@ -901,12 +899,10 @@ namespace ACunicombat.Simulation.Driver
             lock (writeLock) // Whole record, including de-duplication and JSON construction.
             {
                 if(disposed)return;
-            var key = source + ":" +
-                      sourceTerminal.Packed.ToString(CultureInfo.InvariantCulture);
-            var state = resolution + ":" + associatedTrackId.Packed + ":" +
-                        resolvedTrackId.Packed;
-            bool same=friendlyIdentityStates.TryGetValue(key,out var previous)&&string.Equals(previous.Value,state,StringComparison.Ordinal);
-            friendlyIdentityStates[key]=new FriendlyRecordState{Value=state,Seen=simTime};
+            var key = (source, sourceTerminal.Packed);
+            bool same=friendlyIdentityStates.TryGetValue(key,out var previous)&&previous.Resolution==resolution&&
+                previous.Associated==associatedTrackId.Packed&&previous.Resolved==resolvedTrackId.Packed;
+            friendlyIdentityStates[key]=new FriendlyRecordState{Resolution=resolution,Associated=associatedTrackId.Packed,Resolved=resolvedTrackId.Packed,Seen=simTime};
             if (same)
             {
                 return;

@@ -808,6 +808,10 @@ namespace ACunicombat.Simulation.Driver
                 }
             }
 
+            // 数据链：投递队列中的报文（写链路辐射 + 按物理条件投递）。Only this observer's
+            // world and link state are touched, so it runs with the tracker in phase B; the
+            // emissions are consumed by ESM in phase C as before.
+            dataLink.Tick(tickTime);
         }
 
         internal void SensorTickC(double tickTime)
@@ -817,8 +821,6 @@ namespace ACunicombat.Simulation.Driver
                 telemetry?.RecordLaserObservation(tickTime, telemetrySource, in laser.observation, laser.accepted, laser.nis);
             pendingLaserTelemetry.Clear();
             FlushTrackDiagnostics();
-            // 数据链：投递队列中的报文（写链路辐射 + 按物理条件投递）。
-            dataLink.Tick(tickTime);
             if (DetailedTelemetry)
             {
                 for (var emissionIndex = 0;

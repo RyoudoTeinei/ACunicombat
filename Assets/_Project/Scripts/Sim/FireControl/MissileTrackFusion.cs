@@ -238,9 +238,16 @@ namespace ACunicombat.FireControl
             {
                 // A large bearing error is not a large range error. Preserve the ellipse
                 // so telemetry can distinguish adjacent salvo rounds by measured range.
+                double reportSigma=3.0+300.0*age*age;
+                // NIS >= |d|^2 / largest eigenvalue of S = P + R. Gershgorin bounds that eigenvalue
+                // for any symmetric S, so a pair beyond it cannot pass the gate: skip the inversion.
+                var c=track.PositionCovariance;double r=reportSigma*reportSigma/3.0+1e-9;
+                double o01=math.max(math.abs(c.c1.x),math.abs(c.c0.y)),o02=math.max(math.abs(c.c2.x),math.abs(c.c0.z)),o12=math.max(math.abs(c.c2.y),math.abs(c.c1.z));
+                double row0=c.c0.x+r+o01+o02,row1=c.c1.y+r+o01+o12,row2=c.c2.z+r+o02+o12;
+                double eigenBound=math.max(row0,math.max(row1,row2));
+                if(double.IsFinite(eigenBound)&&eigenBound>0&&double.IsFinite(positionError)&&positionError*positionError>25.0*eigenBound*1.000001)return false;
                 var prior=new FilterState{Position=track.PredictPosition(now)};
                 Matrix6 observationCovariance=default;
-                double reportSigma=3.0+300.0*age*age;
                 for(int row=0;row<3;row++)for(int col=0;col<3;col++)prior.P[row,col]=track.PositionCovariance[col][row];
                 for(int axis=0;axis<3;axis++)observationCovariance[axis,axis]=reportSigma*reportSigma/3.0;
                 if(!Cmkf.TryCalculatePositionInnovationNis(prior,predictedReportPosition,observationCovariance,out var nis)||nis>25)return false;
