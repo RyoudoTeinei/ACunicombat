@@ -1,0 +1,126 @@
+// GPU missile plumes: one particle ring per layer (core, shroud, alumina smoke).
+// CPU uploads the emitter states and a compact spawn list each frame; particles are
+// spawned and advanced here and drawn procedurally by MechGpuPlume.shader.
+#pragma kernel Spawn
+#pragma kernel Advance
+
+struct Emitter
+{
+    float3 position;   // nozzle, world
+    float scale;
+    float3 forward;    // exhaust direction (missile backward), world
+    float burning;     // 1 burning, 0 not emitting, -1 removed
+    float3 up;         // completes the nozzle frame
+    float pad0;
+    float3 previous;   // last frame nozzle position, world (sub-frame emission)
+    float pad1;
+};
+
+struct Particle
+{
+    float3 position;   // local to the nozzle frame (core/shroud) or world (smoke)
+    float age;
+    float3 velocity;   // same space as position
+    float lifetime;    // <= 0: dead
+    float size;
+    uint emitter;
+    float seed;
+    float pad;
+};
+
+struct SpawnRequest
+{
+    uint emitter;
+    uint first;        // first ring index (wraps)
+    uint count;
+    uint prefix;       // exclusive prefix of counts in this dispatch
+};
+
+// Layer constants (one dispatch per layer).
+float4 _Lifetime;      // x=min y=max
+float4 _Speed;         // x=min y=max (multiplied by emitter scale)
+float4 _Size;          // x=min y=max (multiplied by emitter scale)
+float4 _Cone;          // x=tan(half angle) y=radius (times scale) z=worldSpace(0/1)
+uint _Capacity;
+uint _RequestCount;
+uint _TotalSpawn;
+uint _FrameSeed;
+float _DeltaTime;
+
+RWStructuredBuffer<Particle> _Particles;
+StructuredBuffer<Emitter> _Emitters;
+StructuredBuffer<SpawnRequest> _Requests;
+
+float Hash(uint n)
+{
+    n = (n << 13U) ^ n;
+    n = n * (n * n * 15731U + 789221U) + 1376312589U;
+    return float(n & 0x7fffffffU) / float(0x7fffffff);
+}
+
+[numthreads(64, 1, 1)]
+void Spawn(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _TotalSpawn) return;
+    // Binary search the request that owns this spawn index.
+    uint lo = 0, hi = _RequestCount - 1;
+    while (lo < hi)
+    {
+        uint mid = (lo + hi + 1) >> 1;
+        if (_Requests[mid].prefix <= id.x) lo = mid; else hi = mid - 1;
+    }
+    SpawnRequest request = _Requests[lo];
+    uint local = id.x - request.prefix;
+    uint slot = (request.first + local) % _Capacity;
+    Emitter e = _Emitters[request.emitter];
+    uint s = id.x * 9781U + _FrameSeed * 6271U + 17U;
+    float r0 = Hash(s), r1 = Hash(s + 1), r2 = Hash(s + 2), r3 = Hash(s + 3), r4 = Hash(s + 4), r5 = Hash(s + 5), r6 = Hash(s + 6);
+
+    // Shuriken cone: start on a disc of the cone radius, direction spread to the cone angle.
+    float discAngle = r0 * 6.2831853;
+    float discRadius = sqrt(r1);
+    float2 disc = float2(cos(discAngle), sin(discAngle)) * discRadius;
+    float3 localStart = float3(disc * _Cone.y * e.scale, 0);
+    float3 localDirection = normalize(float3(disc * _Cone.x, 1));
+    float speed = lerp(_Speed.x, _Speed.y, r2) * e.scale;
+
+    // Sub-frame emission: this particle was born at fraction f of the frame, so it has
+    // already aged (1-f)*dt and, in world space, left from the nozzle's position then.
+    float f = (local + r6) / request.count;
+    float preAge = (1 - f) * _DeltaTime;
+    Particle p;
+    p.age = preAge;
+    p.lifetime = lerp(_Lifetime.x, _Lifetime.y, r3);
+    p.size = lerp(_Size.x, _Size.y, r4) * e.scale;
+    p.emitter = request.emitter;
+    p.seed = r5;
+    p.pad = r6;
+    if (_Cone.z > 0.5)
+    {
+        float3 right = normalize(cross(e.up, e.forward));
+        float3 up = cross(e.forward, right);
+        float3x3 toWorld = float3x3(right, up, e.forward); // rows
+        p.velocity = mul(localDirection, toWorld) * speed;
+        p.position = lerp(e.previous, e.position, f) + mul(localStart, toWorld) + p.velocity * preAge;
+    }
+    else
+    {
+        p.velocity = localDirection * speed;
+        p.position = localStart + p.velocity * preAge;
+    }
+    _Particles[slot] = p;
+}
+
+[numthreads(64, 1, 1)]
+void Advance(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Capacity) return;
+    Particle p = _Particles[id.x];
+    if (p.lifetime <= 0) return;
+    // The missile was destroyed: like its Shuriken children, every layer goes with it.
+    if (_Emitters[p.emitter].burning < -0.5) { p.lifetime = 0; _Particles[id.x] = p; return; }
+    p.age += _DeltaTime;
+    if (p.age >= p.lifetime) { p.lifetime = 0; _Particles[id.x] = p; return; }
+    p.position += p.velocity * _DeltaTime;
+    _Particles[id.x] = p;
+}
