@@ -294,6 +294,17 @@ namespace ACunicombat.Mechs
 			{
 				engineeringStatus.enabled = false;
 			}
+			// The radar HUD is a player display: on an AI body it ran OnGUI every frame and
+			// drove this radar's designation from the player's camera, reticle and keys.
+			// Disabling it must not change the AI's own radar operation mode.
+			MechRadarHudPresenter radarHud = GetComponent<MechRadarHudPresenter>();
+			if (radarHud != null && radarHud.enabled)
+			{
+				MechRadarController ownRadar = radar != null ? radar : GetComponent<MechRadarController>();
+				bool operationMode = ownRadar != null && ownRadar.TrackOperationMode;
+				radarHud.enabled = false;
+				if (ownRadar != null) ownRadar.SetTrackOperationMode(operationMode);
+			}
 		}
 
 		public void ConfigureActionPlayback(MechActionRegistry registry, IEnumerable<string> maskedUpperBodyBoneNames)
@@ -826,7 +837,8 @@ namespace ACunicombat.Mechs
 
 		private void OnGUI()
 		{
-            if(Event.current==null||Event.current.type!=EventType.Repaint)return;
+            // AI bodies keep this component for animation/flight but draw nothing.
+            if(aiControlled||Event.current==null||Event.current.type!=EventType.Repaint)return;
             using var costScope=ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.PlayerHud);
 			if (MechSolarSystemMap.IsAnyMapVisible || MechAssemblyMenu.IsAnyMenuVisible)
 			{
