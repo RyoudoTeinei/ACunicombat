@@ -27,8 +27,22 @@ namespace ACunicombat.Mechs
   }
   public static string Prefix(IdentityRelation relation)=>relation switch
   {IdentityRelation.Friendly=>"FRD",IdentityRelation.Neutral=>"NEU",IdentityRelation.SuspectedHostile=>"SUS",IdentityRelation.Hostile=>"HOS",_=>"UNK"};
+  // Labels are drawn for every track several times per frame: the derived strings are
+  // memoized (same text); the numbering itself is unchanged.
+  private static readonly Dictionary<string,string> highlighted=new();
   public static string HighlightHostile(string label)
-   =>!string.IsNullOrEmpty(label)&&label.StartsWith("HOS-",StringComparison.Ordinal)?"<color=#FF2E1F>HOS</color>"+label.Substring(3):label;
+  {
+   if(string.IsNullOrEmpty(label)||!label.StartsWith("HOS-",StringComparison.Ordinal))return label;
+   if(!highlighted.TryGetValue(label,out var text)){if(highlighted.Count>4096)highlighted.Clear();highlighted[label]=text="<color=#FF2E1F>HOS</color>"+label.Substring(3);}
+   return text;
+  }
+  private readonly Dictionary<uint,string> trackKeys=new(),missileKeys=new();
+  private readonly Dictionary<Guid,string> memberKeys=new();
+  private readonly Dictionary<(IdentityRelation,long),string> formatted=new();
+  private static string Key(Dictionary<uint,string> cache,string prefix,uint id)
+  {if(!cache.TryGetValue(id,out var key)){if(cache.Count>8192)cache.Clear();cache[id]=key=prefix+id;}return key;}
+  private string Format(IdentityRelation relation,long number)
+  {if(!formatted.TryGetValue((relation,number),out var text))formatted[(relation,number)]=text=Prefix(relation)+"-"+number.ToString("0000");return text;}
   private static IdentityRelation Relation(TrackAffiliation affiliation)=>affiliation switch
   {TrackAffiliation.Friendly=>IdentityRelation.Friendly,TrackAffiliation.Hostile=>IdentityRelation.Hostile,_=>IdentityRelation.Unknown};
   private long Allocate(IdentityRelation relation)
@@ -59,24 +73,25 @@ namespace ACunicombat.Mechs
    if(!track.TrackId.IsValid)return "UNK-—";
    cooperative??=GetComponent<MechCooperativeTelemetry>();
    string alias=null;
-   if(cooperative!=null&&cooperative.TryGetCooperativeMember(radar.Reference(track.TrackId),out var member))alias="member/"+member;
+   if(cooperative!=null&&cooperative.TryGetCooperativeMember(radar.Reference(track.TrackId),out var member))
+   {if(!memberKeys.TryGetValue(member,out alias))memberKeys[member]=alias="member/"+member;}
    var relation=track.Identity.Available?track.Identity.Relation:Relation(track.Affiliation);
-   long number=Number("track/"+track.TrackId.Packed,relation,alias);
-   return Prefix(relation)+"-"+number.ToString("0000");
+   long number=Number(Key(trackKeys,"track/",track.TrackId.Packed),relation,alias);
+   return Format(relation,number);
   }
   public string Label(in MissileTrackSnapshot track)
   {
    if(!track.TrackId.IsValid)return "UNK-—";
-   string alias=track.AssociatedSensorTrackId.IsValid?"track/"+track.AssociatedSensorTrackId.Packed:null;
+   string alias=track.AssociatedSensorTrackId.IsValid?Key(trackKeys,"track/",track.AssociatedSensorTrackId.Packed):null;
    var relation=track.IsFriendly?IdentityRelation.Friendly:Relation(track.Affiliation);
-   long number=Number("missile/"+track.TrackId.Packed,relation,alias);
-   return Prefix(relation)+"-"+number.ToString("0000");
+   long number=Number(Key(missileKeys,"missile/",track.TrackId.Packed),relation,alias);
+   return Format(relation,number);
   }
   public string Label(TrackId id)
   {
    if(!id.IsValid)return "UNK-—";
    if(radar.TryGetTrack(id,out var track))return Label(track);
-   return "UNK-"+Number("track/"+id.Packed).ToString("0000");
+   return "UNK-"+Number(Key(trackKeys,"track/",id.Packed)).ToString("0000");
   }
  }
 }

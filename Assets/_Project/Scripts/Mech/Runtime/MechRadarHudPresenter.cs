@@ -1587,14 +1587,36 @@ namespace ACunicombat.Mechs
         }
 
         private readonly System.Collections.Generic.Dictionary<TrackId,(int frame,bool ready,MechTargetTrackingMode mode)> releaseDisplays=new();
+        private readonly System.Collections.Generic.Dictionary<TrackId,float> releaseRefreshAt=new();
+        // The release check is a full fire-control evaluation (~0.3 ms per track). The label of
+        // the designated / STT target follows every frame; other tracks refresh at 5 Hz,
+        // staggered per track so the evaluations do not land on the same frame.
+        private const float ReleaseLabelRefreshSeconds=.2f;
+        // At most this many background (non-focused) evaluations per frame: when a formation
+        // appears, the new tracks show the search label for a few frames instead of all
+        // running a release flyout in the same frame.
+        private const int ReleaseLabelEvaluationsPerFrame=2;
+        private int releaseEvaluationFrame=-1,releaseEvaluationsThisFrame;
         private string TargetModeLabel(in TrackSnapshot track)
         {
-            if(!releaseDisplays.TryGetValue(track.TrackId,out var display)||display.frame!=Time.frameCount)
+            bool focused=radar!=null&&(track.TrackId.Equals(radar.CandidateTrackId)||track.TrackId.Equals(radar.SttTrackId));
+            bool known=releaseDisplays.TryGetValue(track.TrackId,out var display);
+            bool due=!known||(focused?display.frame!=Time.frameCount:releaseRefreshAt.TryGetValue(track.TrackId,out var refreshAt)&&Time.unscaledTime>=refreshAt);
+            if(due&&!focused)
             {
-                if(releaseDisplays.Count>256)releaseDisplays.Clear();
+                if(releaseEvaluationFrame!=Time.frameCount){releaseEvaluationFrame=Time.frameCount;releaseEvaluationsThisFrame=0;}
+                if(releaseEvaluationsThisFrame>=ReleaseLabelEvaluationsPerFrame)
+                    return known?MechMissileLaunchSource.Label(display.mode,display.ready):MechMissileLaunchSource.Label(MechTargetTrackingMode.Search,false);
+                releaseEvaluationsThisFrame++;
+            }
+            if(due)
+            {
+                if(releaseDisplays.Count>256){releaseDisplays.Clear();releaseRefreshAt.Clear();}
                 var mode=MechTargetTrackingMode.Search;
                 bool ready=weaponSystem!=null&&weaponSystem.CanReleaseMissileAt(track.TrackId,out mode);
+                float stagger=known?0f:(track.TrackId.Packed%7)/7f*ReleaseLabelRefreshSeconds;
                 display=(Time.frameCount,ready,mode);releaseDisplays[track.TrackId]=display;
+                releaseRefreshAt[track.TrackId]=Time.unscaledTime+ReleaseLabelRefreshSeconds+stagger;
             }
             return MechMissileLaunchSource.Label(display.mode,display.ready);
         }

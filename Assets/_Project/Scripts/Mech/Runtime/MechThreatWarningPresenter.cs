@@ -91,6 +91,7 @@ namespace ACunicombat.Mechs
             engineController = GetComponent<MechEngineController>();
             LoadDefaultAudioClips();
             PreloadAudioClips();
+            EnsureTextures();
             oneShotSource = gameObject.AddComponent<AudioSource>();
             oneShotSource.playOnAwake = false;
             oneShotSource.spatialBlend = 0f;
@@ -387,6 +388,30 @@ namespace ACunicombat.Mechs
 
         private void EnsureAssets()
         {
+            EnsureTextures();
+            if (sectorLabelStyle != null)
+            {
+                return;
+            }
+
+            // GUI.skin is only valid inside OnGUI: styles stay lazy, textures are built in Awake.
+            sectorLabelStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 15,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+            };
+            statusStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 18,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+            };
+        }
+
+        /// <summary>Ring, disc and sector-mask textures (built once, at load rather than on the first HUD frame).</summary>
+        private void EnsureTextures()
+        {
             if (ringTexture != null)
             {
                 return;
@@ -408,19 +433,6 @@ namespace ACunicombat.Mechs
             {
                 sectorMaskTextures[sector] = BuildRingMaskTexture(sector);
             }
-
-            sectorLabelStyle = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 15,
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleCenter,
-            };
-            statusStyle = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 18,
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleCenter,
-            };
         }
 
         private void CollectSectorThreats(
