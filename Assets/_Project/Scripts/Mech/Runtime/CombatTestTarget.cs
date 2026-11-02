@@ -76,6 +76,7 @@ namespace ACunicombat.Mechs
         private Collider[] colliders;
         private BoxCollider damageHitbox;
         private MaterialPropertyBlock propertyBlock;
+        private int appliedFlash = -1;
         private Vector3 origin;
         private Quaternion originRotation;
         private float armor;
@@ -334,7 +335,9 @@ namespace ACunicombat.Mechs
                 return;
             }
 
-            ApplyHitFlash(Time.time < flashUntil);
+            var flashing = Time.time < flashUntil;
+            // The block only depends on the flash state: rewrite it on transitions.
+            if (appliedFlash != (flashing ? 1 : 0)) ApplyHitFlash(flashing);
         }
 
         private void FixedUpdate()
@@ -382,6 +385,7 @@ namespace ACunicombat.Mechs
         private void CacheComponents(bool includePartDamageInEditor = false)
         {
             renderers = GetComponentsInChildren<Renderer>(true);
+            appliedFlash = -1;
             EnsureDamageHitbox();
             var runtime = GetComponent<MechRuntimeState>();
             if (enablePartDamage && runtime != null && runtime.AssembledParts.Count > 0 &&
@@ -516,6 +520,7 @@ namespace ACunicombat.Mechs
                 CacheComponents();
             }
 
+            appliedFlash = active ? 1 : 0;
             var emission = active ? new Color(3.5f, 0.25f, 0.08f, 1f) : Color.black;
             for (var i = 0; i < renderers.Length; i++)
             {

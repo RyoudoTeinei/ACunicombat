@@ -22,6 +22,9 @@ namespace ACunicombat.FireControl
         public sealed class OwnLaunchRecord
         {
             public Unity.Collections.FixedString128Bytes KnownModel;public Guid Id;public double3 Position,Velocity;public double Time,LaunchTime;public TrackId Track,ContactId,AssignedTarget;public MissileMissionRole Role;public LinkTerminalId Terminal;
+            private string associationKey;private Guid associationKeyId;
+            // Batch ordering key ("L" + Id:N), built once per launch instead of every evaluation.
+            internal string AssociationKey{get{if(associationKey==null||associationKeyId!=Id){associationKeyId=Id;associationKey="L"+Id.ToString("N");}return associationKey;}}
         }
     // Transport adapters submit authenticated reports; they do not decide contact identity.
     // All association is evaluated against one immutable pre-publication batch.
@@ -82,9 +85,14 @@ namespace ACunicombat.FireControl
         }
         private struct Decision {public int ReportIndex,TrackIndex;public OwnLaunchRecord Own;public double Score;public FriendlyIdentityResolution Resolution;}
         private struct IdentityRow {public int ReportIndex;public OwnLaunchRecord Own;public FriendlyMissileLinkReport Evidence;public FriendlyMissileIdentityAssociation Previous;public string Key;}
+        // Reused per evaluation; the decision list is consumed before the next evaluation.
+        private readonly List<IdentityRow> identityRows=new List<IdentityRow>();private readonly HashSet<Guid> coveredOwnLaunches=new HashSet<Guid>();
+        private readonly List<Decision> identityDecisions=new List<Decision>();
+        private readonly Dictionary<uint,string> reportKeys=new Dictionary<uint,string>();
+        private static readonly Comparison<IdentityRow> RowOrder=(a,b)=>string.CompareOrdinal(a.Key,b.Key);
         private List<Decision> AssociateReports(double now)
         {
-            var rows=new List<IdentityRow>();var coveredOwn=new HashSet<Guid>();
+            var rows=identityRows;rows.Clear();var coveredOwn=coveredOwnLaunches;coveredOwn.Clear();
             for(int i=0;i<Reports.Length;i++)
             {
                 var report=Reports[i];if(!report.Active)continue;
@@ -92,16 +100,16 @@ namespace ACunicombat.FireControl
                 foreach(var local in OwnLaunches.Values)if(local.Terminal.IsValid&&local.Terminal.Equals(report.SourceTerminal)){own=local;coveredOwn.Add(local.Id);break;}
                 var previous=Associations[i];
                 if(!previous.HasTrack&&own!=null&&own.Track.IsValid)previous=new FriendlyMissileIdentityAssociation{TrackId=own.Track,LastAuthenticatedTime=own.Time,LastSupportedTime=own.Time};
-                rows.Add(new IdentityRow{ReportIndex=i,Own=own,Evidence=report,Previous=previous,Key="R"+report.SourceTerminal.Value.Packed.ToString("D10")});
+                rows.Add(new IdentityRow{ReportIndex=i,Own=own,Evidence=report,Previous=previous,Key=ReportKey(report.SourceTerminal.Value.Packed)});
             }
             foreach(var own in OwnLaunches.Values)
             {
                 if(coveredOwn.Contains(own.Id))continue;
-                rows.Add(new IdentityRow{ReportIndex=-1,Own=own,Key="L"+own.Id.ToString("N"),
+                rows.Add(new IdentityRow{ReportIndex=-1,Own=own,Key=own.AssociationKey,
                     Evidence=new FriendlyMissileLinkReport{Active=true,Position=own.Position,Velocity=own.Velocity,StateTimestamp=own.Time,HasLaunchTimestamp=true,LaunchTimestamp=own.LaunchTime},
                     Previous=new FriendlyMissileIdentityAssociation{TrackId=own.Track,LastAuthenticatedTime=own.Time,LastSupportedTime=own.Time}});
             }
-            rows.Sort((a,b)=>string.CompareOrdinal(a.Key,b.Key));
+            rows.Sort(RowOrder);
             int n=rows.Count,m=missileTrackCacheCount;
             var costs=new double[n,m];var scores=new double[n,m];
             for(int r=0;r<n;r++)for(int c=0;c<m;c++)
@@ -117,7 +125,7 @@ namespace ACunicombat.FireControl
             }
             var assignment=OneToOneAssignment.Solve(costs,FriendlyMissileAssociationScoreSeparation,out _);
             var occupied=new bool[m];foreach(int index in assignment)if(index>=0)occupied[index]=true;
-            var result=new List<Decision>(n);
+            var result=identityDecisions;result.Clear();
             for(int r=0;r<n;r++)
             {
                 var row=rows[r];int index=row.ReportIndex,selected=assignment[r];var report=row.Evidence;var association=row.Previous;
@@ -150,6 +158,11 @@ namespace ACunicombat.FireControl
                 result.Add(decision);
             }
             return result;
+        }
+        private string ReportKey(uint packed)
+        {
+            if(!reportKeys.TryGetValue(packed,out var key)){if(reportKeys.Count>=1024)reportKeys.Clear();key="R"+packed.ToString("D10");reportKeys[packed]=key;}
+            return key;
         }
         private void ApplyLocalDecision(in Decision decision)
         {

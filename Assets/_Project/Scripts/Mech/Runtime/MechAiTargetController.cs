@@ -60,7 +60,19 @@ namespace ACunicombat.Mechs
         private MechEquipmentWeaponSnapshot[] weaponInstances = new MechEquipmentWeaponSnapshot[8];
         private readonly List<MechEquipmentWeaponSnapshot> equipmentInventory = new();
         private readonly Dictionary<System.Guid, WeaponRuleState> weaponRuleStates = new();
-        private MechFleetController Fleet => GetComponent<MechFleetController>();
+        // Fleet membership can be attached at runtime: a miss is re-queried once per frame.
+        private MechFleetController cachedFleet;private int fleetMissFrame=-1;
+        private MechFleetController Fleet
+        {
+            get
+            {
+                if (cachedFleet != null) return cachedFleet;
+                if (fleetMissFrame == Time.frameCount) return null;
+                cachedFleet = GetComponent<MechFleetController>();
+                if (cachedFleet == null) fleetMissFrame = Time.frameCount;
+                return cachedFleet;
+            }
+        }
         private MechPlayerInputAdapter input;
         private MechPlayerRig rig;
         private MechFlightMotionController motion;

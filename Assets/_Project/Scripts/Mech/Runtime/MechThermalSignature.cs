@@ -437,21 +437,29 @@ namespace ACunicombat.Mechs
             }
         }
 
+        // Shader names never change: remember the comparison per shader instance, and read
+        // the material list into a reused buffer instead of a new array per renderer.
+        private static readonly List<Material> sharedMaterialBuffer = new();
+        private static readonly Dictionary<Shader, bool> approxShaders = new();
         private static bool UsesAc6PartsApproxShader(Renderer renderer)
         {
-            var materials = renderer.sharedMaterials;
-            for (var i = 0; i < materials.Length; i++)
+            renderer.GetSharedMaterials(sharedMaterialBuffer);
+            for (var i = 0; i < sharedMaterialBuffer.Count; i++)
             {
-                var shader = materials[i] != null
-                    ? materials[i].shader
+                var shader = sharedMaterialBuffer[i] != null
+                    ? sharedMaterialBuffer[i].shader
                     : null;
-                if (shader != null &&
-                    shader.name == Ac6PartsApproxShaderName)
+                if (shader == null) continue;
+                if (!approxShaders.TryGetValue(shader, out var approx))
+                    approxShaders[shader] = approx = shader.name == Ac6PartsApproxShaderName;
+                if (approx)
                 {
+                    sharedMaterialBuffer.Clear();
                     return true;
                 }
             }
 
+            sharedMaterialBuffer.Clear();
             return false;
         }
     }

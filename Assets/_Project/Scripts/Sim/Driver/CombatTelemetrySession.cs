@@ -47,6 +47,8 @@ namespace ACunicombat.Simulation.Driver
         private readonly string baseFileName;
         private readonly long maximumFileBytes;
         private readonly StringBuilder line = new StringBuilder(2048);
+        private char[] lineBuffer = new char[4096];
+        private readonly char[] numberBuffer = new char[64];
         private readonly Dictionary<string, MissileRecordState> missileStates =
             new Dictionary<string, MissileRecordState>();
         private readonly Dictionary<string, ThreatRecordState> threatStates =
@@ -295,7 +297,7 @@ namespace ACunicombat.Simulation.Driver
             Number("sensorId", profile.SensorId.Packed);
             Number("emitterId", profile.EmitterId.Packed);
             Number("platformId", profile.PlatformId.Packed);
-            String("capability", profile.Capability.ToString());
+            String("capability", EnumName.Of(profile.Capability));
             Number("maxRangeMeters", profile.MaxRangeMeters);
             Number("frequencyBand", profile.FrequencyBand);
             Number("waveformId", profile.WaveformId);
@@ -469,7 +471,7 @@ namespace ACunicombat.Simulation.Driver
             Number("durationSeconds", dwell.DwellTimeSeconds);
             Vector("beamDirection", dwell.BeamDirection);
             Number("beamWidthRadians", dwell.BeamWidthRadians);
-            String("priority", dwell.Priority.ToString());
+            String("priority", EnumName.Of(dwell.Priority));
             Number("dwellSequence", dwell.Sequence);
             End();
                     }
@@ -486,7 +488,7 @@ namespace ACunicombat.Simulation.Driver
                 if(disposed)return;
             Begin(simTime, source, system, "emission");
             Number("emitterId", emission.EmitterId.Packed);
-            String("emissionType", emission.EmissionType.ToString());
+            String("emissionType", EnumName.Of(emission.EmissionType));
             Number("startTime", emission.StartTime);
             Number("endTime", emission.EndTime);
             Vector("origin", emission.Origin);
@@ -523,9 +525,9 @@ namespace ACunicombat.Simulation.Driver
             Number("velocityVariance", measurement.VelocityVar);
             Number("losRateVariance", measurement.LosRateVar);
             Number("snrDb", measurement.SnrDb);
-            String("objectClass", measurement.ObjectClass.ToString());
+            String("objectClass", EnumName.Of(measurement.ObjectClass));
             Number("classificationConfidence", measurement.ClassificationConfidence);
-            String("flags", measurement.Flags.ToString());
+            String("flags", EnumName.Of(measurement.Flags));
             End();
                     }
         }
@@ -537,13 +539,13 @@ namespace ACunicombat.Simulation.Driver
             lock (writeLock) // Whole record, including de-duplication and JSON construction.
             {
                 if(disposed)return;
-            Begin(diagnostic.Timestamp, source, "radar_tracking", diagnostic.Kind.ToString());
+            Begin(diagnostic.Timestamp, source, "radar_tracking", EnumName.Of(diagnostic.Kind));
             Number("measurementIndex", diagnostic.MeasurementIndex);
             Number("sensorId", diagnostic.SensorId.Packed);
             Number("trackId", diagnostic.TrackId.Packed);
-            String("objectClass", diagnostic.ObjectClass.ToString());
-            String("previousLifecycle", diagnostic.PreviousLifecycle.ToString());
-            String("lifecycle", diagnostic.Lifecycle.ToString());
+            String("objectClass", EnumName.Of(diagnostic.ObjectClass));
+            String("previousLifecycle", EnumName.Of(diagnostic.PreviousLifecycle));
+            String("lifecycle", EnumName.Of(diagnostic.Lifecycle));
             Vector("measurementPosition", diagnostic.MeasurementPosition);
             Vector("trackPosition", diagnostic.TrackPosition);
             Number("normalizedDistanceSquared", diagnostic.NormalizedDistanceSquared);
@@ -570,14 +572,14 @@ namespace ACunicombat.Simulation.Driver
             Vector("position", track.Position);
             Vector("velocity", track.Velocity);
             Number("confidence", track.Confidence);
-            String("objectClass", track.ObjectClass.ToString());
+            String("objectClass", EnumName.Of(track.ObjectClass));
             Number("classification", track.Classification);
-            String("affiliation", track.Affiliation.ToString());
+            String("affiliation", EnumName.Of(track.Affiliation));
             Number("identityConfidence", track.IdentityConfidence);
-            String("lifecycle", track.Lifecycle.ToString());
+            String("lifecycle", EnumName.Of(track.Lifecycle));
             Number("hitCount", track.HitCount);
             Number("coastCount", track.CoastCount);
-            String("sourceMask", track.SourceMask.ToString());
+            String("sourceMask", EnumName.Of(track.SourceMask));
             Number("firstObservationTime", track.FirstObservationTime);
             Number("lastUpdateTime", track.LastUpdateTime);
             Number("lastPredictTime", track.LastPredictTime);
@@ -603,7 +605,7 @@ namespace ACunicombat.Simulation.Driver
             Number("angleVariance", observation.AngleVar);
             Number("apparentDiameterRadians", observation.ApparentDiameterRadians);
             Number("signalMarginDb", observation.SignalMarginDb);
-            String("objectClass", observation.ObjectClass.ToString());
+            String("objectClass", EnumName.Of(observation.ObjectClass));
             Number("classificationConfidence", observation.ClassificationConfidence);
             End();
                     }
@@ -628,7 +630,7 @@ namespace ACunicombat.Simulation.Driver
             Vector("direction", observation.Direction);
             Number("angleVariance", observation.AngleVar);
             Number("signalMarginDb", observation.SignalMarginDb);
-            String("objectClass", observation.ObjectClass.ToString());
+            String("objectClass", EnumName.Of(observation.ObjectClass));
             Number("classificationConfidence", observation.ClassificationConfidence);
             Boolean("refinementAccepted", refinementAccepted);
             Number("normalizedInnovationSquared", normalizedInnovationSquared);
@@ -672,7 +674,7 @@ namespace ACunicombat.Simulation.Driver
             Number("frequencyBand", contact.FrequencyBand);
             Number("waveformId", contact.WaveformId);
             Number("waveformConfidence", contact.WaveformConfidence);
-            String("emissionType", contact.EmissionType.ToString());
+            String("emissionType", EnumName.Of(contact.EmissionType));
             Boolean("isMainlobe", contact.IsMainlobe);
             Number("receivedPowerDb", contact.ReceivedPowerDb);
             End();
@@ -707,8 +709,8 @@ namespace ACunicombat.Simulation.Driver
             Begin(simTime, source, "esm_maw", "threat_snapshot");
             Number("threatId", threat.ThreatId.Packed);
             Vector("direction", threat.DirectionWorld);
-            String("level", threat.Level.ToString());
-            String("waveformClass", threat.WaveformClass.ToString());
+            String("level", EnumName.Of(threat.Level));
+            String("waveformClass", EnumName.Of(threat.WaveformClass));
             Number("frequencyBand", threat.FrequencyBand);
             Number("waveformId", threat.WaveformId);
             Number("illuminationIntervalSeconds", threat.IlluminationIntervalSeconds);
@@ -745,7 +747,7 @@ namespace ACunicombat.Simulation.Driver
             Begin(simTime, source, "data_link", eventName);
             Boolean("accepted", accepted);
             Number("messageSequence", message.Sequence);
-            String("kind", message.Kind.ToString());
+            String("kind", EnumName.Of(message.Kind));
             Number("networkId", message.NetworkId);
             Number("sourceTerminal", message.SourceTerminal.Packed);
             Number("targetTerminal", message.TargetTerminal.Packed);
@@ -768,7 +770,7 @@ namespace ACunicombat.Simulation.Driver
             {
                 if(disposed)return;
             Begin(latestSimTime, "unity", "application", "log");
-            String("level", type.ToString());
+            String("level", EnumName.Of(type));
             String("message", condition ?? string.Empty);
             String("stackTrace", stackTrace ?? string.Empty);
             End();
@@ -822,16 +824,16 @@ namespace ACunicombat.Simulation.Driver
             Number("positionUncertaintyMeters", track.PositionUncertaintyMeters);
             Number("cpaUncertaintyMeters", track.CpaUncertaintyMeters);
             Number("confidence", track.Confidence);
-            String("affiliation", track.Affiliation.ToString());
+            String("affiliation", EnumName.Of(track.Affiliation));
             Number("identityConfidence", track.IdentityConfidence);
-            String("quality", track.Quality.ToString());
+            String("quality", EnumName.Of(track.Quality));
             Boolean("incoming", track.Incoming);
-            String("missionRole", track.MissionRole.ToString());
+            String("missionRole", EnumName.Of(track.MissionRole));
             Number("missionRoleConfidence", track.MissionRoleConfidence);
             String(
                 "missionRoleEvidence",
                 track.MissionRoleEvidence.ToString());
-            String("targetIntent", track.TargetIntent.ToString());
+            String("targetIntent", EnumName.Of(track.TargetIntent));
             Number("targetIntentConfidence", track.TargetIntentConfidence);
             Number("intentOwnshipScore", track.IntentOwnshipScore);
             Number(
@@ -850,7 +852,7 @@ namespace ACunicombat.Simulation.Driver
             Number("suspectedTargetTrackId", track.SuspectedTargetTrackId.Packed);
             Number("timeToCpaSeconds", track.TimeToClosestApproachSeconds);
             Number("closestApproachDistanceMeters", track.ClosestApproachDistanceMeters);
-            String("sourceMask", track.SourceMask.ToString());
+            String("sourceMask", EnumName.Of(track.SourceMask));
             Number("lastEvidenceTime", track.LastEvidenceTime);
             Number("kinematicUpdateTime", track.KinematicUpdateTime);
             End();
@@ -876,7 +878,7 @@ namespace ACunicombat.Simulation.Driver
             Begin(simTime, source, "missile_projectile", eventName);
             String("projectileEntityId", projectileEntityId ?? string.Empty);
             Number("ownerTeamId", ownerTeamId);
-            String("missionRole", missionRole.ToString());
+            String("missionRole", EnumName.Of(missionRole));
             Number("targetTrackId", targetTrackId.Packed);
             String("outcome", outcome ?? string.Empty);
             String("reason", reason ?? string.Empty);
@@ -912,7 +914,7 @@ namespace ACunicombat.Simulation.Driver
 
             Begin(simTime, source, "identity", "friendly_missile_resolution");
             Number("sourceTerminal", sourceTerminal.Packed);
-            String("resolution", resolution.ToString());
+            String("resolution", EnumName.Of(resolution));
             Number("associatedTrackId", associatedTrackId.Packed);
             Number("resolvedTrackId", resolvedTrackId.Packed);
             Number("associationScore", score);
@@ -954,7 +956,7 @@ namespace ACunicombat.Simulation.Driver
             String("productName", Application.productName);
             String("applicationVersion", Application.version);
             String("scene", SceneManager.GetActiveScene().name);
-            String("platform", Application.platform.ToString());
+            String("platform", EnumName.Of(Application.platform));
             String("gitCommit", TryReadGitCommit());
             End();
                     }
@@ -991,7 +993,10 @@ namespace ACunicombat.Simulation.Driver
                 line.Clear();
                 line.Append('{');
                 AppendRawNumber("sequence", ++sequence, false);
-                AppendString("utc", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture), true);
+                // ISO round-trip time contains no characters that need JSON escaping.
+                if (DateTime.UtcNow.TryFormat(numberBuffer, out var utcLength, "O", CultureInfo.InvariantCulture))
+                { line.Append(",\"utc\":\"").Append(numberBuffer, 0, utcLength).Append('"'); }
+                else AppendString("utc", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture), true);
                 AppendRawNumber("simTime", simTime, true);
                 AppendString("source", source, true);
                 AppendString("system", system, true);
@@ -1013,7 +1018,11 @@ namespace ACunicombat.Simulation.Driver
                 {
                     line.Append('}');
                     EnsureCapacity(line.Length + Environment.NewLine.Length);
-                    writer.WriteLine(line.ToString());
+                    // Same text as WriteLine(line.ToString()), without a string per event.
+                    if (lineBuffer.Length < line.Length) lineBuffer = new char[Math.Max(line.Length, lineBuffer.Length * 2)];
+                    line.CopyTo(0, lineBuffer, 0, line.Length);
+                    writer.Write(lineBuffer, 0, line.Length);
+                    writer.WriteLine();
                     if (DateTime.UtcNow >= nextFlushUtc)
                     {
                         writer.Flush();
@@ -1111,6 +1120,7 @@ namespace ACunicombat.Simulation.Driver
             if (double.IsNaN(value)) line.Append("null");
             else if (double.IsPositiveInfinity(value)) line.Append("\"Infinity\"");
             else if (double.IsNegativeInfinity(value)) line.Append("\"-Infinity\"");
+            else if (value.TryFormat(numberBuffer, out var written, "R", CultureInfo.InvariantCulture)) line.Append(numberBuffer, 0, written);
             else line.Append(value.ToString("R", CultureInfo.InvariantCulture));
         }
 
@@ -1219,6 +1229,27 @@ namespace ACunicombat.Simulation.Driver
                 result.Append(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
             }
             return result.ToString();
+        }
+    }
+}
+
+namespace ACunicombat.Simulation.Driver
+{
+    /// <summary>Enum.ToString() cached per value (flag combinations included): same text, no per-event string.</summary>
+    internal static class EnumName
+    {
+        public static string Of<T>(T value) where T : struct, Enum => Cache<T>.Get(value);
+        private static class Cache<T> where T : struct, Enum
+        {
+            private static readonly Dictionary<T, string> names = new Dictionary<T, string>();
+            public static string Get(T value)
+            {
+                lock (names)
+                {
+                    if (!names.TryGetValue(value, out var name)) { name = value.ToString(); if (names.Count < 4096) names[value] = name; }
+                    return name;
+                }
+            }
         }
     }
 }

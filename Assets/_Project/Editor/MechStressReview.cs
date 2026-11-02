@@ -146,6 +146,14 @@ public static class MechStressReview
                 started = Time.timeAsDouble; nextSample = started + 1; wallStarted = EditorApplication.timeSinceStartup;
                 var rigs = UnityEngine.Object.FindObjectsByType<MechPlayerRig>(FindObjectsInactive.Include);
                 File.AppendAllText(dir + "/scope.txt", $"Spawned rigs active={rigs.Count(r => r.gameObject.activeInHierarchy)} total={rigs.Length}; names={string.Join(",", rigs.Select(r => r.name).Take(12))}\n");
+                if (Arg("-stressGcProfile", "0") == "1")
+                {
+                    SimulationCostProbe.BeginSample = name => UnityEngine.Profiling.Profiler.BeginSample(name);
+                    SimulationCostProbe.EndSample = () => UnityEngine.Profiling.Profiler.EndSample();
+                    UnityEditorInternal.ProfilerDriver.ClearAllFrames();
+                    UnityEditorInternal.ProfilerDriver.enabled = true;
+                    UnityEngine.Profiling.Profiler.enableAllocationCallstacks = true;
+                }
                 frameClock.Restart();
                 return;
             }
@@ -200,8 +208,55 @@ public static class MechStressReview
         catch (Exception e) { File.WriteAllText(dir + "/error.txt", e.ToString()); Finish(); }
     }
 
+    // Self GC allocation per sample path (main thread), summed over the frames still in the
+    // profiler buffer. Written to gc-alloc.tsv: bytes per frame, then the call path.
+    static void DumpGcProfile()
+    {
+        if (!UnityEditorInternal.ProfilerDriver.enabled) return;
+        UnityEditorInternal.ProfilerDriver.enabled = false;
+        var dir = SessionState.GetString("MechStress.output", "");
+        var totals = new Dictionary<string, double>(); int frameCount = 0;
+        var stack = new List<(string path, int end)>();
+        for (int frame = UnityEditorInternal.ProfilerDriver.firstFrameIndex; frame <= UnityEditorInternal.ProfilerDriver.lastFrameIndex; frame++)
+        {
+            using var view = UnityEditorInternal.ProfilerDriver.GetRawFrameDataView(frame, 0);
+            if (view == null || !view.valid) continue;
+            frameCount++;
+            // Samples are stored depth-first; each carries its descendant count.
+            stack.Clear();
+            for (int i = 0; i < view.sampleCount; i++)
+            {
+                while (stack.Count > 0 && i > stack[^1].end) stack.RemoveAt(stack.Count - 1);
+                var name = view.GetSampleName(i);
+                if (name == "GC.Alloc")
+                {
+                    long bytes = view.GetSampleMetadataCount(i) > 0 ? view.GetSampleMetadataAsLong(i, 0) : 0;
+                    var owner = stack.Count > 0 ? stack[^1].path : "root";
+                    // With allocation call stacks, attribute to the innermost project frames.
+                    var callstack = new List<ulong>(); view.GetSampleCallstack(i, callstack);
+                    var frames = new List<string>();
+                    foreach (var address in callstack)
+                    {
+                        var method = view.ResolveMethodInfo(address);
+                        if (method.methodName == null || !method.methodName.Contains("ACunicombat")) continue;
+                        frames.Add(method.methodName.Substring(method.methodName.LastIndexOf(':') + 1) + ":" + method.sourceFileLine);
+                        if (frames.Count == 3) break;
+                    }
+                    if (frames.Count > 0) owner = string.Join(" < ", frames);
+                    totals[owner] = (totals.TryGetValue(owner, out var t) ? t : 0) + bytes;
+                }
+                var parent = stack.Count > 0 ? stack[^1].path : "";
+                // Keep only the last four levels so paths stay readable.
+                var parts = (parent.Length == 0 ? name : parent + " > " + name).Split(" > ");
+                stack.Add((string.Join(" > ", parts.Skip(System.Math.Max(0, parts.Length - 4))), i + view.GetSampleChildrenCountRecursive(i)));
+            }
+        }
+        File.WriteAllLines(dir + "/gc-alloc.tsv", totals.OrderByDescending(p => p.Value).Take(120).Select(p => $"{p.Value / System.Math.Max(1, frameCount):F0}	{p.Key}").Prepend($"frames={frameCount}"));
+    }
+
     static void Finish()
     {
+        try { DumpGcProfile(); } catch (Exception e) { File.WriteAllText(SessionState.GetString("MechStress.output", "") + "/gc-error.txt", e.ToString()); }
         costs?.Dispose(); costs = null; frames?.Dispose(); frames = null;
         if (engineRecorders != null) { foreach (var r in engineRecorders) r.Dispose(); engineRecorders = null; }
         gcAllocRecorder.Dispose();

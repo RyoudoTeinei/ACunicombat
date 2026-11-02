@@ -155,7 +155,7 @@ namespace ACunicombat.Mechs
         {
             using var lateProbe=ACunicombat.Simulation.Core.SimulationCostProbe.Measure(ACunicombat.Simulation.Core.SimulationCostProbe.SystemId.LateCoop);
             radar??=GetComponent<MechRadarController>();if(radar?.TelemetryDriver==null)return;
-            driver=radar.TelemetryDriver;var owner=GetComponent<CombatTestTarget>();if(owner==null)return;
+            driver=radar.TelemetryDriver;var owner=MechComponentCache<CombatTestTarget>.Get(this);if(owner==null)return;
             double now=radar.SimTimeSeconds;
             for(int i=peers.Count-1;i>=0;i--)
                 if((peers[i].Body==null||!peers[i].Body.IsAlive)&&now-peers[i].Received.Track.LastUpdateTime>3)
@@ -180,12 +180,12 @@ namespace ACunicombat.Mechs
             foreach(var p in peers)
             {
                 if(p.Body==null||!p.Body.IsAlive||p.Radar==null||!p.Radar.DataLinkTransmitEnabled)continue;
-                var damage=p.Body.GetComponent<MechPartDamageController>();if(damage!=null&&damage.RoleEfficiency(MechPartSlot.DataLinkTerminal)<=0)continue;
-                var state=State(p.Body);var sourceMotion=p.Body.GetComponent<MechFlightMotionController>();
+                var damage=MechComponentCache<MechPartDamageController>.Get(p.Body);if(damage!=null&&damage.RoleEfficiency(MechPartSlot.DataLinkTerminal)<=0)continue;
+                var state=State(p.Body);var sourceMotion=MechComponentCache<MechFlightMotionController>.Get(p.Body);
                 double sampleTime=sourceMotion!=null&&sourceMotion.HasKinematicSample?sourceMotion.KinematicSampleTime:Time.timeAsDouble;
                 double transmitTime=Math.Max(now,Time.timeAsDouble);
                 driver.SetTimedEntityState(p.Lease.Entity,state,sampleTime);
-                var sourceFleet=p.Body.GetComponent<MechFleetController>();var receiverFleet=GetComponent<MechFleetController>();
+                var sourceFleet=MechComponentCache<MechFleetController>.Get(p.Body);var receiverFleet=MechComponentCache<MechFleetController>.Get(this);
                 if(sourceFleet!=null&&receiverFleet!=null&&sourceFleet.Configured&&receiverFleet.Configured)
                 {
                     sourceFleet.CopyOutboundFor(receiverFleet.MemberId,now,fleetPackets);
@@ -197,14 +197,14 @@ namespace ACunicombat.Mechs
                     Position=state.PositionWorld,Velocity=state.VelocityWorld,LastUpdateTime=sampleTime,LastPredictTime=sampleTime,
                     Affiliation=TrackAffiliation.Friendly,IdentityConfidence=1,Confidence=1,ObjectClass=TrackObjectClass.AirVehicle,
                     IsIdentifiedMech=true,SourceMask=TrackSourceMask.DataLink,Lifecycle=TrackLifecycle.Confirmed};
-                var loadout=p.Body.GetComponent<MechRuntimeState>()?.CurrentLoadout;
+                var loadout=MechComponentCache<MechRuntimeState>.Get(p.Body)?.CurrentLoadout;
                 if(loadout!=null){t.IdentifiedWeight=loadout.TacticalWeight;t.IdentifiedRole=loadout.TacticalRole;}
                 t.SourceEvidence.Record(TrackSourceMask.DataLink,1,sampleTime);
                 for(int i=0;i<3;i++){t.SetCovariance(i,i,4);t.SetCovariance(i+3,i+3,25);}
                 driver.SendLinkMessage(new LinkMessage{Kind=LinkMessageKind.TrackShare,NetworkId=0,SourceTerminal=p.Terminal,
                     TargetTerminal=radar.TelemetryTerminal,SendTime=transmitTime,TrackPayload=t});
                 ShareEmissions(p,now,transmitTime);
-                var identity=p.Body.GetComponent<MechIdentityController>();
+                var identity=MechComponentCache<MechIdentityController>.Get(p.Body);
                 // Share only the sender's own sensor observations; never retransmit a
                 // received track as new local evidence and create a feedback loop.
                 int observedCount=p.Radar.CopyLocalSensorTracks(outgoingTargets);
@@ -222,12 +222,12 @@ namespace ACunicombat.Mechs
                 if(identity!=null){identity.CopyBehaviorReports(behaviorReports);for(int reportIndex=Math.Max(0,behaviorReports.Count-4);reportIndex<behaviorReports.Count;reportIndex++)
                     driver.SendLinkMessage(new LinkMessage{Kind=LinkMessageKind.CombatBehaviorReport,NetworkId=0,SourceTerminal=p.Terminal,TargetTerminal=radar.TelemetryTerminal,SendTime=transmitTime,BehaviorPayload=behaviorReports[reportIndex]});}
             }
-            var localDamage=GetComponent<MechPartDamageController>();
+            var localDamage=MechComponentCache<MechPartDamageController>.Get(this);
             if(localDamage!=null&&localDamage.RoleEfficiency(MechPartSlot.DataLinkTerminal)<=0)return;
             int count=driver.CopyLinkInbox(radar.TelemetryTerminal,inbox);
             // Receiver state is constant while this batch is processed: resolve it once, not per
             // message (the full radar status snapshot copied every track for each message).
-            var ownIdentity=count>0?GetComponent<MechIdentityController>():null;
+            var ownIdentity=count>0?MechComponentCache<MechIdentityController>.Get(this):null;
             var ownPosition=(double3)(float3)owner.AimPoint.position;
             var ownVelocity=count>0?radar.OwnshipVelocity:default;
             for(int i=0;i<count;i++)
