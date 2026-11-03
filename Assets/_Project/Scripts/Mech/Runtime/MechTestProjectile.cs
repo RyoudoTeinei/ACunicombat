@@ -538,14 +538,29 @@ namespace ACunicombat.Mechs
 			return false;
 		}
 
+		// GetComponentInParent from the owner, memoized while the owner and its parent are
+		// unchanged (re-resolved if the found body is destroyed).
+		private Transform ownerTargetSource, ownerTargetParent;
+		private CombatTestTarget ownerTarget;
+		private CombatTestTarget OwnerTarget()
+		{
+			var parent = owner != null ? owner.parent : null;
+			if (owner != ownerTargetSource || parent != ownerTargetParent || (ownerTarget == null && !ReferenceEquals(ownerTarget, null)))
+			{
+				ownerTargetSource = owner; ownerTargetParent = parent;
+				ownerTarget = owner != null ? owner.GetComponentInParent<CombatTestTarget>() : null;
+			}
+			return ownerTarget;
+		}
+
 		private bool SharesTeamWith(MechTestProjectile candidate)
 		{
 			if (candidate == null || owner == null || candidate.owner == null)
 			{
 				return false;
 			}
-			CombatTestTarget ownerTarget = owner.GetComponentInParent<CombatTestTarget>();
-			CombatTestTarget candidateOwnerTarget = candidate.owner.GetComponentInParent<CombatTestTarget>();
+			CombatTestTarget ownerTarget = OwnerTarget();
+			CombatTestTarget candidateOwnerTarget = candidate.OwnerTarget();
 			return ownerTarget != null && candidateOwnerTarget != null && ownerTarget.TeamId == candidateOwnerTarget.TeamId;
 		}
 
@@ -2235,7 +2250,9 @@ namespace ACunicombat.Mechs
 			for (int i = 0; i < registry.Count; i++)
 			{
 				MechTestProjectile candidate = registry[i];
-				if (!(candidate == null) && !(candidate == this) && !candidate.IsOwnedBy(owner) && !SharesTeamWith(candidate) && candidate.IsInterceptableMissile)
+				// Same predicates, cheapest first: most registry entries are gun rounds, rejected
+				// by IsInterceptableMissile before the team lookup.
+				if (!(candidate == null) && !(candidate == this) && candidate.IsInterceptableMissile && !candidate.IsOwnedBy(owner) && !SharesTeamWith(candidate))
 				{
 					Vector3 relativePosition = candidate.transform.position - base.transform.position;
 					Vector3 relativeVelocity = candidate.velocity - velocity;
