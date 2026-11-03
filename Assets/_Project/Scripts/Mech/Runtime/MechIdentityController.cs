@@ -19,7 +19,9 @@ namespace ACunicombat.Mechs
         public float BeamWidthDegrees=12;
         [Header("Mission rules (training permits unknown targets)")]
         public bool AllowUnknownPlatformAttack=true;
-        public bool LogDecisions=true;
+        /// <summary>Initial value of LogDecisions for new controllers (development decision log).</summary>
+        public static bool DefaultLogDecisions=true;
+        public bool LogDecisions=DefaultLogDecisions;
         public MechRadarController Radar {get;private set;}
         public IffCredential Credential {get;private set;}
         public bool ReceiverAvailable=>isActiveAndEnabled&&(InterrogatorEnabled||(ResponderEnabled&&ReplyPolicy!=IffReplyPolicy.Off))&&(body==null||body.IsAlive);

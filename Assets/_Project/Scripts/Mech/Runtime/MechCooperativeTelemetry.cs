@@ -180,9 +180,8 @@ namespace ACunicombat.Mechs
             foreach(var p in peers)
             {
                 if(p.Body==null||!p.Body.IsAlive||p.Radar==null||!p.Radar.DataLinkTransmitEnabled)continue;
-                var damage=MechComponentCache<MechPartDamageController>.Get(p.Body);if(damage!=null&&damage.RoleEfficiency(MechPartSlot.DataLinkTerminal)<=0)continue;
-                var state=State(p.Body);var sourceMotion=MechComponentCache<MechFlightMotionController>.Get(p.Body);
-                double sampleTime=sourceMotion!=null&&sourceMotion.HasKinematicSample?sourceMotion.KinematicSampleTime:Time.timeAsDouble;
+                var sender=SenderState.Of(p.Body);if(!sender.CanTransmit)continue;
+                var state=sender.State;double sampleTime=sender.SampleTime;
                 double transmitTime=Math.Max(now,Time.timeAsDouble);
                 driver.SetTimedEntityState(p.Lease.Entity,state,sampleTime);
                 var sourceFleet=MechComponentCache<MechFleetController>.Get(p.Body);var receiverFleet=MechComponentCache<MechFleetController>.Get(this);
@@ -298,9 +297,37 @@ namespace ACunicombat.Mechs
             }
             return found;
         }
+        /// <summary>
+        /// What a sending body puts on the link this frame: transmit capability, kinematic
+        /// state and sample time. Identical for every receiver (bodies do not move during
+        /// LateUpdate), so it is evaluated once per body per frame instead of per pair.
+        /// </summary>
+        private sealed class SenderState
+        {
+            public bool CanTransmit; public KinematicState State; public double SampleTime; private int frame=-1;
+            private static readonly Dictionary<CombatTestTarget,SenderState> states=new();
+            private static int prunedFrame=-1;
+            public static SenderState Of(CombatTestTarget body)
+            {
+                int now=Time.frameCount;
+                if(!states.TryGetValue(body,out var state))
+                {
+                    if(states.Count>=512&&prunedFrame!=now){prunedFrame=now;states.Clear();}
+                    states[body]=state=new SenderState();
+                }
+                if(state.frame==now)return state;
+                state.frame=now;
+                var damage=MechComponentCache<MechPartDamageController>.Get(body);
+                state.CanTransmit=!(damage!=null&&damage.RoleEfficiency(MechPartSlot.DataLinkTerminal)<=0);
+                if(!state.CanTransmit)return state;
+                state.State=State(body);var motion=MechComponentCache<MechFlightMotionController>.Get(body);
+                state.SampleTime=motion!=null&&motion.HasKinematicSample?motion.KinematicSampleTime:Time.timeAsDouble;
+                return state;
+            }
+        }
         private static KinematicState State(CombatTestTarget body)
         {
-            var motion=body.GetComponent<MechFlightMotionController>();
+            var motion=MechComponentCache<MechFlightMotionController>.Get(body);
             return new KinematicState{PositionWorld=(double3)(float3)body.transform.position,VelocityWorld=(double3)(float3)(motion!=null?motion.Velocity:body.ProceduralVelocity),Rotation=quaternion.identity,Mass=1};
         }
         private void OnDestroy(){if(driver==null)return;foreach(var p in peers){driver.UnregisterLinkTerminal(p.Terminal);driver.ReleaseSceneEntity(in p.Lease);}}

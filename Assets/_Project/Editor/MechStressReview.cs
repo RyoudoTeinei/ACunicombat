@@ -112,6 +112,11 @@ public static class MechStressReview
             var found = UnityEngine.Object.FindObjectsByType<MechAssembler>(FindObjectsInactive.Include).Where(a => a.gameObject.scene == scene).Select(a => MechScenarioStore.UnitKey(a.transform));
             File.AppendAllText(dir + "/scope.txt", $"sceneLoaded {scene.path}: assemblers={string.Join(",", found)}; activeScenario={(MechScenarioStore.ActiveScenario != null)}\n");
         };
+        // -stressDevLogs 0: release-like run without the development recorders.
+        bool devLogs = Arg("-stressDevLogs", "1") != "0";
+        ACunicombat.Simulation.Driver.SimulationDriver.CombatTelemetryAllowed = devLogs;
+        MechIdentityController.DefaultLogDecisions = devLogs;
+        File.AppendAllText(dir + "/scope.txt", $"devLogs={devLogs}\n");
         SessionState.SetString(Key, "play");
         UnityEngine.SceneManagement.SceneManager.LoadScene(scenario.scenePath);
     }

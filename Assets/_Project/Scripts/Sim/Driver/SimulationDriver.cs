@@ -132,7 +132,7 @@ namespace ACunicombat.Simulation.Driver
                     SessionSeed = sessionSeed,
                 };
             dataLink = new DataLinkSystem(world) { SessionSeed = sessionSeed };
-            if (enableCombatTelemetry)
+            if (enableCombatTelemetry && CombatTelemetryAllowed)
             {
                 try
                 {
@@ -582,6 +582,8 @@ namespace ACunicombat.Simulation.Driver
         private static double scheduledStep = double.NaN;
         /// <summary>Run observer trackers on worker threads (identical results; see crowd benchmark).</summary>
         public static bool ParallelTracking { get; set; } = true;
+        /// <summary>Global gate for the development combat-telemetry recorder (off in release builds / large-battle profiling).</summary>
+        public static bool CombatTelemetryAllowed { get; set; } = true;
         /// <summary>Raised on the main thread after a parallel fixed step advanced every driver.</summary>
         public static event System.Action AfterScheduledStep;
         private void OnEnable() { if (!activeDrivers.Contains(this)) activeDrivers.Add(this); }
