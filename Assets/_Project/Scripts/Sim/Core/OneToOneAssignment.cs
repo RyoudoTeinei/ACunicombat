@@ -19,8 +19,12 @@ namespace ACunicombat.Simulation.Core
         // forbidden) re-solves only its own component instead of the whole batch: the other
         // components' assignments and costs are unaffected. Exact ties may break differently.
         public static int[] Solve(double[,] costs, double separation, out double total,out bool[] ambiguous,out double[] margins)
+            =>Solve(costs,costs.GetLength(0),costs.GetLength(1),separation,out total,out ambiguous,out margins);
+
+        /// <summary>Solves the top-left rows x columns block of a (possibly larger, reused) cost buffer.</summary>
+        public static int[] Solve(double[,] costs,int rows,int columns, double separation, out double total,out bool[] ambiguous,out double[] margins)
         {
-            int rows=costs.GetLength(0),columns=costs.GetLength(1);
+            if((uint)rows>(uint)costs.GetLength(0)||(uint)columns>(uint)costs.GetLength(1))throw new ArgumentOutOfRangeException(nameof(rows));
             var result=new int[rows];
             ambiguous=new bool[rows];
             margins=new double[rows];

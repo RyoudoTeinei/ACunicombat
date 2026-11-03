@@ -14,10 +14,28 @@ namespace ACunicombat.Mechs
         private readonly List<TrackSnapshot> contacts=new List<TrackSnapshot>(96);
         private readonly List<TrackId> obsolete=new List<TrackId>();
         private readonly List<TrackSnapshot> reports=new List<TrackSnapshot>(64);
-        private readonly List<string> decisions=new List<string>();
+        // Association diagnostics are kept as values and formatted only when read.
+        private enum DecisionKind:byte{OutsideGate,Ambiguous,Awaiting,Matched}
+        private struct Decision{public TrackId Report,Local;public DecisionKind Kind;public double Score;}
+        private readonly List<Decision> decisions=new List<Decision>();
+        private readonly List<string> decisionText=new List<string>();
         private static readonly TrackSourceMask[] Sources={TrackSourceMask.Radar,TrackSourceMask.ElectroOptical,TrackSourceMask.Esm,TrackSourceMask.DataLink,TrackSourceMask.LaserRangefinder,TrackSourceMask.CloseProtectionRadar};
         public IReadOnlyList<TrackSnapshot> Contacts=>contacts;
-        public IReadOnlyList<string> Decisions=>decisions;
+        public IReadOnlyList<string> Decisions
+        {
+            get
+            {
+                decisionText.Clear();
+                foreach(var d in decisions)decisionText.Add(d.Kind switch
+                {
+                    DecisionKind.OutsideGate=>$"{d.Report}: outside_gate",
+                    DecisionKind.Ambiguous=>$"{d.Report}: ambiguous",
+                    DecisionKind.Awaiting=>$"{d.Report}: awaiting_independent_updates",
+                    _=>$"{d.Report}: matched {d.Local}, NIS={d.Score:F3}",
+                });
+                return decisionText;
+            }
+        }
         private const double Gate=36,MaxAge=3,AmbiguityMargin=4;
         private static bool Fresh(in TrackSnapshot t,double now)=>t.TrackId.IsValid && t.Lifecycle!=TrackLifecycle.Dropped &&
             double.IsFinite(t.LastUpdateTime)&&double.IsFinite(t.LastPredictTime)&&t.LastPredictTime<=now+1e-6&&now-t.LastUpdateTime>=-1e-6&&now-t.LastUpdateTime<=MaxAge&&
@@ -59,6 +77,7 @@ namespace ACunicombat.Mechs
         private double[] scores=new double[0];
         private FilterState[] radarPredicted=new FilterState[0];
         private bool[] radarEligible=new bool[0];
+        private bool[] matchedScratch=new bool[0];
         private FilterState[] reportPredicted=new FilterState[0];private bool[] reportHealthy=new bool[0];
         private void EnsureScratch(int reportCount,int radarCount)
         {
@@ -88,7 +107,8 @@ namespace ACunicombat.Mechs
             for(int j=0;j<reportCount;j++){reportPredicted[j]=Predict(reports[j],now);reportHealthy[j]=Cmkf.Healthy(reportPredicted[j]);}
             // Burst batch with the same per-pair arithmetic as Score(in FilterState,in FilterState).
             CmkfBurst.PairNisScores(radarPredicted,radarEligible,count,reportPredicted,reportHealthy,reportCount,Gate,scores);
-            var matched=new bool[reportCount];
+            if(matchedScratch.Length<reportCount)matchedScratch=new bool[Math.Max(8,reportCount*2)];
+            var matched=matchedScratch;Array.Clear(matched,0,reportCount);
             for(int j=0;j<reports.Count;j++)
             {
                 int best=-1;double score=double.PositiveInfinity,second=double.PositiveInfinity;
@@ -96,13 +116,13 @@ namespace ACunicombat.Mechs
                 bool unique=best>=0 && second-score>=AmbiguityMargin;
                 if(unique)for(int other=0;other<reports.Count;other++)if(other!=j && scores[other*count+best]<score+AmbiguityMargin){unique=false;break;}
                 if(!history.TryGetValue(reports[j].TrackId,out var state)){state=new History();history.Add(reports[j].TrackId,state);}
-                if(!unique){state.Radar=default;state.Confirmations=0;decisions.Add($"{reports[j].TrackId}: {(best<0?"outside_gate":"ambiguous")}");continue;}
+                if(!unique){state.Radar=default;state.Confirmations=0;decisions.Add(new Decision{Report=reports[j].TrackId,Kind=best<0?DecisionKind.OutsideGate:DecisionKind.Ambiguous});continue;}
                 if(!state.Radar.Equals(local[best].TrackId)){state.Radar=local[best].TrackId;state.Confirmations=0;state.ReportTime=-1;state.RadarTime=-1;}
                 if(reports[j].LastUpdateTime>state.ReportTime && local[best].LastUpdateTime>state.RadarTime)
                 {state.Confirmations++;state.ReportTime=reports[j].LastUpdateTime;state.RadarTime=local[best].LastUpdateTime;}
-                if(state.Confirmations<2){decisions.Add($"{reports[j].TrackId}: awaiting_independent_updates");continue;}
+                if(state.Confirmations<2){decisions.Add(new Decision{Report=reports[j].TrackId,Kind=DecisionKind.Awaiting});continue;}
                 contacts[best]=Fuse(local[best],reports[j],now);matched[j]=true;
-                decisions.Add($"{reports[j].TrackId}: matched {local[best].TrackId}, NIS={score:F3}");
+                decisions.Add(new Decision{Report=reports[j].TrackId,Local=local[best].TrackId,Kind=DecisionKind.Matched,Score=score});
             }
             for(int j=0;j<reports.Count;j++)if(!matched[j])contacts.Add(reports[j]);
         }

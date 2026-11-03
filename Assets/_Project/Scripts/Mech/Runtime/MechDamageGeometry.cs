@@ -9,12 +9,15 @@ namespace ACunicombat.Mechs
         public static string RegionId(string slot,MechDamageSide side) => side==MechDamageSide.Center?slot:slot+(side==MechDamageSide.Left?"/left":"/right");
         public static float LeftSign(MechRuntimeState state)
         {
-            foreach(var record in state.AssembledParts)
+            // Indexed: foreach over the IReadOnlyList interface allocates an enumerator per call
+            // (called per thruster per flight tick).
+            var parts=state.AssembledParts;
+            for(int i=0;i<parts.Count;i++){var record=parts[i];
                 if(record.slot==MechPartSlot.LeftHandWeapon && record.parentMount!=null)
-                {float x=state.transform.InverseTransformPoint(record.parentMount.position).x;if(Mathf.Abs(x)>.01f)return Mathf.Sign(x);}
-            foreach(var record in state.AssembledParts)
+                {float x=state.transform.InverseTransformPoint(record.parentMount.position).x;if(Mathf.Abs(x)>.01f)return Mathf.Sign(x);}}
+            for(int i=0;i<parts.Count;i++){var record=parts[i];
                 if(record.slot==MechPartSlot.RightHandWeapon && record.parentMount!=null)
-                {float x=state.transform.InverseTransformPoint(record.parentMount.position).x;if(Mathf.Abs(x)>.01f)return -Mathf.Sign(x);}
+                {float x=state.transform.InverseTransformPoint(record.parentMount.position).x;if(Mathf.Abs(x)>.01f)return -Mathf.Sign(x);}}
             return -1;
         }
         public static MechAssemblyRecord Owner(Renderer renderer,MechRuntimeState state)

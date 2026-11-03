@@ -31,7 +31,16 @@ namespace ACunicombat.Mechs
             // Empty/unsuitable inventory still has a role for HUD; release checks
             // explicitly reject it instead of confusing a fallback with ammunition.
             string ammo=index>=0?banks.Banks[index].Ammo:banks.Launcher.DefaultAmmo;
-            return MechMissileLauncherCatalog.Compose(banks.Launcher,ammo);
+            return ComposedPerformance(banks.Launcher,ammo);
+        }
+        // Compose builds a full profile (with its envelope) and depends only on the launcher
+        // definition and ammunition; runtime code never writes to it, so one instance is shared.
+        private static readonly System.Collections.Generic.Dictionary<(MechMissileLauncherDefinition,string),MechWeaponPerformance> composed=new();
+        private static MechWeaponPerformance ComposedPerformance(MechMissileLauncherDefinition launcher,string ammo)
+        {
+            var key=(launcher,ammo);
+            if(!composed.TryGetValue(key,out var performance)){if(composed.Count>256)composed.Clear();composed[key]=performance=MechMissileLauncherCatalog.Compose(launcher,ammo);}
+            return performance;
         }
         private bool BankCanRelease(MechEquipmentSlot slot,TrackId target)
         {
@@ -48,17 +57,22 @@ namespace ACunicombat.Mechs
             for(int i=0;i<banks.Banks.Length;i++)
             {
                 if(banks.Banks[i].Rounds<=0)continue;
-                var performance=MechMissileAmmunitionCatalog.Create(banks.Banks[i].Ammo);
-                var profile=performance.missileFlightProfile;
+                var profile=AmmunitionProfile(banks.Banks[i].Ammo);
                 if(profile.MaximumRangeMeters>=shortest)continue;
                 if(BankHasIntercept(banks.Banks[i].Ammo,target)){best=i;shortest=profile.MaximumRangeMeters;}
             }
             return best;
         }
+        private static readonly System.Collections.Generic.Dictionary<string,MissileFlightProfile> ammunitionProfiles=new();
+        private static MissileFlightProfile AmmunitionProfile(string ammo)
+        {
+            if(!ammunitionProfiles.TryGetValue(ammo,out var profile)){profile=MechMissileAmmunitionCatalog.Create(ammo).missileFlightProfile;ammunitionProfiles[ammo]=profile;}
+            return profile;
+        }
         private bool BankHasIntercept(string ammo,TrackId target)
         {
             if(radarController==null || !radarController.TryGetMissileTrack(target,out var threat))return false;
-            var profile=MechMissileAmmunitionCatalog.Create(ammo).missileFlightProfile;
+            var profile=AmmunitionProfile(ammo);
             var velocity=flightMotion!=null?flightMotion.Velocity:Vector3.zero;
             var direction=flightMotion!=null?flightMotion.LogicalRotation*Vector3.up:transform.up;
             return SolveInterceptorEngagement(in threat,transform.position,velocity,direction,radarController.SimTimeSeconds,profile).Reachable;

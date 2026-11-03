@@ -145,6 +145,8 @@ public static class MechStressReview
                 Time.captureDeltaTime = 1f / 60f;
                 SimulationCostProbe.Reset(); SimulationCostProbe.Enabled = true;
                 ACunicombat.Simulation.Driver.SimulationDriver.ParallelTracking = Arg("-stressSerialTracking", "0") != "1";
+                // -stressSerialTracking 1 also keeps cooperative fusion on the main thread, so a GC profile sees every allocation.
+                MechCooperativeTelemetry.ParallelPrewarm = Arg("-stressSerialTracking", "0") != "1";
                 ACunicombat.Tracking.CmkfBurst.Enabled = Arg("-stressBurst", "1") != "0";
                 ACunicombat.Tracking.CmkfBurst.PairScoresEnabled = Arg("-stressBurst", "1") != "2";
                 File.AppendAllText(dir + "/scope.txt", $"ParallelTracking={ACunicombat.Simulation.Driver.SimulationDriver.ParallelTracking}; burst={ACunicombat.Tracking.CmkfBurst.Enabled}; graphics={SystemInfo.graphicsDeviceType}\n");

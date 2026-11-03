@@ -1113,21 +1113,26 @@ namespace ACunicombat.Tracking
 
         private struct BatchPlan {public int Slot;public bool Maneuver,Ambiguous;public AssociationSearchStats Stats;}
         private readonly System.Collections.Generic.Dictionary<int,BatchPlan> batchPlans=new();
+        private readonly System.Collections.Generic.List<int> batchRows=new System.Collections.Generic.List<int>();
+        private double[,] batchCosts=new double[0,0];private AssociationSearchStats[,] batchStats=new AssociationSearchStats[0,0];private bool[,] batchManeuvers=new bool[0,0];
         private void PrepareResolvedBatch(NativeList<Measurement> measurements,int first,double3 observer,double3 observerVelocity)
         {
             var seed=measurements[first];if(seed.DwellSequence==0||batchPlans.ContainsKey(first))return;
-            var rows=new System.Collections.Generic.List<int>();
+            var rows=batchRows;rows.Clear();
             foreach(int index in measurementOrder)
             {var m=measurements[index];if(m.SensorId.Equals(seed.SensorId)&&m.DwellSequence==seed.DwellSequence&&float.IsFinite(m.Range)&&m.Range>0&&math.all(math.isfinite(m.Direction))&&math.lengthsq(m.Direction)>1e-12f&&float.IsFinite(m.RangeVar)&&m.RangeVar>=0&&float.IsFinite(m.AngleVar)&&m.AngleVar>=0)rows.Add(index);}
             if(rows.Count==0)return;
-            var costs=new double[rows.Count,activeCapacity];var stats=new AssociationSearchStats[rows.Count,activeCapacity];var maneuvers=new bool[rows.Count,activeCapacity];
+            // Reused per manager (one manager per observer, never shared across threads).
+            if(batchCosts.GetLength(0)<rows.Count||batchCosts.GetLength(1)<activeCapacity)
+            {int r=Math.Max(rows.Count,batchCosts.GetLength(0)),c=Math.Max(activeCapacity,batchCosts.GetLength(1));batchCosts=new double[r,c];batchStats=new AssociationSearchStats[r,c];batchManeuvers=new bool[r,c];}
+            var costs=batchCosts;var stats=batchStats;var maneuvers=batchManeuvers;
             for(int row=0;row<rows.Count;row++)
             {
                 var m=measurements[rows[row]];
                 Cmkf.ConvertMeasurement(observer,m.Range,m.Direction,math.max(m.RangeVar,1e-3f),math.max(m.AngleVar,1e-9f),out var position,out var noise);
                 for(int slot=0;slot<activeCapacity;slot++)
                 {
-                    costs[row,slot]=OneToOneAssignment.Rejected;
+                    costs[row,slot]=OneToOneAssignment.Rejected;maneuvers[row,slot]=false;stats[row,slot]=default;
                     if(OutsideAnyGate(slot,in m,observer))continue;
                     int found=FindAssociation(in m,observer,observerVelocity,position,in noise,m.ObjectClass,m.Timestamp,0,out var st,slot);
                     if(found<0)
@@ -1139,7 +1144,7 @@ namespace ACunicombat.Tracking
                     stats[row,slot]=st;costs[row,slot]=st.BestAssociationCost+(maneuvers[row,slot]?1000:0);
                 }
             }
-            var chosen=OneToOneAssignment.Solve(costs,2*Math.Log(10),out _,out var ambiguous,out var margins);
+            var chosen=OneToOneAssignment.Solve(costs,rows.Count,activeCapacity,2*Math.Log(10),out _,out var ambiguous,out var margins);
             for(int row=0;row<rows.Count;row++)
             {
                 int slot=chosen[row];var failed=new AssociationSearchStats{BestNormalizedDistanceSquared=double.PositiveInfinity,BestGateSquared=AssociationGateSquared};

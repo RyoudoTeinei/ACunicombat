@@ -38,6 +38,7 @@ namespace ACunicombat.Mechs
         }
         readonly List<(uint,uint)> stale=new(),orderedKeys=new();
         readonly List<Entry> groupEntries=new();
+        double[,] costScratch=new double[0,0];
         double3[] localPosition=new double3[0];double3x3[] localCovariance=new double3x3[0];
         public int Merge(TrackSnapshot[] output,int count,double now)
         {
@@ -59,7 +60,9 @@ namespace ACunicombat.Mechs
                 start=end;
                 var entries=groupEntries;int priorCount=count;
                 for(;predicted<priorCount;predicted++){localPosition[predicted]=output[predicted].PredictPosition(now);localCovariance[predicted]=output[predicted].PredictPositionCovariance(now);}
-                var costs=new double[entries.Count,priorCount];
+                if(costScratch.GetLength(0)<entries.Count||costScratch.GetLength(1)<priorCount)
+                    costScratch=new double[Math.Max(entries.Count,costScratch.GetLength(0)),Math.Max(priorCount,costScratch.GetLength(1))];
+                var costs=costScratch;
                 for(int row=0;row<entries.Count;row++)
                 {
                 var remote=entries[row].Track;var remotePosition=remote.PredictPosition(now);var remoteCovariance=remote.PredictPositionCovariance(now);
@@ -76,7 +79,7 @@ namespace ACunicombat.Mechs
                     if(double.IsFinite(score)&&score<=11.345)costs[row,i]=score;
                 }
                 }
-                var assignment=OneToOneAssignment.Solve(costs,4,out _);
+                var assignment=OneToOneAssignment.Solve(costs,entries.Count,priorCount,4,out _,out _,out _);
                 for(int row=0;row<entries.Count;row++)
                 {
                 var e=entries[row];var remote=e.Track;int match=assignment[row];
